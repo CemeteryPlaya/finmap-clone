@@ -56,6 +56,26 @@ describe('restore', () => {
     await expect(restoreBackup({ archivePath: archive, config })).rejects.toThrow(/остановите приложение/i);
   });
 
+  it('держит lock на время восстановления и снимает его после (и после ошибки)', async () => {
+    const { config, archive } = prepare();
+    const seen: Array<string | null> = [];
+    const origRename = fs.renameSync;
+    vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      seen.push(fs.existsSync(config.lockPath) ? fs.readFileSync(config.lockPath, 'utf8') : null);
+      return origRename(from, to);
+    });
+    await restoreBackup({ archivePath: archive, config });
+    expect(seen.length).toBeGreaterThan(0);
+    for (const content of seen) {
+      expect(content).not.toBeNull();
+      expect(JSON.parse(content!)).toMatchObject({ pid: process.pid });
+    }
+    expect(fs.existsSync(config.lockPath)).toBe(false);
+
+    await expect(restoreBackup({ archivePath: path.join(dir, 'missing.zip'), config })).rejects.toThrow(/не найден/);
+    expect(fs.existsSync(config.lockPath)).toBe(false);
+  });
+
   it('отказывается восстанавливать архив с более новой схемой', async () => {
     const { config, archive } = prepare();
     const zip = new AdmZip(archive);

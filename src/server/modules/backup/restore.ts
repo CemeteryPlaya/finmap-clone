@@ -5,7 +5,7 @@ import AdmZip from 'adm-zip';
 import type { Config } from '../../config';
 import { openDb } from '../../db/client';
 import { appliedMigrationsCount, codeMigrationsCount, runMigrations } from '../../db/migrate';
-import { isLockHeld } from '../../lock';
+import { acquireLock, isLockHeld } from '../../lock';
 
 function isPortFree(host: string, port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -41,13 +41,32 @@ export async function restoreBackup(i: {
   if (isLockHeld(config.lockPath) || !(await isPortFree(config.host, config.port))) {
     throw new Error('Приложение запущено. Остановите приложение (и задачу автозапуска) и повторите восстановление.');
   }
-  if (!fs.existsSync(i.archivePath)) throw new Error(`Файл не найден: ${i.archivePath}`);
+  // Держим lock на всё время восстановления: приложение не стартует посреди подмены данных.
+  fs.mkdirSync(config.dataDir, { recursive: true });
+  const releaseLock = acquireLock(config.lockPath);
+  try {
+    return await restoreLocked(i.archivePath, config, now, warn);
+  } finally {
+    try {
+      releaseLock();
+    } catch (e) {
+      warn(`Не удалось снять блокировку ${config.lockPath}: ${(e as Error).message}`);
+    }
+  }
+}
 
-  const zip = new AdmZip(i.archivePath);
+async function restoreLocked(
+  archivePath: string,
+  config: Config,
+  now: () => Date,
+  warn: (msg: string) => void,
+): Promise<{ preRestoreDir: string }> {
+  if (!fs.existsSync(archivePath)) throw new Error(`Файл не найден: ${archivePath}`);
+
+  const zip = new AdmZip(archivePath);
   const dbEntry = zip.getEntry('app.db');
   if (!dbEntry) throw new Error('В архиве нет app.db — это не бэкап приложения');
 
-  fs.mkdirSync(config.dataDir, { recursive: true });
   const tag = stamp(now());
   const staged = path.join(config.dataDir, `restore-${tag}.db`);
   const stagedUploads = path.join(config.dataDir, `restore-${tag}-uploads`);
