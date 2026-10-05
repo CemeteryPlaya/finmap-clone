@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -31,5 +32,30 @@ describe('startServer', () => {
     fs.mkdirSync(config.dataDir, { recursive: true });
     fs.writeFileSync(config.lockPath, String(process.ppid));
     await expect(startServer(config, { logger: false, handleSignals: false })).rejects.toBeInstanceOf(LockHeldError);
+  });
+
+  it('stop() при повторном вызове возвращает тот же промис и завершает очистку', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-main-'));
+    const config = testConfig(dir, { PORT: '0' });
+    const s = await startServer(config, { logger: false, handleSignals: false });
+    const p1 = s.stop();
+    const p2 = s.stop();
+    await Promise.all([p1, p2]);
+    expect(fs.existsSync(config.lockPath)).toBe(false);
+    await expect(fetch(`${s.url}/api/v1/health`)).rejects.toThrow();
+  });
+
+  it('при сбое старта освобождает lock и закрывает БД, пробрасывая исходную ошибку', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-main-'));
+    const blocker = net.createServer();
+    await new Promise<void>((r) => blocker.listen(0, '127.0.0.1', r));
+    try {
+      const busyPort = (blocker.address() as net.AddressInfo).port;
+      const config = testConfig(dir, { PORT: String(busyPort) });
+      await expect(startServer(config, { logger: false, handleSignals: false })).rejects.toMatchObject({ code: 'EADDRINUSE' });
+      expect(fs.existsSync(config.lockPath)).toBe(false);
+    } finally {
+      await new Promise((r) => blocker.close(r));
+    }
   });
 });
