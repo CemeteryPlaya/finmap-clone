@@ -55,6 +55,20 @@ describe('auth routes', () => {
     expect(blocked.json().error.code).toBe('RATE_LIMITED');
   });
 
+  it('одновременная серия неверных паролей не обходит лимит попыток', async () => {
+    t = await createTestApp();
+    await seedUser(t);
+    const attempt = (password: string) =>
+      t.app.inject({ method: 'POST', url: '/api/v1/auth/login', headers: ORIGIN_HEADERS, payload: { login: 'admin', password } });
+    const results = await Promise.all(Array.from({ length: 10 }, () => attempt('wrong-password')));
+    const codes = results.map((r) => r.statusCode);
+    expect(codes.filter((c) => c === 401).length).toBeLessThanOrEqual(5);
+    expect(codes.filter((c) => c !== 401 && c !== 429)).toEqual([]);
+    expect(codes.filter((c) => c === 429).length).toBe(10 - codes.filter((c) => c === 401).length);
+    const after = await attempt('correct-horse-1');
+    expect(after.statusCode).toBe(429);
+  });
+
   it('без сессии, с подделанной или отозванной кукой → 401 (Review Focus 4)', async () => {
     t = await createTestApp();
     await seedUser(t);

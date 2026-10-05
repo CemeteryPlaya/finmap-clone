@@ -4,7 +4,7 @@ import type { Config } from '../../config';
 import { AppError } from '../../errors';
 import { resolveClientIp } from '../../security/client-ip';
 import type { AuditService } from '../audit/service';
-import { normalizeLogin, type UsersService } from '../users/service';
+import { normalizeLogin, type AuthUser, type UsersService } from '../users/service';
 import type { LoginLimiter } from './login-limiter';
 import { readSessionToken } from './plugin';
 import type { SessionsService } from './sessions';
@@ -23,14 +23,17 @@ export function registerAuthRoutes(
     const body = loginBody.parse(req.body);
     const ip = resolveClientIp(req, deps.config.deployMode);
     const keys = [`login:${normalizeLogin(body.login)}`, `ip:${ip}`];
-    if (deps.limiter.isBlocked(keys)) {
+    // Резерв до проверки пароля: одновременные запросы не проскакивают лимит, пока идёт argon2.
+    if (!deps.limiter.tryBegin(keys)) {
       throw new AppError(429, 'RATE_LIMITED', 'Слишком много попыток входа. Повторите через 15 минут');
     }
-    const user = await deps.users.verifyCredentials(body.login, body.password);
-    if (!user) {
-      deps.limiter.recordFailure(keys);
-      throw new AppError(401, 'INVALID_CREDENTIALS', 'Неверный логин или пароль');
+    let user: AuthUser | null | undefined;
+    try {
+      user = await deps.users.verifyCredentials(body.login, body.password);
+    } finally {
+      deps.limiter.end(keys, user === null);
     }
+    if (!user) throw new AppError(401, 'INVALID_CREDENTIALS', 'Неверный логин или пароль');
     deps.limiter.reset([keys[0]!]); // счётчик IP не сбрасываем: иначе его можно обнулять входом в любой учётной записи
     const s = deps.sessions.create({
       userId: user.id,
