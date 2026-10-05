@@ -3,7 +3,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { startServer } from '../../src/server/main';
+import { isWildcardHost, startServer } from '../../src/server/main';
 import { LockHeldError } from '../../src/server/lock';
 import { testConfig } from '../helpers/test-app';
 
@@ -57,5 +57,15 @@ describe('startServer', () => {
     } finally {
       await new Promise((r) => blocker.close(r));
     }
+  });
+});
+
+describe('isWildcardHost', () => {
+  it('0.0.0.0, :: и пустая строка — все интерфейсы (предупреждение о LAN)', () => {
+    expect(isWildcardHost('0.0.0.0')).toBe(true);
+    expect(isWildcardHost('::')).toBe(true);
+    expect(isWildcardHost('')).toBe(true);
+    expect(isWildcardHost('127.0.0.1')).toBe(false);
+    expect(isWildcardHost('192.168.1.10')).toBe(false);
   });
 });

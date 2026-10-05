@@ -12,6 +12,11 @@ import { createBackupService } from './modules/backup/service';
 
 export const EXIT_LOCK_HELD = 3;
 
+/** Адрес, при котором сервер слушает все интерфейсы ('' Fastify трактует как '::'). */
+export function isWildcardHost(host: string): boolean {
+  return host === '0.0.0.0' || host === '::' || host === '';
+}
+
 export interface RunningServer {
   app: FastifyInstance;
   url: string;
@@ -53,9 +58,10 @@ export async function startServer(
     });
     const addr = built.server.address();
     const port = typeof addr === 'object' && addr ? addr.port : config.port;
-    url = `http://${config.host === '0.0.0.0' ? '127.0.0.1' : config.host}:${port}`;
-    if (config.host === '0.0.0.0') {
-      built.log.warn('HOST=0.0.0.0: приложение доступно в локальной сети по HTTP без шифрования');
+    const wildcard = isWildcardHost(config.host);
+    url = `http://${wildcard ? '127.0.0.1' : config.host}:${port}`;
+    if (wildcard) {
+      built.log.warn(`HOST=${config.host}: приложение доступно в локальной сети по HTTP без шифрования`);
     }
   } catch (e) {
     scheduler?.stop();

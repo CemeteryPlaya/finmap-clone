@@ -56,8 +56,21 @@ function toOrigin(url: string): string {
   return new URL(url).origin;
 }
 
+/**
+ * Обрезает пробелы и считает пустое значение отсутствующим, чтобы срабатывали значения по умолчанию:
+ * иначе HOST= превращается в '' (Fastify слушает все интерфейсы), а PORT= — в 0 (случайный порт).
+ */
+function normalizeEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  for (const key of Object.keys(envSchema.shape)) {
+    const v = env[key]?.trim();
+    out[key] = v === '' ? undefined : v;
+  }
+  return out;
+}
+
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
-  const parsed = envSchema.safeParse(env);
+  const parsed = envSchema.safeParse(normalizeEnv(env));
   if (!parsed.success) {
     const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     throw new Error(`Ошибка конфигурации .env — ${msg}`);

@@ -19,6 +19,36 @@ describe('loadConfig', () => {
     expect(c.lockPath).toBe(path.resolve('data', 'app.lock'));
   });
 
+  it('пустые значения (HOST=, PORT= и т. п.) дают значения по умолчанию, а не все интерфейсы и случайный порт', () => {
+    const c = loadConfig({
+      ...base,
+      HOST: '',
+      PORT: '',
+      BACKUP_KEEP: '',
+      APP_NAME: '',
+      APP_TIMEZONE: '  ',
+      DEPLOY_MODE: '',
+      RATES_SOURCE: '',
+      DATA_DIR: ' ',
+      EXTRA_ORIGINS: '',
+    });
+    expect(c.host).toBe('127.0.0.1');
+    expect(c.port).toBe(3000);
+    expect(c.backupKeep).toBe(14);
+    expect(c.appName).toBe('Учёт');
+    expect(c.timezone).toBe('Asia/Almaty');
+    expect(c.deployMode).toBe('local');
+    expect(c.ratesSource).toBe('nbrk');
+    expect(c.dbPath).toBe(path.resolve('data', 'app.db'));
+  });
+
+  it('обрезает пробелы вокруг значений; явный PORT=0 допустим', () => {
+    const c = loadConfig({ ...base, HOST: ' 0.0.0.0 ', PORT: ' 0 ', APP_NAME: ' Клуб ' });
+    expect(c.host).toBe('0.0.0.0');
+    expect(c.port).toBe(0);
+    expect(c.appName).toBe('Клуб');
+  });
+
   it('собирает список разрешённых origin без дублей и хвостовых слэшей', () => {
     const c = loadConfig({
       ...base,
