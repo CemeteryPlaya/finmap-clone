@@ -99,17 +99,22 @@ export async function startServer(
   const stop = () => (stopPromise ??= doStop());
 
   if (opts.handleSignals ?? true) {
-    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) {
-      process.on(sig, () => {
-        stop().then(
-          () => process.exit(0),
-          (e) => {
-            console.error(e);
-            process.exit(1);
-          },
-        );
-      });
-    }
+    const stopAndExit = () => {
+      stop().then(
+        () => process.exit(0),
+        (e) => {
+          console.error(e);
+          process.exit(1);
+        },
+      );
+    };
+    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) process.on(sig, stopAndExit);
+    // Остановка по просьбе супервизора через IPC (в Windows SIGTERM = жёсткое убийство процесса).
+    process.on('message', (m) => {
+      if ((m as { type?: string } | null)?.type === 'shutdown') stopAndExit();
+    });
+    // Супервизор исчез — не оставляем сервер-сироту.
+    process.on('disconnect', stopAndExit);
   }
   return { app: runningApp, url, stop };
 }

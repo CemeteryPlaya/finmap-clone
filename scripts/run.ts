@@ -1,85 +1,85 @@
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { loadConfig } from '../src/server/config';
+import { isLockHeld } from '../src/server/lock';
 import { EXIT_LOCK_HELD } from '../src/server/main';
 import { cloudflaredTarget } from './lib/cloudflared';
 import { needsClientBuild } from './lib/client-build';
+import { createSupervisor, type ChildLike } from './lib/supervise';
 
 if (fs.existsSync('.env')) process.loadEnvFile('.env');
 const config = loadConfig();
 
+const supervisor = createSupervisor({ exit: (code) => process.exit(code) });
+
+// Обработчики сигналов — до любых await. Консольное событие (Ctrl+C, Ctrl+Break, закрытие окна)
+// в Windows уже доставлено всем процессам консоли, поэтому детей там не убиваем.
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) {
+  process.on(sig, () => void supervisor.shutdown(0, { fromConsole: true }));
+}
+// Страховка: при любом выходе не оставляем детей-сирот.
+process.on('exit', () => supervisor.killAll());
+
+if (isLockHeld(config.lockPath)) {
+  console.error('Приложение уже запущено другим процессом (уже запущено). Остановите его и повторите.');
+  process.exit(1);
+}
+
+let cloudflaredBin = '';
+if (config.deployMode === 'cloudflare') {
+  cloudflaredBin = config.cloudflaredPath ?? cloudflaredTarget(config.binDir);
+  if (!fs.existsSync(cloudflaredBin)) {
+    console.error(`cloudflared не найден (${cloudflaredBin}). Запустите npm run setup или укажите CLOUDFLARED_PATH.`);
+    process.exit(1);
+  }
+}
+
 if (needsClientBuild(process.cwd())) {
   console.log('Собираем интерфейс…');
-  const r = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'build:client'], { stdio: 'inherit', shell: true });
+  const npmCli = process.env.npm_execpath;
+  const r = npmCli
+    ? spawnSync(process.execPath, [npmCli, 'run', 'build:client'], { stdio: 'inherit' })
+    : spawnSync('npm run build:client', { stdio: 'inherit', shell: true });
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 
-let shuttingDown = false;
-const children: ChildProcess[] = [];
-
-function supervise(name: string, start: () => ChildProcess, onExit?: (code: number | null) => boolean): void {
-  let delay = 1000;
-  const launch = () => {
-    const startedAt = Date.now();
-    const child = start();
-    children.push(child);
-    child.on('exit', (code) => {
-      children.splice(children.indexOf(child), 1);
-      if (shuttingDown) return;
-      if (onExit && !onExit(code)) return;
-      if (Date.now() - startedAt > 60_000) delay = 1000;
-      console.error(`[${name}] завершился с кодом ${code}; перезапуск через ${delay / 1000} с`);
-      setTimeout(launch, delay);
-      delay = Math.min(delay * 2, 60_000);
-    });
-  };
-  launch();
-}
-
-supervise(
+supervisor.supervise(
   'server',
-  () => spawn(process.execPath, ['--import', 'tsx', 'src/server/index.ts'], { stdio: 'inherit' }),
-  (code) => {
-    if (code === EXIT_LOCK_HELD) {
-      console.error('Приложение уже запущено другим процессом. Супервизор завершает работу.');
-      shutdown(1);
-      return false;
-    }
-    return true;
+  () => spawn(process.execPath, ['--import', 'tsx', 'src/server/index.ts'], { stdio: ['inherit', 'inherit', 'inherit', 'ipc'] }) as ChildLike,
+  {
+    ipc: true,
+    onExit: (code) => {
+      if (code === EXIT_LOCK_HELD) {
+        console.error('Приложение уже запущено другим процессом. Супервизор завершает работу.');
+        void supervisor.shutdown(1);
+        return false;
+      }
+      return true;
+    },
   },
 );
 
 if (config.deployMode === 'cloudflare') {
-  const bin = config.cloudflaredPath ?? cloudflaredTarget(config.binDir);
-  if (!fs.existsSync(bin)) {
-    console.error(`cloudflared не найден (${bin}). Запустите npm run setup.`);
-    shutdown(1);
-  }
-  supervise('cloudflared', () =>
-    spawn(bin, ['tunnel', '--no-autoupdate', 'run'], {
-      stdio: 'inherit',
-      env: { ...process.env, TUNNEL_TOKEN: config.cfTunnelToken ?? '' },
-    }),
-  );
+  supervisor.supervise('cloudflared', () => {
+    const env: NodeJS.ProcessEnv = { ...process.env, TUNNEL_TOKEN: config.cfTunnelToken ?? '' };
+    // Туннелю не нужны остальные секреты приложения.
+    for (const k of ['SESSION_SECRET', 'NGROK_AUTHTOKEN', 'CF_TUNNEL_TOKEN']) delete env[k];
+    return spawn(cloudflaredBin, ['tunnel', '--no-autoupdate', 'run'], { stdio: 'inherit', env }) as ChildLike;
+  });
   console.log(`Публичный адрес: ${config.publicUrl}`);
 }
 
 if (config.deployMode === 'ngrok') {
-  const ngrok = await import('@ngrok/ngrok');
-  const listener = await ngrok.forward({
-    addr: config.port,
-    authtoken: config.ngrokAuthtoken ?? undefined,
-    domain: config.ngrokDomain ?? undefined,
-  });
-  console.log(`Публичный адрес: ${listener.url()}`);
+  try {
+    const ngrok = await import('@ngrok/ngrok');
+    const listener = await ngrok.forward({
+      addr: config.port,
+      authtoken: config.ngrokAuthtoken ?? undefined,
+      domain: config.ngrokDomain ?? undefined,
+    });
+    console.log(`Публичный адрес: ${listener.url()}`);
+  } catch (e) {
+    console.error(`Не удалось открыть туннель ngrok: ${(e as Error).message}`);
+    await supervisor.shutdown(1);
+  }
 }
-
-function shutdown(code = 0): void {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  for (const c of children) c.kill('SIGTERM');
-  setTimeout(() => process.exit(code), 11_000).unref();
-  Promise.all(children.map((c) => new Promise((r) => c.once('exit', r)))).then(() => process.exit(code));
-}
-
-for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) process.on(sig, () => shutdown(0));

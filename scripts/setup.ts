@@ -8,15 +8,37 @@ import { AppError } from '../src/server/errors';
 import { createAuditService } from '../src/server/modules/audit/service';
 import { createUsersService } from '../src/server/modules/users/service';
 import { ensureCloudflared, type Pins } from './lib/cloudflared';
-import { parseEnv, updateEnvText } from './lib/env-file';
+import { ENV_TEMPLATE, normalizeHost, parseEnv, updateEnvText, writeEnvFileSecure } from './lib/env-file';
 import { createPrompt } from './lib/prompt';
 
 const prompt = createPrompt();
-const envText = fs.existsSync('.env') ? fs.readFileSync('.env', 'utf8') : fs.readFileSync('.env.example', 'utf8');
+const ENV_FILE = '.env';
+const TEMPLATE_FILE = '.env.example';
+const envText = fs.existsSync(ENV_FILE)
+  ? fs.readFileSync(ENV_FILE, 'utf8')
+  : fs.existsSync(TEMPLATE_FILE)
+    ? fs.readFileSync(TEMPLATE_FILE, 'utf8')
+    : ENV_TEMPLATE;
 const current = parseEnv(envText);
 const updates: Record<string, string> = {};
 
 if (!current.get('SESSION_SECRET')) updates.SESSION_SECRET = crypto.randomBytes(48).toString('base64url');
+
+async function askHost(question: string, def?: string): Promise<string> {
+  for (;;) {
+    const host = normalizeHost(await prompt.ask(question, def));
+    if (host) return host;
+    console.log('Адрес не может быть пустым.');
+  }
+}
+
+async function askToken(question: string, existing?: string): Promise<string> {
+  for (;;) {
+    const token = (await prompt.askSecret(question)).trim() || existing || '';
+    if (token) return token;
+    console.log('Значение не может быть пустым.');
+  }
+}
 
 console.log('Режимы: local — только этот компьютер; cloudflare — свой домен через Cloudflare Tunnel;');
 console.log('        ngrok — статический домен ngrok; vps — сервер с Caddy.');
@@ -27,30 +49,47 @@ while (!['local', 'cloudflare', 'ngrok', 'vps'].includes(mode)) {
 updates.DEPLOY_MODE = mode;
 
 if (mode === 'cloudflare') {
-  const host = await prompt.ask('Адрес сайта (например fin.example.kz)', current.get('PUBLIC_URL')?.replace(/^https:\/\//, ''));
-  updates.PUBLIC_URL = `https://${host.replace(/^https?:\/\//, '').replace(/\/+$/, '')}`;
-  updates.CF_TUNNEL_TOKEN = (await prompt.askSecret('Токен туннеля Cloudflare (Zero Trust → Tunnels)')) || current.get('CF_TUNNEL_TOKEN') || '';
+  const host = await askHost('Адрес сайта (например fin.example.kz)', normalizeHost(current.get('PUBLIC_URL') ?? '') || undefined);
+  updates.PUBLIC_URL = `https://${host}`;
+  updates.CF_TUNNEL_TOKEN = await askToken('Токен туннеля Cloudflare (Zero Trust → Tunnels)', current.get('CF_TUNNEL_TOKEN'));
 } else if (mode === 'ngrok') {
-  updates.NGROK_AUTHTOKEN = (await prompt.askSecret('NGROK_AUTHTOKEN')) || current.get('NGROK_AUTHTOKEN') || '';
-  const domain = await prompt.ask('Статический домен ngrok (xxx.ngrok-free.app)', current.get('NGROK_DOMAIN'));
+  updates.NGROK_AUTHTOKEN = await askToken('NGROK_AUTHTOKEN', current.get('NGROK_AUTHTOKEN'));
+  const domain = await askHost('Статический домен ngrok (xxx.ngrok-free.app)', current.get('NGROK_DOMAIN') || undefined);
   updates.NGROK_DOMAIN = domain;
   updates.PUBLIC_URL = `https://${domain}`;
 } else if (mode === 'vps') {
-  const host = await prompt.ask('Домен сайта (например fin.example.kz)', current.get('PUBLIC_URL')?.replace(/^https:\/\//, ''));
-  updates.PUBLIC_URL = `https://${host.replace(/^https?:\/\//, '').replace(/\/+$/, '')}`;
+  const host = await askHost('Домен сайта (например fin.example.kz)', normalizeHost(current.get('PUBLIC_URL') ?? '') || undefined);
+  updates.PUBLIC_URL = `https://${host}`;
 } else {
   updates.PUBLIC_URL = '';
 }
 
-fs.writeFileSync('.env', updateEnvText(envText, updates));
-process.loadEnvFile('.env');
+writeEnvFileSecure(ENV_FILE, updateEnvText(envText, updates));
+process.loadEnvFile(ENV_FILE);
 const config = loadConfig();
 fs.mkdirSync(config.dataDir, { recursive: true });
 
 if (mode === 'cloudflare') {
-  const pins = JSON.parse(fs.readFileSync('scripts/cloudflared-pins.json', 'utf8')) as Pins;
-  const p = await ensureCloudflared({ binDir: config.binDir, pins, customPath: config.cloudflaredPath });
-  console.log(`cloudflared готов: ${p}`);
+  try {
+    const pins = JSON.parse(fs.readFileSync('scripts/cloudflared-pins.json', 'utf8')) as Pins;
+    const p = await ensureCloudflared({ binDir: config.binDir, pins, customPath: config.cloudflaredPath });
+    console.log(`cloudflared готов: ${p}`);
+  } catch (e) {
+    console.log((e as Error).message);
+    for (;;) {
+      const custom = (await prompt.ask('Путь к cloudflared (CLOUDFLARED_PATH), Enter — пропустить')).trim();
+      if (!custom) {
+        console.log('cloudflared не настроен: укажите CLOUDFLARED_PATH в настройках и повторите npm run setup до запуска.');
+        break;
+      }
+      if (fs.existsSync(custom)) {
+        writeEnvFileSecure(ENV_FILE, updateEnvText(fs.readFileSync(ENV_FILE, 'utf8'), { CLOUDFLARED_PATH: custom }));
+        console.log(`CLOUDFLARED_PATH сохранён: ${custom}`);
+        break;
+      }
+      console.log(`Файл не найден: ${custom}`);
+    }
+  }
 }
 
 const { sqlite, db } = openDb(config.dbPath);
