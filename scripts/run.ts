@@ -5,6 +5,7 @@ import { isLockHeld } from '../src/server/lock';
 import { EXIT_LOCK_HELD } from '../src/server/main';
 import { cloudflaredTarget } from './lib/cloudflared';
 import { needsClientBuild } from './lib/client-build';
+import { connectWithRetry, errorText, isFatalNgrokError, maskSecret } from './lib/ngrok';
 import { createSupervisor, type ChildLike } from './lib/supervise';
 
 if (fs.existsSync('.env')) process.loadEnvFile('.env');
@@ -70,16 +71,26 @@ if (config.deployMode === 'cloudflare') {
 }
 
 if (config.deployMode === 'ngrok') {
+  const secret = config.ngrokAuthtoken;
   try {
     const ngrok = await import('@ngrok/ngrok');
-    const listener = await ngrok.forward({
-      addr: config.port,
-      authtoken: config.ngrokAuthtoken ?? undefined,
-      domain: config.ngrokDomain ?? undefined,
+    // Повторяем всё, кроме ошибок токена/домена: сеть клуба может появиться позже сервера.
+    const listener = await connectWithRetry({
+      connect: () =>
+        ngrok.forward({
+          addr: config.port,
+          authtoken: config.ngrokAuthtoken ?? undefined,
+          domain: config.ngrokDomain ?? undefined,
+        }),
+      isFatal: isFatalNgrokError,
+      isStopped: () => supervisor.isShuttingDown(),
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      onRetry: (e, ms) =>
+        console.error(`Не удалось открыть туннель ngrok: ${maskSecret(errorText(e), secret)}; повтор через ${ms / 1000} с`),
     });
-    console.log(`Публичный адрес: ${listener.url()}`);
+    if (listener) console.log(`Публичный адрес: ${listener.url()}`);
   } catch (e) {
-    console.error(`Не удалось открыть туннель ngrok: ${(e as Error).message}`);
+    console.error(`Не удалось открыть туннель ngrok: ${maskSecret(errorText(e), secret)}`);
     await supervisor.shutdown(1);
   }
 }
