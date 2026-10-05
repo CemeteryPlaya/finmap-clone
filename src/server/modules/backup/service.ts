@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
 import type { Config } from '../../config';
@@ -16,6 +17,8 @@ export interface BackupInfo {
 
 export interface BackupService {
   create(reason: BackupReason): string;
+  /** Свежий архив во временной папке (fc-export-*); не ротируется и не копируется. Вызывающий удаляет dirname(path). */
+  exportArchive(): string;
   list(): BackupInfo[];
   last(): BackupInfo | null;
   ensureRecent(maxAgeMs?: number): string | null;
@@ -58,22 +61,38 @@ export function createBackupService(d: {
     return target;
   }
 
+  function buildArchive(target: string, at: Date): void {
+    const tmpDb = `${target}.db.tmp`;
+    try {
+      sqlite.prepare('VACUUM INTO ?').run(tmpDb);
+      const zip = new AdmZip();
+      zip.addLocalFile(tmpDb, '', 'app.db');
+      if (fs.existsSync(config.uploadsDir)) zip.addLocalFolder(config.uploadsDir, 'uploads');
+      zip.writeZip(target);
+      fs.utimesSync(target, at, at);
+    } finally {
+      fs.rmSync(tmpDb, { force: true });
+    }
+  }
+
   const svc: BackupService = {
+    exportArchive() {
+      const at = now();
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-export-'));
+      const target = path.join(dir, archiveName(at, config.timezone));
+      try {
+        buildArchive(target, at);
+      } catch (e) {
+        fs.rmSync(dir, { recursive: true, force: true });
+        throw e;
+      }
+      return target;
+    },
     create(reason) {
       fs.mkdirSync(config.backupsDir, { recursive: true });
       const at = now();
       const target = uniqueTarget(archiveName(at, config.timezone));
-      const tmpDb = `${target}.db.tmp`;
-      try {
-        sqlite.prepare('VACUUM INTO ?').run(tmpDb);
-        const zip = new AdmZip();
-        zip.addLocalFile(tmpDb, '', 'app.db');
-        if (fs.existsSync(config.uploadsDir)) zip.addLocalFolder(config.uploadsDir, 'uploads');
-        zip.writeZip(target);
-        fs.utimesSync(target, at, at);
-      } finally {
-        fs.rmSync(tmpDb, { force: true });
-      }
+      buildArchive(target, at);
       prune(config.backupsDir, config.backupKeep);
 
       if (config.backupCopyDir) {

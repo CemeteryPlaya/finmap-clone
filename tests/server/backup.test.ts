@@ -92,12 +92,36 @@ describe('backup routes', () => {
       expect((await t.app.inject({ method: 'GET', url: '/api/v1/backup/download' })).statusCode).toBe(401);
       await seedUser(t);
       const cookie = await loginAs(t);
-      const res = await t.app.inject({ method: 'GET', url: '/api/v1/backup/download', headers: { cookie } });
+      const noHeader = await t.app.inject({ method: 'GET', url: '/api/v1/backup/download', headers: { cookie } });
+      expect(noHeader.statusCode).toBe(403);
+      expect(noHeader.json().error.code).toBe('CSRF');
+      const res = await t.app.inject({ method: 'GET', url: '/api/v1/backup/download', headers: { cookie, 'x-requested-with': 'fetch' } });
       expect(res.statusCode).toBe(200);
       expect(res.headers['content-type']).toBe('application/zip');
       expect(res.headers['content-disposition']).toMatch(/attachment; filename="backup-\d{8}-\d{6}\.zip"/);
       const status = await t.app.inject({ method: 'GET', url: '/api/v1/backup/status', headers: { cookie } });
-      expect(status.json().last.file).toMatch(/^backup-/);
+      expect(status.statusCode).toBe(200);
+      expect(status.json().last).toBeNull(); // скачивание не сохраняет архив в backupsDir
+    } finally {
+      await t.cleanup();
+    }
+  });
+
+  it('скачивание не ротирует и не накапливает архивы и временные файлы', async () => {
+    const t = await createTestApp();
+    try {
+      await seedUser(t);
+      const cookie = await loginAs(t);
+      const before = fs.existsSync(t.config.backupsDir) ? fs.readdirSync(t.config.backupsDir).length : 0;
+      const tmpBefore = fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('fc-export-')).length;
+      for (let i = 0; i < 20; i++) {
+        const res = await t.app.inject({ method: 'GET', url: '/api/v1/backup/download', headers: { cookie, 'x-requested-with': 'fetch' } });
+        expect(res.statusCode).toBe(200);
+      }
+      await new Promise((r) => setTimeout(r, 50));
+      const after = fs.existsSync(t.config.backupsDir) ? fs.readdirSync(t.config.backupsDir).length : 0;
+      expect(after).toBe(before);
+      expect(fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('fc-export-')).length).toBe(tmpBefore);
     } finally {
       await t.cleanup();
     }

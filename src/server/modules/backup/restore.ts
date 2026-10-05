@@ -38,46 +38,71 @@ export async function restoreBackup(i: {
   if (!dbEntry) throw new Error('В архиве нет app.db — это не бэкап приложения');
 
   fs.mkdirSync(config.dataDir, { recursive: true });
-  const staged = path.join(config.dataDir, `restore-${stamp(now())}.db`);
-  fs.writeFileSync(staged, dbEntry.getData());
-  {
-    const { sqlite } = openDb(staged);
-    const applied = appliedMigrationsCount(sqlite);
-    const integrity = sqlite.pragma('integrity_check', { simple: true });
-    sqlite.close();
+  const tag = stamp(now());
+  const staged = path.join(config.dataDir, `restore-${tag}.db`);
+  const stagedUploads = path.join(config.dataDir, `restore-${tag}-uploads`);
+  const preRestoreDir = path.join(config.dataDir, `pre-restore-${tag}`);
+  const moved: Array<{ from: string; to: string }> = [];
+  const move = (from: string, to: string) => {
+    fs.renameSync(from, to);
+    moved.push({ from, to });
+  };
+
+  try {
+    // 1. Вся работа, которая может упасть, выполняется до изменения текущих данных.
+    fs.writeFileSync(staged, dbEntry.getData());
+    const { sqlite, db } = openDb(staged);
+    try {
+      if (appliedMigrationsCount(sqlite) > codeMigrationsCount()) {
+        throw new Error('Бэкап сделан более новой версией приложения (схема новее). Обновите приложение.');
+      }
+      const integrity = sqlite.pragma('integrity_check', { simple: true });
+      if (integrity !== 'ok') throw new Error(`Бэкап повреждён: integrity_check = ${String(integrity)}`);
+      runMigrations(db);
+      sqlite.prepare('DELETE FROM sessions').run();
+    } finally {
+      sqlite.close();
+    }
     for (const ext of ['-wal', '-shm']) fs.rmSync(staged + ext, { force: true });
-    if (applied > codeMigrationsCount()) {
-      fs.rmSync(staged, { force: true });
-      throw new Error('Бэкап сделан более новой версией приложения (схема новее). Обновите приложение.');
+
+    fs.mkdirSync(stagedUploads, { recursive: true });
+    const stagedRoot = path.resolve(stagedUploads);
+    for (const entry of zip.getEntries()) {
+      if (!entry.entryName.startsWith('uploads/') || entry.isDirectory) continue;
+      const data = entry.getData(); // бросает при повреждённой записи (CRC)
+      const target = path.resolve(stagedRoot, entry.entryName.slice('uploads/'.length));
+      if (!target.startsWith(stagedRoot + path.sep)) continue; // защита от ../ в архиве
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, data);
     }
-    if (integrity !== 'ok') {
-      fs.rmSync(staged, { force: true });
-      throw new Error(`Бэкап повреждён: integrity_check = ${String(integrity)}`);
+
+    // 2. Подмена: текущие данные уходят в pre-restore, подготовленные встают на место.
+    try {
+      fs.mkdirSync(preRestoreDir, { recursive: true });
+      for (const name of ['app.db', 'app.db-wal', 'app.db-shm']) {
+        const p = path.join(config.dataDir, name);
+        if (fs.existsSync(p)) move(p, path.join(preRestoreDir, name));
+      }
+      if (fs.existsSync(config.uploadsDir)) move(config.uploadsDir, path.join(preRestoreDir, 'uploads'));
+      move(staged, config.dbPath);
+      move(stagedUploads, config.uploadsDir);
+    } catch (e) {
+      for (const m of moved.reverse()) {
+        try {
+          fs.renameSync(m.to, m.from);
+        } catch {
+          /* best effort */
+        }
+      }
+      throw new Error(
+        `Восстановление прервано: ${(e as Error).message}. Прежние данные: ${preRestoreDir}. ` +
+          'Не запускайте приложение, пока проблема не устранена.',
+      );
     }
+  } finally {
+    fs.rmSync(staged, { force: true });
+    for (const ext of ['-wal', '-shm']) fs.rmSync(staged + ext, { force: true });
+    fs.rmSync(stagedUploads, { recursive: true, force: true });
   }
-
-  const preRestoreDir = path.join(config.dataDir, `pre-restore-${stamp(now())}`);
-  fs.mkdirSync(preRestoreDir, { recursive: true });
-  for (const name of ['app.db', 'app.db-wal', 'app.db-shm']) {
-    const p = path.join(config.dataDir, name);
-    if (fs.existsSync(p)) fs.renameSync(p, path.join(preRestoreDir, name));
-  }
-  if (fs.existsSync(config.uploadsDir)) fs.renameSync(config.uploadsDir, path.join(preRestoreDir, 'uploads'));
-
-  fs.renameSync(staged, config.dbPath);
-  fs.mkdirSync(config.uploadsDir, { recursive: true });
-  for (const entry of zip.getEntries()) {
-    if (!entry.entryName.startsWith('uploads/') || entry.isDirectory) continue;
-    const rel = entry.entryName.slice('uploads/'.length);
-    const target = path.resolve(config.uploadsDir, rel);
-    if (!target.startsWith(path.resolve(config.uploadsDir) + path.sep)) continue; // защита от ../ в архиве
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, entry.getData());
-  }
-
-  const { sqlite, db } = openDb(config.dbPath);
-  runMigrations(db);
-  sqlite.prepare('DELETE FROM sessions').run();
-  sqlite.close();
   return { preRestoreDir };
 }

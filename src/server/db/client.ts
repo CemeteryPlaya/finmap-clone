@@ -12,10 +12,15 @@ export function ulower(value: unknown): string | null {
 
 export function openDb(filePath: string): { sqlite: Sqlite; db: Db } {
   const sqlite = new Database(filePath);
-  sqlite.pragma('journal_mode = WAL');
-  sqlite.pragma('foreign_keys = ON');
-  sqlite.pragma('busy_timeout = 5000');
-  sqlite.function('ulower', { deterministic: true }, (v: unknown) => ulower(v));
-  const db = drizzle({ client: sqlite, schema });
-  return { sqlite, db };
+  try {
+    sqlite.pragma('journal_mode = WAL');
+    sqlite.pragma('foreign_keys = ON');
+    sqlite.pragma('busy_timeout = 5000');
+    sqlite.function('ulower', { deterministic: true }, (v: unknown) => ulower(v));
+    const db = drizzle({ client: sqlite, schema });
+    return { sqlite, db };
+  } catch (e) {
+    sqlite.close(); // не оставляем открытый дескриптор (файл не SQLite и т. п.)
+    throw e;
+  }
 }

@@ -64,4 +64,50 @@ describe('restore', () => {
     zip.writeZip(archive);
     await expect(restoreBackup({ archivePath: archive, config })).rejects.toThrow(/новее/);
   });
+
+  function rebuild(archive: string, mutate: (zip: AdmZip) => void) {
+    const zip = new AdmZip(archive);
+    mutate(zip);
+    zip.writeZip(archive);
+  }
+
+  it('повреждённая запись uploads/ не трогает текущие данные и не оставляет временных файлов', async () => {
+    const { config, archive } = prepare();
+    rebuild(archive, (zip) => zip.addFile('uploads/bad.bin', Buffer.from('X'.repeat(500))));
+    const buf = fs.readFileSync(archive);
+    const off = new AdmZip(archive).getEntry('uploads/bad.bin')!.header.offset;
+    const start = off + 30 + buf.readUInt16LE(off + 26) + buf.readUInt16LE(off + 28);
+    for (let k = 0; k < 4; k++) buf[start + k] = buf[start + k]! ^ 0xff;
+    fs.writeFileSync(archive, buf);
+
+    await expect(restoreBackup({ archivePath: archive, config })).rejects.toThrow();
+    const { sqlite } = openDb(config.dbPath);
+    expect((sqlite.prepare('SELECT name FROM users').get() as { name: string }).name).toBe('Изменено');
+    sqlite.close();
+    expect(fs.readFileSync(path.join(config.uploadsDir, 'new.pdf'), 'utf8')).toBe('NEW');
+    expect(fs.readdirSync(config.dataDir).filter((f) => f.startsWith('restore-') || f.startsWith('pre-restore-'))).toEqual([]);
+  });
+
+  it('app.db в архиве не SQLite: отказ без хвостов restore-*', async () => {
+    const { config, archive } = prepare();
+    rebuild(archive, (zip) => zip.updateFile('app.db', Buffer.from('this is not a sqlite database '.repeat(50))));
+    await expect(restoreBackup({ archivePath: archive, config })).rejects.toThrow();
+    expect(fs.readdirSync(config.dataDir).filter((f) => f.startsWith('restore-') || f.startsWith('pre-restore-'))).toEqual([]);
+    expect(fs.existsSync(config.dbPath)).toBe(true);
+  });
+
+  it('запись с ../ в uploads/ пропускается (zip-slip)', async () => {
+    const { config, archive } = prepare();
+    rebuild(archive, (zip) => zip.addFile('uploads/AA/evil.txt', Buffer.from('EVIL')));
+    const buf = fs.readFileSync(archive);
+    const from = Buffer.from('uploads/AA/evil.txt');
+    const to = Buffer.from('uploads/../evil.txt');
+    for (let i = buf.indexOf(from); i !== -1; i = buf.indexOf(from, i + 1)) to.copy(buf, i);
+    fs.writeFileSync(archive, buf);
+
+    await restoreBackup({ archivePath: archive, config });
+    expect(fs.existsSync(path.join(config.dataDir, 'evil.txt'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, 'evil.txt'))).toBe(false);
+    expect(fs.readdirSync(config.uploadsDir)).toEqual(['old.pdf']);
+  });
 });
