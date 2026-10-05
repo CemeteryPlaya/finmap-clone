@@ -44,8 +44,4 @@ export function registerErrorHandler(app: FastifyInstance): void {
     req.log.error({ err }, 'Необработанная ошибка');
     return reply.status(500).send({ error: { code: 'INTERNAL', message: 'Внутренняя ошибка сервера' } });
   });
-
-  app.setNotFoundHandler((req, reply) => {
-    return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Не найдено' } });
-  });
 }

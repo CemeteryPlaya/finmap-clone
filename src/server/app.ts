@@ -1,6 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import type { Config } from './config';
 import type { Db, Sqlite } from './db/client';
@@ -22,6 +25,7 @@ export interface AppDeps {
   sqlite: Sqlite;
   logger?: FastifyServerOptions['logger'];
   now?: () => Date;
+  clientDir?: string;
   extraRoutes?: (app: FastifyInstance) => void;
 }
 
@@ -70,6 +74,21 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerAuthRoutes(app, { users, sessions, limiter, audit, config });
   const backup = createBackupService({ sqlite: deps.sqlite, config, now, log: (m, e) => app.log.info({ err: e }, m) });
   registerBackupRoutes(app, { backup });
+
+  const clientDir = deps.clientDir ?? path.resolve('dist', 'client');
+  if (fs.existsSync(path.join(clientDir, 'index.html'))) {
+    await app.register(fastifyStatic, { root: clientDir, prefix: '/', wildcard: false });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.url.startsWith('/api/') || req.method !== 'GET') {
+        return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Не найдено' } });
+      }
+      return reply.type('text/html').sendFile('index.html');
+    });
+  } else {
+    app.setNotFoundHandler((req, reply) =>
+      reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Не найдено' } }),
+    );
+  }
 
   deps.extraRoutes?.(app);
   return app;
