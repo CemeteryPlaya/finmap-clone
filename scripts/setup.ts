@@ -7,7 +7,7 @@ import { seedCurrencies } from '../src/server/db/seed';
 import { AppError } from '../src/server/errors';
 import { createAuditService } from '../src/server/modules/audit/service';
 import { createUsersService } from '../src/server/modules/users/service';
-import { ensureCloudflared, type Pins } from './lib/cloudflared';
+import { checkCloudflaredPath, ensureCloudflared, type Pins } from './lib/cloudflared';
 import { ENV_TEMPLATE, normalizeHost, parseEnv, updateEnvText, writeEnvFileSecure } from './lib/env-file';
 import { createPrompt } from './lib/prompt';
 
@@ -82,12 +82,13 @@ if (mode === 'cloudflare') {
         console.log('cloudflared не настроен: укажите CLOUDFLARED_PATH в настройках и повторите npm run setup до запуска.');
         break;
       }
-      if (fs.existsSync(custom)) {
-        writeEnvFileSecure(ENV_FILE, updateEnvText(fs.readFileSync(ENV_FILE, 'utf8'), { CLOUDFLARED_PATH: custom }));
-        console.log(`CLOUDFLARED_PATH сохранён: ${custom}`);
+      const checked = checkCloudflaredPath(custom);
+      if (checked.ok) {
+        writeEnvFileSecure(ENV_FILE, updateEnvText(fs.readFileSync(ENV_FILE, 'utf8'), { CLOUDFLARED_PATH: checked.path }));
+        console.log(`CLOUDFLARED_PATH сохранён: ${checked.path}`);
         break;
       }
-      console.log(`Файл не найден: ${custom}`);
+      console.log(checked.message);
     }
   }
 }

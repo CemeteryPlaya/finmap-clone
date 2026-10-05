@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { cloudflaredTarget, ensureCloudflared, platformKey } from '../../scripts/lib/cloudflared';
+import { afterAll, describe, expect, it } from 'vitest';
+import { checkCloudflaredPath, cloudflaredTarget, ensureCloudflared, platformKey } from '../../scripts/lib/cloudflared';
 
 const body = Buffer.from('fake-binary');
 const sha = crypto.createHash('sha256').update(body).digest('hex');
@@ -48,5 +48,27 @@ describe('ensureCloudflared', () => {
     await expect(
       ensureCloudflared({ binDir, pins: { version: 'unpinned', assets: {} }, customPath: null }),
     ).rejects.toThrow(/CLOUDFLARED_PATH/);
+  });
+});
+
+describe('checkCloudflaredPath', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-cfpath- '));
+  const exe = path.join(dir, 'cloudflared.exe');
+  fs.writeFileSync(exe, 'bin');
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it('принимает путь к файлу как есть и в кавычках («Копировать как путь» в Windows)', () => {
+    expect(checkCloudflaredPath(exe)).toEqual({ ok: true, path: exe });
+    expect(checkCloudflaredPath(`"${exe}"`)).toEqual({ ok: true, path: exe });
+    expect(checkCloudflaredPath(`  '${exe}'  `)).toEqual({ ok: true, path: exe });
+  });
+
+  it('отклоняет папку и несуществующий путь с понятным сообщением', () => {
+    const asDir = checkCloudflaredPath(`"${dir}"`);
+    expect(asDir.ok).toBe(false);
+    expect(!asDir.ok && asDir.message).toMatch(/не файл/);
+    const missing = checkCloudflaredPath(path.join(dir, 'nope.exe'));
+    expect(missing.ok).toBe(false);
+    expect(!missing.ok && missing.message).toMatch(/не найден/);
   });
 });

@@ -17,6 +17,24 @@ export function cloudflaredTarget(binDir: string): string {
 
 const sha256 = (buf: Buffer) => crypto.createHash('sha256').update(buf).digest('hex');
 
+/**
+ * Проверяет путь к cloudflared, введённый вручную: убирает пробелы и обрамляющие кавычки
+ * («Копировать как путь» в Windows добавляет их) и требует существующий файл.
+ */
+export function checkCloudflaredPath(input: string): { ok: true; path: string } | { ok: false; message: string } {
+  let p = input.trim();
+  const m = /^(["'])(.*)\1$/.exec(p);
+  if (m) p = m[2]!.trim();
+  let st: fs.Stats;
+  try {
+    st = fs.statSync(p);
+  } catch {
+    return { ok: false, message: `Файл не найден: ${p}` };
+  }
+  if (!st.isFile()) return { ok: false, message: `Это не файл (укажите путь к cloudflared.exe, а не к папке): ${p}` };
+  return { ok: true, path: p };
+}
+
 export async function ensureCloudflared(o: {
   binDir: string;
   pins: Pins;
