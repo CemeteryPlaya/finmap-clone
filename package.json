@@ -1,0 +1,68 @@
+{
+  "name": "finmap-clone",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,client \"tsx watch src/server/index.ts\" \"vite\"",
+    "build:client": "vite build",
+    "start": "tsx scripts/run.ts",
+    "setup": "tsx scripts/setup.ts",
+    "user:add": "tsx scripts/user-add.ts",
+    "backup": "tsx scripts/backup.ts",
+    "restore": "tsx scripts/restore.ts",
+    "db:generate": "drizzle-kit generate",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/helmet": "^13.1.1",
+    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/static": "^10.1.5",
+    "@ngrok/ngrok": "^1.7.0",
+    "@node-rs/argon2": "^2.2.1",
+    "@tanstack/react-query": "^5.104.1",
+    "adm-zip": "^0.6.1",
+    "better-sqlite3": "^13.0.3",
+    "croner": "^10.0.1",
+    "drizzle-orm": "^0.45.3",
+    "fastify": "^5.12.5",
+    "pino": "^10.4.0",
+    "pino-pretty": "^13.2.0",
+    "pino-roll": "^4.0.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router": "^8.4.0",
+    "tsx": "^4.23.15",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/adm-zip": "^0.5.8",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.5",
+    "drizzle-kit": "^0.31.11",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  }
+}
