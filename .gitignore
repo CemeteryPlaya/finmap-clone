@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+
+# Данные приложения: БД (включая WAL/SHM), загрузки, логи, бэкапы
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Исследование Finmap: сырые дампы API и скриншоты содержат реальные данные пользователя
+.playwright-mcp/
+docs/research/screens/
+
+# Служебные каталоги агентов
+.remember/
+.codebase-memory/
+.claude/state/
+.claude/sessions/
+.claude/memory/
