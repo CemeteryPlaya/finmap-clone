@@ -25,7 +25,7 @@ describe('sessions', () => {
     const row = t.db.select().from(sessions).all()[0]!;
     expect(row.tokenHash).not.toBe(s.token);
     expect(row.tokenHash).toMatch(/^[0-9a-f]{64}$/);
-    expect(svc.touch(s.token)).toEqual({ id: s.id, user: { id: u.id, login: 'admin', name: 'В' } });
+    expect(svc.touch(s.token)).toEqual({ id: s.id, user: { id: u.id, login: 'admin', name: 'В' }, renewed: null });
     expect(svc.touch('неизвестный')).toBeNull();
   });
 
@@ -70,5 +70,19 @@ describe('sessions', () => {
     expect(svc.touch(c.token)).toBeNull();
     t.sqlite.prepare('UPDATE users SET disabled_at = ? WHERE id = ?').run('2026-10-05T10:00:00.000Z', u.id);
     expect(svc.touch(b.token)).toBeNull();
+  });
+
+  it('touch сообщает о продлении: remember — новый срок, свежая сессия — null', async () => {
+    const { svc, u, clock } = await setup();
+    const s = svc.create({ userId: u.id, remember: true, ip: null, userAgent: null });
+    clock.set('2026-10-05T10:04:00.000Z');
+    expect(svc.touch(s.token)!.renewed).toBeNull();
+    clock.set('2026-10-05T10:06:00.000Z');
+    const r = svc.touch(s.token)!.renewed!;
+    expect(r.remember).toBe(true);
+    expect(r.expiresAt.getTime()).toBe(new Date('2026-10-05T10:06:00.000Z').getTime() + REMEMBER_TTL_MS);
+    const s2 = svc.create({ userId: u.id, remember: false, ip: null, userAgent: null });
+    clock.set('2026-10-05T10:20:00.000Z');
+    expect(svc.touch(s2.token)!.renewed!.remember).toBe(false);
   });
 });

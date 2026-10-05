@@ -31,7 +31,7 @@ export function registerAuthRoutes(
       deps.limiter.recordFailure(keys);
       throw new AppError(401, 'INVALID_CREDENTIALS', 'Неверный логин или пароль');
     }
-    deps.limiter.reset(keys);
+    deps.limiter.reset([keys[0]!]); // счётчик IP не сбрасываем: иначе его можно обнулять входом в любой учётной записи
     const s = deps.sessions.create({
       userId: user.id,
       remember: body.remember,

@@ -23,18 +23,28 @@ export function registerAuth(app: FastifyInstance, deps: { sessions: SessionsSer
   app.decorateRequest('user', null);
   app.decorateRequest('sessionId', null);
 
-  app.addHook('preHandler', async (req) => {
-    if (!req.url.startsWith('/api/')) return;
+  app.addHook('preHandler', async (req, reply) => {
+    // решаем по сопоставленному маршруту, а не по сырому req.url (иначе /%61pi/... обходит проверку)
+    const route = req.routeOptions.url;
+    if (!route || !route.startsWith('/api/')) return; // неизвестный путь — отдаст 404 обработчик not-found
     const token = readSessionToken(req);
     if (token) {
       const s = deps.sessions.touch(token);
       if (s) {
         req.user = s.user;
         req.sessionId = s.id;
+        if (s.renewed?.remember) {
+          reply.setCookie('sid', token, {
+            path: '/',
+            httpOnly: true,
+            sameSite: 'lax',
+            secure: req.protocol === 'https',
+            signed: true,
+            expires: s.renewed.expiresAt,
+          });
+        }
       }
     }
-    const route = req.routeOptions.url;
-    if (!route) return; // неизвестный путь — отдаст 404 обработчик not-found
     if (PUBLIC_ROUTES.has(route)) return;
     // тестовые маршруты из createTestApp(…, extraRoutes); VITEST выставляет сам Vitest, в рабочем процессе её нет
     if (process.env.VITEST && route.startsWith('/api/v1/__test/')) return;

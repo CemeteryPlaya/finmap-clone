@@ -84,4 +84,41 @@ describe('auth routes', () => {
     expect((await t.app.inject({ method: 'GET', url: '/api/v1/health' })).statusCode).toBe(200);
     expect((await t.app.inject({ method: 'GET', url: '/api/v1/meta' })).statusCode).toBe(200);
   });
+
+  it('закодированный путь /%61pi/... не обходит проверку входа', async () => {
+    t = await createTestApp();
+    await seedUser(t);
+    const me = await t.app.inject({ method: 'GET', url: '/%61pi/v1/auth/me' });
+    expect(me.statusCode).toBe(401);
+    expect(me.json().error.code).toBe('UNAUTHORIZED');
+    const out = await t.app.inject({ method: 'POST', url: '/%61pi/v1/auth/logout', headers: ORIGIN_HEADERS });
+    expect(out.statusCode).toBe(401);
+  });
+
+  it('remember-вход продолжает работать, кука перевыставляется только при продлении', async () => {
+    t = await createTestApp();
+    await seedUser(t);
+    const login = await t.app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      headers: ORIGIN_HEADERS,
+      payload: { login: 'admin', password: 'correct-horse-1', remember: true },
+    });
+    const c = login.cookies.find((x) => x.name === 'sid')!;
+    const me = await t.app.inject({ method: 'GET', url: '/api/v1/auth/me', headers: { cookie: `sid=${c.value}` } });
+    expect(me.statusCode).toBe(200);
+    expect(me.headers['set-cookie']).toBeUndefined();
+  });
+
+  it('успешный вход не обнуляет счётчик IP', async () => {
+    t = await createTestApp();
+    await seedUser(t, 'alice');
+    await seedUser(t, 'bob');
+    const attempt = (login: string, password: string) =>
+      t.app.inject({ method: 'POST', url: '/api/v1/auth/login', headers: ORIGIN_HEADERS, payload: { login, password } });
+    for (let i = 0; i < 4; i++) expect((await attempt('alice', 'wrong-password')).statusCode).toBe(401);
+    expect((await attempt('bob', 'correct-horse-1')).statusCode).toBe(200);
+    expect((await attempt('alice', 'wrong-password')).statusCode).toBe(401);
+    expect((await attempt('carol', 'whatever')).statusCode).toBe(429);
+  });
 });

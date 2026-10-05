@@ -14,7 +14,11 @@ export interface SessionsService {
     token: string;
     expiresAt: Date;
   };
-  touch(token: string): { id: number; user: AuthUser } | null;
+  touch(token: string): {
+    id: number;
+    user: AuthUser;
+    renewed: { expiresAt: Date; remember: boolean } | null;
+  } | null;
   revoke(token: string): void;
   revokeAllForUser(userId: number, exceptSessionId?: number): void;
 }
@@ -54,14 +58,17 @@ export function createSessionsService(db: Db, users: UsersService, now: () => Da
       }
       const user = users.getActive(row.userId);
       if (!user) return null;
+      let renewed: { expiresAt: Date; remember: boolean } | null = null;
       if (t.getTime() - new Date(row.lastSeenAt).getTime() >= TOUCH_INTERVAL_MS) {
         const ttl = row.remember ? REMEMBER_TTL_MS : SESSION_TTL_MS;
+        const expiresAt = new Date(t.getTime() + ttl);
         db.update(sessions)
-          .set({ lastSeenAt: t.toISOString(), expiresAt: new Date(t.getTime() + ttl).toISOString() })
+          .set({ lastSeenAt: t.toISOString(), expiresAt: expiresAt.toISOString() })
           .where(eq(sessions.id, row.id))
           .run();
+        renewed = { expiresAt, remember: row.remember };
       }
-      return { id: row.id, user };
+      return { id: row.id, user, renewed };
     },
 
     revoke(token) {
