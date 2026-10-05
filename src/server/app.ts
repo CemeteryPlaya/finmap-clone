@@ -1,14 +1,18 @@
 import cookie from '@fastify/cookie';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import type { Config } from './config';
 import type { Db, Sqlite } from './db/client';
 import { registerErrorHandler } from './errors';
 import { createAuditService } from './modules/audit/service';
 import { LoginLimiter } from './modules/auth/login-limiter';
-import { registerAuth } from './modules/auth/plugin';
+import { readSessionToken, registerAuth } from './modules/auth/plugin';
 import { registerAuthRoutes } from './modules/auth/routes';
 import { createSessionsService } from './modules/auth/sessions';
 import { createUsersService } from './modules/users/service';
+import { resolveClientIp } from './security/client-ip';
+import { registerCsrf } from './security/csrf';
 
 export interface AppDeps {
   config: Config;
@@ -26,6 +30,31 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   registerErrorHandler(app);
   await app.register(cookie, { secret: config.sessionSecret });
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'", 'data:'],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        upgradeInsecureRequests: null,
+      },
+    },
+  });
+  await app.register(rateLimit, {
+    global: true,
+    max: 300,
+    timeWindow: '1 minute',
+    keyGenerator: (req) => {
+      const token = readSessionToken(req);
+      return token ? `s:${token}` : `ip:${resolveClientIp(req, config.deployMode)}`;
+    },
+  });
+  registerCsrf(app, config.allowedOrigins);
 
   const audit = createAuditService(db, now);
   const users = createUsersService(db, audit, now);
