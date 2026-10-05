@@ -37,7 +37,7 @@ const envSchema = z.object({
   APP_NAME: z.string().default('Учёт'),
   APP_TIMEZONE: z.string().default('Asia/Almaty'),
   HOST: z.string().default('127.0.0.1'),
-  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  PORT: z.coerce.number().int().min(0).max(65535).default(3000),
   PUBLIC_URL: optional,
   DEPLOY_MODE: z.enum(['local', 'cloudflare', 'ngrok', 'vps']).default('local'),
   CF_TUNNEL_TOKEN: optional,
