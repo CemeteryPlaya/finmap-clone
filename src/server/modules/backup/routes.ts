@@ -13,7 +13,12 @@ export function registerBackupRoutes(app: FastifyInstance, deps: { backup: Backu
     const file = deps.backup.exportArchive();
     const tmpDir = path.dirname(file);
     const stream = fs.createReadStream(file);
-    stream.on('close', () => fs.rmSync(tmpDir, { recursive: true, force: true }));
+    // Уборка — по возможности: EPERM/EBUSY (антивирус в Windows) не должен ронять сервер.
+    stream.on('close', () => {
+      fs.promises
+        .rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+        .catch((e: unknown) => req.log.warn({ err: e }, `Не удалось удалить временную папку экспорта ${tmpDir}`));
+    });
     reply.header('Content-Type', 'application/zip');
     reply.header('Content-Disposition', `attachment; filename="${path.basename(file)}"`);
     reply.header('X-Content-Type-Options', 'nosniff');

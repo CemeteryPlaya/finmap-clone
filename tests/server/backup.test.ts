@@ -2,14 +2,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDb } from '../../src/server/db/client';
 import { runMigrations } from '../../src/server/db/migrate';
 import { createBackupService } from '../../src/server/modules/backup/service';
 import { createTestApp, loginAs, seedUser, testConfig } from '../helpers/test-app';
 
 let cleanup: (() => void) | null = null;
-afterEach(() => cleanup?.());
+afterEach(() => {
+  vi.restoreAllMocks();
+  cleanup?.();
+});
 
 function setup(dirName = 'fc-backup-', overrides: Record<string, string> = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), dirName));
@@ -102,6 +105,33 @@ describe('backup routes', () => {
       const status = await t.app.inject({ method: 'GET', url: '/api/v1/backup/status', headers: { cookie } });
       expect(status.statusCode).toBe(200);
       expect(status.json().last).toBeNull(); // скачивание не сохраняет архив в backupsDir
+    } finally {
+      await t.cleanup();
+    }
+  });
+
+  it('сбой удаления временной папки после скачивания не роняет сервер', async () => {
+    const t = await createTestApp();
+    try {
+      await seedUser(t);
+      const cookie = await loginAs(t);
+      const eperm = () => Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+      const isExportDir = (p: fs.PathLike) => path.basename(String(p)).startsWith('fc-export-');
+      const origRmSync = fs.rmSync;
+      vi.spyOn(fs, 'rmSync').mockImplementation((p, o) => {
+        if (isExportDir(p)) throw eperm();
+        return origRmSync(p, o);
+      });
+      const rm = vi.spyOn(fs.promises, 'rm').mockRejectedValueOnce(eperm());
+      const res = await t.app.inject({ method: 'GET', url: '/api/v1/backup/download', headers: { cookie, 'x-requested-with': 'fetch' } });
+      expect(res.statusCode).toBe(200);
+      await vi.waitFor(() => expect(rm).toHaveBeenCalled());
+      const tmpDir = String(rm.mock.calls[0]![0]);
+      expect(tmpDir).toContain('fc-export-');
+      await new Promise((r) => setTimeout(r, 20));
+      expect((await t.app.inject({ method: 'GET', url: '/api/v1/health' })).statusCode).toBe(200);
+      vi.restoreAllMocks();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     } finally {
       await t.cleanup();
     }

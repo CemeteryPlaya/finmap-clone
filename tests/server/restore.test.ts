@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDb } from '../../src/server/db/client';
 import { runMigrations } from '../../src/server/db/migrate';
 import { createBackupService } from '../../src/server/modules/backup/service';
@@ -10,7 +10,10 @@ import { restoreBackup } from '../../src/server/modules/backup/restore';
 import { testConfig } from '../helpers/test-app';
 
 let dir = '';
-afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  vi.restoreAllMocks();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 
 function prepare() {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "fc-restore O'Б "));
@@ -93,6 +96,26 @@ describe('restore', () => {
     rebuild(archive, (zip) => zip.updateFile('app.db', Buffer.from('this is not a sqlite database '.repeat(50))));
     await expect(restoreBackup({ archivePath: archive, config })).rejects.toThrow();
     expect(fs.readdirSync(config.dataDir).filter((f) => f.startsWith('restore-') || f.startsWith('pre-restore-'))).toEqual([]);
+    expect(fs.existsSync(config.dbPath)).toBe(true);
+  });
+
+  it('сбой уборки временных файлов не подменяет исходную ошибку', async () => {
+    const { config, archive } = prepare();
+    rebuild(archive, (zip) => zip.updateFile('app.db', Buffer.from('this is not a sqlite database '.repeat(50))));
+    const eperm = () => Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    const isStaged = (p: fs.PathLike) => path.basename(String(p)).startsWith('restore-');
+    const origRmSync = fs.rmSync;
+    vi.spyOn(fs, 'rmSync').mockImplementation((p, o) => {
+      if (isStaged(p)) throw eperm();
+      return origRmSync(p, o);
+    });
+    const origRm = fs.promises.rm;
+    vi.spyOn(fs.promises, 'rm').mockImplementation((p, o) => (isStaged(p) ? Promise.reject(eperm()) : origRm(p, o)));
+    const warnings: string[] = [];
+    const err = await restoreBackup({ archivePath: archive, config, warn: (m) => warnings.push(m) }).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).not.toMatch(/EPERM/);
+    expect(warnings.some((w) => /EPERM/.test(w))).toBe(true);
     expect(fs.existsSync(config.dbPath)).toBe(true);
   });
 

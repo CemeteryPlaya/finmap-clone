@@ -16,6 +16,14 @@ function isPortFree(host: string, port: number): Promise<boolean> {
   });
 }
 
+async function bestEffortRm(p: string, warn: (msg: string) => void): Promise<void> {
+  try {
+    await fs.promises.rm(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  } catch (e) {
+    warn(`Не удалось удалить временный путь ${p}: ${(e as Error).message}`);
+  }
+}
+
 function stamp(d: Date): string {
   return d.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
 }
@@ -24,9 +32,11 @@ export async function restoreBackup(i: {
   archivePath: string;
   config: Config;
   now?: () => Date;
+  warn?: (msg: string) => void;
 }): Promise<{ preRestoreDir: string }> {
   const { config } = i;
   const now = i.now ?? (() => new Date());
+  const warn = i.warn ?? ((m: string) => console.warn(m));
 
   if (isLockHeld(config.lockPath) || !(await isPortFree(config.host, config.port))) {
     throw new Error('Приложение запущено. Остановите приложение (и задачу автозапуска) и повторите восстановление.');
@@ -100,9 +110,8 @@ export async function restoreBackup(i: {
       );
     }
   } finally {
-    fs.rmSync(staged, { force: true });
-    for (const ext of ['-wal', '-shm']) fs.rmSync(staged + ext, { force: true });
-    fs.rmSync(stagedUploads, { recursive: true, force: true });
+    // Уборка — по возможности: её сбой не должен подменять исходную ошибку или ошибку отката.
+    for (const p of [staged, staged + '-wal', staged + '-shm', stagedUploads]) await bestEffortRm(p, warn);
   }
   return { preRestoreDir };
 }
