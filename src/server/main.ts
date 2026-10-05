@@ -23,12 +23,54 @@ export interface RunningServer {
   stop(): Promise<void>;
 }
 
-export async function startServer(
-  config: Config,
-  opts: { logger?: FastifyServerOptions['logger']; handleSignals?: boolean } = {},
-): Promise<RunningServer> {
+/** Источник сигналов и IPC-сообщений (process; в тестах — подделка). */
+export interface ProcLike {
+  on(event: string, listener: (...args: any[]) => void): unknown;
+  send?: unknown;
+  connected?: boolean;
+}
+
+export interface StartOptions {
+  logger?: FastifyServerOptions['logger'];
+  handleSignals?: boolean;
+  proc?: ProcLike;
+  exit?: (code: number) => void;
+}
+
+export async function startServer(config: Config, opts: StartOptions = {}): Promise<RunningServer> {
   for (const d of [config.dataDir, config.uploadsDir, config.backupsDir, config.logsDir]) fs.mkdirSync(d, { recursive: true });
   const releaseLock = acquireLock(config.lockPath);
+  const exit = opts.exit ?? ((code: number) => process.exit(code));
+
+  // Слушатели остановки — сразу после lock, до долгого запуска: если супервизор исчезнет или попросит
+  // остановиться во время миграций/бэкапа, остановка выполнится, как только запуск завершится.
+  let stop: (() => Promise<void>) | null = null;
+  let stopRequested = false;
+  const stopAndExit = () => {
+    if (!stop) {
+      stopRequested = true;
+      return;
+    }
+    stop().then(
+      () => exit(0),
+      (e) => {
+        console.error(e);
+        exit(1);
+      },
+    );
+  };
+  if (opts.handleSignals ?? true) {
+    const proc = opts.proc ?? process;
+    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) proc.on(sig, stopAndExit);
+    // Остановка по просьбе супервизора через IPC (в Windows SIGTERM = жёсткое убийство процесса).
+    proc.on('message', (m: unknown) => {
+      if ((m as { type?: string } | null)?.type === 'shutdown') stopAndExit();
+    });
+    // Супервизор исчез — не оставляем сервер-сироту.
+    proc.on('disconnect', stopAndExit);
+    // Канал закрылся ещё до регистрации слушателя — 'disconnect' уже не придёт.
+    if (proc.send && !proc.connected) stopAndExit();
+  }
 
   const dbExisted = fs.existsSync(config.dbPath);
   let sqlite: Sqlite | undefined;
@@ -39,17 +81,26 @@ export async function startServer(
     const opened = openDb(config.dbPath);
     sqlite = opened.sqlite;
     const { db } = opened;
-    const log = (m: string, e?: unknown) => (e ? console.error(m, e) : console.log(m));
-    const backup = createBackupService({ sqlite, config, log });
+    // Один сервис бэкапов на процесс: его статус (lastCopyError) видит /backup/status.
+    // До создания приложения сообщения идут в консоль, после — в журнал приложения (pino).
+    let backupLog = (m: string, e?: unknown) => (e ? console.error(m, e) : console.log(m));
+    const backup = createBackupService({ sqlite, config, log: (m, e) => backupLog(m, e) });
 
     const applied = appliedMigrationsCount(sqlite);
     if (dbExisted && applied > 0 && applied < codeMigrationsCount()) backup.create('pre-migration');
     runMigrations(db);
     seedCurrencies(db);
-    backup.ensureRecent();
 
-    const built = await buildApp({ config, db, sqlite, logger: opts.logger ?? createLoggerOptions(config) });
+    const built = await buildApp({ config, db, sqlite, backup, logger: opts.logger ?? createLoggerOptions(config) });
     app = built;
+    backupLog = (m, e) => (e ? built.log.error({ err: e }, m) : built.log.info(m));
+    try {
+      backup.ensureRecent();
+    } catch (e) {
+      // Без свежего бэкапа приложение всё равно должно работать; ошибка видна в журнале.
+      built.log.error({ err: e }, 'Не удалось сделать стартовый бэкап');
+    }
+
     await built.listen({ host: config.host, port: config.port });
     scheduler = startScheduler({
       timezone: config.timezone,
@@ -85,7 +136,7 @@ export async function startServer(
   const doStop = async () => {
     runningScheduler.stop();
     // Принудительный выход, если очистка зависла; таймер остаётся взведённым до её конца.
-    const timer = setTimeout(() => process.exit(1), 10_000);
+    const timer = setTimeout(() => exit(1), 10_000);
     timer.unref();
     try {
       try {
@@ -102,25 +153,8 @@ export async function startServer(
     }
   };
   let stopPromise: Promise<void> | null = null;
-  const stop = () => (stopPromise ??= doStop());
-
-  if (opts.handleSignals ?? true) {
-    const stopAndExit = () => {
-      stop().then(
-        () => process.exit(0),
-        (e) => {
-          console.error(e);
-          process.exit(1);
-        },
-      );
-    };
-    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) process.on(sig, stopAndExit);
-    // Остановка по просьбе супервизора через IPC (в Windows SIGTERM = жёсткое убийство процесса).
-    process.on('message', (m) => {
-      if ((m as { type?: string } | null)?.type === 'shutdown') stopAndExit();
-    });
-    // Супервизор исчез — не оставляем сервер-сироту.
-    process.on('disconnect', stopAndExit);
-  }
-  return { app: runningApp, url, stop };
+  const stopOnce = () => (stopPromise ??= doStop());
+  stop = stopOnce;
+  if (stopRequested) stopAndExit();
+  return { app: runningApp, url, stop: stopOnce };
 }

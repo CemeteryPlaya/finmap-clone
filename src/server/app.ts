@@ -10,7 +10,7 @@ import type { Db, Sqlite } from './db/client';
 import { registerErrorHandler } from './errors';
 import { createAuditService } from './modules/audit/service';
 import { registerBackupRoutes } from './modules/backup/routes';
-import { createBackupService } from './modules/backup/service';
+import { createBackupService, type BackupService } from './modules/backup/service';
 import { LoginLimiter } from './modules/auth/login-limiter';
 import { readSessionToken, registerAuth } from './modules/auth/plugin';
 import { registerAuthRoutes } from './modules/auth/routes';
@@ -27,6 +27,8 @@ export interface AppDeps {
   now?: () => Date;
   clientDir?: string;
   extraRoutes?: (app: FastifyInstance) => void;
+  /** Общий сервис бэкапов процесса (startServer); без него приложение создаёт свой (тесты). */
+  backup?: BackupService;
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -72,7 +74,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.get('/api/v1/health', async () => ({ ok: true }));
   app.get('/api/v1/meta', async () => ({ appName: config.appName }));
   registerAuthRoutes(app, { users, sessions, limiter, audit, config });
-  const backup = createBackupService({ sqlite: deps.sqlite, config, now, log: (m, e) => app.log.info({ err: e }, m) });
+  const backup =
+    deps.backup ??
+    createBackupService({
+      sqlite: deps.sqlite,
+      config,
+      now,
+      log: (m, e) => (e ? app.log.error({ err: e }, m) : app.log.info(m)),
+    });
   registerBackupRoutes(app, { backup });
 
   const clientDir = deps.clientDir ?? path.resolve('dist', 'client');

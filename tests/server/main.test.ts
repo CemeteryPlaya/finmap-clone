@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isWildcardHost, startServer } from '../../src/server/main';
 import { currentBootTime, LockHeldError } from '../../src/server/lock';
 import { testConfig } from '../helpers/test-app';
@@ -60,6 +61,57 @@ describe('startServer', () => {
     } finally {
       await new Promise((r) => blocker.close(r));
     }
+  });
+});
+
+class FakeProc extends EventEmitter {
+  constructor(
+    public send?: (m: unknown) => boolean,
+    public connected = true,
+  ) {
+    super();
+  }
+}
+
+describe('startServer: остановка по IPC/сигналам', () => {
+  it('слушатели регистрируются сразу: запрос остановки во время запуска выполняется после старта', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-main-'));
+    const config = testConfig(dir, { PORT: '0' });
+    const proc = new FakeProc(() => true);
+    const exit = vi.fn();
+    const pending = startServer(config, { logger: false, proc, exit });
+    // Запуск ещё идёт (миграции, бэкап, listen), а супервизор уже просит остановиться.
+    expect(proc.listenerCount('message')).toBe(1);
+    expect(proc.listenerCount('disconnect')).toBe(1);
+    expect(proc.listenerCount('SIGINT')).toBe(1);
+    proc.emit('message', { type: 'shutdown' });
+    const s = await pending;
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+    expect(fs.existsSync(config.lockPath)).toBe(false);
+    await expect(fetch(`${s.url}/api/v1/health`)).rejects.toThrow();
+  });
+
+  it('IPC-канал уже закрыт к моменту регистрации — сервер останавливается после старта', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-main-'));
+    const config = testConfig(dir, { PORT: '0' });
+    const proc = new FakeProc(() => true, false);
+    const exit = vi.fn();
+    await startServer(config, { logger: false, proc, exit });
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+    expect(fs.existsSync(config.lockPath)).toBe(false);
+  });
+
+  it('disconnect после старта останавливает сервер и снимает lock', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-main-'));
+    const config = testConfig(dir, { PORT: '0' });
+    const proc = new FakeProc(() => true);
+    const exit = vi.fn();
+    await startServer(config, { logger: false, proc, exit });
+    expect(exit).not.toHaveBeenCalled();
+    expect(fs.existsSync(config.lockPath)).toBe(true);
+    proc.emit('disconnect');
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+    expect(fs.existsSync(config.lockPath)).toBe(false);
   });
 });
 
