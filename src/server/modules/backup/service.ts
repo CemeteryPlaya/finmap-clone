@@ -61,17 +61,33 @@ export function createBackupService(d: {
     return target;
   }
 
+  // Архив пишется во временный <name>.zip.tmp и переименовывается: недописанный файл
+  // никогда не получает итогового имени (listArchives игнорирует .tmp).
   function buildArchive(target: string, at: Date): void {
     const tmpDb = `${target}.db.tmp`;
+    const tmpZip = `${target}.tmp`;
     try {
       sqlite.prepare('VACUUM INTO ?').run(tmpDb);
       const zip = new AdmZip();
       zip.addLocalFile(tmpDb, '', 'app.db');
       if (fs.existsSync(config.uploadsDir)) zip.addLocalFolder(config.uploadsDir, 'uploads');
-      zip.writeZip(target);
-      fs.utimesSync(target, at, at);
+      zip.writeZip(tmpZip);
+      fs.utimesSync(tmpZip, at, at);
+      fs.renameSync(tmpZip, target);
     } finally {
       fs.rmSync(tmpDb, { force: true });
+      fs.rmSync(tmpZip, { force: true });
+    }
+  }
+
+  function copyAtomic(src: string, dest: string, at: Date): void {
+    const tmp = `${dest}.tmp`;
+    try {
+      fs.copyFileSync(src, tmp);
+      fs.utimesSync(tmp, at, at);
+      fs.renameSync(tmp, dest);
+    } finally {
+      fs.rmSync(tmp, { force: true });
     }
   }
 
@@ -98,9 +114,7 @@ export function createBackupService(d: {
       if (config.backupCopyDir) {
         try {
           fs.mkdirSync(config.backupCopyDir, { recursive: true });
-          const copy = path.join(config.backupCopyDir, path.basename(target));
-          fs.copyFileSync(target, copy);
-          fs.utimesSync(copy, at, at);
+          copyAtomic(target, path.join(config.backupCopyDir, path.basename(target)), at);
           prune(config.backupCopyDir, config.backupKeep);
           lastCopyError = null;
         } catch (e) {

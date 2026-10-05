@@ -78,6 +78,40 @@ describe('backup', () => {
     expect(path.basename(b)).toMatch(/-2\.zip$/);
   });
 
+  it('недописанный backup-….zip.tmp не считается последним бэкапом', () => {
+    const { svc, config } = setup();
+    fs.mkdirSync(config.backupsDir, { recursive: true });
+    fs.writeFileSync(path.join(config.backupsDir, 'backup-20261005-120000.zip.tmp'), 'partial');
+    expect(svc.last()).toBeNull();
+    expect(svc.list()).toEqual([]);
+    expect(svc.ensureRecent()).not.toBeNull();
+  });
+
+  it('сбой при записи архива не оставляет файла с итоговым именем', () => {
+    const { svc, config } = setup();
+    vi.spyOn(fs, 'utimesSync').mockImplementation(() => {
+      throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+    });
+    expect(() => svc.create('manual')).toThrow(/EIO/);
+    vi.restoreAllMocks();
+    expect(svc.last()).toBeNull();
+    expect(fs.readdirSync(config.backupsDir).filter((f) => f.startsWith('backup-'))).toEqual([]);
+  });
+
+  it('сбой копирования в BACKUP_COPY_DIR не оставляет там недописанного архива', () => {
+    const copyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-copy-'));
+    const { svc } = setup('fc-backup-', { BACKUP_COPY_DIR: copyDir });
+    vi.spyOn(fs, 'copyFileSync').mockImplementation((_src, dst) => {
+      fs.writeFileSync(dst, 'partial');
+      throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' });
+    });
+    svc.create('daily');
+    vi.restoreAllMocks();
+    expect(svc.status().lastCopyError).toMatch(/ENOSPC/);
+    expect(fs.readdirSync(copyDir)).toEqual([]);
+    fs.rmSync(copyDir, { recursive: true, force: true });
+  });
+
   it('ensureRecent делает бэкап, только если последнему больше 24 часов', () => {
     const { svc, clock } = setup();
     expect(svc.ensureRecent()).not.toBeNull(); // бэкапов не было
