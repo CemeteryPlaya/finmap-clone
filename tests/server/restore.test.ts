@@ -7,6 +7,7 @@ import { openDb } from '../../src/server/db/client';
 import { runMigrations } from '../../src/server/db/migrate';
 import { createBackupService } from '../../src/server/modules/backup/service';
 import { restoreBackup } from '../../src/server/modules/backup/restore';
+import { currentBootTime } from '../../src/server/lock';
 import { testConfig } from '../helpers/test-app';
 
 let dir = '';
@@ -51,7 +52,7 @@ describe('restore', () => {
 
   it('отказывается, если приложение запущено (lock с живым PID)', async () => {
     const { config, archive } = prepare();
-    fs.writeFileSync(config.lockPath, String(process.ppid));
+    fs.writeFileSync(config.lockPath, JSON.stringify({ pid: process.ppid, bootTime: currentBootTime() }));
     await expect(restoreBackup({ archivePath: archive, config })).rejects.toThrow(/остановите приложение/i);
   });
 

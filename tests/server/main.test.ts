@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { isWildcardHost, startServer } from '../../src/server/main';
-import { LockHeldError } from '../../src/server/lock';
+import { currentBootTime, LockHeldError } from '../../src/server/lock';
 import { testConfig } from '../helpers/test-app';
 
 let dir = '';
@@ -19,7 +19,10 @@ describe('startServer', () => {
       const res = await fetch(`${s.url}/api/v1/health`);
       expect(await res.json()).toEqual({ ok: true });
       expect(fs.readdirSync(config.backupsDir).some((f) => f.startsWith('backup-'))).toBe(true);
-      expect(fs.readFileSync(config.lockPath, 'utf8')).toBe(String(process.pid));
+      const lock = JSON.parse(fs.readFileSync(config.lockPath, 'utf8')) as { pid: number; bootTime: number };
+      expect(Object.keys(lock).sort()).toEqual(['bootTime', 'pid']);
+      expect(lock.pid).toBe(process.pid);
+      expect(Math.abs(lock.bootTime - currentBootTime())).toBeLessThanOrEqual(2);
     } finally {
       await s.stop();
     }

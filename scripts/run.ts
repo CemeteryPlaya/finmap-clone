@@ -22,7 +22,10 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) {
 process.on('exit', () => supervisor.killAll());
 
 if (isLockHeld(config.lockPath)) {
-  console.error('Приложение уже запущено другим процессом (уже запущено). Остановите его и повторите.');
+  console.error(
+    `Приложение уже запущено другим процессом (файл блокировки ${config.lockPath}). Остановите его и повторите. ` +
+      'Если приложение точно не запущено, удалите файл data/app.lock.',
+  );
   process.exit(1);
 }
 
@@ -51,7 +54,7 @@ supervisor.supervise(
     ipc: true,
     onExit: (code) => {
       if (code === EXIT_LOCK_HELD) {
-        console.error('Приложение уже запущено другим процессом. Супервизор завершает работу.');
+        console.error(`Приложение уже запущено другим процессом (файл блокировки ${config.lockPath}). Супервизор завершает работу.`);
         void supervisor.shutdown(1);
         return false;
       }
