@@ -20,3 +20,7 @@ docs/research/screens/
 .claude/state/
 .claude/sessions/
 .claude/memory/
+
+# Playwright
+test-results/
+playwright-report/
