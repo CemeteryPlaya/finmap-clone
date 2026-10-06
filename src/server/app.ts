@@ -29,7 +29,9 @@ import { createSessionsService } from './modules/auth/sessions';
 import { createBalancesService } from './modules/balances/service';
 import { createReferencesService } from './modules/references/service';
 import { createCategoriesService } from './modules/categories/service';
+import { registerOperationsRoutes } from './modules/operations/routes';
 import { registerRatesRoutes } from './modules/rates/routes';
+import { createOperationsService } from './modules/operations/service';
 import { createRatesService } from './modules/rates/service';
 import { registerSplitPresetsRoutes } from './modules/split-presets/routes';
 import { createSplitPresetsService } from './modules/split-presets/service';
@@ -118,6 +120,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerSplitPresetsRoutes(app, { splitPresets: createSplitPresetsService({ db, audit, now }) });
   const rates = createRatesService({ db, audit, now });
   registerRatesRoutes(app, { db, rates });
+  const operations = createOperationsService({ db, audit, rates, timezone: config.timezone, now });
+  registerOperationsRoutes(app, { operations });
   const backup =
     deps.backup ??
     createBackupService({
