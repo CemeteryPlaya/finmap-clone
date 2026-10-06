@@ -12,6 +12,7 @@
     "start": "tsx scripts/run.ts",
     "setup": "tsx scripts/setup.ts",
     "user:add": "tsx scripts/user-add.ts",
+    "user:passwd": "tsx scripts/user-passwd.ts",
     "backup": "tsx scripts/backup.ts",
     "restore": "tsx scripts/restore.ts",
     "db:generate": "drizzle-kit generate",

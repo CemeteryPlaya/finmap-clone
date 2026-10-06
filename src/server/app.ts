@@ -32,6 +32,7 @@ import { registerSplitPresetsRoutes } from './modules/split-presets/routes';
 import { createSplitPresetsService } from './modules/split-presets/service';
 import { registerCompaniesRoutes } from './modules/companies/routes';
 import { createCompaniesService } from './modules/companies/service';
+import { registerUsersRoutes } from './modules/users/routes';
 import { createUsersService } from './modules/users/service';
 import { resolveClientIp } from './security/client-ip';
 import { registerCsrf } from './security/csrf';
@@ -93,6 +94,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.get('/api/v1/health', async () => ({ ok: true }));
   app.get('/api/v1/meta', async () => ({ appName: config.appName }));
   registerAuthRoutes(app, { users, sessions, limiter, audit, config });
+  registerUsersRoutes(app, { users });
   const references = createReferencesService();
   const balances = createBalancesService();
   const categories = createCategoriesService({ db, audit, references, now });

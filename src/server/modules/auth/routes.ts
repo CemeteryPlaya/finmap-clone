@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Config } from '../../config';
+import { passwordChangeSchema } from '../../../shared/schemas/users';
 import { AppError } from '../../errors';
 import { resolveClientIp } from '../../security/client-ip';
 import type { AuditService } from '../audit/service';
@@ -62,4 +63,24 @@ export function registerAuthRoutes(
   });
 
   app.get('/api/v1/auth/me', async (req) => ({ user: req.user }));
+
+  app.post('/api/v1/auth/password', async (req, reply) => {
+    const body = passwordChangeSchema.parse(req.body);
+    const user = req.user!;
+    // подбор текущего пароля из чужой (украденной) сессии: тот же лимит, что у входа
+    const keys = [`password:${user.id}`];
+    if (!deps.limiter.tryBegin(keys)) {
+      throw new AppError(429, 'RATE_LIMITED', 'Слишком много попыток. Повторите через 15 минут');
+    }
+    let failed = false;
+    try {
+      await deps.users.changeOwnPassword(user.id, body.currentPassword, body.newPassword, req.sessionId);
+    } catch (e) {
+      failed = e instanceof AppError && e.fields?.currentPassword !== undefined;
+      throw e;
+    } finally {
+      deps.limiter.end(keys, failed);
+    }
+    return reply.status(204).send();
+  });
 }

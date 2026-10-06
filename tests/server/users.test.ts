@@ -58,4 +58,56 @@ describe('users', () => {
     expect(svc.getActive(u.id)).toBeNull();
     expect(svc.count()).toBe(1);
   });
+
+  it('одновременное создание одного логина: один успех, второй — ошибка поля, а не 500 (Review Focus 1)', async () => {
+    const { svc } = setup();
+    const results = await Promise.allSettled([
+      svc.create({ login: 'twin', name: 'А', password: 'correct-horse-1' }, null),
+      svc.create({ login: 'TWIN', name: 'Б', password: 'correct-horse-1' }, null),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(rejected.reason).toMatchObject({ status: 400, fields: { login: 'Логин уже занят' } });
+  });
+
+  it('нельзя отключить последнего активного пользователя', async () => {
+    const { svc } = setup();
+    const a = await svc.create({ login: 'alpha', name: 'А', password: 'correct-horse-1' }, null);
+    const b = await svc.create({ login: 'beta', name: 'Б', password: 'correct-horse-1' }, null);
+    await svc.update(b.id, { disabled: true }, a.id);
+    // действие из консоли или от несуществующего актора: a — последний активный
+    await expect(svc.update(a.id, { disabled: true }, 999)).rejects.toMatchObject({
+      status: 422,
+      code: 'USER_LOCKOUT',
+      message: 'Нельзя отключить последнего активного пользователя',
+    });
+  });
+
+  it('параллельное взаимное отключение с паролем не оставляет экземпляр без активных пользователей', async () => {
+    const { svc } = setup();
+    const a = await svc.create({ login: 'alpha', name: 'А', password: 'correct-horse-1' }, null);
+    const b = await svc.create({ login: 'beta', name: 'Б', password: 'correct-horse-1' }, null);
+    // await hashPassword внутри update — окно, в котором раньше обе проверки «активных > 1» проходили
+    const results = await Promise.allSettled([
+      svc.update(b.id, { disabled: true, password: 'reset-pass-11' }, a.id),
+      svc.update(a.id, { disabled: true, password: 'reset-pass-22' }, b.id),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(rejected.reason).toMatchObject({ code: 'USER_LOCKOUT' });
+    expect(svc.list().filter((u) => u.disabledAt === null)).toHaveLength(1);
+  });
+
+  it('setPasswordByLogin (user:passwd): новый пароль, все сессии пользователя завершены', async () => {
+    const { svc } = setup();
+    const u = await svc.create({ login: 'admin', name: 'А', password: 'correct-horse-1' }, null);
+    t.sqlite
+      .prepare("INSERT INTO sessions (token_hash, user_id, remember, created_at, expires_at, last_seen_at) VALUES ('h', ?, 0, 'x', 'x', 'x')")
+      .run(u.id);
+    expect(await svc.setPasswordByLogin(' ADMIN ', 'console-pass-1')).toMatchObject({ login: 'admin', disabledAt: null });
+    expect(await svc.verifyCredentials('admin', 'console-pass-1')).toMatchObject({ id: u.id });
+    expect((t.sqlite.prepare('SELECT COUNT(*) n FROM sessions').get() as { n: number }).n).toBe(0);
+    await expect(svc.setPasswordByLogin('nobody', 'console-pass-1')).rejects.toMatchObject({ status: 404 });
+    await expect(svc.setPasswordByLogin('admin', 'short')).rejects.toMatchObject({ status: 400 });
+  });
 });
