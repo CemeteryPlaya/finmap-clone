@@ -30,6 +30,8 @@ import { createLedgerBalances } from './modules/balances/service';
 import { createOperationsReferences } from './modules/references/service';
 import { createCategoriesService } from './modules/categories/service';
 import { registerBalancesRoutes } from './modules/balances/routes';
+import { registerAttachmentsRoutes } from './modules/attachments/routes';
+import { createAttachmentsService } from './modules/attachments/service';
 import { registerOperationsRoutes } from './modules/operations/routes';
 import { registerRatesRoutes } from './modules/rates/routes';
 import { createOperationsService } from './modules/operations/service';
@@ -123,6 +125,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerRatesRoutes(app, { db, rates });
   const operations = createOperationsService({ db, audit, rates, timezone: config.timezone, now });
   registerOperationsRoutes(app, { operations });
+  registerAttachmentsRoutes(app, { attachments: createAttachmentsService({ db, audit, uploadsDir: config.uploadsDir, now }) });
   registerBalancesRoutes(app, { companies, ledger: balances, rates, timezone: config.timezone, now });
   const backup =
     deps.backup ??

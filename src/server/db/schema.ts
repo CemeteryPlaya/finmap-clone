@@ -294,3 +294,25 @@ export const operationTags = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.operationId, t.tagId] }), index('operation_tags_tag_idx').on(t.tagId)],
 );
+
+export const attachments = sqliteTable(
+  'attachments',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id),
+    operationId: integer('operation_id')
+      .notNull()
+      .references(() => operations.id),
+    originalName: text('original_name').notNull(),
+    /** Имя файла в data/uploads: случайный UUID и расширение распознанного типа. */
+    storedName: text('stored_name').notNull(),
+    /** Тип, распознанный по содержимому (§8). */
+    mime: text('mime').notNull(),
+    size: integer('size').notNull(),
+    createdAt: text('created_at').notNull(),
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [index('attachments_operation_idx').on(t.operationId), uniqueIndex('attachments_stored_uq').on(t.storedName)],
+);

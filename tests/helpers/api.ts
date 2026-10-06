@@ -10,6 +10,8 @@ export type Req = (
 export interface ApiHarness {
   t: TestApp;
   req: Req;
+  /** Кука сессии admin — для запросов с бинарным телом через t.app.inject. */
+  cookie: string;
   /** Создаёт компанию через API и возвращает её id. */
   company(name?: string): Promise<number>;
   /** Сколько записей истории по сущности (и действию). */
@@ -28,6 +30,7 @@ export async function createApi(now?: string): Promise<ApiHarness> {
   return {
     t,
     req,
+    cookie,
     async company(name) {
       const res = await req('POST', '/api/v1/companies', { name: name ?? `ТОО ${++n}` });
       if (res.statusCode !== 201) throw new Error(`company: ${res.statusCode} ${res.body}`);

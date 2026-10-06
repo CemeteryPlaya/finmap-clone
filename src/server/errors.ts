@@ -38,6 +38,11 @@ export function registerErrorHandler(app: FastifyInstance): void {
     if (status === 429) {
       return reply.status(429).send({ error: { code: 'RATE_LIMITED', message: 'Слишком много запросов, повторите позже' } });
     }
+    if (status === 413) {
+      // лимит 10 МБ есть только у загрузки вложений; остальным маршрутам — общий лимит тела запроса
+      const upload = req.routeOptions.url?.endsWith('/attachments') ?? false;
+      return reply.status(413).send({ error: { code: 'TOO_LARGE', message: upload ? 'Файл больше 10 МБ' : 'Слишком большой запрос' } });
+    }
     if (status && status >= 400 && status < 500) {
       return reply.status(status).send({ error: { code: 'BAD_REQUEST', message: err.message } });
     }
