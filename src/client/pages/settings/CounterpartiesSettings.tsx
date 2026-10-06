@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router';
 import { COUNTERPARTY_TYPE_LABELS, COUNTERPARTY_TYPE_SINGULAR, COUNTERPARTY_TYPES } from '../../../shared/counterparties';
 import { matchesQuery } from '../../../shared/search';
@@ -32,6 +32,11 @@ function CounterpartyForm(props: {
   onCancel?: () => void;
 }) {
   const [draft, setDraft] = useState(props.initial);
+  // смена вкладки подставляет тип, пока пользователь не начал вводить название; набранный черновик не теряется
+  const initialType = props.initial.type;
+  useEffect(() => {
+    setDraft((d) => (d.name === '' && d.type !== initialType ? { ...d, type: initialType } : d));
+  }, [initialType]);
   const fields = props.fields ?? {};
   return (
     <form
@@ -135,7 +140,7 @@ export function CounterpartiesSettings() {
       {!readOnly && (
         <div className="mb-6">
           <CounterpartyForm
-            key={`${createKey}-${tab}`}
+            key={createKey}
             initial={{ type: tab === 'all' ? 'client' : tab, name: '', comment: '' }}
             submitLabel="Добавить"
             pending={create.isPending}

@@ -45,8 +45,11 @@ function flatten(nodes: CategoryNode[]): Option[] {
 }
 
 function toDraft(p: SplitPreset, tree: CategoryTree): Draft {
-  const firstCategory = p.lines.find((l) => l.categoryId !== null)?.categoryId;
-  const isIncome = firstCategory != null && flatten(tree.income).some((o) => o.id === firstCategory);
+  const income = flatten(tree.income);
+  const expense = flatten(tree.expense);
+  // вид — по первой строке, чья статья ещё существует (удалённые статьи вида не определяют)
+  const known = p.lines.find((l) => l.categoryId !== null && [...income, ...expense].some((o) => o.id === l.categoryId));
+  const isIncome = known !== undefined && income.some((o) => o.id === known.categoryId);
   return {
     name: p.name,
     kind: isIncome ? 'income' : 'expense',
@@ -95,6 +98,13 @@ function PresetForm(props: {
   const total = parsed.reduce<number>((s, bp) => s + (bp ?? 0), 0);
   const linesValid = draft.lines.every((l, i) => (parsed[i] ?? 0) > 0 && (l.categoryId !== '' || l.projectId !== ''));
   const canSave = draft.name.trim() !== '' && linesValid && total === SPLIT_TOTAL_BP && !props.pending;
+  // поля сервера, кроме name (он показан у своего input): lines, lines.0.bp и т.п.
+  const alertMessages = [
+    ...Object.entries(props.serverFields ?? {})
+      .filter(([key]) => key !== 'name')
+      .map(([, message]) => message),
+    ...(props.serverError ? [props.serverError] : []),
+  ];
   const setLine = (i: number, patch: Partial<LineDraft>) =>
     setDraft({ ...draft, lines: draft.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)) });
 
@@ -155,11 +165,17 @@ function PresetForm(props: {
                 <input
                   aria-label={`Доля %, строка ${i + 1}`}
                   aria-invalid={l.percent !== '' && parsed[i] === null ? true : undefined}
+                  aria-describedby={l.percent !== '' && parsed[i] === null ? `percent-error-${i}` : undefined}
                   inputMode="decimal"
                   value={l.percent}
                   onChange={(e) => setLine(i, { percent: e.target.value })}
                   className={inputClass}
                 />
+                {l.percent !== '' && parsed[i] === null && (
+                  <span id={`percent-error-${i}`} className="mt-1 block text-sm text-expense">
+                    Введите число, например 33,33
+                  </span>
+                )}
               </td>
               <td className="pb-2">
                 <button
@@ -190,9 +206,9 @@ function PresetForm(props: {
           {total !== SPLIT_TOTAL_BP && ` · ${total < SPLIT_TOTAL_BP ? 'осталось' : 'лишние'} ${formatBp(Math.abs(SPLIT_TOTAL_BP - total))}%`}
         </p>
       </div>
-      {(props.serverFields?.lines ?? props.serverError) && (
+      {alertMessages.length > 0 && (
         <p role="alert" className="rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense">
-          {props.serverFields?.lines ?? props.serverError}
+          {alertMessages.join('. ')}
         </p>
       )}
       <div className="flex gap-2">

@@ -134,12 +134,12 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
   }
 
   /** Родитель для вложения: та же компания и вид, верхний уровень, не в архиве (вложенность ≤ 2). */
-  function checkParent(companyId: number, kind: CategoryKind, parentId: number): void {
+  function checkParent(companyId: number, kind: CategoryKind, parentId: number, opts: { allowArchived?: boolean } = {}): void {
     const p = find(companyId, parentId);
     if (!p) throw invalid('parentId', 'Родительская статья не найдена');
     if (p.kind !== kind) throw invalid('parentId', 'Родительская статья из другого дерева');
     if (p.parentId !== null) throw invalid('parentId', 'Вложенность — не больше двух уровней');
-    if (p.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Родительская статья в архиве');
+    if (p.archivedAt && !opts.allowArchived) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Родительская статья в архиве');
   }
 
   function setArchived(companyId: number, id: number, userId: number, archivedAt: string | null): CategoryRow {
@@ -242,8 +242,10 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
 
     move(companyId, { kind, parentId, ids, moving = null }, userId) {
       requireCompany(db, companyId, { writable: true });
-      if (parentId !== null) checkParent(companyId, kind, parentId);
+      // порядок детей архивной группы менять можно; нельзя только переносить статью внутрь архивной
+      if (parentId !== null) checkParent(companyId, kind, parentId, { allowArchived: true });
       const current = childIds(companyId, kind, parentId);
+      if (parentId !== null && moving !== null && !current.includes(moving)) checkParent(companyId, kind, parentId);
       const stale = () => new AppError(409, 'VERSION_CONFLICT', 'Список изменился — обновите страницу и повторите');
       if (new Set(ids).size !== ids.length || current.some((id) => !ids.includes(id))) throw stale();
       const moved: number[] = [];

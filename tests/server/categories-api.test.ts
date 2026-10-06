@@ -119,6 +119,25 @@ describe('categories API', () => {
     expect(h.auditCount('category', 'reorder')).toBe(before);
   });
 
+  it('порядок дочерних архивного родителя меняется; перенос внутрь архивного — 422', async () => {
+    h = await createApi();
+    const cid = await h.company();
+    const ads = await add(cid, { kind: 'expense', name: 'Реклама' });
+    const a = await add(cid, { kind: 'expense', name: 'Таргет', parentId: ads.id });
+    const b = await add(cid, { kind: 'expense', name: 'Печать', parentId: ads.id });
+    const other = await add(cid, { kind: 'expense', name: 'Прочее' });
+    for (const id of [a.id, b.id, ads.id]) expect((await h.req('POST', `${base(cid)}/${id}/archive`)).statusCode).toBe(200);
+    const reorder = (body: object) => h.req('POST', `${base(cid)}/reorder`, body);
+
+    const res = await reorder({ kind: 'expense', parentId: ads.id, ids: [b.id, a.id], moving: null });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().expense.find((n: Node) => n.id === ads.id).children.map((n: Node) => n.id)).toEqual([b.id, a.id]);
+
+    const into = await reorder({ kind: 'expense', parentId: ads.id, ids: [b.id, a.id, other.id], moving: other.id });
+    expect(into.statusCode).toBe(422);
+    expect(into.json().error.code).toBe('ARCHIVED_REFERENCE');
+  });
+
   it('архив: системные и статьи с активными дочерними — нельзя; дочернюю архивного родителя не вернуть', async () => {
     h = await createApi();
     const cid = await h.company();
