@@ -14,3 +14,9 @@ export function isValidDate(value: string): boolean {
   const dt = new Date(Date.UTC(y, mo - 1, d));
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
 }
+
+/** `YYYY-MM-DD` → `ДД.ММ.ГГГГ`. */
+export function formatDateRu(value: string): string {
+  const [y, m, d] = value.split('-');
+  return `${d}.${m}.${y}`;
+}

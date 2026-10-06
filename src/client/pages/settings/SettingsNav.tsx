@@ -3,6 +3,7 @@ import { NavLink } from 'react-router';
 /** Разделы настроек по порядку; «Компании» всегда последние. */
 const SECTIONS: readonly { path: string; label: string }[] = [
   { path: 'projects', label: 'Проекты' },
+  { path: 'accounts', label: 'Счета' },
   { path: 'companies', label: 'Компании' },
 ];
 

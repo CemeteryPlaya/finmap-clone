@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isValidDate, todayInTimezone } from '../../src/shared/dates';
+import { formatDateRu, isValidDate, todayInTimezone } from '../../src/shared/dates';
 
 describe('todayInTimezone', () => {
   it('возвращает календарную дату в указанном поясе', () => {
@@ -24,5 +24,11 @@ describe('isValidDate', () => {
     expect(isValidDate('2026-00-10')).toBe(false);
     expect(isValidDate('2026-1-01')).toBe(false);
     expect(isValidDate('06.10.2026')).toBe(false);
+  });
+});
+
+describe('formatDateRu', () => {
+  it('ГГГГ-ММ-ДД → ДД.ММ.ГГГГ', () => {
+    expect(formatDateRu('2026-10-06')).toBe('06.10.2026');
   });
 });

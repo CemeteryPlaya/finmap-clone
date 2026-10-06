@@ -50,3 +50,23 @@ export function useTemplates() {
     staleTime: Infinity,
   });
 }
+
+export interface Account {
+  id: number;
+  companyId: number;
+  projectId: number | null;
+  name: string;
+  currency: string;
+  startingBalance: number;
+  openedAt: string;
+  orderIndex: number;
+  createdAt: string;
+  archivedAt: string | null;
+}
+
+export function useAccounts(companyId: number) {
+  return useQuery<Account[], ApiError>({
+    queryKey: ['accounts', companyId],
+    queryFn: async () => (await api<{ accounts: Account[] }>(`/companies/${companyId}/accounts`)).accounts,
+  });
+}
