@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { operationCreateSchema } from '../../../shared/schemas/operations';
+import { operationCreateSchema, operationUpdateSchema } from '../../../shared/schemas/operations';
 import { parseId } from '../../http/params';
 import type { OperationsService } from './service';
 
@@ -17,4 +17,17 @@ export function registerOperationsRoutes(app: FastifyInstance, deps: { operation
   });
 
   app.get<P>(`${BASE}/:id`, async (req) => ({ operation: operations.get(parseId(req.params.cid), parseId(req.params.id)) }));
+
+  app.patch<P>(`${BASE}/:id`, async (req) => {
+    const cid = parseId(req.params.cid);
+    const id = parseId(req.params.id);
+    const body = operationUpdateSchema.parse(req.body);
+    return { operation: operations.update(cid, id, body, req.user!.id) };
+  });
+
+  app.delete<P>(`${BASE}/:id`, async (req) => ({ operation: operations.remove(parseId(req.params.cid), parseId(req.params.id), req.user!.id) }));
+
+  app.post<P>(`${BASE}/:id/restore`, async (req) => ({
+    operation: operations.restore(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
+  }));
 }

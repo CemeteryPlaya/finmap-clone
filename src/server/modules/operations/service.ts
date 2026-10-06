@@ -6,7 +6,7 @@ import { allocate } from '../../../shared/money';
 import type { Db, Executor } from '../../db/client';
 import { accounts, categories, counterparties, operationLines, operations, operationTags, projects, tags } from '../../db/schema';
 import { AppError } from '../../errors';
-import { mutate } from '../audit/mutate';
+import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import type { RatesService } from '../rates/service';
@@ -47,10 +47,22 @@ export interface OperationDto extends OperationRow {
   tagIds: number[];
 }
 
+export interface OperationPatch extends Partial<Omit<OperationInput, 'type'>> {
+  /** Версия, которую видел клиент. */
+  version: number;
+}
+
 export interface OperationsService {
   get(companyId: number, id: number): OperationDto;
   create(companyId: number, input: OperationInput, userId: number): OperationDto;
+  update(companyId: number, id: number, patch: OperationPatch, userId: number): OperationDto;
+  /** Мягкое удаление. */
+  remove(companyId: number, id: number, userId: number): OperationDto;
+  restore(companyId: number, id: number, userId: number): OperationDto;
 }
+
+/** Поля, правка которых пересчитывает курс и сумму в базовой валюте (§4.3) и запрещена на архивном счёте (инвариант 7). */
+const MONEY_FIELDS = ['paidAt', 'amount', 'accountId', 'toAccountId', 'toAmount'] as const;
 
 type AccountRow = typeof accounts.$inferSelect;
 
@@ -89,6 +101,28 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
       .map((t) => t.tagId)
       .sort((a, b) => a - b);
     return { ...row, lines, tagIds };
+  }
+
+function draftOf(op: OperationDto): OperationInput {
+    return {
+      type: op.type,
+      paidAt: op.paidAt,
+      accrualDate: op.accrualDate,
+      accountId: op.accountId,
+      amount: op.amount,
+      toAccountId: op.toAccountId,
+      toAmount: op.toAmount,
+      counterpartyId: op.counterpartyId,
+      comment: op.comment,
+      lines: op.lines.map((l) => ({ categoryId: l.categoryId, projectId: l.projectId, amount: l.amount })),
+      tagIds: op.tagIds,
+    };
+  }
+
+  /** Архивный счёт, который затрагивает операция (инвариант 7); null — таких нет. */
+  function archivedAccountOf(op: OperationRow): AccountRow | null {
+    const ids = [op.accountId, op.toAccountId].filter((x): x is number => x !== null);
+    return db.select().from(accounts).where(inArray(accounts.id, ids)).all().find((a) => a.archivedAt) ?? null;
   }
 
   function account(companyId: number, id: number, field: string): AccountRow {
@@ -257,6 +291,109 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
         writeLinesAndTags(tx, row.id, draft, baseAmount);
         record({ companyId, userId, entity: 'operation', entityId: row.id, action: 'create', diff: { ...draft, rate, baseAmount } });
         return row.id;
+      });
+      return load(companyId, id);
+    },
+
+    update(companyId, id, patch, userId) {
+      const company = requireCompany(db, companyId, { writable: true });
+      const current = load(companyId, id);
+      if (current.deletedAt) throw new AppError(409, 'VERSION_CONFLICT', 'Операция удалена — обновите страницу');
+      if (patch.version !== current.version) throw new AppError(409, 'VERSION_CONFLICT', 'Операция изменена другим пользователем');
+      const prev = draftOf(current);
+      const next: OperationInput = { ...prev, lines: prev.lines, tagIds: prev.tagIds };
+      for (const [key, value] of Object.entries(patch)) {
+        if (key !== 'version' && value !== undefined) (next as unknown as Record<string, unknown>)[key] = value;
+      }
+      if (patch.paidAt !== undefined) next.paidAt = new Date(patch.paidAt).toISOString();
+      // новая сумма без новых строк: единственная строка следует за суммой
+      if (patch.amount !== undefined && patch.lines === undefined && prev.lines.length === 1) {
+        next.lines = [{ ...prev.lines[0]!, amount: next.amount }];
+      }
+      // перевод: при реальной смене суммы или счетов сумма зачисления при одной валюте пересчитывается в check();
+      // те же значения в PATCH (форма шлёт поля целиком) ничего не сбрасывают
+      if (
+        next.type === 'transfer' &&
+        patch.toAmount === undefined &&
+        (next.amount !== prev.amount || next.accountId !== prev.accountId || next.toAccountId !== prev.toAccountId)
+      ) {
+        next.toAmount = null;
+      }
+
+      // инвариант 7 — до остальных проверок, чтобы пользователь видел настоящую причину отказа.
+      // Сравниваются реальные значения (paidAt уже нормализован, toAmount сброшен только при настоящей смене).
+      const locked = archivedAccountOf(current);
+      if (locked && MONEY_FIELDS.some((f) => JSON.stringify(next[f] ?? null) !== JSON.stringify(prev[f] ?? null))) {
+        throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — сумму, дату и счета менять нельзя`);
+      }
+
+      const c = check(companyId, next, prev);
+      const changes = changedFields(prev, c.draft);
+      if (!changes) return current;
+      const recalc = MONEY_FIELDS.some((f) => f in changes.after);
+      const { rate, baseAmount } = recalc ? baseOf(companyId, company.baseCurrency, c) : { rate: current.rate, baseAmount: current.baseAmount };
+      const { draft } = c;
+      mutate(db, audit, (tx, record) => {
+        tx.update(operations)
+          .set({
+            paidAt: draft.paidAt,
+            accrualDate: draft.accrualDate,
+            accountId: draft.accountId,
+            amount: draft.amount,
+            toAccountId: draft.toAccountId,
+            toAmount: draft.toAmount,
+            counterpartyId: draft.counterpartyId,
+            comment: draft.comment,
+            rate,
+            baseAmount,
+            updatedAt: now().toISOString(),
+            version: current.version + 1,
+          })
+          .where(eq(operations.id, id))
+          .run();
+        writeLinesAndTags(tx, id, draft, baseAmount);
+        record({
+          companyId,
+          userId,
+          entity: 'operation',
+          entityId: id,
+          action: 'update',
+          diff: { ...changes, ...(recalc ? { recalculated: { rate: [current.rate, rate], baseAmount: [current.baseAmount, baseAmount] } } : {}) },
+        });
+      });
+      return load(companyId, id);
+    },
+
+    remove(companyId, id, userId) {
+      requireCompany(db, companyId, { writable: true });
+      const current = load(companyId, id);
+      if (current.deletedAt) return current;
+      const locked = archivedAccountOf(current);
+      if (locked) throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — удалить её нельзя`);
+      mutate(db, audit, (tx, record) => {
+        tx.update(operations)
+          .set({ deletedAt: now().toISOString(), updatedAt: now().toISOString(), version: current.version + 1 })
+          .where(eq(operations.id, id))
+          .run();
+        record({ companyId, userId, entity: 'operation', entityId: id, action: 'delete', diff: { type: current.type, amount: current.amount, paidAt: current.paidAt } });
+      });
+      return load(companyId, id);
+    },
+
+    restore(companyId, id, userId) {
+      requireCompany(db, companyId, { writable: true });
+      const current = load(companyId, id);
+      if (!current.deletedAt) return current;
+      const locked = archivedAccountOf(current);
+      if (locked) throw archivedRef(`Счёт «${locked.name}» в архиве — сначала верните его из архива`);
+      // инвариант 11: 3–7 на текущем состоянии справочников; уже выбранные архивные ссылки не мешают
+      check(companyId, draftOf(current), draftOf(current));
+      mutate(db, audit, (tx, record) => {
+        tx.update(operations)
+          .set({ deletedAt: null, updatedAt: now().toISOString(), version: current.version + 1 })
+          .where(eq(operations.id, id))
+          .run();
+        record({ companyId, userId, entity: 'operation', entityId: id, action: 'restore' });
       });
       return load(companyId, id);
     },
