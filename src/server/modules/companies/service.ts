@@ -7,6 +7,7 @@ import type { AccountsService } from '../accounts/service';
 import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import type { CategoriesService } from '../categories/service';
+import { requireCompany } from './guard';
 
 export interface CompanyRow {
   id: number;
@@ -41,10 +42,7 @@ export function createCompaniesService(d: {
     },
 
     require(id, opts = {}) {
-      const row = db.select().from(companies).where(eq(companies.id, id)).get();
-      if (!row) throw new AppError(404, 'NOT_FOUND', 'Компания не найдена');
-      if (opts.writable && row.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Компания в архиве — изменения недоступны');
-      return row;
+      return requireCompany(db, id, opts);
     },
 
     create(input, userId) {
