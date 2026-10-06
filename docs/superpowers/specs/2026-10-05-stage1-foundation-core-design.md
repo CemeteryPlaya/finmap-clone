@@ -131,6 +131,7 @@ data/   # app.db, app.lock, uploads/, logs/, backups/, bin/, pre-restore-*/  (в
 > **Решения заказчика и планирования от 2026-10-06** (план 4a):
 > - загрузка курсов Нацбанка отложена. Источники курса — ручной курс на дату и фиксированный курс компании; п. 4 ниже (запрос к Нацбанку при промахе) и таблица `rate_misses` появятся вместе с загрузчиком;
 > - вместо `big.js` используется модуль `src/shared/decimal.ts` на `bigint` с той же семантикой: 20 знаков после запятой без промежуточного округления, half-up до минимальной единицы, показ курса — 10 значащих цифр.
+> - `GET /rates` для тенге отвечает курсом 1 с источником `base` (в таблице `exchange_rates` такой записи нет).
 
 - `currencies` (сид из ISO 4217): code, name, symbol, minorUnits (KZT 2, USD 2, JPY 0, KWD 3…).
 - `exchange_rates`: date (`YYYY-MM-DD`), currency, rateToKzt (TEXT, курс за 1 единицу), source (`nbrk` | `manual`), createdBy (для `manual`), fetchedAt. Ключ уникален по паре (date, currency).

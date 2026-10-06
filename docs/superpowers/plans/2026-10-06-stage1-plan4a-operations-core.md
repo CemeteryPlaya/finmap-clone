@@ -1934,6 +1934,13 @@ describe('operations: правка, удаление, восстановлени
     expect(same.statusCode).toBe(200);
     expect(same.json().operation).toMatchObject({ toAmount: 100, comment: 'сверка' });
     fail(await patch(tr.id, { version: 2, amount: 90 }), 422, 'ARCHIVED_REFERENCE');
+
+    // перевод между валютами с архивного счёта: новая сумма без суммы зачисления — всё равно ARCHIVED_REFERENCE, а не ошибка поля
+    const usdSafe = (await w.post(accountsUrl(), { name: 'Сейф USD', currency: 'USD', openedAt: '2026-10-01' })).account.id;
+    await create({ type: 'income', paidAt: '2026-10-02T10:00:00Z', accountId: usdSafe, amount: 100 });
+    const fxOut = await create({ type: 'transfer', paidAt: '2026-10-03T10:00:00Z', accountId: usdSafe, toAccountId: w.kzt, amount: 100, toAmount: 47512 });
+    await w.post(`${accountsUrl()}/${usdSafe}/archive`, {});
+    fail(await patch(fxOut.id, { version: 1, amount: 50 }), 422, 'ARCHIVED_REFERENCE');
   });
 
   it('новый выбор архивного при правке запрещён, уже выбранный архивный остаётся', async () => {
@@ -2037,12 +2044,14 @@ const MONEY_FIELDS = ['paidAt', 'amount', 'accountId', 'toAccountId', 'toAmount'
         next.toAmount = null;
       }
 
-      const c = check(companyId, next, prev);
-      // инвариант 7: на нормализованном черновике — сравниваются реальные значения, а не присутствие полей в PATCH
+      // инвариант 7 — до остальных проверок, чтобы пользователь видел настоящую причину отказа.
+      // Сравниваются реальные значения (paidAt уже нормализован, toAmount сброшен только при настоящей смене).
       const locked = archivedAccountOf(current);
-      if (locked && MONEY_FIELDS.some((f) => JSON.stringify(c.draft[f] ?? null) !== JSON.stringify(prev[f] ?? null))) {
+      if (locked && MONEY_FIELDS.some((f) => JSON.stringify(next[f] ?? null) !== JSON.stringify(prev[f] ?? null))) {
         throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — сумму, дату и счета менять нельзя`);
       }
+
+      const c = check(companyId, next, prev);
       const changes = changedFields(prev, c.draft);
       if (!changes) return current;
       const recalc = MONEY_FIELDS.some((f) => f in changes.after);
