@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api, type ApiError } from './api';
+import type { CounterpartyType } from '../../shared/system-categories';
 
 export interface Company {
   id: number;
@@ -94,5 +95,39 @@ export function useCategories(companyId: number) {
   return useQuery<CategoryTree, ApiError>({
     queryKey: ['categories', companyId],
     queryFn: () => api<CategoryTree>(`/companies/${companyId}/categories`),
+  });
+}
+
+export interface Counterparty {
+  id: number;
+  companyId: number;
+  type: CounterpartyType;
+  name: string;
+  comment: string | null;
+  orderIndex: number;
+  createdAt: string;
+  archivedAt: string | null;
+}
+
+export function useCounterparties(companyId: number) {
+  return useQuery<Counterparty[], ApiError>({
+    queryKey: ['counterparties', companyId],
+    queryFn: async () => (await api<{ counterparties: Counterparty[] }>(`/companies/${companyId}/counterparties`)).counterparties,
+  });
+}
+
+export interface Tag {
+  id: number;
+  companyId: number;
+  name: string;
+  orderIndex: number;
+  createdAt: string;
+  archivedAt: string | null;
+}
+
+export function useTags(companyId: number) {
+  return useQuery<Tag[], ApiError>({
+    queryKey: ['tags', companyId],
+    queryFn: async () => (await api<{ tags: Tag[] }>(`/companies/${companyId}/tags`)).tags,
   });
 }

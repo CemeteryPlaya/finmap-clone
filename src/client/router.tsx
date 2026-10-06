@@ -9,6 +9,8 @@ import { CompaniesSettings } from './pages/settings/CompaniesSettings';
 import { ProjectsSettings } from './pages/settings/ProjectsSettings';
 import { AccountsSettings } from './pages/settings/AccountsSettings';
 import { CategoriesSettings } from './pages/settings/CategoriesSettings';
+import { CounterpartiesSettings } from './pages/settings/CounterpartiesSettings';
+import { TagsSettings } from './pages/settings/TagsSettings';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -28,6 +30,8 @@ export const router = createBrowserRouter([
           { path: 'settings/projects', element: <ProjectsSettings /> },
           { path: 'settings/accounts', element: <AccountsSettings /> },
           { path: 'settings/categories', element: <CategoriesSettings /> },
+          { path: 'settings/counterparties', element: <CounterpartiesSettings /> },
+          { path: 'settings/tags', element: <TagsSettings /> },
           { path: 'settings/companies', element: <CompaniesSettings /> },
         ],
       },
