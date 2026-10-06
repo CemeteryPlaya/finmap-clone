@@ -177,15 +177,23 @@ describe('backup routes', () => {
       await seedUser(t);
       const cookie = await loginAs(t);
       const before = fs.existsSync(t.config.backupsDir) ? fs.readdirSync(t.config.backupsDir).length : 0;
-      const tmpBefore = fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('fc-export-')).length;
+      // считаем только свои временные папки: параллельные тесты других файлов тоже создают fc-export-* в общем tmpdir
+      const created: string[] = [];
+      const origMkdtemp = fs.mkdtempSync;
+      vi.spyOn(fs, 'mkdtempSync').mockImplementation(((prefix: string, options?: BufferEncoding) => {
+        const dir = origMkdtemp(prefix, options);
+        if (path.basename(dir).startsWith('fc-export-')) created.push(dir);
+        return dir;
+      }) as typeof fs.mkdtempSync);
       for (let i = 0; i < 20; i++) {
         const res = await t.app.inject({ method: 'GET', url: '/api/v1/backup/download', headers: { cookie, 'x-requested-with': 'fetch' } });
         expect(res.statusCode).toBe(200);
       }
-      await new Promise((r) => setTimeout(r, 50));
+      vi.restoreAllMocks();
       const after = fs.existsSync(t.config.backupsDir) ? fs.readdirSync(t.config.backupsDir).length : 0;
       expect(after).toBe(before);
-      expect(fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('fc-export-')).length).toBe(tmpBefore);
+      expect(created).toHaveLength(20);
+      await vi.waitFor(() => expect(created.filter((d) => fs.existsSync(d))).toEqual([]));
     } finally {
       await t.cleanup();
     }
