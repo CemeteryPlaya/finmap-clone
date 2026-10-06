@@ -35,6 +35,8 @@ import { registerCompaniesRoutes } from './modules/companies/routes';
 import { createCompaniesService } from './modules/companies/service';
 import { registerUsersRoutes } from './modules/users/routes';
 import { createUsersService } from './modules/users/service';
+import { registerPreferencesRoutes } from './modules/preferences/routes';
+import { createPreferencesService } from './modules/preferences/service';
 import { resolveClientIp } from './security/client-ip';
 import { registerCsrf } from './security/csrf';
 import { installZodRu } from '../shared/zod-ru';
@@ -96,6 +98,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.get('/api/v1/meta', async () => ({ appName: config.appName, timezone: config.timezone }));
   registerAuthRoutes(app, { users, sessions, limiter, audit, config });
   registerUsersRoutes(app, { users });
+  registerPreferencesRoutes(app, { preferences: createPreferencesService(db, now) });
   const references = createReferencesService();
   const balances = createBalancesService();
   const categories = createCategoriesService({ db, audit, references, now });
