@@ -1,4 +1,4 @@
-import { keepPreviousData, useInfiniteQuery, useQuery, type InfiniteData } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, type InfiniteData } from '@tanstack/react-query';
 import { api, type ApiError } from './api';
 import type { CounterpartyType } from '../../shared/system-categories';
 import { queryClient } from './query';
@@ -204,7 +204,8 @@ export function useAuditFeed(companyId: number | null, filters: { userId?: numbe
       return api<AuditPage>(qs ? `${base}?${qs}` : base);
     },
     getNextPageParam: (last) => last.nextBeforeId,
-    placeholderData: keepPreviousData, // при смене фильтра фильтры и старая лента не исчезают
+    // при смене фильтра старая лента остаётся, но лента другой области (компания/система) не показывается
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === companyId ? prev : undefined),
   });
 }
 
@@ -223,6 +224,8 @@ export function usePreferences() {
     queryKey: ['preferences'],
     queryFn: async () => (await api<{ preferences: Record<string, unknown> }>('/preferences')).preferences,
     staleTime: Infinity,
+    // без повторов: при сбое CompanyGate сразу показывает запасной вариант, а не ждёт три попытки с паузами
+    retry: false,
   });
 }
 

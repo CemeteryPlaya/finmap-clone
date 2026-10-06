@@ -81,6 +81,7 @@ export function registerAuthRoutes(
     } finally {
       deps.limiter.end(keys, failed);
     }
+    deps.limiter.reset(keys); // верный текущий пароль доказан — как при входе, счётчик промахов обнуляется
     return reply.status(204).send();
   });
 }

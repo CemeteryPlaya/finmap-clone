@@ -118,7 +118,7 @@ test('история: события компании с именем польз
   await expect(page.getByRole('listitem')).toHaveCount(1);
   await expect(page.getByRole('listitem').first()).toContainText('Компания');
 
-  await page.getByRole('tab', { name: 'Система' }).click();
+  await page.getByRole('button', { name: 'Система' }).click();
   await expect(page.getByRole('listitem').first()).toContainText('Пользователь');
 });
 

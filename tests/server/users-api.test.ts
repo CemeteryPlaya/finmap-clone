@@ -106,4 +106,15 @@ describe('users API', () => {
     expect(blocked.statusCode).toBe(429);
     await loginAs(h.t, 'admin', 'correct-horse-1'); // пароль не сменился
   });
+
+  it('успешная смена пароля сбрасывает счётчик неудач: после 4 промахов и смены ещё два промаха — 400, не 429', async () => {
+    h = await createApi();
+    const attempt = (currentPassword: string) =>
+      h.req('POST', '/api/v1/auth/password', { currentPassword, newPassword: 'brand-new-pass-1' });
+    for (let i = 0; i < 4; i++) expect((await attempt(`wrong-${i}-xxxxx`)).statusCode).toBe(400);
+    expect((await attempt('correct-horse-1')).statusCode).toBe(204);
+    // без сброса пятый промах уже исчерпал бы лимит, а шестая попытка получила бы 429
+    expect((await attempt('wrong-a-xxxxx')).statusCode).toBe(400);
+    expect((await attempt('wrong-b-xxxxx')).statusCode).toBe(400);
+  });
 });

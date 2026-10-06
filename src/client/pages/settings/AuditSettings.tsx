@@ -84,13 +84,12 @@ export function AuditSettings() {
       <SettingsNav companyId={company.id} />
       <StaleNotice queries={[feed]} />
       <h1 className="mb-4 text-2xl font-bold">История действий</h1>
-      <div role="tablist" aria-label="Лента событий" className="mb-4 flex flex-wrap gap-2">
+      <div role="group" aria-label="Лента событий" className="mb-4 flex flex-wrap gap-2">
         {(['company', 'system'] as const).map((s) => (
           <button
             key={s}
             type="button"
-            role="tab"
-            aria-selected={scope === s}
+            aria-pressed={scope === s}
             onClick={() => switchScope(s)}
             className={`rounded-xl px-3 py-1.5 text-sm ${scope === s ? 'bg-ink font-semibold text-white' : 'bg-field text-ink hover:brightness-95'}`}
           >

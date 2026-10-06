@@ -3,6 +3,7 @@ import { AppError } from '../../src/server/errors';
 import { createAuditService } from '../../src/server/modules/audit/service';
 import { createUsersService, normalizeLogin } from '../../src/server/modules/users/service';
 import { users } from '../../src/server/db/schema';
+import { hashPassword } from '../../src/server/modules/users/passwords';
 import { createTestDb } from '../helpers/test-db';
 
 let t: ReturnType<typeof createTestDb>;
@@ -96,6 +97,19 @@ describe('users', () => {
     const rejected = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
     expect(rejected.reason).toMatchObject({ code: 'USER_LOCKOUT' });
     expect(svc.list().filter((u) => u.disabledAt === null)).toHaveLength(1);
+  });
+
+  it('смена своего пароля: если администратор сбросил пароль, пока шёл хэш, — 409 и сброс не затирается', async () => {
+    const { svc } = setup();
+    const a = await svc.create({ login: 'alpha', name: 'А', password: 'correct-horse-1' }, null);
+    const resetHash = await hashPassword('admin-reset-1');
+    // changeOwnPassword читает строку синхронно и затем уходит в await verifyPassword; подмена хэша сразу после вызова
+    // (до первого await) детерминированно попадает в окно между чтением и транзакцией
+    const pending = svc.changeOwnPassword(a.id, 'correct-horse-1', 'self-chosen-pass-1', null);
+    t.sqlite.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(resetHash, a.id);
+    await expect(pending).rejects.toMatchObject({ status: 409, code: 'VERSION_CONFLICT' });
+    expect(await svc.verifyCredentials('alpha', 'admin-reset-1')).toMatchObject({ id: a.id });
+    expect(await svc.verifyCredentials('alpha', 'self-chosen-pass-1')).toBeNull();
   });
 
   it('setPasswordByLogin (user:passwd): новый пароль, все сессии пользователя завершены', async () => {
