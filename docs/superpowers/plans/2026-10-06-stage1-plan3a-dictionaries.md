@@ -25,7 +25,7 @@
 - **Клиент.**
   - Экраны настроек показывают сначала данные: ошибка фонового обновления выводится плашкой над уже загруженными данными.
   - Поля ввода через компонент `Field` (`label for`, `aria-invalid`, `aria-describedby`).
-  - Порядок меняется кнопками ↑/↓. Статьи дополнительно перетаскиваются мышью (HTML5 drag-and-drop) и переносятся через список «Перенести в».
+  - Порядок проектов, счетов и статей меняется кнопками ↑/↓. Статьи дополнительно перетаскиваются мышью (HTML5 drag-and-drop) и переносятся через список «Перенести в». У контрагентов, тегов и шаблонов разделения порядок есть только в API (§6): §7 не требует его на экранах.
 
 **Tech Stack:** как в планах 1–2 (Node 24, Fastify 5, better-sqlite3, Drizzle 0.45, zod 4, React 19, react-router 8, TanStack Query 5, Tailwind 4, Vitest 5, Playwright).
 
@@ -70,7 +70,7 @@
 - **История.** Каждое изменение справочника и его запись в историю выполняются в одной транзакции (`mutate`). `PATCH` без реальных изменений возвращает 200 и не пишет историю. В `diff` правки попадают только изменённые поля: `{ before: {...}, after: {...} }`.
 - **Названия** проходят `cleanName`: NFC, без невидимых символов (`U+00AD`, `U+180E`, `U+200B–U+200F`, `U+202A–U+202E`, `U+2060–U+2064`, `U+FEFF`), пробелы схлопнуты, края обрезаны. Длина проверяется после чистки.
 - **Сообщения проверки** только на русском: `installZodRu()` вызывается при старте сервера (`buildApp`) и клиента (`main.tsx`).
-- **Формат ошибки:** `{ error: { code, message, fields? } }`. Коды этого плана сверх §6.2: `SYSTEM_CATEGORY`, `IN_USE`, `ARCHIVED_DUPLICATE` (все 422). Это пояснение к строке «422» таблицы §6.2, новых HTTP-статусов нет.
+- **Формат ошибки:** `{ error: { code, message, fields? } }`. Коды `SYSTEM_CATEGORY`, `IN_USE`, `ARCHIVED_DUPLICATE` (все 422) и `VERSION_CONFLICT` для устаревшего списка порядка (409) внесены в таблицу §6.2 спецификации вместе с этим планом.
 - **Интерфейс:**
   - тексты на русском, цвета только через токены `styles.css`;
   - изменяющие запросы идут через `api()`;
@@ -85,7 +85,7 @@
 1. **Счёт в архивном проекте.** Создание счёта с `projectId` архивного проекта или перенос счёта в него → 422 `ARCHIVED_REFERENCE`, история не пишется. Тест — в задаче 4.
 2. **Возврат из архива счёта архивного проекта.** Иначе получился бы активный счёт в архивном проекте, и проект нарушил бы инвариант 8. Ответ → 422. После возврата проекта возврат счёта проходит. Тест — в задаче 4.
 3. **Пользователь перестроил группу шаблона, затем создал ещё один клуб.** Группа перенесена во второй уровень или в архив. Новые дочерние статьи шаблона встают на верхний уровень: третьего уровня нет, детей в архивной группе нет. Тест — в задаче 5.
-4. **Тег с именем архивного**, отличающимся регистром, «ё» или невидимым символом («Ёлка​» против архивного «елка»). Ответ → 422 `ARCHIVED_DUPLICATE`, дубль не создаётся, в интерфейсе есть кнопка «Вернуть из архива». Тесты — в задачах 6 и 14.
+4. **Тег с именем архивного**, отличающимся регистром, «ё» или невидимым символом («Ёлка\u200B» против архивного «елка»). Ответ → 422 `ARCHIVED_DUPLICATE`, дубль не создаётся, в интерфейсе есть кнопка «Вернуть из архива». Тесты — в задачах 6 и 14.
 5. **Устаревший список порядка.** Другой пользователь добавил элемент или перенёс статью после загрузки экрана. Ответ → 409 `VERSION_CONFLICT`, порядок не меняется. Тесты — в задачах 4 и 5.
 
 ---
@@ -179,15 +179,15 @@ import { cleanName, nameField } from '../../src/shared/text';
 
 describe('cleanName', () => {
   it('убирает невидимые символы, схлопывает пробелы, обрезает края, нормализует NFC', () => {
-    expect(cleanName('  Клуб​  на Ленина﻿ ')).toBe('Клуб на Ленина');
-    expect(cleanName('​‌‍⁠­')).toBe('');
-    expect(cleanName('é')).toBe('é');
+    expect(cleanName('  Клуб\u200B  на\u00A0Ленина\uFEFF ')).toBe('Клуб на Ленина');
+    expect(cleanName('\u200B\u200C\u200D\u2060\u00AD')).toBe('');
+    expect(cleanName('e\u0301')).toBe('\u00E9');
   });
 
   it('nameField проверяет длину уже очищенного названия', () => {
     const f = nameField(5);
-    expect(f.safeParse(' абв​ ').data).toBe('абв');
-    expect(f.safeParse('​').error?.issues[0]?.message).toBe('Введите название');
+    expect(f.safeParse(' абв\u200B ').data).toBe('абв');
+    expect(f.safeParse('\u200B').error?.issues[0]?.message).toBe('Введите название');
     expect(f.safeParse('абвгде').error?.issues[0]?.message).toBe('Не длиннее 5 символов');
     expect(nameField(5, 'Введите имя').safeParse('').error?.issues[0]?.message).toBe('Введите имя');
   });
@@ -309,13 +309,13 @@ afterEach(async () => h?.t.cleanup());
 describe('названия и сообщения проверки', () => {
   it('невидимые символы вырезаются, название из одних невидимых символов отклоняется', async () => {
     h = await createApi();
-    const empty = await h.req('POST', '/api/v1/companies', { name: '​⁠ ﻿' });
+    const empty = await h.req('POST', '/api/v1/companies', { name: '\u200B\u2060 \uFEFF' });
     expect(empty.statusCode).toBe(400);
     expect(empty.json().error.fields.name).toBe('Введите название');
-    const ok = await h.req('POST', '/api/v1/companies', { name: ' ТОО​   «Ромашка» ' });
+    const ok = await h.req('POST', '/api/v1/companies', { name: ' ТОО\u200B   «Ромашка» ' });
     expect(ok.statusCode).toBe(201);
     expect(ok.json().company.name).toBe('ТОО «Ромашка»');
-    const project = await h.req('POST', `/api/v1/companies/${ok.json().company.id}/projects`, { name: '​', templateKey: 'general' });
+    const project = await h.req('POST', `/api/v1/companies/${ok.json().company.id}/projects`, { name: '\u200B', templateKey: 'general' });
     expect(project.json().error.fields.name).toBe('Введите название');
   });
 
@@ -343,7 +343,7 @@ Expected: FAIL — нет модулей `text`/`search`, нет `isValidDate`, 
 import { z } from 'zod';
 
 /** Невидимые символы, из-за которых «пустое» или «то же самое» название выглядит иначе. */
-const INVISIBLE = /[­᠎​-‏‪-‮⁠-⁤﻿]/g;
+const INVISIBLE = /[\u00AD\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g;
 
 /** Название справочника: NFC, без невидимых символов, пробелы схлопнуты, края обрезаны. */
 export function cleanName(value: string): string {
@@ -554,7 +554,7 @@ describe('история и транзакции', () => {
     expect(h.auditCount('company', 'update')).toBe(0);
 
     const p = (await h.req('POST', `/api/v1/companies/${cid}/projects`, { name: 'Клуб 1', templateKey: 'computer-club', templateParams: { pcCount: 30 } })).json().project;
-    const same = await h.req('PATCH', `/api/v1/companies/${cid}/projects/${p.id}`, { name: 'Клуб​ 1', templateParams: { pcCount: 30 } });
+    const same = await h.req('PATCH', `/api/v1/companies/${cid}/projects/${p.id}`, { name: 'Клуб\u200B 1', templateParams: { pcCount: 30 } });
     expect(same.statusCode).toBe(200);
     expect(h.auditCount('project', 'update')).toBe(0);
 
@@ -1352,9 +1352,11 @@ describe('accounts API', () => {
   it('проверка полей: несуществующая дата, валюта, дробный остаток, пустое имя', async () => {
     h = await createApi();
     const cid = await h.company();
-    const res = await h.req('POST', base(cid), { name: '​', currency: 'XXX', startingBalance: 1.5, openedAt: '2026-02-31' });
+    const res = await h.req('POST', base(cid), { name: '\u200B', currency: 'XXX', startingBalance: 1.5, openedAt: '2026-02-31' });
     expect(res.statusCode).toBe(400);
     expect(Object.keys(res.json().error.fields).sort()).toEqual(['currency', 'name', 'openedAt', 'startingBalance']);
+    const huge = await h.req('POST', base(cid), { ...kaspi, startingBalance: 2 ** 60 });
+    expect(huge.json().error.fields.startingBalance).toBe('Слишком большая сумма');
   });
 
   it('счёт нельзя создать в архивном проекте или перенести в него; чужой проект — ошибка поля (Review Focus 1)', async () => {
@@ -1574,7 +1576,11 @@ export const ACCOUNT_NAME_MAX = 120;
 
 const name = nameField(ACCOUNT_NAME_MAX);
 const currency = z.string().refine(isKnownCurrency, 'Неизвестная валюта');
-const startingBalance = z.number().int('Сумма в минимальных единицах — целое число').refine(Number.isSafeInteger, 'Слишком большая сумма');
+// zod 4 .int() сам отклоняет числа вне безопасного диапазона — поэтому две отдельные проверки
+const startingBalance = z
+  .number()
+  .refine(Number.isInteger, 'Сумма в минимальных единицах — целое число')
+  .refine(Number.isSafeInteger, 'Слишком большая сумма');
 const openedAt = z.string().refine(isValidDate, 'Неверная дата');
 const projectId = z.number().int().positive().nullable();
 
@@ -2049,12 +2055,12 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - `requireCompany`, `isSameOrder`, `ReferencesService` (Task 4);
   - `cleanName`, `nameField` (Task 1).
 - Produces:
-  - `CATEGORY_NAME_MAX = 100`, `categoryCreateSchema` (`{ kind, name, parentId }`), `categoryUpdateSchema` (`{ name }`), `categoryReorderSchema` (`{ kind, parentId, ids }`);
+  - `CATEGORY_NAME_MAX = 100`, `categoryCreateSchema` (`{ kind, name, parentId }`), `categoryUpdateSchema` (`{ name }`), `categoryReorderSchema` (`{ kind, parentId, ids, moving }`);
   - `createCategoriesService(d: { db; audit; references?; now? })`;
   - `CategoriesService`: прежние методы плюс:
     - `add(companyId, { kind, name, parentId }, userId): CategoryRow`;
     - `rename(companyId, id, name, userId): CategoryRow`;
-    - `move(companyId, { kind, parentId, ids }, userId): void`;
+    - `move(companyId, { kind, parentId, ids, moving? }, userId): void` — `moving` единственная статья, переносимая в этот уровень; другие «лишние» id → 409;
     - `archive`, `unarchive`, `remove`;
   - маршруты:
     - `POST /api/v1/companies/:cid/categories` → 201 `{ category }`;
@@ -2098,7 +2104,7 @@ describe('categories API', () => {
   it('создание: верхний уровень, дочерняя; дочерняя системной наследует systemKey', async () => {
     h = await createApi();
     const cid = await h.company();
-    const ads = await add(cid, { kind: 'expense', name: ' Реклама​ ' });
+    const ads = await add(cid, { kind: 'expense', name: ' Реклама\u200B ' });
     expect(ads).toMatchObject({ name: 'Реклама', parentId: null, systemKey: null });
     await add(cid, { kind: 'expense', name: 'Таргет', parentId: ads.id });
     const salary = await salaryOf(cid);
@@ -2154,11 +2160,11 @@ describe('categories API', () => {
     const top = async () => (await tree(cid)).expense.map((n) => n.id);
 
     // «Печать» (без дочерних) — внутрь «Рекламы» после «Таргета»
-    let res = await reorder({ kind: 'expense', parentId: ads.id, ids: [target.id, print.id] });
+    let res = await reorder({ kind: 'expense', parentId: ads.id, ids: [target.id, print.id], moving: print.id });
     expect(res.statusCode).toBe(200);
     expect(res.json().expense.find((n: Node) => n.id === ads.id).children.map((n: Node) => n.name)).toEqual(['Таргет', 'Печать']);
     // «Таргет» — на верхний уровень, первым
-    res = await reorder({ kind: 'expense', parentId: null, ids: [target.id, ...(await top())] });
+    res = await reorder({ kind: 'expense', parentId: null, ids: [target.id, ...(await top())], moving: target.id });
     expect(res.statusCode).toBe(200);
     expect((await top())[0]).toBe(target.id);
 
@@ -2168,17 +2174,21 @@ describe('categories API', () => {
       expect(r.json().error.code).toBe(code);
     };
     // у «Рекламы» есть дочерняя «Печать» — её нельзя сделать дочерней
-    await fail({ kind: 'expense', parentId: salary.id, ids: [ads.id] }, 400, 'VALIDATION');
+    await fail({ kind: 'expense', parentId: salary.id, ids: [ads.id], moving: ads.id }, 400, 'VALIDATION');
     // системная остаётся на верхнем уровне
-    await fail({ kind: 'expense', parentId: ads.id, ids: [print.id, salary.id] }, 422, 'SYSTEM_CATEGORY');
+    await fail({ kind: 'expense', parentId: ads.id, ids: [print.id, salary.id], moving: salary.id }, 422, 'SYSTEM_CATEGORY');
     // в статью второго уровня нельзя — был бы третий уровень
-    await fail({ kind: 'expense', parentId: print.id, ids: [target.id] }, 400, 'VALIDATION');
+    await fail({ kind: 'expense', parentId: print.id, ids: [target.id], moving: target.id }, 400, 'VALIDATION');
     // в дерево другого вида нельзя
-    await fail({ kind: 'expense', parentId: null, ids: [...(await top()), income.id] }, 400, 'VALIDATION');
+    await fail({ kind: 'expense', parentId: null, ids: [...(await top()), income.id], moving: income.id }, 400, 'VALIDATION');
     // в саму себя нельзя
-    await fail({ kind: 'expense', parentId: target.id, ids: [target.id] }, 400, 'VALIDATION');
+    await fail({ kind: 'expense', parentId: target.id, ids: [target.id], moving: target.id }, 400, 'VALIDATION');
     // устаревший список (нет одной статьи уровня)
     await fail({ kind: 'expense', parentId: null, ids: (await top()).slice(1) }, 409, 'VERSION_CONFLICT');
+    // устаревший экран: «Печать» уже перенесли в «Рекламу», а старый список верхнего уровня всё ещё содержит её.
+    // Порядок без явного moving не должен молча вернуть её наверх.
+    await fail({ kind: 'expense', parentId: null, ids: [...(await top()), print.id] }, 409, 'VERSION_CONFLICT');
+    expect((await tree(cid)).expense.find((n) => n.id === ads.id)!.children.map((n) => n.id)).toEqual([print.id]);
 
     const before = h.auditCount('category', 'reorder');
     await reorder({ kind: 'expense', parentId: null, ids: await top() }); // тот же порядок
@@ -2315,11 +2325,15 @@ export const categoryCreateSchema = z.object({
 
 export const categoryUpdateSchema = z.object({ name: nameField(CATEGORY_NAME_MAX) });
 
-/** Новый порядок детей parentId (null — верхний уровень) в дереве kind; статьи из других мест переносятся сюда. */
+/**
+ * Новый порядок детей parentId (null — верхний уровень) в дереве kind. `moving` — единственная статья,
+ * которая переносится сюда из другого места; null — только смена порядка.
+ */
 export const categoryReorderSchema = z.object({
   kind,
   parentId: id.nullable(),
   ids: z.array(id).max(1000, 'Слишком длинный список'),
+  moving: id.nullable().default(null),
 });
 ```
 
@@ -2363,7 +2377,7 @@ export interface CategoriesService {
   add(companyId: number, input: { kind: CategoryKind; name: string; parentId: number | null }, userId: number): CategoryRow;
   rename(companyId: number, id: number, name: string, userId: number): CategoryRow;
   /** Новый порядок детей parentId (null — верхний уровень) дерева kind; статьи из других мест переносятся сюда. */
-  move(companyId: number, input: { kind: CategoryKind; parentId: number | null; ids: number[] }, userId: number): void;
+  move(companyId: number, input: { kind: CategoryKind; parentId: number | null; ids: number[]; moving?: number | null }, userId: number): void;
   archive(companyId: number, id: number, userId: number): CategoryRow;
   unarchive(companyId: number, id: number, userId: number): CategoryRow;
   remove(companyId: number, id: number, userId: number): void;
@@ -2568,17 +2582,19 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
       });
     },
 
-    move(companyId, { kind, parentId, ids }, userId) {
+    move(companyId, { kind, parentId, ids, moving = null }, userId) {
       requireCompany(db, companyId, { writable: true });
       if (parentId !== null) checkParent(companyId, kind, parentId);
       const current = childIds(companyId, kind, parentId);
-      if (new Set(ids).size !== ids.length || current.some((id) => !ids.includes(id))) {
-        throw new AppError(409, 'VERSION_CONFLICT', 'Список изменился — обновите страницу и повторите');
-      }
+      const stale = () => new AppError(409, 'VERSION_CONFLICT', 'Список изменился — обновите страницу и повторите');
+      if (new Set(ids).size !== ids.length || current.some((id) => !ids.includes(id))) throw stale();
       const moved: number[] = [];
       for (const id of ids) {
         if (current.includes(id)) continue;
-        const c = requireCategory(companyId, id);
+        const c = requireCategory(companyId, id); // чужой id — 404
+        // переносится только явно названная статья; любая другая «лишняя» значит, что экран устарел
+        // (её уже перенёс другой пользователь) — молча вернуть её назад нельзя
+        if (id !== moving) throw stale();
         if (c.kind !== kind) throw invalid('ids', 'Статью нельзя перенести в дерево другого вида');
         if (parentId !== null) {
           if (c.systemKey) throw new AppError(422, 'SYSTEM_CATEGORY', 'Системная статья остаётся на верхнем уровне');
@@ -2829,7 +2845,7 @@ describe('tags API', () => {
     h = await createApi();
     const cid = await h.company();
     expect((await h.req('POST', base(cid), { name: 'Ёлка' })).statusCode).toBe(201);
-    for (const name of ['ёлка', 'ЕЛКА', ' Елка​ ']) {
+    for (const name of ['ёлка', 'ЕЛКА', ' Елка\u200B ']) {
       const res = await h.req('POST', base(cid), { name });
       expect(res.statusCode).toBe(400);
       expect(res.json().error.fields.name).toBe('Такой тег уже есть');
@@ -2841,7 +2857,7 @@ describe('tags API', () => {
     const cid = await h.company();
     const tag = (await h.req('POST', base(cid), { name: 'елка' })).json().tag;
     await h.req('POST', `${base(cid)}/${tag.id}/archive`);
-    const res = await h.req('POST', base(cid), { name: 'Ёлка​' });
+    const res = await h.req('POST', base(cid), { name: 'Ёлка\u200B' });
     expect(res.statusCode).toBe(422);
     expect(res.json().error).toMatchObject({ code: 'ARCHIVED_DUPLICATE', fields: { name: 'Такой тег есть в архиве' } });
     expect((await h.req('GET', base(cid))).json().tags).toHaveLength(1);
@@ -5130,11 +5146,11 @@ import { formatAmount, parseAmount } from '../../src/shared/money';
 describe('parseAmount', () => {
   it('запятая или точка, пробелы, знак минус → минимальные единицы', () => {
     expect(parseAmount('1 500,50', 2)).toBe(150050);
-    expect(parseAmount('1 500.5', 2)).toBe(150050);
+    expect(parseAmount('1\u202F500.5', 2)).toBe(150050);
     expect(parseAmount('0', 2)).toBe(0);
     expect(parseAmount(',5', 2)).toBe(50);
     expect(parseAmount('-10', 2)).toBe(-1000);
-    expect(parseAmount('−10', 2)).toBe(-1000);
+    expect(parseAmount('\u221210', 2)).toBe(-1000);
     expect(parseAmount('-0', 2)).toBe(0);
     expect(parseAmount('100', 0)).toBe(100);
     expect(parseAmount('1,234', 3)).toBe(1234);
@@ -5150,10 +5166,10 @@ describe('parseAmount', () => {
 
 describe('formatAmount', () => {
   it('разряды узким неразрывным пробелом, запятая перед дробной частью', () => {
-    expect(formatAmount(150050, 2)).toBe('1 500,50');
+    expect(formatAmount(150050, 2)).toBe('1\u202F500,50');
     expect(formatAmount(5, 2)).toBe('0,05');
-    expect(formatAmount(-1234567, 2)).toBe('−12 345,67');
-    expect(formatAmount(1000, 0)).toBe('1 000');
+    expect(formatAmount(-1234567, 2)).toBe('\u221212\u202F345,67');
+    expect(formatAmount(1000, 0)).toBe('1\u202F000');
     expect(formatAmount(0, 2)).toBe('0,00');
   });
 
@@ -5188,7 +5204,7 @@ Expected: FAIL — нет модуля `money` и функции `formatDateRu`.
  * Больше знаков после запятой, чем у валюты, — null (округление появится вместе с калькулятором суммы на шаге 6).
  */
 export function parseAmount(text: string, minorUnits: number): number | null {
-  const s = text.replace(/[\s  ]/g, '').replace('−', '-').replace(',', '.');
+  const s = text.replace(/[\s\u00A0\u202F]/g, '').replace('\u2212', '-').replace(',', '.');
   const m = /^(-?)(\d*)(?:\.(\d*))?$/.exec(s);
   if (!m) return null;
   const int = m[2] ?? '';
@@ -5200,13 +5216,13 @@ export function parseAmount(text: string, minorUnits: number): number | null {
   return m[1] === '-' && value !== 0 ? -value : value;
 }
 
-/** Минимальные единицы → «1 500,50»: разряды через узкий неразрывный пробел, минус — «−». */
+/** Минимальные единицы → «1 500,50»: разряды через узкий неразрывный пробел, минус — «\u2212». */
 export function formatAmount(minor: number, minorUnits: number): string {
   const abs = String(Math.abs(minor)).padStart(minorUnits + 1, '0');
   const int = minorUnits > 0 ? abs.slice(0, -minorUnits) : abs;
   const frac = minorUnits > 0 ? abs.slice(-minorUnits) : '';
-  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-  return `${minor < 0 ? '−' : ''}${grouped}${frac ? `,${frac}` : ''}`;
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, '\u202F');
+  return `${minor < 0 ? '\u2212' : ''}${grouped}${frac ? `,${frac}` : ''}`;
 }
 ```
 
@@ -5636,7 +5652,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - `Field`, `Pending`, `StaleNotice`, `ReorderButtons`, `ConfirmDelete`, `btnSmall`, `alertClass`, `noticeClass` (Task 9).
 - Produces:
   - `CategoryNode`, `CategoryTree`, `useCategories(companyId)` с ключом `['categories', companyId]`;
-  - `MovePlan { kind; parentId; ids }`;
+  - `MovePlan { kind; parentId; ids; moving }`: `planMove` передаёт `moving` = переносимая статья, `planShift` — `null`;
   - `moveError(tree, node, parentId): string | null`;
   - `planMove(tree, nodeId, { parentId, beforeId }): MovePlan | string`;
   - `planShift(tree, nodeId, delta): MovePlan | null`;
@@ -5672,10 +5688,10 @@ const tree = [n(1, null, { systemKey: 'salary' }, [n(11, 1)]), n(2, null, {}, [n
 
 describe('перемещение статей на клиенте (те же правила, что на сервере)', () => {
   it('planMove: в другую группу, в конец, внутри группы, на верхний уровень', () => {
-    expect(planMove(tree, 21, { parentId: 1, beforeId: 11 })).toEqual({ kind: 'expense', parentId: 1, ids: [21, 11] });
-    expect(planMove(tree, 3, { parentId: 2, beforeId: null })).toEqual({ kind: 'expense', parentId: 2, ids: [21, 22, 3] });
-    expect(planMove(tree, 22, { parentId: 2, beforeId: 21 })).toEqual({ kind: 'expense', parentId: 2, ids: [22, 21] });
-    expect(planMove(tree, 21, { parentId: null, beforeId: 3 })).toEqual({ kind: 'expense', parentId: null, ids: [1, 2, 21, 3, 4] });
+    expect(planMove(tree, 21, { parentId: 1, beforeId: 11 })).toEqual({ kind: 'expense', parentId: 1, ids: [21, 11], moving: 21 });
+    expect(planMove(tree, 3, { parentId: 2, beforeId: null })).toEqual({ kind: 'expense', parentId: 2, ids: [21, 22, 3], moving: 3 });
+    expect(planMove(tree, 22, { parentId: 2, beforeId: 21 })).toEqual({ kind: 'expense', parentId: 2, ids: [22, 21], moving: 22 });
+    expect(planMove(tree, 21, { parentId: null, beforeId: 3 })).toEqual({ kind: 'expense', parentId: null, ids: [1, 2, 21, 3, 4], moving: 21 });
   });
 
   it('planMove: запреты §7', () => {
@@ -5689,10 +5705,10 @@ describe('перемещение статей на клиенте (те же п�
   });
 
   it('planShift и parentChoices', () => {
-    expect(planShift(tree, 22, -1)).toEqual({ kind: 'expense', parentId: 2, ids: [22, 21] });
+    expect(planShift(tree, 22, -1)).toEqual({ kind: 'expense', parentId: 2, ids: [22, 21], moving: null });
     expect(planShift(tree, 21, -1)).toBeNull();
     expect(planShift(tree, 4, 1)).toBeNull();
-    expect(planShift(tree, 2, 1)).toEqual({ kind: 'expense', parentId: null, ids: [1, 3, 2, 4] });
+    expect(planShift(tree, 2, 1)).toEqual({ kind: 'expense', parentId: null, ids: [1, 3, 2, 4], moving: null });
     expect(parentChoices(tree, tree[2]!).map((p) => p.id)).toEqual([1, 2]);
     expect(parentChoices(tree, tree[1]!.children[0]!).map((p) => p.id)).toEqual([1, 3]);
     expect(parentChoices(tree, tree[0]!)).toEqual([]);
@@ -5743,11 +5759,12 @@ export function useCategories(companyId: number) {
 ```ts
 import type { CategoryNode } from './queries';
 
-/** Тело POST /categories/reorder: новый порядок детей parentId в дереве kind. */
+/** Тело POST /categories/reorder: новый порядок детей parentId в дереве kind; moving — переносимая сюда статья. */
 export interface MovePlan {
   kind: 'income' | 'expense';
   parentId: number | null;
   ids: number[];
+  moving: number | null;
 }
 
 function findNode(tree: readonly CategoryNode[], id: number): CategoryNode | undefined {
@@ -5786,7 +5803,7 @@ export function planMove(
   const at = target.beforeId === null ? -1 : ids.indexOf(target.beforeId);
   if (at < 0) ids.push(nodeId);
   else ids.splice(at, 0, nodeId);
-  return { kind: node.kind, parentId: target.parentId, ids };
+  return { kind: node.kind, parentId: target.parentId, ids, moving: nodeId };
 }
 
 /** Сдвиг на одну позицию среди соседей; null — двигать некуда. */
@@ -5799,7 +5816,7 @@ export function planShift(tree: readonly CategoryNode[], nodeId: number, delta: 
   const j = i + delta;
   if (i < 0 || j < 0 || j >= ids.length) return null;
   [ids[i], ids[j]] = [ids[j]!, ids[i]!];
-  return { kind: node.kind, parentId: node.parentId, ids };
+  return { kind: node.kind, parentId: node.parentId, ids, moving: null };
 }
 
 /** Куда можно перенести статью через «Перенести в…»: допустимые родители, кроме текущего. */
@@ -7428,3 +7445,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - атомарная проверка уникальности логина.
 
 **Не входит в этап 3a по спецификации:** `GET /companies/summary` и балансы (шаг 4).
+
+**Для шага 4 (заметки ревью плана):**
+- На экране «Счета» поле валюты остаётся редактируемым. Сервер вернёт `CURRENCY_LOCKED`, когда появятся операции. Шаг 4 должен блокировать поле заранее (§7: «валюта заблокирована, если есть операции»).
+- `setup.ts` делает бэкап перед миграцией, но всё ещё не проверяет lock и порт (хвост плана 1, план шага 8).
