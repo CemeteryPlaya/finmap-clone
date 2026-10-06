@@ -2649,7 +2649,10 @@ test('проекты по шаблонам: клуб и общий', async ({ pa
   const renamed = `ТОО Клубы переим ${Date.now()}`;
   const companyRow = page.getByRole('listitem').filter({ has: page.locator(`input[value="${companyName}"]`) });
   await companyRow.getByLabel('Название').fill(renamed);
-  await companyRow.getByRole('button', { name: 'Сохранить' }).click();
+  // локаторы Playwright разрешаются заново при каждом действии, а React обновил атрибут value —
+  // строку ищем уже по новому имени
+  const renamedRow = page.getByRole('listitem').filter({ has: page.locator(`input[value="${renamed}"]`) });
+  await renamedRow.getByRole('button', { name: 'Сохранить' }).click();
   await expect(page.getByRole('button', { name: 'Сменить компанию' })).toContainText(renamed);
 });
 ```
