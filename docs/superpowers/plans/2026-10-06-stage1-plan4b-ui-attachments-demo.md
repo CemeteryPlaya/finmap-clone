@@ -943,7 +943,7 @@ function fill(d: { db: Db; timezone: string; now: Date; operations?: number }, u
           currency: 'USD',
           rateToKzt: (475 + 15 * Math.sin(i / 45)).toFixed(2),
           source: 'nbrk',
-          createdBy: uid,
+          createdBy: null, // createdBy — только у ручных курсов
           fetchedAt: d.now.toISOString(),
         })
         .run();
@@ -964,7 +964,7 @@ function fill(d: { db: Db; timezone: string; now: Date; operations?: number }, u
   for (const a of accounts.list(c1.id)) accounts.update(c1.id, a.id, { openedAt: start, startingBalance: 1_000_000_00 }, uid);
   accounts.add(c1.id, { name: 'Валютный USD', currency: 'USD', openedAt: start, startingBalance: 5_000_00 }, uid);
   accounts.add(c2.id, { name: 'Касса бара', currency: 'KZT', openedAt: start, projectId: bar.id, startingBalance: 200_000_00 }, uid);
-  accounts.add(c2.id, { name: 'Kaspi бара', currency: 'KZT', openedAt: start, projectId: bar.id }, uid);
+  accounts.add(c2.id, { name: 'Kaspi бара', currency: 'KZT', openedAt: start, projectId: bar.id, startingBalance: 500_000_00 }, uid);
   accounts.add(c3.id, { name: 'Счёт USD', currency: 'USD', openedAt: start, startingBalance: 10_000_00 }, uid);
 
   // статьи: шаблон клуба уже дал свои; добавляем статьи бару и офису, затем добираем до 60
@@ -1588,7 +1588,7 @@ const companyItemClass =
 
 Прежние e2e, которые панель задевает (проверено прогоном):
 
-- `e2e/dictionaries.spec.ts`, тест «статьи: …» — панель сужает дерево статей, строка «Таргетинг» переносится, и в её центре оказывается список «Перенести в…»; нажатие мыши на списке не начинает перетаскивание. Тянем за ручку ⠿:
+- `e2e/dictionaries.spec.ts`, тест «статьи: …» — панель сужает дерево статей, строка «Таргетинг» переносится, и в её центре оказывается список «Перенести в…»; нажатие мыши на списке не начинает перетаскивание. Замените строку с `dragTo` в этом тесте — тянем за ручку ⠿:
 
 ```ts
   // тянем за ручку ⠿ (левый верхний угол строки): в центре строки может оказаться выпадающий список «Перенести в…»
