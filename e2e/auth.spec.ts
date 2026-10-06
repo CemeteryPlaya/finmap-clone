@@ -11,12 +11,12 @@ test('вход, неверный пароль, выход', async ({ page }) => 
 
   await page.getByPlaceholder('Пароль').fill('e2e-password-1');
   await page.getByRole('button', { name: 'Войти' }).click();
-  await expect(page.getByRole('heading', { name: 'Журнал' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Выйти' })).toBeVisible();
   await expect(page.getByText('Админ')).toBeVisible();
   await expect(page).toHaveTitle('Учёт');
 
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Журнал' })).toBeVisible(); // сессия переживает перезагрузку
+  await expect(page.getByRole('button', { name: 'Выйти' })).toBeVisible(); // сессия переживает перезагрузку
 
   await page.getByRole('button', { name: 'Выйти' }).click();
   await expect(page).toHaveURL(/\/login$/);
