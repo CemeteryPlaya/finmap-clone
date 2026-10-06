@@ -25,10 +25,11 @@ export interface TestApp {
 export async function createTestApp(
   overrides: Record<string, string> = {},
   extraRoutes?: (app: FastifyInstance) => void,
+  now?: () => Date,
 ): Promise<TestApp> {
   const t = createTestDb();
   const config = testConfig(t.dir, overrides);
-  const app = await buildApp({ config, db: t.db, sqlite: t.sqlite, logger: false, extraRoutes });
+  const app = await buildApp({ config, db: t.db, sqlite: t.sqlite, logger: false, extraRoutes, now });
   await app.ready();
   return {
     app,

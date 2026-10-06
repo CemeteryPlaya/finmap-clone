@@ -8,6 +8,11 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 import type { Config } from './config';
 import type { Db, Sqlite } from './db/client';
 import { registerErrorHandler } from './errors';
+import { registerAccountsRoutes } from './modules/accounts/routes';
+import { registerCategoriesRoutes } from './modules/categories/routes';
+import { registerProjectsRoutes } from './modules/projects/routes';
+import { createProjectsService } from './modules/projects/service';
+import { registerTemplatesRoutes } from './modules/templates/routes';
 import { createAccountsService } from './modules/accounts/service';
 import { createAuditService } from './modules/audit/service';
 import { registerBackupRoutes } from './modules/backup/routes';
@@ -82,6 +87,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const accounts = createAccountsService(db, now);
   const companies = createCompaniesService({ db, audit, categories, accounts, now });
   registerCompaniesRoutes(app, { companies });
+  const projects = createProjectsService({ db, audit, companies, categories, accounts, timezone: config.timezone, now });
+  registerTemplatesRoutes(app);
+  registerProjectsRoutes(app, { projects });
+  registerCategoriesRoutes(app, { categories, companies });
+  registerAccountsRoutes(app, { accounts, companies });
   const backup =
     deps.backup ??
     createBackupService({
