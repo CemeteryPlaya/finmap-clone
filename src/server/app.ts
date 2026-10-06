@@ -8,6 +8,7 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 import type { Config } from './config';
 import type { Db, Sqlite } from './db/client';
 import { registerErrorHandler } from './errors';
+import { createAccountsService } from './modules/accounts/service';
 import { createAuditService } from './modules/audit/service';
 import { registerBackupRoutes } from './modules/backup/routes';
 import { createBackupService, type BackupService } from './modules/backup/service';
@@ -15,6 +16,9 @@ import { LoginLimiter } from './modules/auth/login-limiter';
 import { readSessionToken, registerAuth } from './modules/auth/plugin';
 import { registerAuthRoutes } from './modules/auth/routes';
 import { createSessionsService } from './modules/auth/sessions';
+import { createCategoriesService } from './modules/categories/service';
+import { registerCompaniesRoutes } from './modules/companies/routes';
+import { createCompaniesService } from './modules/companies/service';
 import { createUsersService } from './modules/users/service';
 import { resolveClientIp } from './security/client-ip';
 import { registerCsrf } from './security/csrf';
@@ -74,6 +78,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.get('/api/v1/health', async () => ({ ok: true }));
   app.get('/api/v1/meta', async () => ({ appName: config.appName }));
   registerAuthRoutes(app, { users, sessions, limiter, audit, config });
+  const categories = createCategoriesService(db, now);
+  const accounts = createAccountsService(db, now);
+  const companies = createCompaniesService({ db, audit, categories, accounts, now });
+  registerCompaniesRoutes(app, { companies });
   const backup =
     deps.backup ??
     createBackupService({
