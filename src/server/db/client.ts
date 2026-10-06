@@ -5,6 +5,9 @@ import * as schema from './schema';
 export type Sqlite = Database.Database;
 export type Db = BetterSQLite3Database<typeof schema>;
 
+/** База или транзакция Drizzle — сервисы принимают любое, чтобы работать внутри общей транзакции. */
+export type Executor = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
+
 export function ulower(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   return String(value).toLocaleLowerCase('ru').replaceAll('ё', 'е');
