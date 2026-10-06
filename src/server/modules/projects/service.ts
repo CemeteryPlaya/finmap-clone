@@ -1,16 +1,18 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { todayInTimezone } from '../../../shared/dates';
 import { cleanName } from '../../../shared/text';
 import { getTemplate } from '../../../templates';
 import type { BusinessTemplate } from '../../../templates/types';
 import { ulower, type Db } from '../../db/client';
-import { projects } from '../../db/schema';
+import { accounts, projects } from '../../db/schema';
 import { AppError } from '../../errors';
 import type { AccountsService } from '../accounts/service';
 import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import type { CategoriesService } from '../categories/service';
 import type { CompaniesService } from '../companies/service';
+import { assertSameSet, isSameOrder } from '../dictionaries/order';
+import { createReferencesService, type ReferencesService } from '../references/service';
 
 export interface ProjectRow {
   id: number;
@@ -30,9 +32,16 @@ export interface ProjectsService {
     input: { name: string; templateKey: string; templateParams: Record<string, unknown> },
     userId: number,
   ): { project: ProjectRow; applied: { categories: number; accounts: number } };
-  update(companyId: number, id: number, input: { name?: string; templateParams?: Record<string, unknown> }, userId: number): ProjectRow;
+  update(
+    companyId: number,
+    id: number,
+    input: { name?: string; templateParams?: Record<string, unknown>; renameAccounts?: boolean },
+    userId: number,
+  ): { project: ProjectRow; renamedAccounts: number };
   archive(companyId: number, id: number, userId: number): ProjectRow;
   unarchive(companyId: number, id: number, userId: number): ProjectRow;
+  reorder(companyId: number, ids: number[], userId: number): ProjectRow[];
+  remove(companyId: number, id: number, userId: number): void;
 }
 
 function toRow(r: typeof projects.$inferSelect): ProjectRow {
@@ -56,11 +65,13 @@ export function createProjectsService(d: {
   companies: CompaniesService;
   categories: CategoriesService;
   accounts: AccountsService;
+  references?: ReferencesService;
   timezone: string;
   now?: () => Date;
 }): ProjectsService {
   const { db, audit } = d;
   const now = d.now ?? (() => new Date());
+  const references = d.references ?? createReferencesService();
 
   function requireProject(companyId: number, id: number): ProjectRow {
     const row = db.select().from(projects).where(and(eq(projects.id, id), eq(projects.companyId, companyId))).get();
@@ -147,16 +158,36 @@ export function createProjectsService(d: {
         patch.templateParams = validateParams(template, { ...before.templateParams, ...input.templateParams });
       }
       const changes = changedFields({ name: before.name, templateParams: before.templateParams }, patch);
-      if (!changes) return before;
+      if (!changes) return { project: before, renamedAccounts: 0 };
       const newName = changes.after.name;
       if (newName !== undefined) assertNameFree(companyId, newName, id);
       return mutate(db, audit, (tx, record) => {
         const set: Partial<typeof projects.$inferInsert> = {};
         if (newName !== undefined) set.name = newName;
         if (changes.after.templateParams !== undefined) set.templateParams = JSON.stringify(changes.after.templateParams);
-        const row = toRow(tx.update(projects).set(set).where(eq(projects.id, id)).returning().get());
-        record({ companyId, userId, entity: 'project', entityId: id, action: 'update', diff: changes });
-        return row;
+        const project = toRow(tx.update(projects).set(set).where(eq(projects.id, id)).returning().get());
+        let renamedAccounts = 0;
+        if (input.renameAccounts && newName !== undefined) {
+          // только счета с исходным названием шаблона; изменённые вручную и архивные не трогаем
+          for (const acc of template.defaultAccounts) {
+            const from = acc.name.replaceAll('{project}', () => before.name);
+            const to = acc.name.replaceAll('{project}', () => newName);
+            renamedAccounts += tx
+              .update(accounts)
+              .set({ name: to })
+              .where(and(eq(accounts.companyId, companyId), eq(accounts.projectId, id), eq(accounts.name, from), isNull(accounts.archivedAt)))
+              .run().changes;
+          }
+        }
+        record({
+          companyId,
+          userId,
+          entity: 'project',
+          entityId: id,
+          action: 'update',
+          diff: { ...changes, ...(renamedAccounts ? { renamedAccounts } : {}) },
+        });
+        return { project, renamedAccounts };
       });
     },
 
@@ -182,6 +213,34 @@ export function createProjectsService(d: {
         const out = toRow(tx.update(projects).set({ archivedAt: null }).where(eq(projects.id, id)).returning().get());
         record({ companyId, userId, entity: 'project', entityId: id, action: 'unarchive' });
         return out;
+      });
+    },
+
+    reorder(companyId, ids, userId) {
+      d.companies.require(companyId, { writable: true });
+      const current = svc.list(companyId).map((p) => p.id);
+      assertSameSet(current, ids);
+      if (!isSameOrder(current, ids)) {
+        mutate(db, audit, (tx, record) => {
+          ids.forEach((projectId, i) => tx.update(projects).set({ orderIndex: i }).where(eq(projects.id, projectId)).run());
+          record({ companyId, userId, entity: 'project', action: 'reorder', diff: { ids } });
+        });
+      }
+      return svc.list(companyId);
+    },
+
+    remove(companyId, id, userId) {
+      d.companies.require(companyId, { writable: true });
+      const row = requireProject(companyId, id);
+      if (d.accounts.countByProject(companyId, id) > 0) {
+        throw new AppError(422, 'IN_USE', 'У проекта есть счета — удалите их или переведите проект в архив');
+      }
+      if (references.countOperations('project', id) > 0) {
+        throw new AppError(422, 'INVARIANT_9', 'На проект ссылаются операции — его можно только перевести в архив');
+      }
+      mutate(db, audit, (tx, record) => {
+        tx.delete(projects).where(eq(projects.id, id)).run();
+        record({ companyId, userId, entity: 'project', entityId: id, action: 'delete', diff: { name: row.name, templateKey: row.templateKey } });
       });
     },
   };

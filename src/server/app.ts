@@ -99,7 +99,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const accounts = createAccountsService({ db, audit, references, balances, timezone: config.timezone, now });
   const companies = createCompaniesService({ db, audit, categories, accounts, now });
   registerCompaniesRoutes(app, { companies });
-  const projects = createProjectsService({ db, audit, companies, categories, accounts, timezone: config.timezone, now });
+  const projects = createProjectsService({ db, audit, companies, categories, accounts, references, timezone: config.timezone, now });
   registerTemplatesRoutes(app);
   registerProjectsRoutes(app, { projects });
   registerCategoriesRoutes(app, { categories, companies });

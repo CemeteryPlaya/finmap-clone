@@ -10,4 +10,9 @@ export const projectCreateSchema = z.object({
   templateParams: params.default({}),
 });
 
-export const projectUpdateSchema = z.object({ name: name.optional(), templateParams: params.optional() });
+export const projectUpdateSchema = z.object({
+  name: name.optional(),
+  templateParams: params.optional(),
+  /** Переименовать счета шаблона («Касса {старое}» → «Касса {новое}»). */
+  renameAccounts: z.boolean().optional(),
+});

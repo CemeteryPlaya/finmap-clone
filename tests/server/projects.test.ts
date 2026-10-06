@@ -25,7 +25,11 @@ describe('projects API', () => {
     const { req } = await setup();
     const res = await req('GET', '/api/v1/templates');
     expect(res.json().templates.map((x: { key: string }) => x.key)).toEqual(['computer-club', 'general']);
+    for (const tpl of res.json().templates) {
+      expect(Object.keys(tpl).sort()).toEqual(['defaultAccounts', 'integrations', 'key', 'name', 'paramsUi']);
+    }
     expect(res.json().templates[0].paramsUi[0]).toEqual({ key: 'pcCount', label: 'Количество ПК', type: 'int' });
+    expect(res.json().templates[0].defaultAccounts).toEqual(['Касса {project}', 'Kaspi {project}']);
   });
 
   it('создание клуба применяет шаблон: статьи, счета KZT с projectId, история', async () => {
