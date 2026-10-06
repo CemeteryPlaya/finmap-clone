@@ -64,7 +64,7 @@
   - ссылки той же компании и не архивные — только при сохранении строк, правка одного имени их не перепроверяет (инвариант 10).
 - **Смена порядка** (`POST …/reorder`, тело `{ ids }`). `ids` — полный список элементов группы в новом порядке:
   - для счетов, проектов, контрагентов, тегов и шаблонов разделения группа = все элементы компании;
-  - для статей группа = дети одного родителя одного вида, плюс статьи, которые туда переносятся.
+  - для статей группа = дети одного родителя одного вида, плюс не больше одной статьи, явно названной в поле `moving` (её переносят сюда). Любой другой id не из группы означает устаревший экран → 409.
 
   Если список устарел или содержит повторы → 409 `VERSION_CONFLICT` «Список изменился — обновите страницу и повторите». Если порядок не изменился, запись и история не делаются.
 - **История.** Каждое изменение справочника и его запись в историю выполняются в одной транзакции (`mutate`). `PATCH` без реальных изменений возвращает 200 и не пишет историю. В `diff` правки попадают только изменённые поля: `{ before: {...}, after: {...} }`.
@@ -1355,6 +1355,7 @@ describe('accounts API', () => {
     const res = await h.req('POST', base(cid), { name: '\u200B', currency: 'XXX', startingBalance: 1.5, openedAt: '2026-02-31' });
     expect(res.statusCode).toBe(400);
     expect(Object.keys(res.json().error.fields).sort()).toEqual(['currency', 'name', 'openedAt', 'startingBalance']);
+    expect(res.json().error.fields.startingBalance).toBe('Сумма в минимальных единицах — целое число');
     const huge = await h.req('POST', base(cid), { ...kaspi, startingBalance: 2 ** 60 });
     expect(huge.json().error.fields.startingBalance).toBe('Слишком большая сумма');
   });
@@ -2376,7 +2377,7 @@ export interface CategoriesService {
   listTree(companyId: number): { income: CategoryNodeDto[]; expense: CategoryNodeDto[] };
   add(companyId: number, input: { kind: CategoryKind; name: string; parentId: number | null }, userId: number): CategoryRow;
   rename(companyId: number, id: number, name: string, userId: number): CategoryRow;
-  /** Новый порядок детей parentId (null — верхний уровень) дерева kind; статьи из других мест переносятся сюда. */
+  /** Новый порядок детей parentId (null — верхний уровень) дерева kind; moving — единственная статья, переносимая сюда из другого места. */
   move(companyId: number, input: { kind: CategoryKind; parentId: number | null; ids: number[]; moving?: number | null }, userId: number): void;
   archive(companyId: number, id: number, userId: number): CategoryRow;
   unarchive(companyId: number, id: number, userId: number): CategoryRow;
@@ -5216,7 +5217,7 @@ export function parseAmount(text: string, minorUnits: number): number | null {
   return m[1] === '-' && value !== 0 ? -value : value;
 }
 
-/** Минимальные единицы → «1 500,50»: разряды через узкий неразрывный пробел, минус — «\u2212». */
+/** Минимальные единицы → «1 500,50»: разряды через узкий неразрывный пробел, отрицательные — со знаком минус U+2212. */
 export function formatAmount(minor: number, minorUnits: number): string {
   const abs = String(Math.abs(minor)).padStart(minorUnits + 1, '0');
   const int = minorUnits > 0 ? abs.slice(0, -minorUnits) : abs;
