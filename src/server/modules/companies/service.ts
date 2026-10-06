@@ -1,7 +1,7 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, count, eq } from 'drizzle-orm';
 import { cleanName } from '../../../shared/text';
 import type { Db } from '../../db/client';
-import { companies } from '../../db/schema';
+import { companies, fixedRates, operations } from '../../db/schema';
 import { AppError } from '../../errors';
 import type { AccountsService } from '../accounts/service';
 import { changedFields, mutate } from '../audit/mutate';
@@ -63,6 +63,14 @@ export function createCompaniesService(d: {
       const patch = { ...input, ...(input.name !== undefined ? { name: cleanName(input.name) } : {}) };
       const changes = changedFields({ name: before.name, baseCurrency: before.baseCurrency }, patch);
       if (!changes) return before; // пустой или ничего не меняющий PATCH
+      if (changes.after.baseCurrency !== undefined) {
+        // §4.2: базовая валюта неизменна, если есть хотя бы одна операция (включая удалённые) или фиксированный курс
+        const ops = db.select({ n: count() }).from(operations).where(eq(operations.companyId, id)).get()?.n ?? 0;
+        const fixed = db.select({ n: count() }).from(fixedRates).where(eq(fixedRates.companyId, id)).get()?.n ?? 0;
+        if (ops + fixed > 0) {
+          throw new AppError(422, 'CURRENCY_LOCKED', 'В компании есть операции или фиксированные курсы — базовую валюту изменить нельзя');
+        }
+      }
       return mutate(db, audit, (tx, record) => {
         const row = tx.update(companies).set(changes.after).where(eq(companies.id, id)).returning().get();
         record({ companyId: id, userId, entity: 'company', entityId: id, action: 'update', diff: changes });
