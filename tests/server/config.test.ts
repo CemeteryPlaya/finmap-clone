@@ -11,6 +11,17 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...base, APP_TIMEZONE: 'UTC' }).timezone).toBe('UTC');
   });
 
+  it('ошибка APP_TIMEZONE — без двойного префикса', () => {
+    let message = '';
+    try {
+      loadConfig({ ...base, APP_TIMEZONE: 'Mars/Olympus' });
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toContain('APP_TIMEZONE: неизвестный часовой пояс');
+    expect(message).not.toContain('APP_TIMEZONE: APP_TIMEZONE');
+  });
+
   it('применяет значения по умолчанию', () => {
     const c = loadConfig(base);
     expect(c.appName).toBe('Учёт');

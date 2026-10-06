@@ -45,7 +45,7 @@ const envSchema = z.object({
       } catch {
         return false;
       }
-    }, 'APP_TIMEZONE: неизвестный часовой пояс'),
+    }, 'неизвестный часовой пояс'),
   HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().int().min(0).max(65535).default(3000),
   PUBLIC_URL: optional,

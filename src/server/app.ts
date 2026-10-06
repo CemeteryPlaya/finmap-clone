@@ -27,6 +27,7 @@ import { createCompaniesService } from './modules/companies/service';
 import { createUsersService } from './modules/users/service';
 import { resolveClientIp } from './security/client-ip';
 import { registerCsrf } from './security/csrf';
+import { installZodRu } from '../shared/zod-ru';
 
 export interface AppDeps {
   config: Config;
@@ -41,6 +42,7 @@ export interface AppDeps {
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
+  installZodRu();
   const { config, db } = deps;
   const now = deps.now ?? (() => new Date());
   const app = Fastify({ logger: deps.logger ?? false, trustProxy: 'loopback', bodyLimit: 1024 * 1024 });

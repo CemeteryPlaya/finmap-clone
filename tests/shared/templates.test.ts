@@ -62,3 +62,12 @@ describe('шаблоны', () => {
     expect(t.metrics).toEqual([]);
   });
 });
+
+describe('computer-club: границы параметров', () => {
+  it('pcCount и consoleCount не больше 1000', () => {
+    const params = getTemplate('computer-club')!.params;
+    expect(params.safeParse({ pcCount: 1000, consoleCount: 1000 }).success).toBe(true);
+    expect(params.safeParse({ pcCount: 1001 }).error?.issues[0]?.message).toBe('Не больше 1000');
+    expect(params.safeParse({ pcCount: 1, consoleCount: 1001 }).error?.issues[0]?.message).toBe('Не больше 1000');
+  });
+});

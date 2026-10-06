@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { todayInTimezone } from '../../src/shared/dates';
+import { isValidDate, todayInTimezone } from '../../src/shared/dates';
 
 describe('todayInTimezone', () => {
   it('возвращает календарную дату в указанном поясе', () => {
@@ -11,5 +11,18 @@ describe('todayInTimezone', () => {
   it('23:30 в Алматы остаётся тем же календарным днём', () => {
     // 18:30 UTC 5 октября = 23:30 5 октября в Алматы (UTC+5)
     expect(todayInTimezone('Asia/Almaty', new Date('2026-10-05T18:30:00.000Z'))).toBe('2026-10-05');
+  });
+});
+
+describe('isValidDate', () => {
+  it('формат YYYY-MM-DD и существующая календарная дата', () => {
+    expect(isValidDate('2026-10-06')).toBe(true);
+    expect(isValidDate('2024-02-29')).toBe(true);
+    expect(isValidDate('2026-02-29')).toBe(false);
+    expect(isValidDate('2026-02-31')).toBe(false);
+    expect(isValidDate('2026-13-01')).toBe(false);
+    expect(isValidDate('2026-00-10')).toBe(false);
+    expect(isValidDate('2026-1-01')).toBe(false);
+    expect(isValidDate('06.10.2026')).toBe(false);
   });
 });

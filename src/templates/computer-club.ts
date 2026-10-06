@@ -7,8 +7,8 @@ export const computerClub: BusinessTemplate = {
   key: 'computer-club',
   name: 'Компьютерный клуб',
   params: z.object({
-    pcCount: z.number({ message: 'Введите число' }).int('Целое число').min(1, 'Не меньше 1'),
-    consoleCount: z.number({ message: 'Введите число' }).int('Целое число').min(0, 'Не меньше 0').default(0),
+    pcCount: z.number({ message: 'Введите число' }).int('Целое число').min(1, 'Не меньше 1').max(1000, 'Не больше 1000'),
+    consoleCount: z.number({ message: 'Введите число' }).int('Целое число').min(0, 'Не меньше 0').max(1000, 'Не больше 1000').default(0),
   }),
   paramsUi: [
     { key: 'pcCount', label: 'Количество ПК', type: 'int' },

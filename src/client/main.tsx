@@ -4,7 +4,10 @@ import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router';
 import { queryClient } from './lib/query';
 import { router } from './router';
+import { installZodRu } from '../shared/zod-ru';
 import './styles.css';
+
+installZodRu();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { nameField } from '../text';
 
-const name = z.string().trim().min(1, 'Введите название').max(100, 'Не длиннее 100 символов');
+const name = nameField(100);
 const params = z.record(z.string(), z.unknown());
 
 export const projectCreateSchema = z.object({

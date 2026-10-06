@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import { foldCase } from '../../shared/search';
 import * as schema from './schema';
 
 export type Sqlite = Database.Database;
@@ -10,7 +11,7 @@ export type Executor = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
 
 export function ulower(value: unknown): string | null {
   if (value === null || value === undefined) return null;
-  return String(value).toLocaleLowerCase('ru').replaceAll('ё', 'е');
+  return foldCase(String(value));
 }
 
 export function openDb(filePath: string): { sqlite: Sqlite; db: Db } {
