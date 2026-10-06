@@ -1,6 +1,7 @@
 import { keepPreviousData, useInfiniteQuery, useQuery, type InfiniteData } from '@tanstack/react-query';
 import { api, type ApiError } from './api';
 import type { CounterpartyType } from '../../shared/system-categories';
+import { queryClient } from './query';
 
 export interface Company {
   id: number;
@@ -215,4 +216,17 @@ export interface BackupStatus {
 
 export function useBackupStatus() {
   return useQuery<BackupStatus, ApiError>({ queryKey: ['backup-status'], queryFn: () => api<BackupStatus>('/backup/status') });
+}
+
+export function usePreferences() {
+  return useQuery<Record<string, unknown>, ApiError>({
+    queryKey: ['preferences'],
+    queryFn: async () => (await api<{ preferences: Record<string, unknown> }>('/preferences')).preferences,
+    staleTime: Infinity,
+  });
+}
+
+export async function savePreference(key: string, value: unknown): Promise<void> {
+  await api(`/preferences/${encodeURIComponent(key)}`, { method: 'PUT', body: { value } });
+  queryClient.setQueryData<Record<string, unknown>>(['preferences'], (old) => ({ ...(old ?? {}), [key]: value }));
 }

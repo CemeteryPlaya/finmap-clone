@@ -1,12 +1,29 @@
 import { Link, useNavigate } from 'react-router';
 import { AppHeader } from '../components/AppHeader';
 import { CompanyForm } from '../components/CompanyForm';
+import { LoadError } from '../components/LoadError';
 import { useCompanies } from '../lib/queries';
 
 export function NewCompanyPage() {
   const navigate = useNavigate();
   const companies = useCompanies();
-  const all = companies.data ?? [];
+
+  if (!companies.data) {
+    return (
+      <div className="min-h-dvh bg-chrome">
+        <AppHeader />
+        <main className="mx-auto mt-8 max-w-md rounded-3xl bg-card p-8">
+          {companies.error ? (
+            <LoadError message={companies.error.message} onRetry={() => void companies.refetch()} />
+          ) : (
+            <div className="text-muted">Загрузка…</div>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  const all = companies.data;
   const hasActive = all.some((c) => !c.archivedAt);
   const archived = all.find((c) => c.archivedAt);
   return (

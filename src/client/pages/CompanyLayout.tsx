@@ -1,8 +1,9 @@
+import { useEffect } from 'react';
 import { Navigate, NavLink, Outlet, useParams } from 'react-router';
 import { AppHeader } from '../components/AppHeader';
-import { LoadError } from '../components/LoadError';
 import { CompanySwitcher } from '../components/CompanySwitcher';
-import { useCompanies, type Company } from '../lib/queries';
+import { LoadError } from '../components/LoadError';
+import { savePreference, useCompanies, usePreferences, type Company } from '../lib/queries';
 
 export interface CompanyOutletContext {
   company: Company;
@@ -14,11 +15,21 @@ const tab = ({ isActive }: { isActive: boolean }) =>
 export function CompanyLayout() {
   const { companyId } = useParams();
   const companies = useCompanies();
+  const prefs = usePreferences();
+  const company = companies.data?.find((c) => String(c.id) === companyId);
+  const currentId = company?.id;
+  const savedId = prefs.data?.lastCompanyId;
+
+  // запоминаем последнюю открытую компанию; сбой не критичен — стартовый экран откроет первую активную
+  useEffect(() => {
+    if (currentId === undefined || prefs.data === undefined || savedId === currentId) return;
+    savePreference('lastCompanyId', currentId).catch(() => undefined);
+  }, [currentId, savedId, prefs.data]);
+
   if (!companies.data) {
     if (companies.error) return <LoadError message={companies.error.message} onRetry={() => void companies.refetch()} />;
     return <div className="p-8 text-muted">Загрузка…</div>;
   }
-  const company = companies.data.find((c) => String(c.id) === companyId);
   if (!company) return <Navigate to="/" replace />;
 
   return (
