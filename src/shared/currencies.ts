@@ -55,3 +55,7 @@ export function getCurrency(code: string): CurrencyDef {
   if (!c) throw new Error(`Неизвестная валюта: ${code}`);
   return c;
 }
+
+export function isKnownCurrency(code: string): boolean {
+  return byCode.has(code);
+}
