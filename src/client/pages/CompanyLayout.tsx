@@ -23,7 +23,10 @@ export function CompanyLayout() {
 
   return (
     <div className="min-h-dvh bg-chrome">
-      <AppHeader left={<CompanySwitcher current={company} companies={companies.data} />} />
+      <AppHeader
+        left={<CompanySwitcher current={company} companies={companies.data} />}
+        profileHref={`/c/${company.id}/settings/profile`}
+      />
       <main className="mx-4 min-h-[calc(100dvh-5rem)] rounded-t-3xl bg-card p-6 md:p-8">
         <nav className="mb-6 flex gap-2">
           <NavLink to={`/c/${company.id}/log`} className={tab}>

@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router';
 
-/** Разделы настроек по порядку; «Компании» всегда последние. */
+/** Разделы настроек по порядку: справочники компании, затем общие для экземпляра. */
 const SECTIONS: readonly { path: string; label: string }[] = [
   { path: 'projects', label: 'Проекты' },
   { path: 'accounts', label: 'Счета' },
@@ -9,6 +9,8 @@ const SECTIONS: readonly { path: string; label: string }[] = [
   { path: 'tags', label: 'Теги' },
   { path: 'split-presets', label: 'Шаблоны разделения' },
   { path: 'companies', label: 'Компании' },
+  { path: 'users', label: 'Пользователи' },
+  { path: 'profile', label: 'Профиль' },
 ];
 
 const link = ({ isActive }: { isActive: boolean }) =>

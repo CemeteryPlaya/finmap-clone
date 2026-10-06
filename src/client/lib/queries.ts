@@ -155,3 +155,18 @@ export function useSplitPresets(companyId: number) {
     queryFn: async () => (await api<{ splitPresets: SplitPreset[] }>(`/companies/${companyId}/split-presets`)).splitPresets,
   });
 }
+
+export interface AppUser {
+  id: number;
+  login: string;
+  name: string;
+  createdAt: string;
+  disabledAt: string | null;
+}
+
+export function useUsers() {
+  return useQuery<AppUser[], ApiError>({
+    queryKey: ['users'],
+    queryFn: async () => (await api<{ users: AppUser[] }>('/users')).users,
+  });
+}

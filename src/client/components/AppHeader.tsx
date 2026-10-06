@@ -1,10 +1,10 @@
 import { useMutation } from '@tanstack/react-query';
 import { useEffect, type ReactNode } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { api } from '../lib/api';
 import { queryClient, useMe, useMeta } from '../lib/query';
 
-export function AppHeader({ left }: { left?: ReactNode }) {
+export function AppHeader({ left, profileHref }: { left?: ReactNode; profileHref?: string }) {
   const me = useMe();
   const meta = useMeta();
   const navigate = useNavigate();
@@ -27,7 +27,13 @@ export function AppHeader({ left }: { left?: ReactNode }) {
         {left}
       </div>
       <div className="flex shrink-0 items-center gap-4">
-        <span className="text-sm text-white/70">{me.data?.user.name}</span>
+        {profileHref ? (
+          <Link to={profileHref} className="text-sm text-white/70 underline-offset-4 hover:text-white hover:underline">
+            {me.data?.user.name}
+          </Link>
+        ) : (
+          <span className="text-sm text-white/70">{me.data?.user.name}</span>
+        )}
         <button onClick={() => logout.mutate()} className="rounded-xl bg-chrome-2 px-4 py-2 text-sm hover:bg-white/10">
           Выйти
         </button>
