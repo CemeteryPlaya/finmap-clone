@@ -1275,7 +1275,9 @@ describe('companies API', () => {
     expect(res.json().company).toMatchObject({ name: 'Б', baseCurrency: 'USD' });
     expect((await req('PATCH', '/api/v1/companies/999', { name: 'X' })).statusCode).toBe(404);
     expect((await req('PATCH', '/api/v1/companies/abc', { name: 'X' })).statusCode).toBe(404);
-    expect((await req('PATCH', '/api/v1/companies/1e2', { name: 'X' })).statusCode).toBe(404);
+    // Number() превратил бы эти строки в существующий id — строгий parseId обязан дать 404
+    expect((await req('PATCH', `/api/v1/companies/${company.id}e0`, { name: 'X' })).statusCode).toBe(404);
+    expect((await req('PATCH', `/api/v1/companies/${company.id}.0`, { name: 'X' })).statusCode).toBe(404);
     const empty = await req('PATCH', `/api/v1/companies/${company.id}`, {});
     expect(empty.statusCode).toBe(200);
     expect(empty.json().company).toMatchObject({ name: 'Б', baseCurrency: 'USD' });
@@ -1566,13 +1568,14 @@ git commit -m "feat: компании — создание с системным
 `tests/server/projects.test.ts`:
 
 ```ts
+import type { LightMyRequestResponse } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createTestApp, loginAs, ORIGIN_HEADERS, seedUser, type TestApp } from '../helpers/test-app';
 
 let t: TestApp;
 afterEach(async () => t?.cleanup());
 
-type Req = (method: 'GET' | 'POST' | 'PATCH', url: string, payload?: object) => ReturnType<TestApp['app']['inject']>;
+type Req = (method: 'GET' | 'POST' | 'PATCH', url: string, payload?: object) => Promise<LightMyRequestResponse>;
 
 async function setup(now?: string) {
   t = await createTestApp({}, undefined, now ? () => new Date(now) : undefined);
@@ -2606,7 +2609,8 @@ git commit -m "feat: интерфейс компаний — первая ком
 ```ts
 test('проекты по шаблонам: клуб и общий', async ({ page }) => {
   await login(page);
-  const cid = await createCompany(page, `ТОО Клубы ${Date.now()}`);
+  const companyName = `ТОО Клубы ${Date.now()}`;
+  const cid = await createCompany(page, companyName);
 
   await page.getByRole('link', { name: 'Настройки' }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/projects$`));
@@ -2643,7 +2647,7 @@ test('проекты по шаблонам: клуб и общий', async ({ pa
   await page.getByRole('link', { name: 'Компании' }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/companies$`));
   const renamed = `ТОО Клубы переим ${Date.now()}`;
-  const companyRow = page.getByRole('listitem').filter({ has: page.locator(`input[value^="ТОО Клубы"]`) }).first();
+  const companyRow = page.getByRole('listitem').filter({ has: page.locator(`input[value="${companyName}"]`) });
   await companyRow.getByLabel('Название').fill(renamed);
   await companyRow.getByRole('button', { name: 'Сохранить' }).click();
   await expect(page.getByRole('button', { name: 'Сменить компанию' })).toContainText(renamed);
