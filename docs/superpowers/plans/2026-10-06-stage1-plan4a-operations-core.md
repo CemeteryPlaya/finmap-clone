@@ -60,7 +60,7 @@
 - **Коды ошибок:** нарушение 7 — `ARCHIVED_REFERENCE`; остальных — `INVARIANT_<n>`; устаревшая версия — 409 `VERSION_CONFLICT`; нет курса — 422 `RATE_UNAVAILABLE`; смена валюты при операциях — 422 `CURRENCY_LOCKED`.
 - **Перевод:** строк 0 или 1 (только проект, без статьи, сумма = `amount`); контрагента нет. **Доход/расход:** счёта зачисления и `toAmount` нет.
 - **Пересчёт** `rate` и `baseAmount` — при создании и при изменении `paidAt`, `amount`, `accountId`, `toAccountId`, `toAmount`; при правке других полей значения не меняются.
-- **Баланс счёта** = `startingBalance` + поступления \- списания по операциям со `status = 'actual'` и `deletedAt IS NULL`; перевод уменьшает исходный счёт на `amount`, увеличивает целевой на `toAmount`.
+- **Баланс счёта** = `startingBalance` + поступления - списания по операциям со `status = 'actual'` и `deletedAt IS NULL`; перевод уменьшает исходный счёт на `amount`, увеличивает целевой на `toAmount`.
 - **Ссылки (инвариант 9)** считают и мягко удалённые операции. `earliestOperationDate` — по неудалённым (удалённая операция при восстановлении снова проверяет `openedAt`, инвариант 11).
 - **«Всего на счетах»** — сумма балансов неархивных счетов в базовой валюте по курсу на сегодня; валюты без курса не входят в итог и перечисляются в `unavailable`.
 - **Изоляция:** объект другой компании → 404. Архивная компания — только чтение (422 `ARCHIVED_REFERENCE`).
@@ -604,7 +604,7 @@ describe('rates: определение курса (§4.3)', () => {
     expect(svc.resolve(cid, 'KZT', 'KZT', '2026-10-06')).toEqual({ rate: DEC_ONE, display: '1' });
   });
 
-  it('ручной курс на D действует на D…D+7, не действует на D\-1 и D+8', () => {
+  it('ручной курс на D действует на D…D+7, не действует на D-1 и D+8', () => {
     const { svc, cid } = setup();
     svc.addManual({ date: '2026-10-01', currency: 'USD', rate: '475,12' }, 1);
     expect(svc.resolve(cid, 'KZT', 'USD', '2026-10-01').display).toBe('475.12');
@@ -627,8 +627,9 @@ describe('rates: определение курса (§4.3)', () => {
     svc.addManual({ date: '2026-10-06', currency: 'EUR', rate: '520' }, 1);
     expect(svc.resolve(cid, 'USD', 'KZT', '2026-10-06').display).toBe('0.002105263158');
     expect(svc.resolve(cid, 'USD', 'EUR', '2026-10-06').display).toBe('1.094736842');
-    // нет курса базовой валюты к тенге — сообщение называет её
-    expect(unavailable(() => svc.resolve(cid, 'USD', 'EUR', '2026-10-20'))).toBe('Нет курса EUR на 20.10.2026');
+    // курс EUR на 20.10 есть, а базовой USD к тенге — нет (последний 06.10, старше 7 дней): сообщение называет USD
+    svc.addManual({ date: '2026-10-20', currency: 'EUR', rate: '525' }, 1);
+    expect(unavailable(() => svc.resolve(cid, 'USD', 'EUR', '2026-10-20'))).toBe('Нет курса USD на 20.10.2026');
   });
 
   it('фиксированный курс действует на validFrom и validTo включительно, на validTo+1 — уже нет', () => {
@@ -664,6 +665,7 @@ describe('rates API', () => {
     expect(none.statusCode).toBe(422);
     expect(none.json().error).toMatchObject({ code: 'RATE_UNAVAILABLE', message: 'Нет курса USD на 15.10.2026' });
     expect((await h.req('GET', '/api/v1/rates?date=2026-02-31&currency=USD')).statusCode).toBe(400);
+    expect((await h.req('GET', '/api/v1/rates?date=2026-10-15&currency=KZT')).json().rate).toMatchObject({ rateToKzt: '1', source: 'base' });
   });
 
   it('ручные курсы: создание, дубль даты, тенге, правка, удаление, история без компании', async () => {
@@ -793,7 +795,7 @@ export interface RatesService {
   /** Курс валюты currency к базовой валюте компании на календарную дату (§4.3). 422 RATE_UNAVAILABLE, если курса нет. */
   resolve(companyId: number, baseCurrency: string, currency: string, date: string): { rate: Dec; display: string };
   /** Курс к тенге на дату: за эту дату или ближайший предыдущий не старше 7 дней; null — нет. */
-  kztRate(currency: string, date: string): { rate: Dec; date: string; source: 'nbrk' | 'manual' } | null;
+  kztRate(currency: string, date: string): { rate: Dec; date: string; source: 'nbrk' | 'manual' | 'base' } | null;
   listManual(): ManualRateRow[];
   addManual(input: { date: string; currency: string; rate: string }, userId: number): ManualRateRow;
   updateManual(id: number, rate: string, userId: number): ManualRateRow;
@@ -849,7 +851,7 @@ export function createRatesService(d: { db: Db; audit: AuditService; now?: () =>
 
   const svc: RatesService = {
     kztRate(currency, date) {
-      if (currency === 'KZT') return { rate: DEC_ONE, date, source: 'manual' };
+      if (currency === 'KZT') return { rate: DEC_ONE, date, source: 'base' }; // тенге к тенге — всегда 1, без записи в таблице
       const row = db
         .select()
         .from(exchangeRates)
@@ -1354,10 +1356,16 @@ describe('operations: создание', () => {
     );
   });
 
-  it('проверка тела: дата без часового пояса, нулевая и дробная сумма, неизвестный тип — 400; чужая компания — 404', async () => {
+  it('проверка тела: дата без часового пояса и несуществующая дата, нулевая и дробная сумма, неизвестный тип — 400; чужая компания — 404', async () => {
     w = await opsWorld();
     const base = { type: 'income', paidAt: '2026-10-05T10:00:00Z', accountId: w.kzt, amount: 100 };
-    for (const body of [{ ...base, paidAt: '2026-10-05T10:00:00' }, { ...base, amount: 0 }, { ...base, amount: 1.5 }, { ...base, type: 'gift' }]) {
+    for (const body of [
+      { ...base, paidAt: '2026-10-05T10:00:00' },
+      { ...base, paidAt: '2026-09-31T10:00:00Z' },
+      { ...base, amount: 0 },
+      { ...base, amount: 1.5 },
+      { ...base, type: 'gift' },
+    ]) {
       expect((await create(body)).statusCode).toBe(400);
     }
     const op = (await create(base)).json().operation;
@@ -1390,7 +1398,9 @@ const money = z
   .refine(Number.isSafeInteger, 'Слишком большая сумма');
 /** ISO-дата и время с часовым поясом: без пояса момент зависел бы от часов сервера. */
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
-const paidAt = z.string().refine((s) => ISO_RE.test(s) && !Number.isNaN(Date.parse(s)), 'Неверные дата и время оплаты');
+const paidAt = z
+  .string()
+  .refine((s) => ISO_RE.test(s) && isValidDate(s.slice(0, 10)) && !Number.isNaN(Date.parse(s)), 'Неверные дата и время оплаты');
 const accrualDate = z.string().refine(isValidDate, 'Неверная дата').nullable();
 const comment = z
   .string()
@@ -1907,6 +1917,25 @@ describe('operations: правка, удаление, восстановлени
     fail(await w.h.req('POST', `${w.ops}/${early.id}/restore`), 422, 'INVARIANT_6');
   });
 
+  it('перевод: те же сумма и счета в PATCH не сбрасывают сумму зачисления — и на архивном счёте, и между валютами', async () => {
+    w = await opsWorld();
+    // KZT → USD: сумма зачисления задана явно, PATCH с той же суммой и комментарием
+    const fx = await create({ type: 'transfer', paidAt: '2026-10-05T10:00:00Z', accountId: w.kzt, toAccountId: w.usd, amount: 47512, toAmount: 100 });
+    const fxRes = await patch(fx.id, { version: 1, amount: 47512, accountId: w.kzt, toAccountId: w.usd, comment: 'обмен' });
+    expect(fxRes.statusCode).toBe(200);
+    expect(fxRes.json().operation).toMatchObject({ toAmount: 100, comment: 'обмен', baseAmount: 47512 });
+
+    // перевод со счёта, ушедшего в архив: те же значения в PATCH — не правка суммы и счетов
+    const safe = (await w.post(accountsUrl(), { name: 'Сейф', currency: 'KZT', openedAt: '2026-10-01' })).account.id;
+    await create({ type: 'income', paidAt: '2026-10-02T10:00:00Z', accountId: safe, amount: 100 });
+    const tr = await create({ type: 'transfer', paidAt: '2026-10-03T10:00:00Z', accountId: safe, toAccountId: w.kzt, amount: 100 });
+    await w.post(`${accountsUrl()}/${safe}/archive`, {});
+    const same = await patch(tr.id, { version: 1, amount: 100, accountId: safe, toAccountId: w.kzt, comment: 'сверка' });
+    expect(same.statusCode).toBe(200);
+    expect(same.json().operation).toMatchObject({ toAmount: 100, comment: 'сверка' });
+    fail(await patch(tr.id, { version: 2, amount: 90 }), 422, 'ARCHIVED_REFERENCE');
+  });
+
   it('новый выбор архивного при правке запрещён, уже выбранный архивный остаётся', async () => {
     w = await opsWorld();
     const op = await create({ type: 'income', paidAt: '2026-10-05T10:00:00Z', accountId: w.kzt, amount: 100, counterpartyId: w.counterparty });
@@ -1998,17 +2027,22 @@ const MONEY_FIELDS = ['paidAt', 'amount', 'accountId', 'toAccountId', 'toAmount'
       if (patch.amount !== undefined && patch.lines === undefined && prev.lines.length === 1) {
         next.lines = [{ ...prev.lines[0]!, amount: next.amount }];
       }
-      // перевод: сумма зачисления при одной валюте пересчитывается в check() из новой суммы
-      if (next.type === 'transfer' && patch.toAmount === undefined && (patch.amount !== undefined || patch.accountId !== undefined || patch.toAccountId !== undefined)) {
+      // перевод: при реальной смене суммы или счетов сумма зачисления при одной валюте пересчитывается в check();
+      // те же значения в PATCH (форма шлёт поля целиком) ничего не сбрасывают
+      if (
+        next.type === 'transfer' &&
+        patch.toAmount === undefined &&
+        (next.amount !== prev.amount || next.accountId !== prev.accountId || next.toAccountId !== prev.toAccountId)
+      ) {
         next.toAmount = null;
       }
 
+      const c = check(companyId, next, prev);
+      // инвариант 7: на нормализованном черновике — сравниваются реальные значения, а не присутствие полей в PATCH
       const locked = archivedAccountOf(current);
-      if (locked && MONEY_FIELDS.some((f) => JSON.stringify(next[f] ?? null) !== JSON.stringify(prev[f] ?? null))) {
+      if (locked && MONEY_FIELDS.some((f) => JSON.stringify(c.draft[f] ?? null) !== JSON.stringify(prev[f] ?? null))) {
         throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — сумму, дату и счета менять нельзя`);
       }
-
-      const c = check(companyId, next, prev);
       const changes = changedFields(prev, c.draft);
       if (!changes) return current;
       const recalc = MONEY_FIELDS.some((f) => f in changes.after);
@@ -2152,7 +2186,7 @@ const create = async (body: object) => {
 const accountsUrl = () => `/api/v1/companies/${w.cid}/accounts`;
 
 describe('ledger: балансы и ссылки операций', () => {
-  it('баланс: старт + доходы \- расходы, перевод между валютами, удалённые не считаются; совпадает с пересчётом в JS (Review Focus 5)', async () => {
+  it('баланс: старт + доходы - расходы, перевод между валютами, удалённые не считаются; совпадает с пересчётом в JS (Review Focus 5)', async () => {
     w = await opsWorld();
     await w.h.req('PATCH', `${accountsUrl()}/${w.kzt}`, { startingBalance: 100000 });
     await create({ type: 'income', paidAt: '2026-10-02T10:00:00Z', accountId: w.kzt, amount: 50000 });
@@ -2192,6 +2226,19 @@ describe('ledger: балансы и ссылки операций', () => {
     const arch = await w.h.req('POST', `${accountsUrl()}/${w.kzt}/archive`);
     expect(arch.statusCode).toBe(422);
     expect(arch.json().error.message).toBe('Счёт можно перевести в архив только при нулевом балансе');
+  });
+
+  it('баланс архивного счёта остаётся нулевым: правка допустимых полей его не меняет', async () => {
+    w = await opsWorld();
+    const safe = (await w.post(accountsUrl(), { name: 'Сейф', currency: 'KZT', openedAt: '2026-10-01' })).account.id;
+    const inc = await create({ type: 'income', paidAt: '2026-10-02T10:00:00Z', accountId: safe, amount: 100 });
+    await create({ type: 'expense', paidAt: '2026-10-03T10:00:00Z', accountId: safe, amount: 100 });
+    await w.post(`${accountsUrl()}/${safe}/archive`, {});
+    expect((await w.h.req('PATCH', `${w.ops}/${inc.id}`, { version: 1, comment: 'сверка', accrualDate: '2026-09-01' })).statusCode).toBe(200);
+    expect((await w.h.req('PATCH', `${w.ops}/${inc.id}`, { version: 2, amount: 50 })).statusCode).toBe(422);
+    expect((await w.h.req('DELETE', `${w.ops}/${inc.id}`)).statusCode).toBe(422);
+    const ledger = createLedgerBalances(w.h.t.db);
+    expect(ledger.companyBalances(w.cid).find((b) => b.accountId === safe)).toMatchObject({ balance: 0, archived: true });
   });
 
   it('инвариант 9: на что ссылается операция (даже удалённая), то удалить нельзя; неиспользуемое — можно', async () => {
@@ -2328,7 +2375,7 @@ export interface LedgerBalances extends BalancesService {
 }
 
 /**
- * Баланс = startingBalance + поступления \- списания по фактическим неудалённым операциям (§4.7).
+ * Баланс = startingBalance + поступления - списания по фактическим неудалённым операциям (§4.7).
  * Перевод уменьшает исходный счёт на amount и увеличивает целевой на toAmount.
  */
 export function createLedgerBalances(db: Db): LedgerBalances {
@@ -2485,7 +2532,9 @@ describe('balances API', () => {
 
   it('неизвестная компания — 404', async () => {
     w = await opsWorld();
-    expect((await w.h.req('GET', '/api/v1/companies/999/balances')).statusCode).toBe(404);
+    const res = await w.h.req('GET', '/api/v1/companies/999/balances');
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.message).toBe('Компания не найдена'); // ответ маршрута, а не «маршрут не найден»
   });
 });
 ```
@@ -2599,7 +2648,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 | Ручной курс на D: действует на D…D+7, не влияет на соседние даты; не перезаписывается | Task 3 |
 | Фиксированный курс на `validFrom` и `validTo` включительно, на `validTo + 1` — нет; пересечения отклоняются | Task 3 |
 | Сервис операций: CRUD и инварианты 1–7 по тесту на пункт | Tasks 4, 5 |
-| Инвариант 7 по подправилам (новый выбор, правка, удаление, восстановление, баланс архивного счёта нулевой) | Tasks 4, 5, 6 |
+| Инвариант 7 по подправилам (новый выбор, правка, удаление, восстановление, баланс архивного счёта нулевой) | Tasks 4, 5, 6 (баланс — тест «баланс архивного счёта остаётся нулевым») |
 | Инвариант 11: архивная статья не мешает восстановлению, архивный счёт — мешает | Task 5 |
 | Мягкое удаление и восстановление | Task 5 |
 | Пересчёт `rate` и `baseAmount` при правке | Task 5 |
