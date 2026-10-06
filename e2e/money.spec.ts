@@ -50,18 +50,29 @@ test('левая панель: балансы и итог, переход в ж�
   await expect(page.getByRole('menuitem', { name })).toContainText(/1\s500,00\s₸/);
   await page.keyboard.press('Escape');
 
-  // свернуть — и после перезагрузки панель свёрнута (Review Focus 5)
-  const saved = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/sidebar.collapsed') && r.request().method() === 'PUT');
-  await panel.getByRole('button', { name: 'Свернуть панель счетов' }).click();
-  await saved;
-  await expect(panel.getByRole('link', { name: /^Kaspi/ })).toHaveCount(0);
-  await page.reload();
-  await expect(panel.getByRole('button', { name: 'Развернуть панель счетов' })).toBeVisible();
-  await expect(panel.getByRole('link', { name: /^Kaspi/ })).toHaveCount(0);
+  // настройка общая для пользователя admin и остальных e2e: что бы ни случилось, она должна остаться «развёрнуто»
+  try {
+    // свернуть — и после перезагрузки панель свёрнута (Review Focus 5)
+    const saved = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/sidebar.collapsed') && r.request().method() === 'PUT');
+    await panel.getByRole('button', { name: 'Свернуть панель счетов' }).click();
+    await saved;
+    // фокус остался на той же кнопке (теперь это «Развернуть»)
+    await expect(panel.getByRole('button', { name: 'Развернуть панель счетов' })).toBeFocused();
+    await expect(panel.getByRole('link', { name: /^Kaspi/ })).toHaveCount(0);
+    await page.reload();
+    await expect(panel.getByRole('button', { name: 'Развернуть панель счетов' })).toBeVisible();
+    await expect(panel.getByRole('link', { name: /^Kaspi/ })).toHaveCount(0);
 
-  // развернуть обратно: настройка общая для пользователя admin и остальных e2e
-  const restored = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/sidebar.collapsed') && r.request().method() === 'PUT');
-  await panel.getByRole('button', { name: 'Развернуть панель счетов' }).click();
-  await restored;
-  await expect(panel.getByRole('link', { name: /^Kaspi/ })).toBeVisible();
+    // развернуть обратно
+    const restored = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/sidebar.collapsed') && r.request().method() === 'PUT');
+    await panel.getByRole('button', { name: 'Развернуть панель счетов' }).click();
+    await restored;
+    await expect(panel.getByRole('button', { name: 'Свернуть панель счетов' })).toBeFocused();
+    await expect(panel.getByRole('link', { name: /^Kaspi/ })).toBeVisible();
+  } finally {
+    await page.request.put('/api/v1/preferences/sidebar.collapsed', {
+      data: { value: false },
+      headers: { origin: new URL(page.url()).origin, 'x-requested-with': 'fetch' },
+    });
+  }
 });
