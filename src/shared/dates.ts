@@ -20,3 +20,16 @@ export function formatDateRu(value: string): string {
   const [y, m, d] = value.split('-');
   return `${d}.${m}.${y}`;
 }
+
+/** Момент времени → «ДД.ММ.ГГГГ, ЧЧ:ММ» в заданном часовом поясе (APP_TIMEZONE из /meta). */
+export function formatDateTime(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat('ru-RU', {
+    timeZone,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(iso));
+}

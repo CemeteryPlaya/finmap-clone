@@ -14,6 +14,7 @@ import { TagsSettings } from './pages/settings/TagsSettings';
 import { SplitPresetsSettings } from './pages/settings/SplitPresetsSettings';
 import { ProfileSettings } from './pages/settings/ProfileSettings';
 import { UsersSettings } from './pages/settings/UsersSettings';
+import { AuditSettings } from './pages/settings/AuditSettings';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -39,6 +40,7 @@ export const router = createBrowserRouter([
           { path: 'settings/companies', element: <CompaniesSettings /> },
           { path: 'settings/users', element: <UsersSettings /> },
           { path: 'settings/profile', element: <ProfileSettings /> },
+          { path: 'settings/audit', element: <AuditSettings /> },
         ],
       },
       { path: '*', element: <Navigate to="/" replace /> },

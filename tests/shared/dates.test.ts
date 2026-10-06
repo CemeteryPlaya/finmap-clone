@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDateRu, isValidDate, todayInTimezone } from '../../src/shared/dates';
+import { formatDateRu, formatDateTime, isValidDate, todayInTimezone } from '../../src/shared/dates';
 
 describe('todayInTimezone', () => {
   it('возвращает календарную дату в указанном поясе', () => {
@@ -30,5 +30,12 @@ describe('isValidDate', () => {
 describe('formatDateRu', () => {
   it('ГГГГ-ММ-ДД → ДД.ММ.ГГГГ', () => {
     expect(formatDateRu('2026-10-06')).toBe('06.10.2026');
+  });
+});
+
+describe('formatDateTime', () => {
+  it('дата и время в заданном поясе', () => {
+    expect(formatDateTime('2026-10-06T19:30:00.000Z', 'UTC')).toBe('06.10.2026, 19:30');
+    expect(formatDateTime('2026-10-06T23:30:00.000Z', 'Etc/GMT-5')).toBe('07.10.2026, 04:30'); // UTC+5, как Алматы
   });
 });

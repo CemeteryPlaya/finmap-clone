@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useQuery, type InfiniteData } from '@tanstack/react-query';
 import { api, type ApiError } from './api';
 import type { CounterpartyType } from '../../shared/system-categories';
 
@@ -168,5 +168,41 @@ export function useUsers() {
   return useQuery<AppUser[], ApiError>({
     queryKey: ['users'],
     queryFn: async () => (await api<{ users: AppUser[] }>('/users')).users,
+  });
+}
+
+export interface AuditEntry {
+  id: number;
+  companyId: number | null;
+  userId: number | null;
+  userName: string | null;
+  entity: string;
+  entityId: number | null;
+  action: string;
+  diff: Record<string, unknown> | null;
+  at: string;
+}
+
+interface AuditPage {
+  entries: AuditEntry[];
+  nextBeforeId: number | null;
+}
+
+/** Лента истории: companyId — события компании, null — системные (пользователи, входы). */
+export function useAuditFeed(companyId: number | null, filters: { userId?: number; entity?: string }) {
+  const base = companyId === null ? '/audit/system' : `/companies/${companyId}/audit`;
+  return useInfiniteQuery<AuditPage, ApiError, InfiniteData<AuditPage, number | null>, readonly unknown[], number | null>({
+    queryKey: ['audit', companyId, filters],
+    initialPageParam: null,
+    queryFn: ({ pageParam }) => {
+      const p = new URLSearchParams();
+      if (pageParam !== null) p.set('beforeId', String(pageParam));
+      if (filters.userId !== undefined) p.set('userId', String(filters.userId));
+      if (filters.entity !== undefined) p.set('entity', filters.entity);
+      const qs = p.toString();
+      return api<AuditPage>(qs ? `${base}?${qs}` : base);
+    },
+    getNextPageParam: (last) => last.nextBeforeId,
+    placeholderData: keepPreviousData, // при смене фильтра фильтры и старая лента не исчезают
   });
 }
