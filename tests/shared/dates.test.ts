@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDateRu, formatDateTime, isValidDate, todayInTimezone } from '../../src/shared/dates';
+import { addDays, formatDateRu, formatDateTime, isValidDate, todayInTimezone } from '../../src/shared/dates';
 
 describe('todayInTimezone', () => {
   it('возвращает календарную дату в указанном поясе', () => {
@@ -37,5 +37,14 @@ describe('formatDateTime', () => {
   it('дата и время в заданном поясе', () => {
     expect(formatDateTime('2026-10-06T19:30:00.000Z', 'UTC')).toBe('06.10.2026, 19:30');
     expect(formatDateTime('2026-10-06T23:30:00.000Z', 'Etc/GMT-5')).toBe('07.10.2026, 04:30'); // UTC+5, как Алматы
+  });
+});
+
+describe('addDays', () => {
+  it('календарный сдвиг через границы месяца и года', () => {
+    expect(addDays('2026-10-08', -7)).toBe('2026-10-01');
+    expect(addDays('2026-03-01', -1)).toBe('2026-02-28');
+    expect(addDays('2024-03-01', -1)).toBe('2024-02-29');
+    expect(addDays('2026-12-31', 1)).toBe('2027-01-01');
   });
 });

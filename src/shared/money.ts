@@ -23,3 +23,24 @@ export function formatAmount(minor: number, minorUnits: number): string {
   const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, '\u202F');
   return `${minor < 0 ? '\u2212' : ''}${grouped}${frac ? `,${frac}` : ''}`;
 }
+
+/**
+ * Распределение целого total на части пропорционально весам (§4.1): каждая часть округляется вниз,
+ * недостающие единицы получают части с наибольшими дробными остатками, при равенстве — по порядку.
+ * Сумма частей всегда равна total. Веса — положительные целые, total ≥ 0.
+ */
+export function allocate(total: number, weights: number[]): number[] {
+  const sum = weights.reduce((s, w) => s + BigInt(w), 0n);
+  if (weights.length === 0 || sum <= 0n) throw new Error('allocate: нужны положительные веса');
+  const t = BigInt(total);
+  const parts = weights.map((w) => (t * BigInt(w)) / sum);
+  const rest = weights.map((w, i) => ({ i, r: (t * BigInt(w)) % sum }));
+  let left = Number(t - parts.reduce((s, p) => s + p, 0n));
+  rest.sort((a, b) => (a.r === b.r ? a.i - b.i : a.r > b.r ? -1 : 1));
+  for (const { i } of rest) {
+    if (left <= 0) break;
+    parts[i]! += 1n;
+    left--;
+  }
+  return parts.map((p) => Number(p));
+}

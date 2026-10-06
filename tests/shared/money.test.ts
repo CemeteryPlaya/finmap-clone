@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAmount, parseAmount } from '../../src/shared/money';
+import { allocate, formatAmount, parseAmount } from '../../src/shared/money';
 
 describe('parseAmount', () => {
   it('запятая или точка, пробелы, знак минус → минимальные единицы', () => {
@@ -33,5 +33,28 @@ describe('formatAmount', () => {
 
   it('formatAmount → parseAmount возвращает исходное значение', () => {
     for (const v of [0, 1, 99, 150050, -77, 123456789]) expect(parseAmount(formatAmount(v, 2), 2)).toBe(v);
+  });
+});
+
+describe('allocate — метод наибольшего остатка', () => {
+  it('части в сумме дают целое, остаток — наибольшим дробным частям, при равенстве — по порядку', () => {
+    expect(allocate(100, [1, 1, 1])).toEqual([34, 33, 33]);
+    expect(allocate(10, [1, 2])).toEqual([3, 7]);
+    expect(allocate(2, [1, 1, 1])).toEqual([1, 1, 0]);
+    expect(allocate(47512, [33, 33, 34])).toEqual([15679, 15679, 16154]);
+    expect(allocate(0, [5, 7])).toEqual([0, 0]);
+    expect(allocate(7, [3])).toEqual([7]);
+  });
+
+  it('сумма частей всегда равна целому', () => {
+    for (const [total, weights] of [
+      [999_999_999_999, [1, 2, 3, 4, 5, 6, 7]],
+      [1, [3, 3, 3]],
+      [12345, [10000, 1, 1]],
+    ] as const) {
+      const parts = allocate(total, [...weights]);
+      expect(parts.reduce((s, p) => s + p, 0)).toBe(total);
+      expect(parts.every((p) => Number.isSafeInteger(p) && p >= 0)).toBe(true);
+    }
   });
 });
