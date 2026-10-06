@@ -18,6 +18,7 @@ import { registerProjectsRoutes } from './modules/projects/routes';
 import { createProjectsService } from './modules/projects/service';
 import { registerTemplatesRoutes } from './modules/templates/routes';
 import { createAccountsService } from './modules/accounts/service';
+import { registerAuditRoutes } from './modules/audit/routes';
 import { createAuditService } from './modules/audit/service';
 import { registerBackupRoutes } from './modules/backup/routes';
 import { createBackupService, type BackupService } from './modules/backup/service';
@@ -92,7 +93,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerAuth(app, { sessions });
 
   app.get('/api/v1/health', async () => ({ ok: true }));
-  app.get('/api/v1/meta', async () => ({ appName: config.appName }));
+  app.get('/api/v1/meta', async () => ({ appName: config.appName, timezone: config.timezone }));
   registerAuthRoutes(app, { users, sessions, limiter, audit, config });
   registerUsersRoutes(app, { users });
   const references = createReferencesService();
@@ -101,6 +102,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const accounts = createAccountsService({ db, audit, references, balances, timezone: config.timezone, now });
   const companies = createCompaniesService({ db, audit, categories, accounts, now });
   registerCompaniesRoutes(app, { companies });
+  registerAuditRoutes(app, { audit, companies });
   const projects = createProjectsService({ db, audit, companies, categories, accounts, references, timezone: config.timezone, now });
   registerTemplatesRoutes(app);
   registerProjectsRoutes(app, { projects });

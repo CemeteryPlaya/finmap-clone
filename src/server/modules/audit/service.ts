@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull, lt, type SQL } from 'drizzle-orm';
 import type { Db, Executor } from '../../db/client';
-import { auditLog } from '../../db/schema';
+import { auditLog, users } from '../../db/schema';
 
 export type AuditAction =
   | 'create'
@@ -27,6 +27,8 @@ export interface AuditRow {
   id: number;
   companyId: number | null;
   userId: number | null;
+  /** Имя пользователя на момент чтения; null — системное событие или пользователь удалён. */
+  userName: string | null;
   entity: string;
   entityId: number | null;
   action: AuditAction;
@@ -37,7 +39,7 @@ export interface AuditRow {
 export interface AuditService {
   /** ex — транзакция изменения: запись истории откатится вместе с ним. */
   record(entry: AuditEntry, ex?: Executor): void;
-  list(q: { companyId: number | null; limit?: number; beforeId?: number }): AuditRow[];
+  list(q: { companyId: number | null; limit?: number; beforeId?: number; userId?: number; entity?: string }): AuditRow[];
 }
 
 const SECRET_KEY = /password|hash|token|secret/i;
@@ -71,20 +73,24 @@ export function createAuditService(db: Db, now: () => Date = () => new Date()): 
         })
         .run();
     },
-    list({ companyId, limit = 50, beforeId }) {
+    list({ companyId, limit = 50, beforeId, userId, entity }) {
       const conds: SQL[] = [companyId === null ? isNull(auditLog.companyId) : eq(auditLog.companyId, companyId)];
       if (beforeId !== undefined) conds.push(lt(auditLog.id, beforeId));
+      if (userId !== undefined) conds.push(eq(auditLog.userId, userId));
+      if (entity !== undefined) conds.push(eq(auditLog.entity, entity));
       return db
-        .select()
+        .select({ a: auditLog, userName: users.name })
         .from(auditLog)
+        .leftJoin(users, eq(users.id, auditLog.userId))
         .where(and(...conds))
         .orderBy(desc(auditLog.id))
-        .limit(Math.min(limit, 200))
+        .limit(Math.min(Math.max(limit, 1), 200))
         .all()
-        .map((r) => ({
-          ...r,
-          action: r.action as AuditAction,
-          diff: r.diff ? (JSON.parse(r.diff) as Record<string, unknown>) : null,
+        .map(({ a, userName }) => ({
+          ...a,
+          userName: userName ?? null,
+          action: a.action as AuditAction,
+          diff: a.diff ? (JSON.parse(a.diff) as Record<string, unknown>) : null,
         }));
     },
   };
