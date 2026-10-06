@@ -7,7 +7,7 @@
 - «Профиль»: смена имени и пароля; после смены пароля завершаются все остальные сессии.
 - Скрипт `npm run user:passwd`.
 - «История действий»: лента с фильтром по пользователю и сущности, просмотр изменений.
-- «Резервная копия»: «Скачать сейчас» через `fetch` → Blob, дата последней автокопии, путь `BACKUP_COPY_DIR`.
+- «Резервная копия»: «Скачать сейчас» через `fetch` → Blob, дата последней копии (§7 называет её «автокопией»; показываем последний архив любого вида), путь `BACKUP_COPY_DIR`.
 - `user_preferences` API; в нём хранится последняя открытая компания.
 - Доступный переключатель компаний: стрелки, возврат фокуса, видимое название входит в доступное имя, выбор текущей компании не уводит из настроек.
 - Без мигания на экране «Новая компания».
@@ -282,7 +282,7 @@ describe('users API', () => {
     t.sqlite
       .prepare("INSERT INTO sessions (token_hash, user_id, remember, created_at, expires_at, last_seen_at) VALUES ('h', ?, 0, 'x', 'x', 'x')")
       .run(u.id);
-    await svc.setPasswordByLogin(' ADMIN ', 'console-pass-1');
+    expect(await svc.setPasswordByLogin(' ADMIN ', 'console-pass-1')).toMatchObject({ login: 'admin', disabledAt: null });
     expect(await svc.verifyCredentials('admin', 'console-pass-1')).toMatchObject({ id: u.id });
     expect((t.sqlite.prepare('SELECT COUNT(*) n FROM sessions').get() as { n: number }).n).toBe(0);
     await expect(svc.setPasswordByLogin('nobody', 'console-pass-1')).rejects.toMatchObject({ status: 404 });
@@ -495,6 +495,11 @@ export function createUsersService(db: Db, audit: AuditService, now: () => Date 
       if (newPassword === currentPassword) throw invalid({ newPassword: 'Новый пароль совпадает с текущим' });
       const passwordHash = await hashPassword(newPassword);
       mutate(db, audit, (tx, record) => {
+        // пока шёл хэш, администратор мог сбросить пароль или отключить пользователя — его решение не перезаписываем
+        const fresh = tx.select({ passwordHash: users.passwordHash, disabledAt: users.disabledAt }).from(users).where(eq(users.id, id)).get();
+        if (!fresh || fresh.disabledAt || fresh.passwordHash !== row.passwordHash) {
+          throw new AppError(409, 'VERSION_CONFLICT', 'Пароль только что изменили — войдите заново и повторите');
+        }
         tx.update(users).set({ passwordHash }).where(eq(users.id, id)).run();
         tx.delete(sessions)
           .where(keepSessionId === null ? eq(sessions.userId, id) : and(eq(sessions.userId, id), ne(sessions.id, keepSessionId)))
@@ -2491,7 +2496,8 @@ async function addUser(page: Page, cid: number, login: string, name: string, pas
 }
 
 /** Уникальный логин на запуск: тесты можно повторять на том же сервере (--repeat-each). */
-const uniqueLogin = (prefix: string) => `${prefix}${Date.now() % 1_000_000}${Math.floor(Math.random() * 100)}`;
+const uniqueLogin = (prefix: string) =>
+  `${prefix}${String(Date.now() % 1_000_000).padStart(6, '0')}${String(Math.floor(Math.random() * 100)).padStart(2, '0')}`; // одна длина — нет совпадений по префиксу
 
 const section = (page: Page, name: string) => page.getByRole('navigation', { name: 'Разделы настроек' }).getByRole('link', { name });
 
@@ -2583,7 +2589,7 @@ test('история: события компании с именем польз
   await expect(page.getByRole('listitem').first()).toContainText('Пользователь');
 });
 
-test('резервная копия: статус автокопии и «Скачать сейчас»', async ({ page }) => {
+test('резервная копия: последняя копия и «Скачать сейчас»', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Бэкап ${Date.now()}`);
   await page.goto(`/c/${cid}/settings/backup`);
