@@ -24,7 +24,7 @@ process.on('exit', () => supervisor.killAll());
 if (isLockHeld(config.lockPath)) {
   console.error(
     `Приложение уже запущено другим процессом (файл блокировки ${config.lockPath}). Остановите его и повторите. ` +
-      'Если приложение точно не запущено, удалите файл data/app.lock.',
+      'Если приложение точно не запущено, удалите этот файл.',
   );
   process.exit(1);
 }
