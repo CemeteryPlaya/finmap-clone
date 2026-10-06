@@ -1,8 +1,10 @@
 import { asc, eq } from 'drizzle-orm';
+import { cleanName } from '../../../shared/text';
 import type { Db } from '../../db/client';
 import { companies } from '../../db/schema';
 import { AppError } from '../../errors';
 import type { AccountsService } from '../accounts/service';
+import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import type { CategoriesService } from '../categories/service';
 
@@ -46,36 +48,28 @@ export function createCompaniesService(d: {
     },
 
     create(input, userId) {
-      return db.transaction((tx) => {
+      return mutate(db, audit, (tx, record) => {
         const row = tx
           .insert(companies)
-          .values({ name: input.name, baseCurrency: input.baseCurrency, createdAt: now().toISOString() })
+          .values({ name: cleanName(input.name), baseCurrency: input.baseCurrency, createdAt: now().toISOString() })
           .returning()
           .get();
         d.categories.seedSystem(tx, row.id);
-        audit.record({ companyId: row.id, userId, entity: 'company', entityId: row.id, action: 'create', diff: { ...input } });
+        record({ companyId: row.id, userId, entity: 'company', entityId: row.id, action: 'create', diff: { name: row.name, baseCurrency: row.baseCurrency } });
         return row;
       });
     },
 
     update(id, input, userId) {
       const before = svc.require(id, { writable: true });
-      if (input.name === undefined && input.baseCurrency === undefined) return before; // пустой PATCH — ничего не меняем
-      const row = db
-        .update(companies)
-        .set({ ...(input.name !== undefined ? { name: input.name } : {}), ...(input.baseCurrency !== undefined ? { baseCurrency: input.baseCurrency } : {}) })
-        .where(eq(companies.id, id))
-        .returning()
-        .get();
-      audit.record({
-        companyId: id,
-        userId,
-        entity: 'company',
-        entityId: id,
-        action: 'update',
-        diff: { before: { name: before.name, baseCurrency: before.baseCurrency }, after: { ...input } },
+      const patch = { ...input, ...(input.name !== undefined ? { name: cleanName(input.name) } : {}) };
+      const changes = changedFields({ name: before.name, baseCurrency: before.baseCurrency }, patch);
+      if (!changes) return before; // пустой или ничего не меняющий PATCH
+      return mutate(db, audit, (tx, record) => {
+        const row = tx.update(companies).set(changes.after).where(eq(companies.id, id)).returning().get();
+        record({ companyId: id, userId, entity: 'company', entityId: id, action: 'update', diff: changes });
+        return row;
       });
-      return row;
     },
 
     archive(id, userId) {
@@ -84,17 +78,21 @@ export function createCompaniesService(d: {
       if (d.accounts.countActive(id) > 0) {
         throw new AppError(422, 'ARCHIVED_REFERENCE', 'Сначала переведите в архив все счета компании');
       }
-      const out = db.update(companies).set({ archivedAt: now().toISOString() }).where(eq(companies.id, id)).returning().get();
-      audit.record({ companyId: id, userId, entity: 'company', entityId: id, action: 'archive' });
-      return out;
+      return mutate(db, audit, (tx, record) => {
+        const out = tx.update(companies).set({ archivedAt: now().toISOString() }).where(eq(companies.id, id)).returning().get();
+        record({ companyId: id, userId, entity: 'company', entityId: id, action: 'archive' });
+        return out;
+      });
     },
 
     unarchive(id, userId) {
       const row = svc.require(id);
       if (!row.archivedAt) return row;
-      const out = db.update(companies).set({ archivedAt: null }).where(eq(companies.id, id)).returning().get();
-      audit.record({ companyId: id, userId, entity: 'company', entityId: id, action: 'unarchive' });
-      return out;
+      return mutate(db, audit, (tx, record) => {
+        const out = tx.update(companies).set({ archivedAt: null }).where(eq(companies.id, id)).returning().get();
+        record({ companyId: id, userId, entity: 'company', entityId: id, action: 'unarchive' });
+        return out;
+      });
     },
   };
   return svc;

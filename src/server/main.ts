@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyServerOptions } from 'fastify';
 import { buildApp } from './app';
 import type { Config } from './config';
 import { openDb, type Sqlite } from './db/client';
-import { appliedMigrationsCount, codeMigrationsCount, runMigrations } from './db/migrate';
+import { migrateWithBackup } from './db/migrate';
 import { seedCurrencies } from './db/seed';
 import { startScheduler } from './jobs/scheduler';
 import { acquireLock } from './lock';
@@ -86,9 +86,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     let backupLog = (m: string, e?: unknown) => (e ? console.error(m, e) : console.log(m));
     const backup = createBackupService({ sqlite, config, log: (m, e) => backupLog(m, e) });
 
-    const applied = appliedMigrationsCount(sqlite);
-    if (dbExisted && applied > 0 && applied < codeMigrationsCount()) backup.create('pre-migration');
-    runMigrations(db);
+    migrateWithBackup({ db, sqlite, dbExisted, backup });
     seedCurrencies(db);
 
     const built = await buildApp({ config, db, sqlite, backup, logger: opts.logger ?? createLoggerOptions(config) });

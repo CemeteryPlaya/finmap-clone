@@ -1,5 +1,5 @@
 import { and, desc, eq, isNull, lt, type SQL } from 'drizzle-orm';
-import type { Db } from '../../db/client';
+import type { Db, Executor } from '../../db/client';
 import { auditLog } from '../../db/schema';
 
 export type AuditAction =
@@ -35,7 +35,8 @@ export interface AuditRow {
 }
 
 export interface AuditService {
-  record(entry: AuditEntry): void;
+  /** ex — транзакция изменения: запись истории откатится вместе с ним. */
+  record(entry: AuditEntry, ex?: Executor): void;
   list(q: { companyId: number | null; limit?: number; beforeId?: number }): AuditRow[];
 }
 
@@ -56,8 +57,9 @@ export function sanitizeDiff(value: unknown): unknown {
 
 export function createAuditService(db: Db, now: () => Date = () => new Date()): AuditService {
   return {
-    record(entry) {
-      db.insert(auditLog)
+    record(entry, ex) {
+      (ex ?? db)
+        .insert(auditLog)
         .values({
           companyId: entry.companyId ?? null,
           userId: entry.userId ?? null,

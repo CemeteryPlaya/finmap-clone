@@ -24,3 +24,18 @@ export function appliedMigrationsCount(sqlite: Sqlite): number {
   if (!table) return 0;
   return (sqlite.prepare('SELECT COUNT(*) AS n FROM __drizzle_migrations').get() as { n: number }).n;
 }
+
+/**
+ * Миграции с бэкапом перед ними, если существующая БД отстаёт от кода (§9.2).
+ * Общая точка для startServer и скриптов setup / user:add.
+ */
+export function migrateWithBackup(d: {
+  db: Db;
+  sqlite: Sqlite;
+  dbExisted: boolean;
+  backup: { create(reason: 'pre-migration'): unknown };
+}): void {
+  const applied = appliedMigrationsCount(d.sqlite);
+  if (d.dbExisted && applied > 0 && applied < codeMigrationsCount()) d.backup.create('pre-migration');
+  runMigrations(d.db);
+}

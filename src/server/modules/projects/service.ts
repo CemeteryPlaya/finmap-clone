@@ -1,11 +1,13 @@
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { todayInTimezone } from '../../../shared/dates';
+import { cleanName } from '../../../shared/text';
 import { getTemplate } from '../../../templates';
 import type { BusinessTemplate } from '../../../templates/types';
 import { ulower, type Db } from '../../db/client';
 import { projects } from '../../db/schema';
 import { AppError } from '../../errors';
 import type { AccountsService } from '../accounts/service';
+import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import type { CategoriesService } from '../categories/service';
 import type { CompaniesService } from '../companies/service';
@@ -88,9 +90,10 @@ export function createProjectsService(d: {
       const template = getTemplate(input.templateKey);
       if (!template) throw new AppError(400, 'VALIDATION', 'Проверьте заполнение полей', { templateKey: 'Неизвестный тип бизнеса' });
       const params = validateParams(template, input.templateParams);
-      assertNameFree(companyId, input.name);
+      const name = cleanName(input.name);
+      assertNameFree(companyId, name);
 
-      return db.transaction((tx) => {
+      return mutate(db, audit, (tx, record) => {
         const next = tx
           .select({ m: sql<number>`coalesce(max(${projects.orderIndex}), -1)` })
           .from(projects)
@@ -100,7 +103,7 @@ export function createProjectsService(d: {
           .insert(projects)
           .values({
             companyId,
-            name: input.name,
+            name,
             templateKey: template.key,
             templateParams: JSON.stringify(params),
             orderIndex: (next?.m ?? -1) + 1,
@@ -114,19 +117,19 @@ export function createProjectsService(d: {
           d.accounts.create(tx, {
             companyId,
             projectId: row.id,
-            name: acc.name.replaceAll('{project}', () => input.name),
+            name: acc.name.replaceAll('{project}', () => name),
             currency: acc.currency ?? company.baseCurrency,
             openedAt,
           });
         }
         const applied = { categories: createdCategories, accounts: template.defaultAccounts.length };
-        audit.record({
+        record({
           companyId,
           userId,
           entity: 'project',
           entityId: row.id,
           action: 'create',
-          diff: { name: input.name, templateKey: template.key, templateParams: params, applied },
+          diff: { name, templateKey: template.key, templateParams: params, applied },
         });
         return { project: toRow(row), applied };
       });
@@ -138,25 +141,23 @@ export function createProjectsService(d: {
       if (before.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Проект в архиве — изменения недоступны');
       const template = getTemplate(before.templateKey);
       if (!template) throw new Error(`Шаблон ${before.templateKey} не найден`);
-      const set: Partial<typeof projects.$inferInsert> = {};
-      if (input.name !== undefined) {
-        assertNameFree(companyId, input.name, id);
-        set.name = input.name;
-      }
+      const patch: { name?: string; templateParams?: Record<string, unknown> } = {};
+      if (input.name !== undefined) patch.name = cleanName(input.name);
       if (input.templateParams !== undefined) {
-        set.templateParams = JSON.stringify(validateParams(template, { ...before.templateParams, ...input.templateParams }));
+        patch.templateParams = validateParams(template, { ...before.templateParams, ...input.templateParams });
       }
-      if (Object.keys(set).length === 0) return before;
-      const row = toRow(db.update(projects).set(set).where(eq(projects.id, id)).returning().get());
-      audit.record({
-        companyId,
-        userId,
-        entity: 'project',
-        entityId: id,
-        action: 'update',
-        diff: { before: { name: before.name, templateParams: before.templateParams }, after: { name: row.name, templateParams: row.templateParams } },
+      const changes = changedFields({ name: before.name, templateParams: before.templateParams }, patch);
+      if (!changes) return before;
+      const newName = changes.after.name;
+      if (newName !== undefined) assertNameFree(companyId, newName, id);
+      return mutate(db, audit, (tx, record) => {
+        const set: Partial<typeof projects.$inferInsert> = {};
+        if (newName !== undefined) set.name = newName;
+        if (changes.after.templateParams !== undefined) set.templateParams = JSON.stringify(changes.after.templateParams);
+        const row = toRow(tx.update(projects).set(set).where(eq(projects.id, id)).returning().get());
+        record({ companyId, userId, entity: 'project', entityId: id, action: 'update', diff: changes });
+        return row;
       });
-      return row;
     },
 
     archive(companyId, id, userId) {
@@ -166,18 +167,22 @@ export function createProjectsService(d: {
       if (d.accounts.countActive(companyId, id) > 0) {
         throw new AppError(422, 'ARCHIVED_REFERENCE', 'Сначала переведите в архив счета проекта');
       }
-      const out = toRow(db.update(projects).set({ archivedAt: now().toISOString() }).where(eq(projects.id, id)).returning().get());
-      audit.record({ companyId, userId, entity: 'project', entityId: id, action: 'archive' });
-      return out;
+      return mutate(db, audit, (tx, record) => {
+        const out = toRow(tx.update(projects).set({ archivedAt: now().toISOString() }).where(eq(projects.id, id)).returning().get());
+        record({ companyId, userId, entity: 'project', entityId: id, action: 'archive' });
+        return out;
+      });
     },
 
     unarchive(companyId, id, userId) {
       d.companies.require(companyId, { writable: true });
       const row = requireProject(companyId, id);
       if (!row.archivedAt) return row;
-      const out = toRow(db.update(projects).set({ archivedAt: null }).where(eq(projects.id, id)).returning().get());
-      audit.record({ companyId, userId, entity: 'project', entityId: id, action: 'unarchive' });
-      return out;
+      return mutate(db, audit, (tx, record) => {
+        const out = toRow(tx.update(projects).set({ archivedAt: null }).where(eq(projects.id, id)).returning().get());
+        record({ companyId, userId, entity: 'project', entityId: id, action: 'unarchive' });
+        return out;
+      });
     },
   };
   return svc;
