@@ -10,7 +10,8 @@ export function handleUnauthorized(err: unknown): void {
 }
 
 export const queryClient: QueryClient = new QueryClient({
-  queryCache: new QueryCache({ onError: handleUnauthorized }),
+  // 401 на /auth/me — обычный первый заход без сессии: RequireAuth сам уводит на вход без перезагрузки
+  queryCache: new QueryCache({ onError: (err, query) => (query.queryKey[0] === 'me' ? undefined : handleUnauthorized(err)) }),
   mutationCache: new MutationCache({ onError: handleUnauthorized }),
   defaultOptions: {
     queries: {

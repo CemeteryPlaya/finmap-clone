@@ -25,6 +25,8 @@ export interface TemplateInfo {
   name: string;
   integrations: string[];
   paramsUi: { key: string; label: string; type: 'int' | 'text'; hint?: string }[];
+  /** Шаблоны названий счетов по умолчанию, `{project}` — название проекта. */
+  defaultAccounts: string[];
 }
 
 export function useCompanies() {

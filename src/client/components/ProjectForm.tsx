@@ -1,12 +1,16 @@
 import { useState, type FormEvent } from 'react';
 import { getTemplate } from '../../templates';
+import { parseIntInput } from '../lib/numbers';
 import type { TemplateInfo } from '../lib/queries';
+import { Field } from './Field';
 import { btnPrimary, btnSecondary, inputClass } from './ui';
 
 export interface ProjectFormValues {
   name: string;
   templateKey: string;
   templateParams: Record<string, unknown>;
+  /** Только при правке с изменённым названием: переименовать счета шаблона вместе с проектом. */
+  renameAccounts?: boolean;
 }
 
 function toInputs(params: Record<string, unknown>): Record<string, string> {
@@ -26,72 +30,89 @@ export function ProjectForm(props: {
   const [name, setName] = useState(props.initial?.name ?? '');
   const [templateKey, setTemplateKey] = useState(props.initial?.templateKey ?? props.templates[0]?.key ?? '');
   const [inputs, setInputs] = useState<Record<string, string>>(toInputs(props.initial?.templateParams ?? {}));
+  const [renameAccounts, setRenameAccounts] = useState(true);
   const [clientFields, setClientFields] = useState<Record<string, string>>({});
   const info = props.templates.find((t) => t.key === templateKey);
   const fields = { ...props.serverFields, ...clientFields };
+  const offerRename =
+    props.mode === 'edit' && props.initial !== undefined && name.trim() !== props.initial.name && (info?.defaultAccounts.length ?? 0) > 0;
+  const accountPatterns = (info?.defaultAccounts ?? []).map((a) => `«${a.replaceAll('{project}', '…')}»`).join(', ');
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     const raw: Record<string, unknown> = {};
+    const errors: Record<string, string> = {};
     for (const p of info?.paramsUi ?? []) {
       const s = (inputs[p.key] ?? '').trim();
-      if (s === '') continue;
-      raw[p.key] = p.type === 'int' ? Number(s) : s;
+      if (s === '') continue; // пусто — значение по умолчанию схемы или «обязательное поле»
+      if (p.type === 'int') {
+        const n = parseIntInput(s);
+        if (n.ok) raw[p.key] = n.value;
+        else errors[`templateParams.${p.key}`] = n.error;
+      } else {
+        raw[p.key] = s;
+      }
     }
-    const schema = getTemplate(templateKey)?.params;
-    const parsed = schema?.safeParse(raw);
-    if (parsed && !parsed.success) {
-      const next: Record<string, string> = {};
-      for (const issue of parsed.error.issues) next[`templateParams.${issue.path.join('.')}`] ??= issue.message;
-      setClientFields(next);
-      return;
+    let params = raw;
+    if (Object.keys(errors).length === 0) {
+      const parsed = getTemplate(templateKey)?.params.safeParse(raw);
+      if (parsed && !parsed.success) {
+        for (const issue of parsed.error.issues) errors[`templateParams.${issue.path.join('.')}`] ??= issue.message;
+      } else if (parsed) {
+        // отправляем значения после схемы: очищенное поле получает значение по умолчанию, а не старое с сервера
+        params = parsed.data;
+      }
     }
-    setClientFields({});
-    props.onSubmit({ name, templateKey, templateParams: raw });
+    setClientFields(errors);
+    if (Object.keys(errors).length > 0) return;
+    props.onSubmit({ name, templateKey, templateParams: params, ...(offerRename ? { renameAccounts } : {}) });
   };
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4 rounded-2xl bg-canvas p-4">
-      <label className="block">
-        <span className="mb-1 block text-sm text-muted">Название проекта</span>
-        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Клуб на Ленина" className={inputClass} />
-        {fields.name && <span className="mt-1 block text-sm text-expense">{fields.name}</span>}
-      </label>
-      <label className="block">
-        <span className="mb-1 block text-sm text-muted">Тип бизнеса</span>
-        <select
-          value={templateKey}
-          disabled={props.mode === 'edit'}
-          onChange={(e) => {
-            setTemplateKey(e.target.value);
-            setInputs({});
-            setClientFields({});
-          }}
-          className={inputClass}
-        >
-          {props.templates.map((t) => (
-            <option key={t.key} value={t.key}>
-              {t.name}
-            </option>
-          ))}
-        </select>
-        {fields.templateKey && <span className="mt-1 block text-sm text-expense">{fields.templateKey}</span>}
-      </label>
-      {info?.paramsUi.map((p) => (
-        <label key={p.key} className="block">
-          <span className="mb-1 block text-sm text-muted">{p.label}</span>
-          <input
-            inputMode={p.type === 'int' ? 'numeric' : 'text'}
-            value={inputs[p.key] ?? ''}
-            onChange={(e) => setInputs((v) => ({ ...v, [p.key]: e.target.value }))}
+    <form onSubmit={onSubmit} noValidate className="space-y-4 rounded-2xl bg-canvas p-4">
+      <Field label="Название проекта" error={fields.name}>
+        {(c) => <input {...c} autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Клуб на Ленина" className={inputClass} />}
+      </Field>
+      <Field label="Тип бизнеса" error={fields.templateKey}>
+        {(c) => (
+          <select
+            {...c}
+            value={templateKey}
+            disabled={props.mode === 'edit'}
+            onChange={(e) => {
+              setTemplateKey(e.target.value);
+              setInputs({});
+              setClientFields({});
+            }}
             className={inputClass}
-          />
-          {p.hint && <span className="mt-1 block text-xs text-muted">{p.hint}</span>}
-          {fields[`templateParams.${p.key}`] && (
-            <span className="mt-1 block text-sm text-expense">{fields[`templateParams.${p.key}`]}</span>
+          >
+            {props.templates.map((t) => (
+              <option key={t.key} value={t.key}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </Field>
+      {info?.paramsUi.map((p) => (
+        <Field key={p.key} label={p.label} hint={p.hint} error={fields[`templateParams.${p.key}`]}>
+          {(c) => (
+            <input
+              {...c}
+              inputMode={p.type === 'int' ? 'numeric' : 'text'}
+              value={inputs[p.key] ?? ''}
+              onChange={(e) => setInputs((v) => ({ ...v, [p.key]: e.target.value }))}
+              className={inputClass}
+            />
           )}
-        </label>
+        </Field>
       ))}
+      {offerRename && (
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={renameAccounts} onChange={(e) => setRenameAccounts(e.target.checked)} className="mt-1" />
+          <span>Переименовать счета проекта ({accountPatterns}), если их названия не меняли вручную</span>
+        </label>
+      )}
       {props.serverError && (
         <p role="alert" className="rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense">
           {props.serverError}

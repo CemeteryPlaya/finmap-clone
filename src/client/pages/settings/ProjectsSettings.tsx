@@ -1,13 +1,19 @@
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useOutletContext } from 'react-router';
+import { ConfirmDelete } from '../../components/ConfirmDelete';
 import { ProjectForm, type ProjectFormValues } from '../../components/ProjectForm';
-import { btnDanger, btnPrimary, btnSecondary } from '../../components/ui';
+import { Pending, StaleNotice } from '../../components/QueryState';
+import { ReorderButtons } from '../../components/ReorderButtons';
+import { alertClass, btnDanger, btnPrimary, btnSecondary, noticeClass } from '../../components/ui';
 import { api, type ApiError } from '../../lib/api';
+import { moveWithinGroup } from '../../lib/order';
 import { queryClient } from '../../lib/query';
 import { useProjects, useTemplates, type Project, type TemplateInfo } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
 import { SettingsNav } from './SettingsNav';
+
+type Action = { path: string; method: 'POST' | 'DELETE'; body?: unknown };
 
 function paramsSummary(p: Project, t: TemplateInfo | undefined): string {
   return (t?.paramsUi ?? []).map((u) => `${u.label}: ${String(p.templateParams[u.key] ?? '—')}`).join(', ');
@@ -19,7 +25,10 @@ export function ProjectsSettings() {
   const templates = useTemplates();
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const readOnly = company.archivedAt !== null;
+  const base = `/companies/${company.id}/projects`;
   const invalidate = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: ['projects', company.id] }),
@@ -28,45 +37,73 @@ export function ProjectsSettings() {
     ]);
 
   const create = useMutation<unknown, ApiError, ProjectFormValues>({
-    mutationFn: (v) => api(`/companies/${company.id}/projects`, { method: 'POST', body: v }),
+    mutationFn: (v) => api(base, { method: 'POST', body: { name: v.name, templateKey: v.templateKey, templateParams: v.templateParams } }),
     onSuccess: async () => {
       await invalidate();
       setCreating(false);
     },
   });
-  const update = useMutation<unknown, ApiError, { id: number; values: ProjectFormValues }>({
+  const update = useMutation<{ renamedAccounts: number }, ApiError, { id: number; values: ProjectFormValues }>({
     mutationFn: ({ id, values }) =>
-      api(`/companies/${company.id}/projects/${id}`, { method: 'PATCH', body: { name: values.name, templateParams: values.templateParams } }),
-    onSuccess: async () => {
+      api(`${base}/${id}`, {
+        method: 'PATCH',
+        body: {
+          name: values.name,
+          templateParams: values.templateParams,
+          ...(values.renameAccounts !== undefined ? { renameAccounts: values.renameAccounts } : {}),
+        },
+      }),
+    onSuccess: async (res) => {
       await invalidate();
       setEditingId(null);
+      if (res.renamedAccounts > 0) setNotice(`Переименовано счетов: ${res.renamedAccounts}`);
     },
   });
-  const openCreate = () => {
+  const action = useMutation<unknown, ApiError, Action>({
+    mutationFn: (a) => api(a.path, { method: a.method, body: a.body }),
+    onSuccess: async () => {
+      setDeletingId(null);
+      await invalidate();
+    },
+  });
+
+  const resetMessages = () => {
+    create.reset();
     update.reset();
-    toggleArchive.reset();
+    action.reset();
+    setNotice(null);
+  };
+  const openCreate = () => {
+    resetMessages();
     setEditingId(null);
+    setDeletingId(null);
     setCreating(true);
   };
   const openEdit = (id: number) => {
-    create.reset();
-    update.reset();
-    toggleArchive.reset();
+    resetMessages();
     setCreating(false);
+    setDeletingId(null);
     setEditingId(id);
   };
-  const toggleArchive = useMutation<unknown, ApiError, Project>({
-    mutationFn: (p) => api(`/companies/${company.id}/projects/${p.id}/${p.archivedAt ? 'unarchive' : 'archive'}`, { method: 'POST' }),
-    onSuccess: invalidate,
-  });
+  const run = (a: Action) => {
+    resetMessages();
+    action.mutate(a);
+  };
 
-  if (projects.isPending || templates.isPending) return <div className="text-muted">Загрузка…</div>;
-  if (projects.error || templates.error) return <div className="text-expense">{(projects.error ?? templates.error)!.message}</div>;
-  const tpl = (key: string) => templates.data.find((t) => t.key === key);
+  if (!projects.data || !templates.data) return <Pending queries={[projects, templates]} />;
+  const list = projects.data;
+  const templateList = templates.data;
+  const ids = list.map((p) => p.id);
+  const tpl = (key: string) => templateList.find((t) => t.key === key);
+  const shift = (id: number, delta: -1 | 1) => {
+    const next = moveWithinGroup(ids, ids, id, delta);
+    return next ? () => run({ path: `${base}/reorder`, method: 'POST', body: { ids: next } }) : null;
+  };
 
   return (
     <section>
       <SettingsNav companyId={company.id} />
+      <StaleNotice queries={[projects, templates]} />
       <div className="mb-4 flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold">Проекты</h1>
         {!readOnly && !creating && (
@@ -75,16 +112,21 @@ export function ProjectsSettings() {
           </button>
         )}
       </div>
-      {readOnly && <p className="mb-4 rounded-xl bg-field px-4 py-3 text-sm text-muted">Компания в архиве — изменения недоступны.</p>}
-      {toggleArchive.error && (
-        <p role="alert" className="mb-4 rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense">
-          {toggleArchive.error.message}
+      {readOnly && <p className={noticeClass}>Компания в архиве — изменения недоступны.</p>}
+      {notice && (
+        <p role="status" className={noticeClass}>
+          {notice}
+        </p>
+      )}
+      {action.error && (
+        <p role="alert" className={alertClass}>
+          {action.error.message}
         </p>
       )}
       {creating && (
         <div className="mb-6">
           <ProjectForm
-            templates={templates.data}
+            templates={templateList}
             mode="create"
             pending={create.isPending}
             serverFields={create.error?.fields}
@@ -97,15 +139,13 @@ export function ProjectsSettings() {
           />
         </div>
       )}
-      {projects.data.length === 0 && !creating && (
-        <p className="text-muted">Проектов пока нет. Проект — это клуб, магазин или офис внутри компании.</p>
-      )}
+      {list.length === 0 && !creating && <p className="text-muted">Проектов пока нет. Проект — это клуб, магазин или офис внутри компании.</p>}
       <ul className="space-y-2">
-        {projects.data.map((p) => (
+        {list.map((p) => (
           <li key={p.id} className={`rounded-2xl border border-field p-4 ${p.archivedAt ? 'opacity-60' : ''}`}>
             {editingId === p.id ? (
               <ProjectForm
-                templates={templates.data}
+                templates={templateList}
                 mode="edit"
                 initial={{ name: p.name, templateKey: p.templateKey, templateParams: p.templateParams }}
                 pending={update.isPending}
@@ -129,21 +169,41 @@ export function ProjectsSettings() {
                     {paramsSummary(p, tpl(p.templateKey)) && ` · ${paramsSummary(p, tpl(p.templateKey))}`}
                   </div>
                 </div>
-                {!readOnly && (
-                  <div className="flex gap-2">
-                    {!p.archivedAt && (
-                      <button type="button" onClick={() => openEdit(p.id)} className={btnSecondary}>
-                        Изменить
+                {!readOnly &&
+                  (deletingId === p.id ? (
+                    <ConfirmDelete
+                      what={`проект «${p.name}»`}
+                      pending={action.isPending}
+                      onConfirm={() => run({ path: `${base}/${p.id}`, method: 'DELETE' })}
+                      onCancel={() => setDeletingId(null)}
+                    />
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <ReorderButtons label={p.name} disabled={action.isPending} onUp={shift(p.id, -1)} onDown={shift(p.id, 1)} />
+                      {!p.archivedAt && (
+                        <button type="button" onClick={() => openEdit(p.id)} className={btnSecondary}>
+                          Изменить
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => run({ path: `${base}/${p.id}/${p.archivedAt ? 'unarchive' : 'archive'}`, method: 'POST' })}
+                        className={p.archivedAt ? btnSecondary : btnDanger}
+                      >
+                        {p.archivedAt ? 'Вернуть из архива' : 'В архив'}
                       </button>
-                    )}
-                    <button type="button" onClick={() => {
-                        toggleArchive.reset();
-                        toggleArchive.mutate(p);
-                      }} className={p.archivedAt ? btnSecondary : btnDanger}>
-                      {p.archivedAt ? 'Вернуть из архива' : 'В архив'}
-                    </button>
-                  </div>
-                )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          resetMessages();
+                          setDeletingId(p.id);
+                        }}
+                        className={btnSecondary}
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                  ))}
               </div>
             )}
           </li>

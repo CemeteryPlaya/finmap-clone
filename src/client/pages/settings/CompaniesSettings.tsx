@@ -2,6 +2,8 @@ import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useNavigate, useOutletContext } from 'react-router';
 import { CURRENCIES } from '../../../shared/currencies';
+import { Field } from '../../components/Field';
+import { Pending, StaleNotice } from '../../components/QueryState';
 import { btnDanger, btnPrimary, btnSecondary, inputClass } from '../../components/ui';
 import { api, type ApiError } from '../../lib/api';
 import { queryClient } from '../../lib/query';
@@ -35,41 +37,49 @@ function CompanyRow({ c, currentId }: { c: Company; currentId: number }) {
       if (!c.archivedAt && c.id === currentId) navigate('/', { replace: true });
     },
   });
-  const error = save.error ?? toggle.error;
+  const fields = save.error?.fields ?? {};
+  const rowError = toggle.error ?? (save.error && !save.error.fields ? save.error : null);
   const readOnly = c.archivedAt !== null;
 
   return (
     <li className={`rounded-2xl border border-field p-4 ${readOnly ? 'opacity-70' : ''}`}>
-      <div className="grid gap-3 md:grid-cols-[1fr_12rem_auto] md:items-end">
-        <label className="block">
-          <span className="mb-1 block text-sm text-muted">Название</span>
-          <input value={name} disabled={readOnly} onChange={(e) => setName(e.target.value)} className={inputClass} />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-sm text-muted">Базовая валюта</span>
-          <select value={baseCurrency} disabled={readOnly} onChange={(e) => setBaseCurrency(e.target.value)} className={inputClass}>
-            {CURRENCIES.map((x) => (
-              <option key={x.code} value={x.code}>
-                {x.code}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="flex gap-2">
+      <div className="grid gap-3 md:grid-cols-[1fr_12rem_auto] md:items-start">
+        <Field label="Название" error={fields.name}>
+          {(f) => <input {...f} value={name} disabled={readOnly} onChange={(e) => setName(e.target.value)} className={inputClass} />}
+        </Field>
+        <Field label="Базовая валюта" error={fields.baseCurrency}>
+          {(f) => (
+            <select {...f} value={baseCurrency} disabled={readOnly} onChange={(e) => setBaseCurrency(e.target.value)} className={inputClass}>
+              {CURRENCIES.map((x) => (
+                <option key={x.code} value={x.code}>
+                  {x.code}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <div className="flex gap-2 md:mt-6">
           {!readOnly && (
             <button type="button" disabled={!dirty || save.isPending} onClick={() => save.mutate()} className={btnPrimary}>
               Сохранить
             </button>
           )}
-          <button type="button" onClick={() => toggle.mutate()} className={readOnly ? btnSecondary : btnDanger}>
+          <button
+            type="button"
+            onClick={() => {
+              save.reset();
+              toggle.mutate();
+            }}
+            className={readOnly ? btnSecondary : btnDanger}
+          >
             {readOnly ? 'Вернуть из архива' : 'В архив'}
           </button>
         </div>
       </div>
       {readOnly && <p className="mt-2 text-sm text-muted">В архиве</p>}
-      {error && (
+      {rowError && (
         <p role="alert" className="mt-2 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
-          {error.fields ? Object.values(error.fields).join('. ') : error.message}
+          {rowError.message}
         </p>
       )}
     </li>
@@ -79,11 +89,11 @@ function CompanyRow({ c, currentId }: { c: Company; currentId: number }) {
 export function CompaniesSettings() {
   const { company } = useOutletContext<CompanyOutletContext>();
   const companies = useCompanies();
-  if (companies.isPending) return <div className="text-muted">Загрузка…</div>;
-  if (companies.error) return <div className="text-expense">{companies.error.message}</div>;
+  if (!companies.data) return <Pending queries={[companies]} />;
   return (
     <section>
       <SettingsNav companyId={company.id} />
+      <StaleNotice queries={[companies]} />
       <div className="mb-4 flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold">Компании</h1>
         <Link to="/companies/new" className={btnPrimary}>
