@@ -16,7 +16,8 @@ function CompanyRow({ c, currentId }: { c: Company; currentId: number }) {
   const [name, setName] = useState(c.name);
   const [baseCurrency, setBaseCurrency] = useState(c.baseCurrency);
   const dirty = name.trim() !== c.name || baseCurrency !== c.baseCurrency;
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['companies'] });
+  // базовая валюта влияет на итог в левой панели: балансы компании тоже устарели
+  const invalidate = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['companies'] }), queryClient.invalidateQueries({ queryKey: ['accounts', c.id, 'balances'] })]);
 
   const save = useMutation<unknown, ApiError>({
     // отправляем только изменённые поля: позже смена валюты блокируется при наличии операций, переименование — нет

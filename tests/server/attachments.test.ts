@@ -102,6 +102,34 @@ describe('attachments', () => {
     expect(toDeleted.json().error.code).toBe('VERSION_CONFLICT');
   });
 
+  it('расширение имени соответствует типу по содержимому: чужое дополняется своим (§8)', async () => {
+    w = await opsWorld();
+    const opId = await newOp();
+    const url = `${w.ops}/${opId}/attachments`;
+    const html = (await upload(url, PNG, 'x.html')).json().attachment;
+    expect(html.originalName).toBe('x.html.png');
+    const file = await w.h.req('GET', `/api/v1/companies/${w.cid}/attachments/${html.id}`);
+    expect(file.headers['content-disposition']).toContain('filename="x.html.png"');
+    expect(file.headers['content-length']).toBe(String(PNG.length));
+    expect((await upload(url, PNG, 'ЧЕК.PNG')).json().attachment.originalName).toBe('ЧЕК.PNG');
+    expect((await upload(url, PNG, 'чек')).json().attachment.originalName).toBe('чек.png');
+    const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2]);
+    expect((await upload(url, JPEG, 'photo.jpeg')).json().attachment.originalName).toBe('photo.jpeg');
+    expect((await upload(url, JPEG, 'photo.png')).json().attachment.originalName).toBe('photo.png.jpg');
+    // слишком длинное имя укорачивается, а добавленное расширение остаётся
+    const long = (await upload(url, PNG, 'a'.repeat(200))).json().attachment.originalName as string;
+    expect(long).toBe('a'.repeat(196) + '.png');
+  });
+
+  it('подделанная кука сессии: 401 и ничего не записано', async () => {
+    w = await opsWorld();
+    const opId = await newOp();
+    const before = uploadsCount();
+    const res = await upload(`${w.ops}/${opId}/attachments`, PNG, 'x.png', 'sid=forged');
+    expect(res.statusCode).toBe(401);
+    expect(uploadsCount()).toBe(before);
+  });
+
   it('413 на других маршрутах — общее сообщение, не про файл', async () => {
     w = await opsWorld();
     const res = await w.h.req('POST', '/api/v1/companies', { name: 'x'.repeat(2 * 1024 * 1024) });

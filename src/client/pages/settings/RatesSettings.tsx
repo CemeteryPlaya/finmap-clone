@@ -222,11 +222,13 @@ function ManualRatesSection() {
   const [date, setDate] = useState('');
   const [currency, setCurrency] = useState('USD');
   const [rate, setRate] = useState('');
-  const [filter, setFilter] = useState('');
+  const [chosenFilter, setFilter] = useState('');
   const [shown, setShown] = useState(MANUAL_PAGE);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editRate, setEditRate] = useState('');
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  // удалили последний курс отфильтрованной валюты — фильтр сбрасывается сам
+  const filter = rates.data?.some((r) => r.currency === chosenFilter) ? chosenFilter : '';
   const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['rates-manual'] }), refreshTotals()]);
 
   const create = useMutation<unknown, ApiError>({

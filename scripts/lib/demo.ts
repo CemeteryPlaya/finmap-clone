@@ -21,6 +21,7 @@ export interface DemoResult {
   accounts: number;
   categories: number;
   counterparties: number;
+  /** Сколько операций создано, включая ~1 % мягко удалённых (созданы, но не действующие). */
   operations: number;
 }
 

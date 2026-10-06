@@ -9,7 +9,7 @@ import { AppError } from '../../errors';
 import { mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
-import { detectFileType } from './file-type';
+import { detectFileType, type DetectedType } from './file-type';
 
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 
@@ -22,6 +22,16 @@ export interface AttachmentsService {
   open(companyId: number, id: number): { row: AttachmentRow; filePath: string };
   /** Мягкое удаление: файл на диске остаётся (§4.5). */
   remove(companyId: number, id: number, userId: number): void;
+}
+
+/** Имя файла с расширением, соответствующим типу по содержимому; иначе расширение типа дописывается (не длиннее 200 знаков). */
+/** Допустимые расширения имени по типу (по основному расширению типа). */
+const ALLOWED_EXTS: Record<string, string[]> = { '.jpg': ['.jpg', '.jpeg'], '.heic': ['.heic', '.heif'] };
+
+function nameForType(name: string, type: DetectedType): string {
+  const ext = path.extname(name).toLowerCase();
+  if ((ALLOWED_EXTS[type.ext] ?? [type.ext]).includes(ext)) return name;
+  return name.slice(0, 200 - type.ext.length) + type.ext;
 }
 
 const invalid = (fields: Record<string, string>) => new AppError(400, 'VALIDATION', 'Проверьте файл', fields);
@@ -68,18 +78,19 @@ export function createAttachmentsService(d: { db: Db; audit: AuditService; uploa
       if (file.data.length > ATTACHMENT_MAX_BYTES) throw new AppError(413, 'TOO_LARGE', 'Файл больше 10 МБ');
       const type = detectFileType(file.data, name);
       if (!type) throw invalid({ file: 'Допустимые файлы: PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV' });
+      const originalName = nameForType(name, type);
       const storedName = `${crypto.randomUUID()}${type.ext}`;
       fs.mkdirSync(d.uploadsDir, { recursive: true });
       const filePath = path.join(d.uploadsDir, storedName);
-      fs.writeFileSync(filePath, file.data, { flag: 'wx' });
       try {
+        fs.writeFileSync(filePath, file.data, { flag: 'wx' });
         return mutate(db, audit, (tx, record) => {
           const row = tx
             .insert(attachments)
-            .values({ companyId, operationId, originalName: name, storedName, mime: type.mime, size: file.data.length, createdAt: now().toISOString() })
+            .values({ companyId, operationId, originalName, storedName, mime: type.mime, size: file.data.length, createdAt: now().toISOString() })
             .returning()
             .get();
-          record({ companyId, userId, entity: 'attachment', entityId: row.id, action: 'create', diff: { operationId, name, size: row.size, mime: type.mime } });
+          record({ companyId, userId, entity: 'attachment', entityId: row.id, action: 'create', diff: { operationId, name: originalName, size: row.size, mime: type.mime } });
           return row;
         });
       } catch (e) {

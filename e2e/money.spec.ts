@@ -172,3 +172,20 @@ test('валюта счёта с операциями и базовая валю
   const free = page.getByRole('listitem').filter({ has: page.locator(`input[value="${freeName}"]`) });
   await expect(free.getByLabel('Базовая валюта')).toBeEnabled();
 });
+
+test('смена базовой валюты обновляет итог в левой панели', async ({ page }) => {
+  await login(page);
+  const name = `ТОО Смена валюты ${Date.now()}`;
+  const cid = await createCompany(page, name);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 100000 });
+
+  await page.goto(`/c/${cid}/settings/companies`);
+  const panel = page.getByRole('navigation', { name: 'Счета' });
+  await expect(panel).toContainText(/Всего на счетах\s*1\s000,00\s₸/);
+  const row = page.getByRole('listitem').filter({ has: page.locator(`input[value="${name}"]`) });
+  await row.getByLabel('Базовая валюта').selectOption('USD');
+  await row.getByRole('button', { name: 'Сохранить' }).click();
+  // курса USD в свежей базе нет: итог в тенге больше не показывается
+  await expect(panel).toContainText('курс USD недоступен');
+  await expect(panel).not.toContainText(/Всего на счетах\s*1\s000,00\s₸/);
+});

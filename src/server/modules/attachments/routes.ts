@@ -58,6 +58,7 @@ export function registerAttachmentsRoutes(app: FastifyInstance, deps: { attachme
       // всегда как файл и без кэширования у посредников
       reply.header('Content-Type', 'application/octet-stream');
       reply.header('Content-Disposition', contentDisposition(row.originalName));
+      reply.header('Content-Length', row.size);
       reply.header('X-Content-Type-Options', 'nosniff');
       reply.header('Cache-Control', 'private, no-store');
       return reply.send(fs.createReadStream(filePath));

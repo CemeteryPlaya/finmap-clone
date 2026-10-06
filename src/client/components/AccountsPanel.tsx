@@ -91,9 +91,11 @@ export function AccountsPanel({ company }: { company: Company }) {
             </div>
           ))}
           {accounts.data && groups.length === 0 && <p className="mb-3 px-2 text-sm text-muted">Счетов пока нет.</p>}
-          <Link to={`/c/${company.id}/settings/accounts`} className={`${btnSmall} inline-block`}>
-            + счёт
-          </Link>
+          {!company.archivedAt && (
+            <Link to={`/c/${company.id}/settings/accounts`} className={`${btnSmall} inline-block`}>
+              + счёт
+            </Link>
+          )}
         </>
       )}
     </nav>

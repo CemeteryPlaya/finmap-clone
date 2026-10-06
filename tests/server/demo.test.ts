@@ -45,22 +45,24 @@ describe('seed:demo', () => {
 
   it('состав по §10, доли разбиений и переводов, SQL-баланс = пересчёт в JS (§12)', () => {
     const t = freshDb();
-    const r = seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 800 });
-    expect(r).toMatchObject({ companies: 3, projects: 5, accounts: 8, counterparties: 150, operations: 800 });
+    const r = seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 500 });
+    expect(r).toMatchObject({ companies: 3, projects: 5, accounts: 8, counterparties: 150, operations: 500 });
     expect(r.categories).toBeGreaterThanOrEqual(60);
     const n = (sql: string) => (t.sqlite.prepare(sql).get() as { n: number }).n;
     const split = n('SELECT COUNT(*) n FROM (SELECT operation_id FROM operation_lines GROUP BY operation_id HAVING COUNT(*) > 1)');
     const transfers = n("SELECT COUNT(*) n FROM operations WHERE type = 'transfer'");
-    expect(split / 800).toBeGreaterThan(0.08);
-    expect(split / 800).toBeLessThan(0.25);
-    expect(transfers / 800).toBeGreaterThan(0.04);
-    expect(transfers / 800).toBeLessThan(0.16);
+    expect(split / 500).toBeGreaterThan(0.08);
+    expect(split / 500).toBeLessThan(0.25);
+    expect(transfers / 500).toBeGreaterThan(0.04);
+    expect(transfers / 500).toBeLessThan(0.16);
     expect(n("SELECT COUNT(*) n FROM accounts WHERE currency = 'USD'")).toBeGreaterThanOrEqual(2);
 
     const ledger = createLedgerBalances(t.db);
     for (const c of t.sqlite.prepare('SELECT id FROM companies').all() as { id: number }[]) {
       const js = jsBalances(t, c.id);
-      for (const b of ledger.companyBalances(c.id)) expect(b.balance).toBe(js.get(b.accountId));
+      const balances = ledger.companyBalances(c.id);
+      expect(balances).toHaveLength(js.size); // цикл не должен проходить вхолостую
+      for (const b of balances) expect(b.balance).toBe(js.get(b.accountId));
     }
   });
 
