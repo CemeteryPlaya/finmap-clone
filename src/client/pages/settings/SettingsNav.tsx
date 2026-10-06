@@ -7,6 +7,7 @@ const SECTIONS: readonly { path: string; label: string }[] = [
   { path: 'categories', label: 'Статьи' },
   { path: 'counterparties', label: 'Контрагенты' },
   { path: 'tags', label: 'Теги' },
+  { path: 'split-presets', label: 'Шаблоны разделения' },
   { path: 'companies', label: 'Компании' },
 ];
 

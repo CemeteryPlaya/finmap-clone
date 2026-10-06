@@ -11,6 +11,7 @@ import { AccountsSettings } from './pages/settings/AccountsSettings';
 import { CategoriesSettings } from './pages/settings/CategoriesSettings';
 import { CounterpartiesSettings } from './pages/settings/CounterpartiesSettings';
 import { TagsSettings } from './pages/settings/TagsSettings';
+import { SplitPresetsSettings } from './pages/settings/SplitPresetsSettings';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -32,6 +33,7 @@ export const router = createBrowserRouter([
           { path: 'settings/categories', element: <CategoriesSettings /> },
           { path: 'settings/counterparties', element: <CounterpartiesSettings /> },
           { path: 'settings/tags', element: <TagsSettings /> },
+          { path: 'settings/split-presets', element: <SplitPresetsSettings /> },
           { path: 'settings/companies', element: <CompaniesSettings /> },
         ],
       },

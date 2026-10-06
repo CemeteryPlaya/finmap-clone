@@ -131,3 +131,27 @@ export function useTags(companyId: number) {
     queryFn: async () => (await api<{ tags: Tag[] }>(`/companies/${companyId}/tags`)).tags,
   });
 }
+
+export interface SplitLine {
+  categoryId: number | null;
+  projectId: number | null;
+  /** Сотые доли процента, 10000 = 100%. */
+  bp: number;
+}
+
+export interface SplitPreset {
+  id: number;
+  companyId: number;
+  name: string;
+  lines: SplitLine[];
+  orderIndex: number;
+  createdAt: string;
+  archivedAt: string | null;
+}
+
+export function useSplitPresets(companyId: number) {
+  return useQuery<SplitPreset[], ApiError>({
+    queryKey: ['split-presets', companyId],
+    queryFn: async () => (await api<{ splitPresets: SplitPreset[] }>(`/companies/${companyId}/split-presets`)).splitPresets,
+  });
+}
