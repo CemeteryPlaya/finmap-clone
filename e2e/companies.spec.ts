@@ -98,6 +98,8 @@ test('проекты по шаблонам: клуб и общий', async ({ pa
 test('истёкшая сессия уводит на вход', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Сессия ${Date.now()}`);
+  // левая панель счетов грузит данные сразу после входа в компанию: дожидаемся её, иначе 401 придёт раньше клика
+  await page.waitForLoadState('networkidle');
   await page.context().clearCookies();
   await page.getByRole('link', { name: 'Настройки' }).click();
   // экран настроек монтируется и перезапрашивает данные → 401 → уход на вход

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Navigate, NavLink, Outlet, useParams } from 'react-router';
+import { AccountsPanel } from '../components/AccountsPanel';
 import { AppHeader } from '../components/AppHeader';
 import { CompanySwitcher } from '../components/CompanySwitcher';
 import { LoadError } from '../components/LoadError';
@@ -38,17 +39,20 @@ export function CompanyLayout() {
         left={<CompanySwitcher current={company} companies={companies.data} />}
         profileHref={`/c/${company.id}/settings/profile`}
       />
-      <main className="mx-4 min-h-[calc(100dvh-5rem)] rounded-t-3xl bg-card p-6 md:p-8">
-        <nav className="mb-6 flex gap-2">
-          <NavLink to={`/c/${company.id}/log`} className={tab}>
-            Журнал
-          </NavLink>
-          <NavLink to={`/c/${company.id}/settings`} className={tab}>
-            Настройки
-          </NavLink>
-        </nav>
-        <Outlet context={{ company } satisfies CompanyOutletContext} />
-      </main>
+      <div className="mx-4 flex items-start gap-4">
+        <AccountsPanel company={company} />
+        <main className="min-h-[calc(100dvh-5rem)] min-w-0 flex-1 rounded-t-3xl bg-card p-6 md:p-8">
+          <nav className="mb-6 flex gap-2">
+            <NavLink to={`/c/${company.id}/log`} className={tab}>
+              Журнал
+            </NavLink>
+            <NavLink to={`/c/${company.id}/settings`} className={tab}>
+              Настройки
+            </NavLink>
+          </nav>
+          <Outlet context={{ company } satisfies CompanyOutletContext} />
+        </main>
+      </div>
     </div>
   );
 }

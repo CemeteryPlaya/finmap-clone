@@ -81,7 +81,8 @@ test('статьи: вложение, «Перенести в…», переим
   await expect(item('Таргетинг')).toBeVisible();
 
   // перетаскивание: «Таргетинг» встаёт перед «Зарплатой»
-  await item('Таргетинг').locator(':scope > div').dragTo(item('Зарплата').locator(':scope > div'));
+  // тянем за ручку ⠿ (левый верхний угол строки): в центре строки может оказаться выпадающий список «Перенести в…»
+  await item('Таргетинг').locator(':scope > div').dragTo(item('Зарплата').locator(':scope > div'), { sourcePosition: { x: 16, y: 20 } });
   await expect
     .poll(async () => {
       const tree = (await (await page.request.get(`/api/v1/companies/${cid}/categories`)).json()) as { expense: { name: string }[] };

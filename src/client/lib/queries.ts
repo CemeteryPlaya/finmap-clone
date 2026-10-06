@@ -9,6 +9,8 @@ export interface Company {
   baseCurrency: string;
   createdAt: string;
   archivedAt: string | null;
+  /** Базовую валюту менять нельзя: есть операции или фиксированные курсы (§4.2). */
+  currencyLocked: boolean;
 }
 
 export interface Project {
@@ -64,12 +66,49 @@ export interface Account {
   orderIndex: number;
   createdAt: string;
   archivedAt: string | null;
+  /** По счёту есть операции (включая удалённые) — валюту менять нельзя (§4.4). */
+  hasOperations: boolean;
 }
 
 export function useAccounts(companyId: number) {
   return useQuery<Account[], ApiError>({
     queryKey: ['accounts', companyId],
     queryFn: async () => (await api<{ accounts: Account[] }>(`/companies/${companyId}/accounts`)).accounts,
+  });
+}
+
+export interface CompanyTotal {
+  currency: string;
+  amount: number;
+  /** Валюты счетов без курса на сегодня: в итог не вошли. */
+  unavailable: string[];
+}
+
+export interface Balances {
+  accounts: { accountId: number; currency: string; balance: number }[];
+  total: CompanyTotal;
+}
+
+/** Ключ — продолжение ключа счетов: обновление ['accounts', cid] обновляет и балансы. */
+export function useBalances(companyId: number) {
+  return useQuery<Balances, ApiError>({
+    queryKey: ['accounts', companyId, 'balances'],
+    queryFn: () => api<Balances>(`/companies/${companyId}/balances`),
+  });
+}
+
+export interface CompanySummary {
+  id: number;
+  name: string;
+  total: CompanyTotal;
+}
+
+/** Итоги компаний для переключателя; запрашиваются при открытии меню. */
+export function useCompaniesSummary(enabled: boolean) {
+  return useQuery<CompanySummary[], ApiError>({
+    queryKey: ['companies', 'summary'],
+    queryFn: async () => (await api<{ companies: CompanySummary[] }>('/companies/summary')).companies,
+    enabled,
   });
 }
 

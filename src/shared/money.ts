@@ -1,3 +1,5 @@
+import { getCurrency } from './currencies';
+
 /**
  * Сумма из поля ввода → минимальные единицы валюты: «1 500,50», «1500.5», «-10», «,5».
  * Больше знаков после запятой, чем у валюты, — null (округление появится вместе с калькулятором суммы на шаге 6).
@@ -45,4 +47,10 @@ export function allocate(total: number, weights: number[]): number[] {
     left--;
   }
   return parts.map((p) => Number(p));
+}
+
+/** Сумма с символом валюты: «1 500,50 ₸» — неразрывный пробел не даёт символу уехать на другую строку. */
+export function formatMoney(minor: number, currency: string): string {
+  const c = getCurrency(currency);
+  return `${formatAmount(minor, c.minorUnits)}\u00A0${c.symbol}`;
 }

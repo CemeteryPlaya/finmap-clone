@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { pickStartCompany, switchCompanyPath } from '../../src/client/lib/company-path';
 import type { Company } from '../../src/client/lib/queries';
 
-const c = (id: number, archived = false): Company => ({ id, name: `К${id}`, baseCurrency: 'KZT', createdAt: 'x', archivedAt: archived ? 'x' : null });
+const c = (id: number, archived = false): Company => ({ id, name: `К${id}`, baseCurrency: 'KZT', createdAt: 'x', archivedAt: archived ? 'x' : null, currencyLocked: false });
 
 describe('company-path', () => {
   it('switchCompanyPath: тот же раздел у другой компании', () => {

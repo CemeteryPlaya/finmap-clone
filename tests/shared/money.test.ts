@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allocate, formatAmount, parseAmount } from '../../src/shared/money';
+import { allocate, formatAmount, formatMoney, parseAmount } from '../../src/shared/money';
 
 describe('parseAmount', () => {
   it('запятая или точка, пробелы, знак минус → минимальные единицы', () => {
@@ -67,5 +67,13 @@ describe('allocate — метод наибольшего остатка', () => 
       expect(parts.reduce((s, p) => s + p, 0)).toBe(total);
       expect(parts.every((p) => Number.isSafeInteger(p) && p >= 0)).toBe(true);
     }
+  });
+});
+
+describe('formatMoney', () => {
+  it('сумма с символом валюты через неразрывный пробел', () => {
+    expect(formatMoney(150050, 'KZT')).toBe('1\u202F500,50\u00A0₸');
+    expect(formatMoney(-500, 'USD')).toBe('\u22125,00\u00A0$');
+    expect(formatMoney(1000, 'JPY')).toBe('1\u202F000\u00A0¥');
   });
 });

@@ -1,8 +1,11 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { switchCompanyPath } from '../lib/company-path';
-import type { Company } from '../lib/queries';
+import { formatMoney } from '../../shared/money';
+import { useCompaniesSummary, type Company } from '../lib/queries';
 
+const companyItemClass =
+  'flex w-full items-baseline justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm hover:bg-field focus:bg-field focus:outline-none';
 const itemClass = 'block w-full truncate rounded-xl px-3 py-2 text-left text-sm hover:bg-field focus:bg-field focus:outline-none';
 
 /** Переключатель компаний: меню с клавиатурой (стрелки, Home/End, Esc), фокус возвращается на кнопку. */
@@ -15,6 +18,9 @@ export function CompanySwitcher({ current, companies }: { current: Company; comp
   const navigate = useNavigate();
   const location = useLocation();
   const active = companies.filter((c) => !c.archivedAt);
+  // итоги — при открытии меню: свежие, без запросов на каждой странице
+  const summary = useCompaniesSummary(open);
+  const totals = new Map((summary.data ?? []).map((s) => [s.id, s.total]));
 
   const items = () => Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
   const focusItem = (index: number) => {
@@ -104,20 +110,29 @@ export function CompanySwitcher({ current, companies }: { current: Company; comp
           onKeyDown={onMenuKey}
           className="absolute left-0 z-20 mt-2 w-72 rounded-2xl bg-card p-2 text-ink shadow-xl"
         >
-          {active.map((c) => (
-            <button
-              key={c.id}
-              role="menuitem"
-              type="button"
-              tabIndex={-1}
-              data-current={c.id === current.id}
-              aria-current={c.id === current.id ? 'true' : undefined}
-              onClick={() => choose(c)}
-              className={`${itemClass} ${c.id === current.id ? 'font-semibold' : ''}`}
-            >
-              {c.name}
-            </button>
-          ))}
+          {active.map((c) => {
+            const t = totals.get(c.id);
+            return (
+              <button
+                key={c.id}
+                role="menuitem"
+                type="button"
+                tabIndex={-1}
+                data-current={c.id === current.id}
+                aria-current={c.id === current.id ? 'true' : undefined}
+                onClick={() => choose(c)}
+                className={`${companyItemClass} ${c.id === current.id ? 'font-semibold' : ''}`}
+              >
+                <span className="truncate">{c.name}</span>
+                {t && (
+                  <span className="shrink-0 text-xs font-normal tabular-nums text-muted">
+                    {formatMoney(t.amount, t.currency)}
+                    {t.unavailable.length > 0 && ` · без ${t.unavailable.join(', ')}`}
+                  </span>
+                )}
+              </button>
+            );
+          })}
           <div role="separator" className="my-1 border-t border-field" />
           <Link role="menuitem" tabIndex={-1} to="/companies/new" onClick={() => setOpen(false)} className={itemClass}>
             + Добавить компанию
