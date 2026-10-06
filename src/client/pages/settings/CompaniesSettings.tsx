@@ -47,9 +47,19 @@ function CompanyRow({ c, currentId }: { c: Company; currentId: number }) {
         <Field label="Название" error={fields.name}>
           {(f) => <input {...f} value={name} disabled={readOnly} onChange={(e) => setName(e.target.value)} className={inputClass} />}
         </Field>
-        <Field label="Базовая валюта" error={fields.baseCurrency}>
+        <Field
+          label="Базовая валюта"
+          error={fields.baseCurrency}
+          hint={c.currencyLocked ? 'В компании есть операции или фиксированные курсы — базовую валюту изменить нельзя' : undefined}
+        >
           {(f) => (
-            <select {...f} value={baseCurrency} disabled={readOnly} onChange={(e) => setBaseCurrency(e.target.value)} className={inputClass}>
+            <select
+              {...f}
+              value={baseCurrency}
+              disabled={readOnly || c.currencyLocked}
+              onChange={(e) => setBaseCurrency(e.target.value)}
+              className={inputClass}
+            >
               {CURRENCIES.map((x) => (
                 <option key={x.code} value={x.code}>
                   {x.code}

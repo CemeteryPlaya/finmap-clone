@@ -4,7 +4,7 @@ import { formatDateTime } from '../../../shared/dates';
 import { Field } from '../../components/Field';
 import { Pending, StaleNotice } from '../../components/QueryState';
 import { btnSecondary, inputClass } from '../../components/ui';
-import { ACTION_LABELS, COMPANY_ENTITIES, diffRows, ENTITY_LABELS } from '../../lib/audit-format';
+import { ACTION_LABELS, COMPANY_ENTITIES, diffRows, ENTITY_LABELS, SYSTEM_ENTITIES } from '../../lib/audit-format';
 import { useMeta } from '../../lib/query';
 import { useAuditFeed, useUsers, type AuditEntry } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
@@ -73,7 +73,7 @@ export function AuditSettings() {
   if (!feed.data || !meta.data || !users.data) return <Pending queries={[feed, meta, users]} />;
   const timeZone = meta.data.timezone;
   const entries = feed.data.pages.flatMap((p) => p.entries);
-  const entityOptions: readonly string[] = scope === 'company' ? COMPANY_ENTITIES : ['user'];
+  const entityOptions: readonly string[] = scope === 'company' ? COMPANY_ENTITIES : SYSTEM_ENTITIES;
   const switchScope = (s: Scope) => {
     setScope(s);
     setEntity('');

@@ -139,3 +139,36 @@ test('курсы: валюта без курса — предупреждени�
   await manualForm.getByRole('button', { name: 'Добавить курс' }).click();
   await expect(manualForm.getByLabel('Курс к тенге')).toHaveAttribute('aria-invalid', 'true');
 });
+
+test('валюта счёта с операциями и базовая валюта компании с операциями заблокированы', async ({ page }) => {
+  await login(page);
+  const stamp = Date.now();
+  const freeName = `ТОО Без операций ${stamp}`;
+  await createCompany(page, freeName);
+  const name = `ТОО Валюта ${stamp}`;
+  const cid = await createCompany(page, name);
+  const base = `/api/v1/companies/${cid}`;
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/accounts`, { name: 'Пустой', currency: 'KZT', openedAt: '2020-01-01' });
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minuteAgo(), accountId: kaspi, amount: 100 });
+
+  await page.goto(`/c/${cid}/settings/accounts`);
+  // в режиме правки название — значение поля, а не текст строки: строку формы ищем по полю
+  const editRow = (accountName: string) => page.getByRole('listitem').filter({ has: page.locator(`input[value="${accountName}"]`) });
+  await page.getByRole('listitem').filter({ hasText: 'Kaspi' }).getByRole('button', { name: 'Изменить' }).click();
+  const row = editRow('Kaspi');
+  await expect(row.getByLabel('Валюта')).toBeDisabled();
+  await expect(row).toContainText('По счёту есть операции — валюту изменить нельзя');
+  await row.getByRole('button', { name: 'Отмена' }).click();
+  await page.getByRole('listitem').filter({ hasText: 'Пустой' }).getByRole('button', { name: 'Изменить' }).click();
+  const empty = editRow('Пустой');
+  await expect(empty.getByLabel('Валюта')).toBeEnabled();
+  await empty.getByRole('button', { name: 'Отмена' }).click();
+
+  await page.goto(`/c/${cid}/settings/companies`);
+  const locked = page.getByRole('listitem').filter({ has: page.locator(`input[value="${name}"]`) });
+  await expect(locked.getByLabel('Базовая валюта')).toBeDisabled();
+  await expect(locked).toContainText('В компании есть операции или фиксированные курсы — базовую валюту изменить нельзя');
+  const free = page.getByRole('listitem').filter({ has: page.locator(`input[value="${freeName}"]`) });
+  await expect(free.getByLabel('Базовая валюта')).toBeEnabled();
+});

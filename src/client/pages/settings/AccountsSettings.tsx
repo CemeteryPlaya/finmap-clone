@@ -153,6 +153,7 @@ export function AccountsSettings() {
                     <AccountForm
                       mode="edit"
                       initial={a}
+                      currencyLocked={a.hasOperations}
                       defaultCurrency={company.baseCurrency}
                       projects={projectList}
                       pending={update.isPending}

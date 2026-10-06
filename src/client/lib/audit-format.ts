@@ -7,6 +7,10 @@ export const ENTITY_LABELS: Record<string, string> = {
   tag: 'Тег',
   split_preset: 'Шаблон разделения',
   user: 'Пользователь',
+  operation: 'Операция',
+  rate: 'Курс',
+  fixed_rate: 'Фиксированный курс',
+  attachment: 'Вложение',
 };
 
 export const ACTION_LABELS: Record<string, string> = {
@@ -23,7 +27,21 @@ export const ACTION_LABELS: Record<string, string> = {
 };
 
 /** Сущности ленты компании (для фильтра). */
-export const COMPANY_ENTITIES = ['company', 'project', 'account', 'category', 'counterparty', 'tag', 'split_preset'] as const;
+export const COMPANY_ENTITIES = [
+  'company',
+  'project',
+  'account',
+  'category',
+  'counterparty',
+  'tag',
+  'split_preset',
+  'operation',
+  'fixed_rate',
+  'attachment',
+] as const;
+
+/** Сущности общей ленты экземпляра (записи без компании): пользователи и ручные курсы. */
+export const SYSTEM_ENTITIES = ['user', 'rate'] as const;
 
 export interface DiffRow {
   field: string;

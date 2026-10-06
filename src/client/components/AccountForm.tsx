@@ -24,6 +24,8 @@ export function AccountForm(props: {
   serverError?: string;
   onSubmit: (values: AccountFormValues) => void;
   onCancel: () => void;
+  /** По счёту есть операции: валюту менять нельзя (§4.4). */
+  currencyLocked?: boolean;
 }) {
   const init = props.initial;
   const [name, setName] = useState(init?.name ?? '');
@@ -56,9 +58,13 @@ export function AccountForm(props: {
       <Field label="Название счёта" error={fields.name}>
         {(c) => <input {...c} autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Kaspi Gold" className={inputClass} />}
       </Field>
-      <Field label="Валюта" error={fields.currency}>
+      <Field
+        label="Валюта"
+        error={fields.currency}
+        hint={props.currencyLocked ? 'По счёту есть операции — валюту изменить нельзя' : undefined}
+      >
         {(c) => (
-          <select {...c} value={currency} onChange={(e) => setCurrency(e.target.value)} className={inputClass}>
+          <select {...c} value={currency} disabled={props.currencyLocked} onChange={(e) => setCurrency(e.target.value)} className={inputClass}>
             {CURRENCIES.map((x) => (
               <option key={x.code} value={x.code}>
                 {x.code} — {x.name}
