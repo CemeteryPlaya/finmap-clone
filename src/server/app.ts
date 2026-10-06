@@ -28,6 +28,8 @@ import { createSessionsService } from './modules/auth/sessions';
 import { createBalancesService } from './modules/balances/service';
 import { createReferencesService } from './modules/references/service';
 import { createCategoriesService } from './modules/categories/service';
+import { registerSplitPresetsRoutes } from './modules/split-presets/routes';
+import { createSplitPresetsService } from './modules/split-presets/service';
 import { registerCompaniesRoutes } from './modules/companies/routes';
 import { createCompaniesService } from './modules/companies/service';
 import { createUsersService } from './modules/users/service';
@@ -104,6 +106,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerAccountsRoutes(app, { accounts, companies });
   registerCounterpartiesRoutes(app, { counterparties: createCounterpartiesService({ db, audit, references, now }) });
   registerTagsRoutes(app, { tags: createTagsService({ db, audit, references, now }) });
+  registerSplitPresetsRoutes(app, { splitPresets: createSplitPresetsService({ db, audit, now }) });
   const backup =
     deps.backup ??
     createBackupService({
