@@ -10,6 +10,10 @@ import type { Db, Sqlite } from './db/client';
 import { registerErrorHandler } from './errors';
 import { registerAccountsRoutes } from './modules/accounts/routes';
 import { registerCategoriesRoutes } from './modules/categories/routes';
+import { registerCounterpartiesRoutes } from './modules/counterparties/routes';
+import { createCounterpartiesService } from './modules/counterparties/service';
+import { registerTagsRoutes } from './modules/tags/routes';
+import { createTagsService } from './modules/tags/service';
 import { registerProjectsRoutes } from './modules/projects/routes';
 import { createProjectsService } from './modules/projects/service';
 import { registerTemplatesRoutes } from './modules/templates/routes';
@@ -98,6 +102,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerProjectsRoutes(app, { projects });
   registerCategoriesRoutes(app, { categories, companies });
   registerAccountsRoutes(app, { accounts, companies });
+  registerCounterpartiesRoutes(app, { counterparties: createCounterpartiesService({ db, audit, references, now }) });
+  registerTagsRoutes(app, { tags: createTagsService({ db, audit, references, now }) });
   const backup =
     deps.backup ??
     createBackupService({
