@@ -23,3 +23,18 @@ test('вход, неверный пароль, выход', async ({ page }) => 
   await page.goto('/');
   await expect(page).toHaveURL(/\/login$/);
 });
+
+test('«глазок» показывает и скрывает введённый пароль', async ({ page }) => {
+  await page.goto('/login');
+  const password = page.getByPlaceholder('Пароль');
+  await password.fill('секрет-123');
+  await expect(password).toHaveAttribute('type', 'password');
+
+  await page.getByRole('button', { name: 'Показать пароль' }).click();
+  await expect(password).toHaveAttribute('type', 'text');
+  await expect(password).toHaveValue('секрет-123');
+  await expect(password).toBeFocused(); // фокус возвращается в поле, можно продолжать ввод
+
+  await page.getByRole('button', { name: 'Скрыть пароль' }).click();
+  await expect(password).toHaveAttribute('type', 'password');
+});
