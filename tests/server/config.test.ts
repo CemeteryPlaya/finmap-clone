@@ -5,6 +5,12 @@ import { loadConfig } from '../../src/server/config';
 const base = { SESSION_SECRET: 'x'.repeat(32) };
 
 describe('loadConfig', () => {
+  it('APP_TIMEZONE: неизвестный пояс — ошибка, известные принимаются', () => {
+    expect(() => loadConfig({ ...base, APP_TIMEZONE: 'Mars/Olympus' })).toThrow(/APP_TIMEZONE/);
+    expect(loadConfig({ ...base, APP_TIMEZONE: 'Asia/Almaty' }).timezone).toBe('Asia/Almaty');
+    expect(loadConfig({ ...base, APP_TIMEZONE: 'UTC' }).timezone).toBe('UTC');
+  });
+
   it('применяет значения по умолчанию', () => {
     const c = loadConfig(base);
     expect(c.appName).toBe('Учёт');

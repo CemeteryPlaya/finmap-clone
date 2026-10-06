@@ -24,6 +24,11 @@ export function NewCompanyPage() {
           </p>
         )}
         <CompanyForm onCreated={(c) => navigate(`/c/${c.id}/log`, { replace: true })} />
+        {hasActive && (
+          <Link to="/" className="mt-4 inline-block text-sm font-semibold text-muted underline hover:text-ink">
+            Отмена
+          </Link>
+        )}
       </main>
     </div>
   );

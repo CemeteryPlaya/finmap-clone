@@ -42,6 +42,19 @@ export function ProjectsSettings() {
       setEditingId(null);
     },
   });
+  const openCreate = () => {
+    update.reset();
+    toggleArchive.reset();
+    setEditingId(null);
+    setCreating(true);
+  };
+  const openEdit = (id: number) => {
+    create.reset();
+    update.reset();
+    toggleArchive.reset();
+    setCreating(false);
+    setEditingId(id);
+  };
   const toggleArchive = useMutation<unknown, ApiError, Project>({
     mutationFn: (p) => api(`/companies/${company.id}/projects/${p.id}/${p.archivedAt ? 'unarchive' : 'archive'}`, { method: 'POST' }),
     onSuccess: invalidate,
@@ -57,7 +70,7 @@ export function ProjectsSettings() {
       <div className="mb-4 flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold">Проекты</h1>
         {!readOnly && !creating && (
-          <button type="button" onClick={() => setCreating(true)} className={btnPrimary}>
+          <button type="button" onClick={openCreate} className={btnPrimary}>
             Добавить проект
           </button>
         )}
@@ -119,11 +132,14 @@ export function ProjectsSettings() {
                 {!readOnly && (
                   <div className="flex gap-2">
                     {!p.archivedAt && (
-                      <button type="button" onClick={() => setEditingId(p.id)} className={btnSecondary}>
+                      <button type="button" onClick={() => openEdit(p.id)} className={btnSecondary}>
                         Изменить
                       </button>
                     )}
-                    <button type="button" onClick={() => toggleArchive.mutate(p)} className={p.archivedAt ? btnSecondary : btnDanger}>
+                    <button type="button" onClick={() => {
+                        toggleArchive.reset();
+                        toggleArchive.mutate(p);
+                      }} className={p.archivedAt ? btnSecondary : btnDanger}>
                       {p.archivedAt ? 'Вернуть из архива' : 'В архив'}
                     </button>
                   </div>

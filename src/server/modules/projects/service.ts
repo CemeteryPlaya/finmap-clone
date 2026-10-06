@@ -2,7 +2,7 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 import { todayInTimezone } from '../../../shared/dates';
 import { getTemplate } from '../../../templates';
 import type { BusinessTemplate } from '../../../templates/types';
-import type { Db } from '../../db/client';
+import { ulower, type Db } from '../../db/client';
 import { projects } from '../../db/schema';
 import { AppError } from '../../errors';
 import type { AccountsService } from '../accounts/service';
@@ -66,6 +66,17 @@ export function createProjectsService(d: {
     return toRow(row);
   }
 
+  function assertNameFree(companyId: number, name: string, exceptId?: number): void {
+    const key = ulower(name.trim());
+    const clash = db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.companyId, companyId), sql`ulower(trim(${projects.name})) = ${key}`))
+      .all()
+      .some((r) => r.id !== exceptId);
+    if (clash) throw new AppError(400, 'VALIDATION', 'Проверьте заполнение полей', { name: 'Проект с таким названием уже есть' });
+  }
+
   const svc: ProjectsService = {
     list(companyId) {
       d.companies.require(companyId);
@@ -77,6 +88,7 @@ export function createProjectsService(d: {
       const template = getTemplate(input.templateKey);
       if (!template) throw new AppError(400, 'VALIDATION', 'Проверьте заполнение полей', { templateKey: 'Неизвестный тип бизнеса' });
       const params = validateParams(template, input.templateParams);
+      assertNameFree(companyId, input.name);
 
       return db.transaction((tx) => {
         const next = tx
@@ -127,8 +139,13 @@ export function createProjectsService(d: {
       const template = getTemplate(before.templateKey);
       if (!template) throw new Error(`Шаблон ${before.templateKey} не найден`);
       const set: Partial<typeof projects.$inferInsert> = {};
-      if (input.name !== undefined) set.name = input.name;
-      if (input.templateParams !== undefined) set.templateParams = JSON.stringify(validateParams(template, input.templateParams));
+      if (input.name !== undefined) {
+        assertNameFree(companyId, input.name, id);
+        set.name = input.name;
+      }
+      if (input.templateParams !== undefined) {
+        set.templateParams = JSON.stringify(validateParams(template, { ...before.templateParams, ...input.templateParams }));
+      }
       if (Object.keys(set).length === 0) return before;
       const row = toRow(db.update(projects).set(set).where(eq(projects.id, id)).returning().get());
       audit.record({

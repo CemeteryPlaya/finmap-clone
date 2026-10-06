@@ -27,6 +27,11 @@ test('компании: создание, переключение', async ({ pa
   await expect(page.getByRole('heading', { name: 'Журнал' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Сменить компанию' })).toContainText(first);
 
+  // «Отмена» на экране новой компании возвращает в журнал первой активной
+  await page.goto('/companies/new');
+  await page.getByRole('link', { name: 'Отмена' }).click();
+  await expect(page).toHaveURL(/\/c\/\d+\/log$/);
+
   const secondId = await createCompany(page, second);
   expect(secondId).not.toBe(firstId);
   await expect(page.getByRole('button', { name: 'Сменить компанию' })).toContainText(second);
@@ -88,4 +93,15 @@ test('проекты по шаблонам: клуб и общий', async ({ pa
   const renamedRow = page.getByRole('listitem').filter({ has: page.locator(`input[value="${renamed}"]`) });
   await renamedRow.getByRole('button', { name: 'Сохранить' }).click();
   await expect(page.getByRole('button', { name: 'Сменить компанию' })).toContainText(renamed);
+});
+
+test('истёкшая сессия уводит на вход', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Сессия ${Date.now()}`);
+  await page.context().clearCookies();
+  await page.getByRole('link', { name: 'Настройки' }).click();
+  // экран настроек монтируется и перезапрашивает данные → 401 → уход на вход
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByRole('button', { name: 'Войти' })).toBeVisible();
+  expect(cid).toBeGreaterThan(0);
 });

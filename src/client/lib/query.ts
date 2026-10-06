@@ -1,7 +1,17 @@
-import { QueryClient, useQuery } from '@tanstack/react-query';
+import { MutationCache, QueryCache, QueryClient, useQuery } from '@tanstack/react-query';
 import { api, ApiError } from './api';
 
-export const queryClient = new QueryClient({
+/** Сессия истекла: сбрасываем кэш и уходим на вход (на самой странице входа ничего не делаем). */
+export function handleUnauthorized(err: unknown): void {
+  if (!(err instanceof ApiError) || err.status !== 401) return;
+  if (window.location.pathname === '/login') return;
+  queryClient.clear();
+  window.location.assign('/login');
+}
+
+export const queryClient: QueryClient = new QueryClient({
+  queryCache: new QueryCache({ onError: handleUnauthorized }),
+  mutationCache: new MutationCache({ onError: handleUnauthorized }),
   defaultOptions: {
     queries: {
       retry: (count, err) => !(err instanceof ApiError && err.status >= 400 && err.status < 500) && count < 2,

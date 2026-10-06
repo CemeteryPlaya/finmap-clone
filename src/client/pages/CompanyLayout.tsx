@@ -1,5 +1,6 @@
 import { Navigate, NavLink, Outlet, useParams } from 'react-router';
 import { AppHeader } from '../components/AppHeader';
+import { LoadError } from '../components/LoadError';
 import { CompanySwitcher } from '../components/CompanySwitcher';
 import { useCompanies, type Company } from '../lib/queries';
 
@@ -13,8 +14,10 @@ const tab = ({ isActive }: { isActive: boolean }) =>
 export function CompanyLayout() {
   const { companyId } = useParams();
   const companies = useCompanies();
-  if (companies.isPending) return <div className="p-8 text-muted">Загрузка…</div>;
-  if (companies.error) return <div className="p-8 text-expense">{companies.error.message}</div>;
+  if (!companies.data) {
+    if (companies.error) return <LoadError message={companies.error.message} onRetry={() => void companies.refetch()} />;
+    return <div className="p-8 text-muted">Загрузка…</div>;
+  }
   const company = companies.data.find((c) => String(c.id) === companyId);
   if (!company) return <Navigate to="/" replace />;
 

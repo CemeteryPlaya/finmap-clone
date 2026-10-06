@@ -150,4 +150,45 @@ describe('projects API', () => {
     expect(res.statusCode).toBe(422);
     expect(res.json().error.code).toBe('ARCHIVED_REFERENCE');
   });
+
+  it('название проекта уникально в компании без учёта регистра и пробелов, архивные считаются', async () => {
+    const { req, cid } = await setup();
+    const url = `/api/v1/companies/${cid}/projects`;
+    expect((await req('POST', url, club('Клуб'))).statusCode).toBe(201);
+    for (const name of ['Клуб', ' клуб ']) {
+      const dup = await req('POST', url, club(name));
+      expect(dup.statusCode).toBe(400);
+      expect(dup.json().error.code).toBe('VALIDATION');
+      expect(dup.json().error.fields).toEqual({ name: 'Проект с таким названием уже есть' });
+    }
+    const other = (await req('POST', '/api/v1/companies', { name: 'Другая' })).json().company.id as number;
+    expect((await req('POST', `/api/v1/companies/${other}/projects`, club('Клуб'))).statusCode).toBe(201);
+
+    const second = (await req('POST', url, club('Второй'))).json().project;
+    const clash = await req('PATCH', `${url}/${second.id}`, { name: 'КЛУБ' });
+    expect(clash.statusCode).toBe(400);
+    expect(clash.json().error.fields).toEqual({ name: 'Проект с таким названием уже есть' });
+    const own = await req('PATCH', `${url}/${second.id}`, { name: 'второй' });
+    expect(own.statusCode).toBe(200);
+    expect(own.json().project.name).toBe('второй');
+
+    // архивный проект тоже занимает имя
+    const third = (await req('POST', `${url}`, { name: 'Офис', templateKey: 'general' })).json().project;
+    await req('POST', `${url}/${third.id}/archive`);
+    expect((await req('POST', url, { name: 'офис', templateKey: 'general' })).statusCode).toBe(400);
+  });
+
+  it('PATCH templateParams сливается с сохранёнными', async () => {
+    const { req, cid } = await setup();
+    const { project } = (
+      await req('POST', `/api/v1/companies/${cid}/projects`, {
+        name: 'Клуб',
+        templateKey: 'computer-club',
+        templateParams: { pcCount: 30, consoleCount: 4 },
+      })
+    ).json();
+    const res = await req('PATCH', `/api/v1/companies/${cid}/projects/${project.id}`, { templateParams: { pcCount: 40 } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().project.templateParams).toEqual({ pcCount: 40, consoleCount: 4 });
+  });
 });
