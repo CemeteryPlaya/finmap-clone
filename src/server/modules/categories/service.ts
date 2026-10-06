@@ -1,8 +1,15 @@
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, count, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { effectiveSystemKey, SYSTEM_CATEGORIES, systemCategory, type CategoryKind, type SystemKey } from '../../../shared/system-categories';
+import { cleanName } from '../../../shared/text';
 import { isUnderSystem, type BusinessTemplate } from '../../../templates/types';
 import type { Db, Executor } from '../../db/client';
 import { categories } from '../../db/schema';
+import { AppError } from '../../errors';
+import { changedFields, mutate } from '../audit/mutate';
+import type { AuditService } from '../audit/service';
+import { requireCompany } from '../companies/guard';
+import { isSameOrder } from '../dictionaries/order';
+import { createReferencesService, type ReferencesService } from '../references/service';
 
 export interface CategoryRow {
   id: number;
@@ -25,6 +32,13 @@ export interface CategoriesService {
   seedSystem(ex: Executor, companyId: number): void;
   mergeTemplate(ex: Executor, companyId: number, template: BusinessTemplate): number;
   listTree(companyId: number): { income: CategoryNodeDto[]; expense: CategoryNodeDto[] };
+  add(companyId: number, input: { kind: CategoryKind; name: string; parentId: number | null }, userId: number): CategoryRow;
+  rename(companyId: number, id: number, name: string, userId: number): CategoryRow;
+  /** Новый порядок детей parentId (null — верхний уровень) дерева kind; moving — единственная статья, переносимая сюда из другого места. */
+  move(companyId: number, input: { kind: CategoryKind; parentId: number | null; ids: number[]; moving?: number | null }, userId: number): void;
+  archive(companyId: number, id: number, userId: number): CategoryRow;
+  unarchive(companyId: number, id: number, userId: number): CategoryRow;
+  remove(companyId: number, id: number, userId: number): void;
 }
 
 function toRow(r: typeof categories.$inferSelect): CategoryRow {
@@ -41,18 +55,26 @@ function toRow(r: typeof categories.$inferSelect): CategoryRow {
   };
 }
 
-export function createCategoriesService(db: Db, now: () => Date = () => new Date()): CategoriesService {
+const invalid = (field: string, message: string) => new AppError(400, 'VALIDATION', 'Проверьте заполнение полей', { [field]: message });
+
+export function createCategoriesService(d: { db: Db; audit: AuditService; references?: ReferencesService; now?: () => Date }): CategoriesService {
+  const { db, audit } = d;
+  const now = d.now ?? (() => new Date());
+  const references = d.references ?? createReferencesService();
+
+  function levelCondition(companyId: number, kind: CategoryKind, parentId: number | null): SQL | undefined {
+    return and(
+      eq(categories.companyId, companyId),
+      eq(categories.kind, kind),
+      parentId === null ? isNull(categories.parentId) : eq(categories.parentId, parentId),
+    );
+  }
+
   function nextOrder(ex: Executor, companyId: number, kind: CategoryKind, parentId: number | null): number {
     const row = ex
       .select({ m: sql<number>`coalesce(max(${categories.orderIndex}), -1)` })
       .from(categories)
-      .where(
-        and(
-          eq(categories.companyId, companyId),
-          eq(categories.kind, kind),
-          parentId === null ? isNull(categories.parentId) : eq(categories.parentId, parentId),
-        ),
-      )
+      .where(levelCondition(companyId, kind, parentId))
       .get();
     return (row?.m ?? -1) + 1;
   }
@@ -85,7 +107,50 @@ export function createCategoriesService(db: Db, now: () => Date = () => new Date
       .get();
   }
 
-  return {
+  function find(companyId: number, id: number) {
+    return db.select().from(categories).where(and(eq(categories.id, id), eq(categories.companyId, companyId))).get();
+  }
+
+  function requireCategory(companyId: number, id: number): CategoryRow {
+    const r = find(companyId, id);
+    if (!r) throw new AppError(404, 'NOT_FOUND', 'Статья не найдена');
+    return toRow(r);
+  }
+
+  function childIds(companyId: number, kind: CategoryKind, parentId: number | null): number[] {
+    return db
+      .select({ id: categories.id })
+      .from(categories)
+      .where(levelCondition(companyId, kind, parentId))
+      .orderBy(asc(categories.orderIndex), asc(categories.id))
+      .all()
+      .map((r) => r.id);
+  }
+
+  function hasChildren(id: number, activeOnly = false): boolean {
+    const conds: SQL[] = [eq(categories.parentId, id)];
+    if (activeOnly) conds.push(isNull(categories.archivedAt));
+    return (db.select({ n: count() }).from(categories).where(and(...conds)).get()?.n ?? 0) > 0;
+  }
+
+  /** Родитель для вложения: та же компания и вид, верхний уровень, не в архиве (вложенность ≤ 2). */
+  function checkParent(companyId: number, kind: CategoryKind, parentId: number): void {
+    const p = find(companyId, parentId);
+    if (!p) throw invalid('parentId', 'Родительская статья не найдена');
+    if (p.kind !== kind) throw invalid('parentId', 'Родительская статья из другого дерева');
+    if (p.parentId !== null) throw invalid('parentId', 'Вложенность — не больше двух уровней');
+    if (p.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Родительская статья в архиве');
+  }
+
+  function setArchived(companyId: number, id: number, userId: number, archivedAt: string | null): CategoryRow {
+    return mutate(db, audit, (tx, record) => {
+      const out = toRow(tx.update(categories).set({ archivedAt }).where(eq(categories.id, id)).returning().get());
+      record({ companyId, userId, entity: 'category', entityId: id, action: archivedAt ? 'archive' : 'unarchive' });
+      return out;
+    });
+  }
+
+  const svc: CategoriesService = {
     seedSystem(ex, companyId) {
       for (const def of SYSTEM_CATEGORIES) {
         insert(ex, { companyId, kind: def.kind, parentId: null, name: def.name, systemKey: def.key });
@@ -96,7 +161,7 @@ export function createCategoriesService(db: Db, now: () => Date = () => new Date
       let created = 0;
       for (const kind of ['income', 'expense'] as const) {
         for (const node of template.categories[kind]) {
-          let parentId: number;
+          let parentId: number | null;
           if (isUnderSystem(node)) {
             if (systemCategory(node.underSystem).kind !== kind) {
               throw new Error(`Системная статья ${node.underSystem} не относится к виду ${kind}`);
@@ -110,8 +175,10 @@ export function createCategoriesService(db: Db, now: () => Date = () => new Date
             parentId = sys.id;
           } else {
             const existing = findByRef(ex, companyId, kind, node.ref);
-            if (existing) parentId = existing.id;
-            else {
+            if (existing) {
+              // группу перенесли во второй уровень или в архив — новые дочерние встают на верхний уровень
+              parentId = existing.parentId === null && !existing.archivedAt ? existing.id : null;
+            } else {
               parentId = insert(ex, { companyId, kind, parentId: null, name: node.name, templateRef: node.ref }).id;
               created++;
             }
@@ -148,5 +215,92 @@ export function createCategoriesService(db: Db, now: () => Date = () => new Date
       }
       return result;
     },
+
+    add(companyId, input, userId) {
+      requireCompany(db, companyId, { writable: true });
+      if (input.parentId !== null) checkParent(companyId, input.kind, input.parentId);
+      return mutate(db, audit, (tx, record) => {
+        const row = toRow(insert(tx, { companyId, kind: input.kind, parentId: input.parentId, name: cleanName(input.name) }));
+        record({ companyId, userId, entity: 'category', entityId: row.id, action: 'create', diff: { kind: row.kind, name: row.name, parentId: row.parentId } });
+        return row;
+      });
+    },
+
+    rename(companyId, id, name, userId) {
+      requireCompany(db, companyId, { writable: true });
+      const before = requireCategory(companyId, id);
+      if (before.systemKey) throw new AppError(422, 'SYSTEM_CATEGORY', 'Системную статью нельзя переименовать');
+      if (before.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Статья в архиве — сначала верните её из архива');
+      const changes = changedFields({ name: before.name }, { name: cleanName(name) });
+      if (!changes) return before;
+      return mutate(db, audit, (tx, record) => {
+        const row = toRow(tx.update(categories).set(changes.after).where(eq(categories.id, id)).returning().get());
+        record({ companyId, userId, entity: 'category', entityId: id, action: 'update', diff: changes });
+        return row;
+      });
+    },
+
+    move(companyId, { kind, parentId, ids, moving = null }, userId) {
+      requireCompany(db, companyId, { writable: true });
+      if (parentId !== null) checkParent(companyId, kind, parentId);
+      const current = childIds(companyId, kind, parentId);
+      const stale = () => new AppError(409, 'VERSION_CONFLICT', 'Список изменился — обновите страницу и повторите');
+      if (new Set(ids).size !== ids.length || current.some((id) => !ids.includes(id))) throw stale();
+      const moved: number[] = [];
+      for (const id of ids) {
+        if (current.includes(id)) continue;
+        const c = requireCategory(companyId, id); // чужой id — 404
+        // переносится только явно названная статья; любая другая «лишняя» значит, что экран устарел
+        // (её уже перенёс другой пользователь) — молча вернуть её назад нельзя
+        if (id !== moving) throw stale();
+        if (c.kind !== kind) throw invalid('ids', 'Статью нельзя перенести в дерево другого вида');
+        if (parentId !== null) {
+          if (c.systemKey) throw new AppError(422, 'SYSTEM_CATEGORY', 'Системная статья остаётся на верхнем уровне');
+          if (c.id === parentId) throw invalid('ids', 'Статью нельзя вложить в саму себя');
+          if (hasChildren(c.id)) throw invalid('ids', 'Статью с дочерними нельзя сделать дочерней');
+        }
+        if (c.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Статья в архиве — сначала верните её из архива');
+        moved.push(id);
+      }
+      if (moved.length === 0 && isSameOrder(current, ids)) return;
+      mutate(db, audit, (tx, record) => {
+        ids.forEach((categoryId, i) => tx.update(categories).set({ parentId, orderIndex: i }).where(eq(categories.id, categoryId)).run());
+        record({ companyId, userId, entity: 'category', action: 'reorder', diff: { kind, parentId, ids, moved } });
+      });
+    },
+
+    archive(companyId, id, userId) {
+      requireCompany(db, companyId, { writable: true });
+      const row = requireCategory(companyId, id);
+      if (row.systemKey) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Системные статьи не архивируются');
+      if (row.archivedAt) return row;
+      if (hasChildren(id, true)) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Сначала переведите в архив дочерние статьи');
+      return setArchived(companyId, id, userId, now().toISOString());
+    },
+
+    unarchive(companyId, id, userId) {
+      requireCompany(db, companyId, { writable: true });
+      const row = requireCategory(companyId, id);
+      if (!row.archivedAt) return row;
+      if (row.parentId !== null && find(companyId, row.parentId)?.archivedAt) {
+        throw new AppError(422, 'ARCHIVED_REFERENCE', 'Сначала верните из архива родительскую статью');
+      }
+      return setArchived(companyId, id, userId, null);
+    },
+
+    remove(companyId, id, userId) {
+      requireCompany(db, companyId, { writable: true });
+      const row = requireCategory(companyId, id);
+      if (row.systemKey) throw new AppError(422, 'SYSTEM_CATEGORY', 'Системную статью нельзя удалить');
+      if (hasChildren(id)) throw new AppError(422, 'IN_USE', 'Сначала удалите или перенесите дочерние статьи');
+      if (references.countOperations('category', id) > 0) {
+        throw new AppError(422, 'INVARIANT_9', 'На статью ссылаются операции — её можно только перевести в архив');
+      }
+      mutate(db, audit, (tx, record) => {
+        tx.delete(categories).where(eq(categories.id, id)).run();
+        record({ companyId, userId, entity: 'category', entityId: id, action: 'delete', diff: { kind: row.kind, name: row.name, parentId: row.parentId } });
+      });
+    },
   };
+  return svc;
 }

@@ -16,7 +16,7 @@ describe('projects service: атомарность создания', () => {
     seedCurrencies(t.db);
     const now = () => new Date('2026-10-06T00:00:00.000Z');
     const audit = createAuditService(t.db, now);
-    const categories = createCategoriesService(t.db, now);
+    const categories = createCategoriesService({ db: t.db, audit, now });
     const accounts = createAccountsService({ db: t.db, audit, timezone: 'Asia/Almaty', now });
     const companies = createCompaniesService({ db: t.db, audit, categories, accounts, now });
     const projects = createProjectsService({ db: t.db, audit, companies, categories, accounts, timezone: 'Asia/Almaty', now });

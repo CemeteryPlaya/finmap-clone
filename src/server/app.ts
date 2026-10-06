@@ -87,9 +87,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.get('/api/v1/health', async () => ({ ok: true }));
   app.get('/api/v1/meta', async () => ({ appName: config.appName }));
   registerAuthRoutes(app, { users, sessions, limiter, audit, config });
-  const categories = createCategoriesService(db, now);
   const references = createReferencesService();
   const balances = createBalancesService();
+  const categories = createCategoriesService({ db, audit, references, now });
   const accounts = createAccountsService({ db, audit, references, balances, timezone: config.timezone, now });
   const companies = createCompaniesService({ db, audit, categories, accounts, now });
   registerCompaniesRoutes(app, { companies });
