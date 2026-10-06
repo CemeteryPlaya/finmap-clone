@@ -206,3 +206,13 @@ export function useAuditFeed(companyId: number | null, filters: { userId?: numbe
     placeholderData: keepPreviousData, // при смене фильтра фильтры и старая лента не исчезают
   });
 }
+
+export interface BackupStatus {
+  last: { file: string; createdAt: string; size: number } | null;
+  copyDir: string | null;
+  lastCopyError: string | null;
+}
+
+export function useBackupStatus() {
+  return useQuery<BackupStatus, ApiError>({ queryKey: ['backup-status'], queryFn: () => api<BackupStatus>('/backup/status') });
+}

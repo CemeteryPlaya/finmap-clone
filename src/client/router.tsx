@@ -15,6 +15,7 @@ import { SplitPresetsSettings } from './pages/settings/SplitPresetsSettings';
 import { ProfileSettings } from './pages/settings/ProfileSettings';
 import { UsersSettings } from './pages/settings/UsersSettings';
 import { AuditSettings } from './pages/settings/AuditSettings';
+import { BackupSettings } from './pages/settings/BackupSettings';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -41,6 +42,7 @@ export const router = createBrowserRouter([
           { path: 'settings/users', element: <UsersSettings /> },
           { path: 'settings/profile', element: <ProfileSettings /> },
           { path: 'settings/audit', element: <AuditSettings /> },
+          { path: 'settings/backup', element: <BackupSettings /> },
         ],
       },
       { path: '*', element: <Navigate to="/" replace /> },

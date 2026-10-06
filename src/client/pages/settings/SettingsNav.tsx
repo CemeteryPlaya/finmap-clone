@@ -12,6 +12,7 @@ const SECTIONS: readonly { path: string; label: string }[] = [
   { path: 'users', label: 'Пользователи' },
   { path: 'profile', label: 'Профиль' },
   { path: 'audit', label: 'История действий' },
+  { path: 'backup', label: 'Резервная копия' },
 ];
 
 const link = ({ isActive }: { isActive: boolean }) =>
