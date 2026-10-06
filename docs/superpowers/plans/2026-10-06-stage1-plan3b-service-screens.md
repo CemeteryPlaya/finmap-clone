@@ -110,7 +110,7 @@ e2e/service-screens.spec.ts                  # (новый)
     - `list(): UserRow[]`, `get(id): UserRow | null`;
     - `update(id, { name?, password?, disabled? }, actorId): Promise<UserRow>`;
     - `changeOwnPassword(id, current, next, keepSessionId): Promise<void>`;
-    - `setPasswordByLogin(login, password): Promise<AuthUser>`;
+    - `setPasswordByLogin(login, password): Promise<UserRow>`;
   - маршруты:
     - `GET /api/v1/users` → `{ users }`;
     - `POST /api/v1/users` → 201 `{ user }`;
@@ -261,6 +261,21 @@ describe('users API', () => {
     });
   });
 
+  it('параллельное взаимное отключение с паролем не оставляет экземпляр без активных пользователей', async () => {
+    const { svc } = setup();
+    const a = await svc.create({ login: 'alpha', name: 'А', password: 'correct-horse-1' }, null);
+    const b = await svc.create({ login: 'beta', name: 'Б', password: 'correct-horse-1' }, null);
+    // await hashPassword внутри update — окно, в котором раньше обе проверки «активных > 1» проходили
+    const results = await Promise.allSettled([
+      svc.update(b.id, { disabled: true, password: 'reset-pass-11' }, a.id),
+      svc.update(a.id, { disabled: true, password: 'reset-pass-22' }, b.id),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(rejected.reason).toMatchObject({ code: 'USER_LOCKOUT' });
+    expect(svc.list().filter((u) => u.disabledAt === null)).toHaveLength(1);
+  });
+
   it('setPasswordByLogin (user:passwd): новый пароль, все сессии пользователя завершены', async () => {
     const { svc } = setup();
     const u = await svc.create({ login: 'admin', name: 'А', password: 'correct-horse-1' }, null);
@@ -349,7 +364,7 @@ export interface UsersService {
   /** Смена своего пароля: проверка текущего; сессии, кроме keepSessionId, завершаются. */
   changeOwnPassword(id: number, currentPassword: string, newPassword: string, keepSessionId: number | null): Promise<void>;
   /** Сброс пароля из консоли (npm run user:passwd): все сессии пользователя завершаются. */
-  setPasswordByLogin(login: string, password: string): Promise<AuthUser>;
+  setPasswordByLogin(login: string, password: string): Promise<UserRow>;
 }
 
 const LOGIN_RE = /^[a-z0-9._-]{3,32}$/;
@@ -427,7 +442,7 @@ export function createUsersService(db: Db, audit: AuditService, now: () => Date 
     },
 
     async update(id, input, actorId) {
-      const before = requireUser(id);
+      requireUser(id); // 404 до дорогого хэша
       const name = input.name !== undefined ? cleanName(input.name) : undefined;
       const fields: Record<string, string> = {};
       if (name !== undefined && (name.length < 1 || name.length > 100)) fields.name = 'Имя: от 1 до 100 символов';
@@ -436,16 +451,20 @@ export function createUsersService(db: Db, audit: AuditService, now: () => Date 
         else if (input.password.length < MIN_PASSWORD) fields.password = `Пароль должен быть не короче ${MIN_PASSWORD} символов`;
       }
       if (Object.keys(fields).length) throw invalid(fields);
-      const disable = input.disabled === true && before.disabledAt === null;
-      const enable = input.disabled === false && before.disabledAt !== null;
-      if (disable) {
-        if (id === actorId) throw new AppError(422, 'USER_LOCKOUT', 'Нельзя отключить самого себя');
-        const active = db.select({ n: count() }).from(users).where(isNull(users.disabledAt)).get()?.n ?? 0;
-        if (active <= 1) throw new AppError(422, 'USER_LOCKOUT', 'Нельзя отключить последнего активного пользователя');
-      }
+      if (input.disabled === true && id === actorId) throw new AppError(422, 'USER_LOCKOUT', 'Нельзя отключить самого себя');
       const passwordHash = input.password !== undefined ? await hashPassword(input.password) : undefined;
 
+      // состояние читаем и проверяем внутри транзакции, уже после await: два параллельных взаимных отключения
+      // не оставят экземпляр без активных пользователей (тот же принцип, что у уникальности логина в create)
       return mutate(db, audit, (tx, record) => {
+        const before = tx.select().from(users).where(eq(users.id, id)).get();
+        if (!before) throw new AppError(404, 'NOT_FOUND', 'Пользователь не найден');
+        const disable = input.disabled === true && before.disabledAt === null;
+        const enable = input.disabled === false && before.disabledAt !== null;
+        if (disable) {
+          const active = tx.select({ n: count() }).from(users).where(isNull(users.disabledAt)).get()?.n ?? 0;
+          if (active <= 1) throw new AppError(422, 'USER_LOCKOUT', 'Нельзя отключить последнего активного пользователя');
+        }
         const set: Partial<typeof users.$inferInsert> = {};
         const diff = { before: {} as Record<string, unknown>, after: {} as Record<string, unknown> };
         if (name !== undefined && name !== before.name) {
@@ -494,7 +513,7 @@ export function createUsersService(db: Db, audit: AuditService, now: () => Date 
         tx.delete(sessions).where(eq(sessions.userId, row.id)).run();
         record({ userId: null, entity: 'user', entityId: row.id, action: 'password_change', diff: { reset: true, via: 'console' } });
       });
-      return { id: row.id, login: row.login, name: row.name };
+      return toRow(row); // disabledAt — чтобы скрипт предупредил: отключённый пользователь всё равно не войдёт
     },
   };
   return svc;
@@ -602,6 +621,7 @@ try {
   if (password !== again) throw new Error('Пароли не совпадают');
   const u = await users.setPasswordByLogin(login, password);
   console.log(`Пароль пользователя «${u.login}» изменён, все его сеансы завершены.`);
+  if (u.disabledAt) console.log("Внимание: пользователь отключён и войти не сможет — включите его в «Настройки → Пользователи».");
 } catch (e) {
   if (e instanceof AppError && e.fields) console.error(Object.values(e.fields).join('\n'));
   else console.error((e as Error).message);
@@ -912,6 +932,9 @@ describe('preferences API', () => {
     expect((await h.req('PUT', '/api/v1/preferences/ok', {})).json().error.fields.value).toBe('Укажите значение');
     const big = await h.req('PUT', '/api/v1/preferences/big', { value: 'x'.repeat(9000) });
     expect(big.json().error.fields.value).toBe('Слишком большое значение');
+    // 5000 кириллических символов — 10 000 байт в UTF-8: лимит считается в байтах
+    const cyr = await h.req('PUT', '/api/v1/preferences/cyr', { value: 'ж'.repeat(5000) });
+    expect(cyr.json().error.fields.value).toBe('Слишком большое значение');
     for (let i = 0; i < 50; i++) await h.req('PUT', `/api/v1/preferences/k${i}`, { value: i });
     const over = await h.req('PUT', '/api/v1/preferences/k50', { value: 1 });
     expect(over.statusCode).toBe(400);
@@ -959,7 +982,7 @@ export function createPreferencesService(db: Db, now: () => Date = () => new Dat
     set(userId, key, value) {
       if (!PREF_KEY_RE.test(key)) throw invalid({ key: 'Недопустимый ключ' });
       const json = JSON.stringify(value);
-      if (json.length > PREF_VALUE_MAX) throw invalid({ value: 'Слишком большое значение' });
+      if (Buffer.byteLength(json, 'utf8') > PREF_VALUE_MAX) throw invalid({ value: 'Слишком большое значение' }); // байты, не символы
       db.transaction((tx) => {
         const exists = tx
           .select({ id: userPreferences.id })
@@ -1452,7 +1475,7 @@ export function ProfileSettings() {
       <SettingsNav companyId={company.id} />
       <h1 className="mb-4 text-2xl font-bold">Профиль</h1>
       <div className="grid max-w-4xl gap-6 lg:grid-cols-2">
-        <NameCard key={me.data.user.name} user={me.data.user} />
+        <NameCard key={me.data.user.id} user={me.data.user} />
         <PasswordCard />
       </div>
     </section>
@@ -1984,7 +2007,8 @@ export function BackupSettings() {
         Архив содержит базу и вложения всех компаний. Автокопия делается каждый день в 04:00 и при запуске, если последней больше суток.
       </p>
       <dl className="mb-6 grid max-w-2xl gap-x-6 gap-y-2 text-sm md:grid-cols-[16rem_1fr]">
-        <dt className="text-muted">Последняя автокопия</dt>
+        {/* последний архив любого вида: ежедневный, стартовый, перед миграцией */}
+        <dt className="text-muted">Последняя копия</dt>
         <dd>{s.last ? `${formatDateTime(s.last.createdAt, meta.data.timezone)} · ${formatBytes(s.last.size)}` : 'Ещё не было'}</dd>
         <dt className="text-muted">Папка для копий (BACKUP_COPY_DIR)</dt>
         <dd className="break-all">{s.copyDir ?? 'Не задана — копии хранятся только в data/backups'}</dd>
@@ -2461,30 +2485,36 @@ async function addUser(page: Page, cid: number, login: string, name: string, pas
   await page.getByLabel('Имя', { exact: true }).fill(name);
   await page.getByLabel('Пароль', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Создать пользователя' }).click();
+  // форма закрылась — пользователь создан (а не «Логин уже занят»)
+  await expect(page.getByRole('button', { name: 'Создать пользователя' })).toHaveCount(0);
   await expect(page.getByRole('listitem').filter({ hasText: login })).toBeVisible();
 }
+
+/** Уникальный логин на запуск: тесты можно повторять на том же сервере (--repeat-each). */
+const uniqueLogin = (prefix: string) => `${prefix}${Date.now() % 1_000_000}${Math.floor(Math.random() * 100)}`;
 
 const section = (page: Page, name: string) => page.getByRole('navigation', { name: 'Разделы настроек' }).getByRole('link', { name });
 
 test('пользователи: сброс пароля и отключение сразу завершают чужой сеанс; себя отключить нельзя', async ({ page, browser }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Люди ${Date.now()}`);
-  await addUser(page, cid, 'kassir', 'Кассир', 'kassir-pass-1');
-  const row = page.getByRole('listitem').filter({ hasText: 'kassir' });
+  const user = uniqueLogin('kassir');
+  await addUser(page, cid, user, 'Кассир', 'kassir-pass-1');
+  const row = page.getByRole('listitem').filter({ hasText: user });
   const meRow = page.getByRole('listitem').filter({ hasText: 'это вы' });
   await expect(meRow.getByRole('button', { name: 'Отключить' })).toHaveCount(0);
 
   const ctx = await browser.newContext();
   const kassir = await ctx.newPage();
-  await login(kassir, 'kassir', 'kassir-pass-1');
+  await login(kassir, user, 'kassir-pass-1');
 
   await row.getByRole('button', { name: 'Сбросить пароль' }).click();
-  await row.getByLabel('Новый пароль для kassir').fill('kassir-pass-2');
+  await row.getByLabel(`Новый пароль для ${user}`).fill('kassir-pass-2');
   await row.getByRole('button', { name: 'Сбросить пароль' }).click();
   await expect(row.getByRole('status')).toHaveText('Пароль сброшен, сеансы пользователя завершены');
   await kassir.reload();
   await expect(kassir).toHaveURL(/\/login$/);
-  await login(kassir, 'kassir', 'kassir-pass-2');
+  await login(kassir, user, 'kassir-pass-2');
 
   await row.getByRole('button', { name: 'Отключить' }).click();
   await expect(row).toContainText('отключён');
@@ -2496,14 +2526,15 @@ test('пользователи: сброс пароля и отключение 
 test('профиль: смена пароля оставляет текущий сеанс и завершает остальные', async ({ page, browser }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Профиль ${Date.now()}`);
-  await addUser(page, cid, 'profiler', 'Профилёр', 'profiler-pass-1');
+  const user = uniqueLogin('profiler');
+  await addUser(page, cid, user, 'Профилёр', 'profiler-pass-1');
 
   const ctxA = await browser.newContext();
   const a = await ctxA.newPage();
-  await login(a, 'profiler', 'profiler-pass-1');
+  await login(a, user, 'profiler-pass-1');
   const ctxB = await browser.newContext();
   const b = await ctxB.newPage();
-  await login(b, 'profiler', 'profiler-pass-1');
+  await login(b, user, 'profiler-pass-1');
 
   await a.getByRole('link', { name: 'Профилёр' }).click(); // имя в шапке ведёт в профиль
   await expect(a.getByRole('heading', { name: 'Профиль' })).toBeVisible();
@@ -2556,7 +2587,7 @@ test('резервная копия: статус автокопии и «Ска
   await login(page);
   const cid = await createCompany(page, `ТОО Бэкап ${Date.now()}`);
   await page.goto(`/c/${cid}/settings/backup`);
-  await expect(page.getByText('Последняя автокопия')).toBeVisible();
+  await expect(page.getByText('Последняя копия')).toBeVisible();
   await expect(page.getByText('Ещё не было')).toHaveCount(0); // стартовый бэкап e2e-сервера
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Скачать сейчас' }).click();
@@ -2640,4 +2671,5 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 **Не входит в план 3b (следующие шаги):**
 - если `POST /auth/logout` не удался, интерфейс не должен считать пользователя вышедшим (шаги 5–7);
 - вошедшего пользователя на `/login` перенаправлять внутрь (шаги 5–7);
-- видимые колонки журнала и свёрнутая панель в `user_preferences` появятся вместе с журналом (шаг 5).
+- видимые колонки журнала и свёрнутая панель в `user_preferences` появятся вместе с журналом (шаг 5);
+- кнопка истории действий и меню пользователя в шапке (§7 «Каркас») — вместе с каркасом журнала (шаги 5–7). Сейчас история есть в «Настройках», а имя в шапке ведёт в профиль.
