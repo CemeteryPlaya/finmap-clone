@@ -30,17 +30,19 @@ export function registerBalancesRoutes(
     const today = todayInTimezone(deps.timezone, now());
     const baseMinor = getCurrency(company.baseCurrency).minorUnits;
     let amount = 0;
-    const unavailable: string[] = [];
+    const unavailable = new Set<string>();
     for (const [currency, sum] of sums) {
+      if (sum === 0) continue; // пустой счёт без курса не должен вечно показывать «курс недоступен»
       try {
         const { rate } = deps.rates.resolve(company.id, company.baseCurrency, currency, today);
         amount += convertMinor(sum, rate, getCurrency(currency).minorUnits, baseMinor);
       } catch (e) {
-        if (e instanceof AppError && e.code === 'RATE_UNAVAILABLE') unavailable.push(currency);
-        else throw e;
+        if (!(e instanceof AppError && e.code === 'RATE_UNAVAILABLE')) throw e;
+        // нет курса либо самой валюты, либо базовой: называем ту, которой действительно не хватает
+        unavailable.add(deps.rates.kztRate(currency, today) ? company.baseCurrency : currency);
       }
     }
-    return { currency: company.baseCurrency, amount, unavailable: unavailable.sort() };
+    return { currency: company.baseCurrency, amount, unavailable: [...unavailable].sort() };
   }
 
   app.get('/api/v1/companies/summary', async () => ({

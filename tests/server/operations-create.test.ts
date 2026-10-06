@@ -176,6 +176,30 @@ describe('operations: создание', () => {
     expect(fail(await create({ type: 'income', paidAt, accountId: w.kzt, amount: 100, toAccountId: w.usd }), 400, 'VALIDATION').fields?.toAccountId).toBe(
       'Счёт зачисления — только у перевода',
     );
+    expect(fail(await create({ type: 'income', paidAt, accountId: w.kzt, amount: 100, toAmount: 100 }), 400, 'VALIDATION').fields).toEqual({
+      toAmount: 'Сумма зачисления — только у перевода',
+    });
+  });
+
+  it('распределение базовой суммы при равных строках: лишние единицы — самым ранним строкам, сумма сходится', async () => {
+    w = await opsWorld();
+    // 3 цента по курсу 333.335 = 1000,005 минорных единиц тенге -> база 1000, не делится на 3
+    await w.post('/api/v1/rates/manual', { date: '2026-10-05', currency: 'USD', rate: '333.335' });
+    const res = await create({
+      type: 'income',
+      paidAt: '2026-10-05T10:00:00Z',
+      accountId: w.usd,
+      amount: 3,
+      lines: [{ amount: 1 }, { amount: 1 }, { amount: 1 }],
+    });
+    expect(res.statusCode).toBe(201);
+    const op = res.json().operation;
+    const bases = op.lines.map((l: { baseAmount: number }) => l.baseAmount);
+    expect(bases.reduce((s: number, b: number) => s + b, 0)).toBe(op.baseAmount);
+    expect(op.baseAmount % 3).not.toBe(0);
+    const floor = Math.floor(op.baseAmount / 3);
+    const extra = op.baseAmount - floor * 3;
+    expect(bases).toEqual([0, 1, 2].map((i) => floor + (i < extra ? 1 : 0)));
   });
 
   it('проверка тела: дата без часового пояса и несуществующая дата, нулевая и дробная сумма, неизвестный тип — 400; чужая компания — 404', async () => {
@@ -184,6 +208,7 @@ describe('operations: создание', () => {
     for (const body of [
       { ...base, paidAt: '2026-10-05T10:00:00' },
       { ...base, paidAt: '2026-09-31T10:00:00Z' },
+      { ...base, paidAt: '2026-10-05T24:00:00Z' },
       { ...base, amount: 0 },
       { ...base, amount: 1.5 },
       { ...base, type: 'gift' },

@@ -98,6 +98,7 @@ describe('ledger: балансы и ссылки операций', () => {
     expect(cur.json().error.code).toBe('CURRENCY_LOCKED');
     const late = await w.h.req('PATCH', `${accountsUrl()}/${w.kzt}`, { openedAt: '2026-10-04' });
     expect(late.json().error.code).toBe('INVARIANT_6');
+    expect(late.json().error.message).toBe('Есть операции от 03.10.2026 — дата открытия не может быть позже');
     expect((await w.h.req('PATCH', `${accountsUrl()}/${w.kzt}`, { openedAt: '2026-10-03' })).statusCode).toBe(200);
     expect((await w.h.req('PATCH', `${accountsUrl()}/${w.kzt}`, { openedAt: '2026-09-01' })).statusCode).toBe(200);
     // у счёта без операций валюту менять можно

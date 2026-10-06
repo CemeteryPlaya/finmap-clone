@@ -103,7 +103,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
     return { ...row, lines, tagIds };
   }
 
-function draftOf(op: OperationDto): OperationInput {
+  function draftOf(op: OperationDto): OperationInput {
     return {
       type: op.type,
       paidAt: op.paidAt,
@@ -161,7 +161,8 @@ function draftOf(op: OperationDto): OperationInput {
       if (line?.categoryId != null) throw inv(3, 'У перевода нет статьи', { lines: 'У перевода нет статьи' });
       if (line && line.projectId === null) throw invalid({ lines: 'В строке перевода укажите проект' });
     } else {
-      if (draft.toAccountId !== null || draft.toAmount !== null) throw invalid({ toAccountId: 'Счёт зачисления — только у перевода' });
+      if (draft.toAccountId !== null) throw invalid({ toAccountId: 'Счёт зачисления — только у перевода' });
+      if (draft.toAmount !== null) throw invalid({ toAmount: 'Сумма зачисления — только у перевода' });
       // у дохода и расхода не меньше одной строки (§4.5): без строк — одна строка на всю сумму
       if (draft.lines.length === 0) draft.lines = [{ categoryId: null, projectId: null, amount: draft.amount }];
     }
@@ -334,7 +335,8 @@ function draftOf(op: OperationDto): OperationInput {
       const { rate, baseAmount } = recalc ? baseOf(companyId, company.baseCurrency, c) : { rate: current.rate, baseAmount: current.baseAmount };
       const { draft } = c;
       mutate(db, audit, (tx, record) => {
-        tx.update(operations)
+        const updated = tx
+          .update(operations)
           .set({
             paidAt: draft.paidAt,
             accrualDate: draft.accrualDate,
@@ -349,8 +351,10 @@ function draftOf(op: OperationDto): OperationInput {
             updatedAt: now().toISOString(),
             version: current.version + 1,
           })
-          .where(eq(operations.id, id))
-          .run();
+          .where(and(eq(operations.id, id), eq(operations.version, current.version)))
+          .returning({ id: operations.id })
+          .get();
+        if (!updated) throw new AppError(409, 'VERSION_CONFLICT', 'Операция изменена другим пользователем');
         writeLinesAndTags(tx, id, draft, baseAmount);
         record({
           companyId,

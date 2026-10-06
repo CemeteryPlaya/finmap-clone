@@ -64,6 +64,25 @@ describe('rates: определение курса (§4.3)', () => {
     expect(unavailable(() => svc.resolve(cid, 'USD', 'EUR', '2026-10-20'))).toBe('Нет курса USD на 20.10.2026');
   });
 
+  it('фиксированный курс важнее ручного на ту же дату', () => {
+    const { svc, cid } = setup();
+    svc.addFixed(cid, { currency: 'USD', rate: '500', validFrom: '2026-10-01', validTo: '2026-10-31' }, 1);
+    svc.addManual({ date: '2026-10-15', currency: 'USD', rate: '470' }, 1);
+    expect(svc.resolve(cid, 'KZT', 'USD', '2026-10-15').display).toBe('500');
+  });
+
+  it('периоды фиксированных курсов с общим днём пересекаются, соседние — нет', () => {
+    const { svc, cid } = setup();
+    svc.addFixed(cid, { currency: 'USD', rate: '500', validFrom: '2026-10-01', validTo: '2026-10-31' }, 1);
+    let fields: unknown;
+    try {
+      svc.addFixed(cid, { currency: 'USD', rate: '510', validFrom: '2026-10-31', validTo: '2026-11-30' }, 1);
+    } catch (e) {
+      fields = (e as AppError).fields;
+    }
+    expect(fields).toEqual({ validFrom: 'Период пересекается с другим фиксированным курсом' });
+  });
+
   it('фиксированный курс действует на validFrom и validTo включительно, на validTo+1 — уже нет', () => {
     const { svc, cid } = setup();
     svc.addFixed(cid, { currency: 'USD', rate: '500', validFrom: '2026-10-01', validTo: '2026-10-31' }, 1);

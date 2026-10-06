@@ -46,6 +46,17 @@ describe('allocate — метод наибольшего остатка', () => 
     expect(allocate(7, [3])).toEqual([7]);
   });
 
+  it('программные ошибки: total не безопасное неотрицательное целое, отрицательный или дробный вес', () => {
+    expect(() => allocate(-1, [1])).toThrow();
+    expect(() => allocate(1.5, [1])).toThrow();
+    expect(() => allocate(Number.MAX_SAFE_INTEGER + 1, [1])).toThrow();
+    expect(() => allocate(Number.NaN, [1])).toThrow();
+    expect(() => allocate(10, [3, -1])).toThrow();
+    expect(() => allocate(10, [1, 1.5])).toThrow();
+    expect(() => allocate(10, [])).toThrow();
+    expect(() => allocate(10, [0, 0])).toThrow();
+  });
+
   it('сумма частей всегда равна целому', () => {
     for (const [total, weights] of [
       [999_999_999_999, [1, 2, 3, 4, 5, 6, 7]],

@@ -30,6 +30,8 @@ export function formatAmount(minor: number, minorUnits: number): string {
  * Сумма частей всегда равна total. Веса — положительные целые, total ≥ 0.
  */
 export function allocate(total: number, weights: number[]): number[] {
+  if (!Number.isSafeInteger(total) || total < 0) throw new Error('allocate: сумма должна быть неотрицательным целым');
+  if (weights.some((w) => !Number.isSafeInteger(w) || w < 0)) throw new Error('allocate: веса должны быть неотрицательными целыми');
   const sum = weights.reduce((s, w) => s + BigInt(w), 0n);
   if (weights.length === 0 || sum <= 0n) throw new Error('allocate: нужны положительные веса');
   const t = BigInt(total);

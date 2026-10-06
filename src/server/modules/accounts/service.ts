@@ -1,6 +1,6 @@
 import { and, asc, count, eq, isNull, sql } from 'drizzle-orm';
 import { isKnownCurrency } from '../../../shared/currencies';
-import { isValidDate, todayInTimezone } from '../../../shared/dates';
+import { formatDateRu, isValidDate, todayInTimezone } from '../../../shared/dates';
 import { ACCOUNT_NAME_MAX } from '../../../shared/schemas/accounts';
 import { cleanName } from '../../../shared/text';
 import type { Db, Executor } from '../../db/client';
@@ -194,7 +194,7 @@ export function createAccountsService(d: {
       if (after.openedAt !== undefined) {
         const earliest = references.earliestOperationDate(id);
         if (earliest !== null && after.openedAt > earliest) {
-          throw new AppError(422, 'INVARIANT_6', `Есть операции от ${earliest} — дата открытия не может быть позже`);
+          throw new AppError(422, 'INVARIANT_6', `Есть операции от ${formatDateRu(earliest)} — дата открытия не может быть позже`);
         }
       }
       return mutate(db, audit, (tx, record) => {

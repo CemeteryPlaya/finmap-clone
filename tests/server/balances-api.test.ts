@@ -36,6 +36,28 @@ describe('balances API', () => {
     expect(list.find((c) => c.id === w.cid)!.total).toEqual({ currency: 'KZT', amount: 0, unavailable: [] });
   });
 
+  it('валюта с нулевой суммой не конвертируется и не попадает в unavailable', async () => {
+    w = await opsWorld('2026-10-20T12:00:00.000Z'); // курс USD от 2026-10-01 старше 7 дней
+    const res = await w.h.req('GET', `/api/v1/companies/${w.cid}/balances`);
+    expect(res.json().total).toEqual({ currency: 'KZT', amount: 0, unavailable: [] });
+  });
+
+  it('при недоступном курсе базовой валюты в unavailable попадает именно она', async () => {
+    w = await opsWorld('2026-10-20T12:00:00.000Z');
+    const usdCo = (await w.post('/api/v1/companies', { name: 'USD Ltd', baseCurrency: 'USD' })).company.id;
+    await w.post(`/api/v1/companies/${usdCo}/accounts`, { name: 'Тенге', currency: 'KZT', openedAt: '2026-10-01', startingBalance: 1000 });
+    const res = await w.h.req('GET', `/api/v1/companies/${usdCo}/balances`);
+    expect(res.json().total).toEqual({ currency: 'USD', amount: 0, unavailable: ['USD'] });
+  });
+
+  it('архивный счёт остаётся в accounts с нулевым балансом и не влияет на итог', async () => {
+    w = await opsWorld('2026-10-20T12:00:00.000Z');
+    await w.post(`/api/v1/companies/${w.cid}/accounts/${w.usd}/archive`, {});
+    const res = await w.h.req('GET', `/api/v1/companies/${w.cid}/balances`);
+    expect(res.json().accounts).toContainEqual({ accountId: w.usd, currency: 'USD', balance: 0 });
+    expect(res.json().total.unavailable).toEqual([]);
+  });
+
   it('неизвестная компания — 404', async () => {
     w = await opsWorld();
     const res = await w.h.req('GET', '/api/v1/companies/999/balances');
