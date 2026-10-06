@@ -70,3 +70,29 @@ export function useAccounts(companyId: number) {
     queryFn: async () => (await api<{ accounts: Account[] }>(`/companies/${companyId}/accounts`)).accounts,
   });
 }
+
+export interface CategoryNode {
+  id: number;
+  companyId: number;
+  kind: 'income' | 'expense';
+  parentId: number | null;
+  name: string;
+  systemKey: string | null;
+  effectiveSystemKey: string | null;
+  templateRef: string | null;
+  orderIndex: number;
+  archivedAt: string | null;
+  children: CategoryNode[];
+}
+
+export interface CategoryTree {
+  income: CategoryNode[];
+  expense: CategoryNode[];
+}
+
+export function useCategories(companyId: number) {
+  return useQuery<CategoryTree, ApiError>({
+    queryKey: ['categories', companyId],
+    queryFn: () => api<CategoryTree>(`/companies/${companyId}/categories`),
+  });
+}

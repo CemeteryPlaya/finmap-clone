@@ -8,6 +8,7 @@ import { RequireAuth } from './pages/RequireAuth';
 import { CompaniesSettings } from './pages/settings/CompaniesSettings';
 import { ProjectsSettings } from './pages/settings/ProjectsSettings';
 import { AccountsSettings } from './pages/settings/AccountsSettings';
+import { CategoriesSettings } from './pages/settings/CategoriesSettings';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -26,6 +27,7 @@ export const router = createBrowserRouter([
           { path: 'settings', element: <Navigate to="projects" replace /> },
           { path: 'settings/projects', element: <ProjectsSettings /> },
           { path: 'settings/accounts', element: <AccountsSettings /> },
+          { path: 'settings/categories', element: <CategoriesSettings /> },
           { path: 'settings/companies', element: <CompaniesSettings /> },
         ],
       },
