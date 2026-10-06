@@ -858,7 +858,7 @@ describe('categories', () => {
 
 ```ts
 import { afterEach, describe, expect, it } from 'vitest';
-import { companies } from '../../src/server/db/schema';
+import { companies, projects } from '../../src/server/db/schema';
 import { seedCurrencies } from '../../src/server/db/seed';
 import { createAccountsService } from '../../src/server/modules/accounts/service';
 import { createTestDb } from '../helpers/test-db';
@@ -887,19 +887,45 @@ describe('accounts', () => {
     ]);
   });
 
-  it('отклоняет неизвестную валюту, пустое имя и дробный стартовый баланс', () => {
-    const { svc, c1 } = setup();
-    expect(() => svc.create(t.db, { companyId: c1, name: 'X', currency: 'XXX', openedAt: '2026-10-06' })).toThrow(/валют/i);
-    expect(() => svc.create(t.db, { companyId: c1, name: '  ', currency: 'KZT', openedAt: '2026-10-06' })).toThrow();
-    expect(() => svc.create(t.db, { companyId: c1, name: 'X', currency: 'KZT', openedAt: '2026-10-06', startingBalance: 1.5 })).toThrow();
+  it('отклоняет неизвестную валюту, пустое имя, дробный баланс, кривую дату и чужой проект', () => {
+    const { svc, c1, c2 } = setup();
+    const fieldsOf = (fn: () => unknown) => {
+      try {
+        fn();
+      } catch (e) {
+        return Object.keys((e as { fields?: Record<string, string> }).fields ?? {});
+      }
+      throw new Error('ожидалась ошибка');
+    };
+    expect(fieldsOf(() => svc.create(t.db, { companyId: c1, name: 'X', currency: 'XXX', openedAt: '2026-10-06' }))).toEqual(['currency']);
+    expect(fieldsOf(() => svc.create(t.db, { companyId: c1, name: '  ', currency: 'KZT', openedAt: '2026-10-06' }))).toEqual(['name']);
+    expect(
+      fieldsOf(() => svc.create(t.db, { companyId: c1, name: 'X', currency: 'KZT', openedAt: '2026-10-06', startingBalance: 1.5 })),
+    ).toEqual(['startingBalance']);
+    expect(fieldsOf(() => svc.create(t.db, { companyId: c1, name: 'X', currency: 'KZT', openedAt: '06.10.2026' }))).toEqual(['openedAt']);
+    const foreignProject = t.db
+      .insert(projects)
+      .values({ companyId: c2, name: 'Чужой', templateKey: 'general', templateParams: '{}', orderIndex: 0, createdAt: 'x' })
+      .returning()
+      .get();
+    expect(
+      fieldsOf(() => svc.create(t.db, { companyId: c1, projectId: foreignProject.id, name: 'X', currency: 'KZT', openedAt: '2026-10-06' })),
+    ).toEqual(['projectId']);
   });
 
-  it('countActive считает неархивные счета компании и проекта', () => {
+  it('countActive считает неархивные счета компании и отдельно проекта', () => {
     const { svc, c1 } = setup();
+    const p = t.db
+      .insert(projects)
+      .values({ companyId: c1, name: 'Клуб', templateKey: 'general', templateParams: '{}', orderIndex: 0, createdAt: 'x' })
+      .returning()
+      .get();
     svc.create(t.db, { companyId: c1, name: 'A', currency: 'KZT', openedAt: '2026-10-06' });
-    const b = svc.create(t.db, { companyId: c1, name: 'B', currency: 'KZT', openedAt: '2026-10-06' });
+    svc.create(t.db, { companyId: c1, projectId: p.id, name: 'P1', currency: 'KZT', openedAt: '2026-10-06' });
+    const b = svc.create(t.db, { companyId: c1, projectId: p.id, name: 'P2', currency: 'KZT', openedAt: '2026-10-06' });
     t.sqlite.prepare('UPDATE accounts SET archived_at = ? WHERE id = ?').run('x', b.id);
-    expect(svc.countActive(c1)).toBe(1);
+    expect(svc.countActive(c1)).toBe(2);
+    expect(svc.countActive(c1, p.id)).toBe(1);
   });
 });
 ```
@@ -1072,8 +1098,12 @@ export function createCategoriesService(db: Db, now: () => Date = () => new Date
 import { and, asc, count, eq, isNull, sql } from 'drizzle-orm';
 import { isKnownCurrency } from '../../../shared/currencies';
 import type { Db, Executor } from '../../db/client';
-import { accounts } from '../../db/schema';
+import { accounts, projects } from '../../db/schema';
 import { AppError } from '../../errors';
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** Название счёта шаблона = префикс + название проекта (до 100), поэтому лимит с запасом. */
+export const ACCOUNT_NAME_MAX = 120;
 
 export interface AccountRow {
   id: number;
@@ -1103,9 +1133,14 @@ export function createAccountsService(db: Db, now: () => Date = () => new Date()
       const name = input.name.trim();
       const startingBalance = input.startingBalance ?? 0;
       const fields: Record<string, string> = {};
-      if (name.length < 1 || name.length > 100) fields.name = 'Название счёта: от 1 до 100 символов';
+      if (name.length < 1 || name.length > ACCOUNT_NAME_MAX) fields.name = `Название счёта: от 1 до ${ACCOUNT_NAME_MAX} символов`;
       if (!isKnownCurrency(input.currency)) fields.currency = 'Неизвестная валюта';
       if (!Number.isSafeInteger(startingBalance)) fields.startingBalance = 'Стартовый баланс — целое число минимальных единиц';
+      if (!DATE_RE.test(input.openedAt)) fields.openedAt = 'Дата открытия в формате ГГГГ-ММ-ДД';
+      if (input.projectId != null) {
+        const p = ex.select({ companyId: projects.companyId }).from(projects).where(eq(projects.id, input.projectId)).get();
+        if (!p || p.companyId !== input.companyId) fields.projectId = 'Проект не найден в этой компании';
+      }
       if (Object.keys(fields).length) throw new AppError(400, 'VALIDATION', 'Проверьте заполнение полей', fields);
 
       const next = ex
@@ -1206,7 +1241,7 @@ async function setup() {
   t.sqlite.prepare("INSERT INTO currencies (code,name,symbol,minor_units) VALUES ('KZT','Тенге','₸',2),('USD','Доллар','$',2)").run();
   await seedUser(t);
   const cookie = await loginAs(t);
-  const req = (method: 'GET' | 'POST' | 'PATCH', url: string, payload?: unknown) =>
+  const req = (method: 'GET' | 'POST' | 'PATCH', url: string, payload?: object) =>
     t.app.inject({ method, url, headers: { ...ORIGIN_HEADERS, cookie }, ...(payload !== undefined ? { payload } : {}) });
   return { req };
 }
@@ -1240,6 +1275,10 @@ describe('companies API', () => {
     expect(res.json().company).toMatchObject({ name: 'Б', baseCurrency: 'USD' });
     expect((await req('PATCH', '/api/v1/companies/999', { name: 'X' })).statusCode).toBe(404);
     expect((await req('PATCH', '/api/v1/companies/abc', { name: 'X' })).statusCode).toBe(404);
+    expect((await req('PATCH', '/api/v1/companies/1e2', { name: 'X' })).statusCode).toBe(404);
+    const empty = await req('PATCH', `/api/v1/companies/${company.id}`, {});
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json().company).toMatchObject({ name: 'Б', baseCurrency: 'USD' });
   });
 
   it('архив: только без активных счетов; архивная компания только для чтения', async () => {
@@ -1300,7 +1339,7 @@ export const companyUpdateSchema = z.object({ name: name.optional(), baseCurrenc
 import { AppError } from '../errors';
 
 export function parseId(value: unknown): number {
-  const n = Number(value);
+  const n = typeof value === 'string' && /^[0-9]+$/.test(value) ? Number(value) : NaN;
   if (!Number.isSafeInteger(n) || n <= 0) throw new AppError(404, 'NOT_FOUND', 'Не найдено');
   return n;
 }
@@ -1373,6 +1412,7 @@ export function createCompaniesService(d: {
 
     update(id, input, userId) {
       const before = svc.require(id, { writable: true });
+      if (input.name === undefined && input.baseCurrency === undefined) return before; // пустой PATCH — ничего не меняем
       const row = db
         .update(companies)
         .set({ ...(input.name !== undefined ? { name: input.name } : {}), ...(input.baseCurrency !== undefined ? { baseCurrency: input.baseCurrency } : {}) })
@@ -1532,7 +1572,7 @@ import { createTestApp, loginAs, ORIGIN_HEADERS, seedUser, type TestApp } from '
 let t: TestApp;
 afterEach(async () => t?.cleanup());
 
-type Req = (method: 'GET' | 'POST' | 'PATCH', url: string, payload?: unknown) => ReturnType<TestApp['app']['inject']>;
+type Req = (method: 'GET' | 'POST' | 'PATCH', url: string, payload?: object) => ReturnType<TestApp['app']['inject']>;
 
 async function setup(now?: string) {
   t = await createTestApp({}, undefined, now ? () => new Date(now) : undefined);
@@ -1591,6 +1631,16 @@ describe('projects API', () => {
     expect(names).toEqual(['Касса Клуб 1', 'Kaspi Клуб 1', 'Касса Клуб 2', 'Kaspi Клуб 2']);
   });
 
+  it('длинное название проекта (100 символов) и «$» в названии не ломают имена счетов', async () => {
+    const { req, cid } = await setup();
+    const long = 'К'.repeat(100);
+    expect((await req('POST', `/api/v1/companies/${cid}/projects`, club(long))).statusCode).toBe(201);
+    await req('POST', `/api/v1/companies/${cid}/projects`, club('Клуб $& $$'));
+    const names = (await req('GET', `/api/v1/companies/${cid}/accounts`)).json().accounts.map((a: { name: string }) => a.name);
+    expect(names).toContain(`Kaspi ${long}`);
+    expect(names).toContain('Касса Клуб $& $$');
+  });
+
   it('проект «Общий» без статей и счетов', async () => {
     const { req, cid } = await setup();
     const res = await req('POST', `/api/v1/companies/${cid}/projects`, { name: 'Офис', templateKey: 'general' });
@@ -1601,8 +1651,8 @@ describe('projects API', () => {
 
   it('кривые параметры шаблона дают 400 с полями templateParams.* (Review Focus 4)', async () => {
     const { req, cid } = await setup();
-    for (const bad of ['30', 0, undefined, 2.5]) {
-      const res = await req('POST', `/api/v1/companies/${cid}/projects`, club('X', bad));
+    for (const bad of [{ pcCount: '30' }, { pcCount: 0 }, {}, { pcCount: 2.5 }]) {
+      const res = await req('POST', `/api/v1/companies/${cid}/projects`, { name: 'X', templateKey: 'computer-club', templateParams: bad });
       expect(res.statusCode).toBe(400);
       expect(Object.keys(res.json().error.fields)).toEqual(['templateParams.pcCount']);
     }
@@ -1817,7 +1867,7 @@ export function createProjectsService(d: {
           d.accounts.create(tx, {
             companyId,
             projectId: row.id,
-            name: acc.name.replaceAll('{project}', input.name),
+            name: acc.name.replaceAll('{project}', () => input.name),
             currency: acc.currency ?? company.baseCurrency,
             openedAt,
           });
@@ -2086,7 +2136,8 @@ test('компании: создание, переключение', async ({ pa
   await expect(page.getByRole('button', { name: 'Сменить компанию' })).toContainText(first);
 
   await page.goto('/c/999999/log');
-  await expect(page).toHaveURL(/\/c\/\d+\/log$/); // неизвестная компания → редирект на первую активную
+  await expect(page).not.toHaveURL(/\/c\/999999\//); // неизвестная компания → редирект…
+  await expect(page).toHaveURL(/\/c\/\d+\/log$/); // …на первую активную
 });
 ```
 
@@ -2374,7 +2425,7 @@ export function CompanyGate() {
 `src/client/pages/NewCompanyPage.tsx`:
 
 ```tsx
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { AppHeader } from '../components/AppHeader';
 import { CompanyForm } from '../components/CompanyForm';
 import { useCompanies } from '../lib/queries';
@@ -2382,12 +2433,23 @@ import { useCompanies } from '../lib/queries';
 export function NewCompanyPage() {
   const navigate = useNavigate();
   const companies = useCompanies();
-  const hasActive = (companies.data ?? []).some((c) => !c.archivedAt);
+  const all = companies.data ?? [];
+  const hasActive = all.some((c) => !c.archivedAt);
+  const archived = all.find((c) => c.archivedAt);
   return (
     <div className="min-h-dvh bg-chrome">
       <AppHeader />
       <main className="mx-auto mt-8 max-w-md rounded-3xl bg-card p-8">
         <h1 className="mb-6 text-2xl font-bold">{hasActive ? 'Новая компания' : 'Создайте первую компанию'}</h1>
+        {!hasActive && archived && (
+          <p className="mb-4 rounded-xl bg-field px-4 py-3 text-sm text-muted">
+            Все компании в архиве.{' '}
+            <Link to={`/c/${archived.id}/settings/companies`} className="font-semibold text-ink underline">
+              Открыть список компаний
+            </Link>
+            , чтобы вернуть нужную из архива.
+          </p>
+        )}
         <CompanyForm onCreated={(c) => navigate(`/c/${c.id}/log`, { replace: true })} />
       </main>
     </div>
@@ -2577,10 +2639,14 @@ test('проекты по шаблонам: клуб и общий', async ({ pa
   const after = (await (await page.request.get(`/api/v1/companies/${cid}/accounts`)).json()).accounts;
   expect(after).toHaveLength(2);
 
-  // переименование компании
+  // переименование компании на экране «Компании»
   await page.getByRole('link', { name: 'Компании' }).click();
-  const companyRow = page.getByRole('listitem').filter({ has: page.getByLabel('Название') }).first();
-  await expect(companyRow).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/companies$`));
+  const renamed = `ТОО Клубы переим ${Date.now()}`;
+  const companyRow = page.getByRole('listitem').filter({ has: page.locator(`input[value^="ТОО Клубы"]`) }).first();
+  await companyRow.getByLabel('Название').fill(renamed);
+  await companyRow.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(page.getByRole('button', { name: 'Сменить компанию' })).toContainText(renamed);
 });
 ```
 
@@ -2895,7 +2961,15 @@ function CompanyRow({ c, currentId }: { c: Company; currentId: number }) {
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['companies'] });
 
   const save = useMutation<unknown, ApiError>({
-    mutationFn: () => api(`/companies/${c.id}`, { method: 'PATCH', body: { name, baseCurrency } }),
+    // отправляем только изменённые поля: позже смена валюты блокируется при наличии операций, переименование — нет
+    mutationFn: () =>
+      api(`/companies/${c.id}`, {
+        method: 'PATCH',
+        body: {
+          ...(name.trim() !== c.name ? { name } : {}),
+          ...(baseCurrency !== c.baseCurrency ? { baseCurrency } : {}),
+        },
+      }),
     onSuccess: invalidate,
   });
   const toggle = useMutation<unknown, ApiError>({
@@ -2975,7 +3049,7 @@ export function CompaniesSettings() {
 - [ ] **Step 5: Убедиться, что всё проходит**
 
 Run: `npm run typecheck && npm test && npm run test:e2e`
-Expected: PASS (3 e2e-теста `companies.spec.ts` и `auth.spec.ts`).
+Expected: PASS (4 e2e-теста: 2 в `companies.spec.ts`, 2 в `auth.spec.ts`).
 
 - [ ] **Step 6: Commit**
 
@@ -2996,3 +3070,13 @@ git commit -m "feat: настройки — проекты по шаблонам
 - скрипт `user:passwd`.
 
 Блокировку смены `baseCurrency` при наличии операций и фиксированных курсов добавит план шага 4.
+
+**Сознательно отложено из §6/§7 (ревью плана 2):**
+- **Порядок и удаление проектов** (`POST …/projects/reorder`, `DELETE …/projects/:id`) переходят в план 3 вместе с общим механизмом порядка и удаления всех справочников. В плане 3 удаление проверяет инвариант 9: ни одна операция и ни один счёт (в том числе архивные) не ссылаются на проект.
+- **`GET /companies/summary`** (балансы для переключателя) — план шага 4, когда появятся операции и балансы.
+- **Архивирование клуба.** После плана 2 проект или компанию с клубом нельзя архивировать: в интерфейсе ещё нельзя архивировать счета (422 с понятным текстом). Это снимет план 3 (экран счетов).
+
+**Заметки для плана 3:**
+- Перетаскивание статей может переместить группу шаблона под другую статью. Тогда слияние нового шаблона не должно создавать третий уровень: детей класть под группу, только если она на верхнем уровне, иначе — под системную/верхнюю статью или пропускать с записью в историю.
+- Переключатель компаний: добавить навигацию стрелками и управление фокусом для `role="menu"`.
+- `accounts.create` получит публичный маршрут — проверки `projectId` той же компании и формата `openedAt` уже есть (план 2).
