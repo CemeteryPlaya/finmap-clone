@@ -4,15 +4,15 @@ import { cleanName, nameField } from '../../src/shared/text';
 
 describe('cleanName', () => {
   it('убирает невидимые символы, схлопывает пробелы, обрезает края, нормализует NFC', () => {
-    expect(cleanName('  Клуб​  на Ленина﻿ ')).toBe('Клуб на Ленина');
-    expect(cleanName('​‌‍⁠­')).toBe('');
-    expect(cleanName('é')).toBe('é');
+    expect(cleanName('  Клуб\u200B  на\u00A0Ленина\uFEFF ')).toBe('Клуб на Ленина');
+    expect(cleanName('\u200B\u200C\u200D\u2060\u00AD')).toBe('');
+    expect(cleanName('e\u0301')).toBe('\u00E9');
   });
 
   it('nameField проверяет длину уже очищенного названия', () => {
     const f = nameField(5);
-    expect(f.safeParse(' абв​ ').data).toBe('абв');
-    expect(f.safeParse('​').error?.issues[0]?.message).toBe('Введите название');
+    expect(f.safeParse(' абв\u200B ').data).toBe('абв');
+    expect(f.safeParse('\u200B').error?.issues[0]?.message).toBe('Введите название');
     expect(f.safeParse('абвгде').error?.issues[0]?.message).toBe('Не длиннее 5 символов');
     expect(nameField(5, 'Введите имя').safeParse('').error?.issues[0]?.message).toBe('Введите имя');
   });

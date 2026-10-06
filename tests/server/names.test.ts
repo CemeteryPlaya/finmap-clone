@@ -7,13 +7,13 @@ afterEach(async () => h?.t.cleanup());
 describe('названия и сообщения проверки', () => {
   it('невидимые символы вырезаются, название из одних невидимых символов отклоняется', async () => {
     h = await createApi();
-    const empty = await h.req('POST', '/api/v1/companies', { name: '​⁠ ﻿' });
+    const empty = await h.req('POST', '/api/v1/companies', { name: '\u200B\u2060 \uFEFF' });
     expect(empty.statusCode).toBe(400);
     expect(empty.json().error.fields.name).toBe('Введите название');
-    const ok = await h.req('POST', '/api/v1/companies', { name: ' ТОО​   «Ромашка» ' });
+    const ok = await h.req('POST', '/api/v1/companies', { name: ' ТОО\u200B   «Ромашка» ' });
     expect(ok.statusCode).toBe(201);
     expect(ok.json().company.name).toBe('ТОО «Ромашка»');
-    const project = await h.req('POST', `/api/v1/companies/${ok.json().company.id}/projects`, { name: '​', templateKey: 'general' });
+    const project = await h.req('POST', `/api/v1/companies/${ok.json().company.id}/projects`, { name: '\u200B', templateKey: 'general' });
     expect(project.json().error.fields.name).toBe('Введите название');
   });
 
