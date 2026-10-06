@@ -8,6 +8,7 @@ const SECTIONS: readonly { path: string; label: string }[] = [
   { path: 'counterparties', label: 'Контрагенты' },
   { path: 'tags', label: 'Теги' },
   { path: 'split-presets', label: 'Шаблоны разделения' },
+  { path: 'rates', label: 'Курсы' },
   { path: 'companies', label: 'Компании' },
   { path: 'users', label: 'Пользователи' },
   { path: 'profile', label: 'Профиль' },

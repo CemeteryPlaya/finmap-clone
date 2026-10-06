@@ -112,6 +112,42 @@ export function useCompaniesSummary(enabled: boolean) {
   });
 }
 
+export interface ManualRate {
+  id: number;
+  date: string;
+  currency: string;
+  /** Курс за 1 единицу валюты в тенге, десятичная строка с точкой. */
+  rateToKzt: string;
+  /** Экран получает только ручные курсы. */
+  source: 'manual';
+  createdBy: number | null;
+  fetchedAt: string;
+}
+
+export function useManualRates() {
+  return useQuery<ManualRate[], ApiError>({
+    queryKey: ['rates-manual'],
+    queryFn: async () => (await api<{ rates: ManualRate[] }>('/rates/manual')).rates,
+  });
+}
+
+export interface FixedRate {
+  id: number;
+  companyId: number;
+  currency: string;
+  /** Курс к базовой валюте компании, десятичная строка с точкой. */
+  rate: string;
+  validFrom: string;
+  validTo: string | null;
+}
+
+export function useFixedRates(companyId: number) {
+  return useQuery<FixedRate[], ApiError>({
+    queryKey: ['fixed-rates', companyId],
+    queryFn: async () => (await api<{ fixedRates: FixedRate[] }>(`/companies/${companyId}/fixed-rates`)).fixedRates,
+  });
+}
+
 export interface CategoryNode {
   id: number;
   companyId: number;

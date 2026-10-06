@@ -12,6 +12,7 @@ import { CategoriesSettings } from './pages/settings/CategoriesSettings';
 import { CounterpartiesSettings } from './pages/settings/CounterpartiesSettings';
 import { TagsSettings } from './pages/settings/TagsSettings';
 import { SplitPresetsSettings } from './pages/settings/SplitPresetsSettings';
+import { RatesSettings } from './pages/settings/RatesSettings';
 import { ProfileSettings } from './pages/settings/ProfileSettings';
 import { UsersSettings } from './pages/settings/UsersSettings';
 import { AuditSettings } from './pages/settings/AuditSettings';
@@ -38,6 +39,7 @@ export const router = createBrowserRouter([
           { path: 'settings/counterparties', element: <CounterpartiesSettings /> },
           { path: 'settings/tags', element: <TagsSettings /> },
           { path: 'settings/split-presets', element: <SplitPresetsSettings /> },
+          { path: 'settings/rates', element: <RatesSettings /> },
           { path: 'settings/companies', element: <CompaniesSettings /> },
           { path: 'settings/users', element: <UsersSettings /> },
           { path: 'settings/profile', element: <ProfileSettings /> },

@@ -76,3 +76,66 @@ test('левая панель: балансы и итог, переход в ж�
     });
   }
 });
+
+const section = (page: Page, name: string) => page.getByRole('navigation', { name: 'Разделы настроек' }).getByRole('link', { name });
+
+test('курсы: валюта без курса — предупреждение; фиксированный курс включает её в итог; ручные курсы на дату', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Курсы ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Евро-счёт', currency: 'EUR', openedAt: '2020-01-01', startingBalance: 1000 });
+  await page.reload();
+  const panel = page.getByRole('navigation', { name: 'Счета' });
+  // Review Focus 1: валюта без курса не входит в итог, под итогом — предупреждение
+  await expect(panel).toContainText('курс EUR недоступен');
+  await expect(panel).toContainText(/Всего на счетах\s*0,00\s₸/);
+  await expect(panel.getByRole('link', { name: /^Евро-счёт/ })).toContainText(/10,00\s€/);
+
+  await page.getByRole('link', { name: 'Настройки' }).click();
+  await section(page, 'Курсы').click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/rates$`));
+
+  // фиксированный курс компании
+  const fixed = page.getByRole('region', { name: 'Фиксированные курсы компании' });
+  const fixedForm = fixed.getByRole('form', { name: 'Новый фиксированный курс' });
+  await fixedForm.getByLabel('Валюта').selectOption('EUR');
+  await fixedForm.getByLabel('Курс к KZT').fill('500');
+  await fixedForm.getByLabel('Действует с').fill('2020-01-01');
+  await fixedForm.getByRole('button', { name: 'Добавить курс' }).click();
+  const fixedRow = fixed.getByRole('listitem').filter({ hasText: 'EUR' });
+  await expect(fixedRow).toContainText('1 EUR = 500 KZT');
+  await expect(fixedRow).toContainText('с 01.01.2020, бессрочно');
+  await expect(panel).not.toContainText('недоступен');
+  await expect(panel).toContainText(/Всего на счетах\s*5\s000,00\s₸/);
+
+  await fixedRow.getByRole('button', { name: 'Изменить' }).click();
+  await fixedRow.getByLabel('Курс 1 EUR').fill('510');
+  await fixedRow.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(fixedRow).toContainText('1 EUR = 510 KZT');
+  await expect(panel).toContainText(/Всего на счетах\s*5\s100,00\s₸/);
+
+  // ручной курс на дату: добавить, изменить, удалить
+  const manual = page.getByRole('region', { name: 'Ручные курсы на дату' });
+  const manualForm = manual.getByRole('form', { name: 'Новый курс на дату' });
+  await manualForm.getByLabel('Дата').fill('2020-03-15');
+  await manualForm.getByLabel('Валюта').selectOption('GBP');
+  await manualForm.getByLabel('Курс к тенге').fill('520,5');
+  await manualForm.getByRole('button', { name: 'Добавить курс' }).click();
+  const manualRow = manual.getByRole('listitem').filter({ hasText: '15.03.2020' });
+  await expect(manualRow).toContainText('GBP');
+  await expect(manualRow).toContainText('520,5');
+
+  await manualRow.getByRole('button', { name: 'Изменить' }).click();
+  await manualRow.getByLabel('Курс к тенге').fill('521');
+  await manualRow.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(manualRow).toContainText('1 GBP = 521 KZT');
+
+  await manualRow.getByRole('button', { name: 'Удалить' }).click();
+  await manualRow.getByRole('button', { name: 'Да, удалить' }).click();
+  await expect(manual.getByRole('listitem').filter({ hasText: '15.03.2020' })).toHaveCount(0);
+
+  // ошибка поля из сервера: неверный курс
+  await manualForm.getByLabel('Дата').fill('2020-03-16');
+  await manualForm.getByLabel('Курс к тенге').fill('abc');
+  await manualForm.getByRole('button', { name: 'Добавить курс' }).click();
+  await expect(manualForm.getByLabel('Курс к тенге')).toHaveAttribute('aria-invalid', 'true');
+});
