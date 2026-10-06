@@ -60,7 +60,7 @@
 - **Коды ошибок:** нарушение 7 — `ARCHIVED_REFERENCE`; остальных — `INVARIANT_<n>`; устаревшая версия — 409 `VERSION_CONFLICT`; нет курса — 422 `RATE_UNAVAILABLE`; смена валюты при операциях — 422 `CURRENCY_LOCKED`.
 - **Перевод:** строк 0 или 1 (только проект, без статьи, сумма = `amount`); контрагента нет. **Доход/расход:** счёта зачисления и `toAmount` нет.
 - **Пересчёт** `rate` и `baseAmount` — при создании и при изменении `paidAt`, `amount`, `accountId`, `toAccountId`, `toAmount`; при правке других полей значения не меняются.
-- **Баланс счёта** = `startingBalance` + поступления \u2212 списания по операциям со `status = 'actual'` и `deletedAt IS NULL`; перевод уменьшает исходный счёт на `amount`, увеличивает целевой на `toAmount`.
+- **Баланс счёта** = `startingBalance` + поступления \- списания по операциям со `status = 'actual'` и `deletedAt IS NULL`; перевод уменьшает исходный счёт на `amount`, увеличивает целевой на `toAmount`.
 - **Ссылки (инвариант 9)** считают и мягко удалённые операции. `earliestOperationDate` — по неудалённым (удалённая операция при восстановлении снова проверяет `openedAt`, инвариант 11).
 - **«Всего на счетах»** — сумма балансов неархивных счетов в базовой валюте по курсу на сегодня; валюты без курса не входят в итог и перечисляются в `unavailable`.
 - **Изоляция:** объект другой компании → 404. Архивная компания — только чтение (422 `ARCHIVED_REFERENCE`).
@@ -604,7 +604,7 @@ describe('rates: определение курса (§4.3)', () => {
     expect(svc.resolve(cid, 'KZT', 'KZT', '2026-10-06')).toEqual({ rate: DEC_ONE, display: '1' });
   });
 
-  it('ручной курс на D действует на D…D+7, не действует на D\u22121 и D+8', () => {
+  it('ручной курс на D действует на D…D+7, не действует на D\-1 и D+8', () => {
     const { svc, cid } = setup();
     svc.addManual({ date: '2026-10-01', currency: 'USD', rate: '475,12' }, 1);
     expect(svc.resolve(cid, 'KZT', 'USD', '2026-10-01').display).toBe('475.12');
@@ -2152,7 +2152,7 @@ const create = async (body: object) => {
 const accountsUrl = () => `/api/v1/companies/${w.cid}/accounts`;
 
 describe('ledger: балансы и ссылки операций', () => {
-  it('баланс: старт + доходы \u2212 расходы, перевод между валютами, удалённые не считаются; совпадает с пересчётом в JS (Review Focus 5)', async () => {
+  it('баланс: старт + доходы \- расходы, перевод между валютами, удалённые не считаются; совпадает с пересчётом в JS (Review Focus 5)', async () => {
     w = await opsWorld();
     await w.h.req('PATCH', `${accountsUrl()}/${w.kzt}`, { startingBalance: 100000 });
     await create({ type: 'income', paidAt: '2026-10-02T10:00:00Z', accountId: w.kzt, amount: 50000 });
@@ -2328,7 +2328,7 @@ export interface LedgerBalances extends BalancesService {
 }
 
 /**
- * Баланс = startingBalance + поступления \u2212 списания по фактическим неудалённым операциям (§4.7).
+ * Баланс = startingBalance + поступления \- списания по фактическим неудалённым операциям (§4.7).
  * Перевод уменьшает исходный счёт на amount и увеличивает целевой на toAmount.
  */
 export function createLedgerBalances(db: Db): LedgerBalances {
