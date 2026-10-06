@@ -3,19 +3,24 @@ import { accountCreateSchema, accountUpdateSchema } from '../../../shared/schema
 import { reorderSchema } from '../../../shared/schemas/common';
 import { parseId } from '../../http/params';
 import type { CompaniesService } from '../companies/service';
+import type { ReferencesService } from '../references/service';
 import type { AccountsService } from './service';
 
 type C = { Params: { cid: string } };
 type P = { Params: { cid: string; id: string } };
 const BASE = '/api/v1/companies/:cid/accounts';
 
-export function registerAccountsRoutes(app: FastifyInstance, deps: { accounts: AccountsService; companies: CompaniesService }): void {
+export function registerAccountsRoutes(
+  app: FastifyInstance,
+  deps: { accounts: AccountsService; companies: CompaniesService; references: ReferencesService },
+): void {
   const { accounts } = deps;
 
   app.get<C>(BASE, async (req) => {
     const cid = parseId(req.params.cid);
     deps.companies.require(cid);
-    return { accounts: accounts.list(cid) };
+    // §7: валюта счёта заблокирована, если по нему есть операции (включая удалённые)
+    return { accounts: accounts.list(cid).map((a) => ({ ...a, hasOperations: deps.references.countOperations('account', a.id) > 0 })) };
   });
 
   app.post<C>(BASE, async (req, reply) => {

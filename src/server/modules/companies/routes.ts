@@ -6,7 +6,9 @@ import type { CompaniesService } from './service';
 export function registerCompaniesRoutes(app: FastifyInstance, deps: { companies: CompaniesService }): void {
   const { companies } = deps;
 
-  app.get('/api/v1/companies', async () => ({ companies: companies.list() }));
+  app.get('/api/v1/companies', async () => ({
+    companies: companies.list().map((c) => ({ ...c, currencyLocked: companies.currencyLocked(c.id) })),
+  }));
 
   app.post('/api/v1/companies', async (req, reply) => {
     const body = companyCreateSchema.parse(req.body);

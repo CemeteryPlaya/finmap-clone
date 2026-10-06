@@ -115,7 +115,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerTemplatesRoutes(app);
   registerProjectsRoutes(app, { projects });
   registerCategoriesRoutes(app, { categories, companies });
-  registerAccountsRoutes(app, { accounts, companies });
+  registerAccountsRoutes(app, { accounts, companies, references });
   registerCounterpartiesRoutes(app, { counterparties: createCounterpartiesService({ db, audit, references, now }) });
   registerTagsRoutes(app, { tags: createTagsService({ db, audit, references, now }) });
   registerSplitPresetsRoutes(app, { splitPresets: createSplitPresetsService({ db, audit, now }) });
