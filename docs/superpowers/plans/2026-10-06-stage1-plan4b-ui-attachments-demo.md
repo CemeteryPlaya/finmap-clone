@@ -13,8 +13,8 @@
 **Предусловие:** выполнен план 4a — курсы, операции, `createLedgerBalances`, `createOperationsReferences`, `GET /companies/:cid/balances`, `GET /companies/summary`, `tests/helpers/ops.ts` (`opsWorld`).
 
 **Architecture:**
-- **Вложения** передаются телом запроса `application/octet-stream` с заголовками `X-File-Name` (URI-кодированное имя) и `X-File-Type`. Fastify разбирает такое тело встроенным парсером — `@fastify/multipart` и сетевая установка пакетов не нужны. Файлы лежат в `data/uploads/` под случайным именем, в бэкап уже попадают (§9.2). Скачивание всегда идёт как файл (`Content-Disposition: attachment`, `application/octet-stream`, `nosniff`): пользовательский HTML не исполняется в origin приложения.
-- **Демо-набор** создаётся настоящими сервисами (те же инварианты и история), детерминированным генератором `mulberry32`. Модуль `scripts/lib/demo.ts` вызывается скриптом и тестом (в тесте — меньше операций).
+- **Вложения** передаются телом запроса `application/octet-stream`, имя — в заголовке `X-File-Name` (URI-кодированное). Парсер байтов и лимит 10 МБ подключены в отдельной области Fastify — остальные маршруты их не получают; без куки сессии тело не читается. `@fastify/multipart` и `file-type` не нужны: тип файла определяется по сигнатуре собственной функцией (§8). Файлы лежат в `data/uploads/` под случайным именем, в бэкап уже попадают (§9.2). Скачивание всегда идёт как файл (`Content-Disposition: attachment`, `application/octet-stream`, `nosniff`, `no-store`).
+- **Демо-набор** создаётся настоящими сервисами (те же инварианты и история) в одной транзакции, детерминированным генератором `mulberry32`. Модуль `scripts/lib/demo.ts` вызывается скриптом и тестом (в тесте — меньше операций).
 - **Клиент:** `AccountsPanel` в `CompanyLayout` слева от рабочей области (на ширине < 768 px скрыта до шага 7). Экран «Курсы» — две секции. Флаги `hasOperations` (счёт) и `currencyLocked` (компания) приходят из списков API.
 
 **Tech Stack:** как в планах 1–4a.
@@ -25,16 +25,17 @@
 
 ## Решения, принятые при планировании
 
-1. **Загрузка файла без multipart.** Тело `application/octet-stream`, имя и тип — в заголовках. Причина: нет сетевого доступа для установки `@fastify/multipart`; один файл на запрос покрывает форму операции (шаг 6).
-2. **Лимит вложения — 10 МБ** (спецификация лимита не задаёт): фото чека или PDF-счёта укладываются, бэкап не раздувается. Больше — 413 `TOO_LARGE`.
+1. **Загрузка файла без multipart.** Тело `application/octet-stream`, имя — в заголовке. Причина: нет сетевого доступа для установки `@fastify/multipart`; один файл на запрос покрывает форму операции (шаг 6).
+2. **Лимит 10 МБ и список типов — из §8 «Загрузки»:** png, jpg, webp, heic, pdf, xlsx, csv. Тип определяется по сигнатуре собственной функцией (`file-type` без сети не установить). У CSV сигнатуры нет: принимается текст UTF-8 без нулевых байтов с расширением `.csv`. Больше 10 МБ — 413 `TOO_LARGE`, другой тип — 400 с ошибкой поля `file`.
 3. **Клик по счёту в левой панели** ведёт в журнал с параметром `?account=<id>`; фильтр журнала по нему включит шаг 5.
 4. **Экран «Курсы» без раздела Нацбанка** — загрузка курсов Нацбанка отложена (§4.3, решение 2026-10-06).
-5. **`seed:demo` заливает только пустую базу** и не работает при запущенном приложении — иначе демо-данные смешаются с рабочими.
+5. **`seed:demo` заливает только пустую базу** и не работает при запущенном приложении — иначе демо-данные смешаются с рабочими. Заливка — одна транзакция: сбой не оставляет полубазу. Набор детерминирован для одной даты «сегодня»: по умолчанию это текущая дата, второй аргумент задаёт её явно.
+6. **Курсы демо-набора записываются с источником `nbrk`.** Так выглядят курсы из фикстур (§4.3: `seed:demo` берёт курсы из фикстур): без записей в истории, не в списке ручных курсов на экране «Курсы».
 
 ## Global Constraints
 
-- **Вложение** (`attachments`): id, companyId, operationId, originalName, storedName, mime, size, createdAt, deletedAt. Принадлежит компании операции (инвариант 5). Удаление только помечает запись (`deletedAt`), файл на диске остаётся (§4.5). Имя после `cleanName` — 1–200 символов; размер 1 байт … 10 МБ; к удалённой операции не прикрепляется (409 `VERSION_CONFLICT`).
-- **Скачивание вложения:** `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename*=UTF-8''<имя>`, `X-Content-Type-Options: nosniff`. Сохранённый `mime` — только для показа и проходит проверку формата; невалидный → `application/octet-stream`.
+- **Вложение** (`attachments`): id, companyId, operationId, originalName, storedName, mime, size, createdAt, deletedAt. Принадлежит компании операции (инвариант 5). Удаление только помечает запись (`deletedAt`), файл на диске остаётся (§4.5). Имя после `cleanName` — 1–200 символов; размер 1 байт … 10 МБ; тип по содержимому — png, jpg, webp, heic, pdf, xlsx, csv (§8); к удалённой операции не прикрепляется (409 `VERSION_CONFLICT`).
+- **Скачивание вложения:** `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename="<ASCII-имя>"; filename*=UTF-8''<имя по RFC 8187>`, `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`. Сохранённый `mime` — тип, распознанный по содержимому.
 - **Левая панель (§7):** «Всего на счетах» в базовой валюте; при валютах без курса под итогом — «курс {X} недоступен»; счета сгруппированы: «Общие», затем проекты по `orderIndex`; у каждого — баланс в своей валюте; архивные счета не показываются; «+ счёт» ведёт в настройки счетов; панель сворачивается, состояние — ключ `sidebar.collapsed` в `user_preferences`.
 - **Блокировки валют (§4.2, §4.4, §7):** поле валюты счёта недоступно, если по счёту есть операции (включая удалённые); поле базовой валюты компании — если есть операции или фиксированные курсы. Сервер уже отвечает `CURRENCY_LOCKED` (план 4a); интерфейс показывает подсказку и не даёт выбрать.
 - **Курсы в интерфейсе:** ручной курс — общий для экземпляра, на одну дату, к тенге; фиксированный — у компании, к её базовой валюте, на период. Курс вводится с запятой или точкой, до 10 знаков после запятой; показывается с запятой.
@@ -46,9 +47,9 @@
 ## Review Focus
 
 1. **Валютный счёт без курса на сегодня** — левая панель показывает «курс USD недоступен», итог его не включает; после ввода фиксированного курса итог пересчитывается. Тест — в задаче 5.
-2. **Вложение с HTML и скриптом** не открывается в браузере как страница приложения: скачивание как файл, `application/octet-stream`, `nosniff`. Тест — в задаче 2.
-3. **Файл больше 10 МБ** — 413 `TOO_LARGE` с русским сообщением, на диске ничего не остаётся; сбой записи в БД удаляет уже записанный файл. Тест — в задаче 2.
-4. **`seed:demo` по рабочей базе** — отказ без единой записи; повторный запуск на пустой базе даёт те же данные. Тест — в задаче 3.
+2. **Вложение с HTML и скриптом под именем `чек.png`** отклоняется по содержимому (400) и на диск не попадает; допустимые файлы отдаются только как файл (`application/octet-stream`, `nosniff`, `no-store`). Тест — в задаче 2.
+3. **Файл больше 10 МБ** — 413 `TOO_LARGE` «Файл больше 10 МБ», на диске ничего не остаётся; загрузка без входа отклоняется до чтения тела; сбой записи в БД удаляет уже записанный файл. Тест — в задаче 2.
+4. **`seed:demo` по рабочей базе** — отказ без единой записи; сбой посередине откатывает всё; повторный запуск на пустой базе даёт те же данные. Тест — в задаче 3.
 5. **Свёрнутая панель** остаётся свёрнутой после перезагрузки (и на другом устройстве того же пользователя). Тест — в задаче 4.
 
 ---
@@ -60,7 +61,7 @@ src/server/
   db/schema.ts                       # + attachments
   db/migrations/0004_*.sql           # генерируется
   errors.ts                          # 413 → TOO_LARGE
-  modules/attachments/{service,routes}.ts   # (новые)
+  modules/attachments/{file-type,service,routes}.ts   # (новые)
   modules/accounts/routes.ts         # список: hasOperations
   modules/companies/{service,routes}.ts     # currencyLocked
   app.ts
@@ -78,9 +79,10 @@ src/client/
   pages/settings/{AccountsSettings,CompaniesSettings,AuditSettings,SettingsNav}.tsx
   router.tsx
 tests/helpers/api.ts                 # + cookie
-tests/server/currency-flags.test.ts, attachments.test.ts, demo.test.ts
+tests/server/currency-flags.test.ts, file-type.test.ts, attachments.test.ts, demo.test.ts
 tests/shared/money.test.ts, tests/client/{accounts-panel,audit-format}.test.ts
 e2e/money.spec.ts                    # (новый)
+e2e/{companies,dictionaries}.spec.ts # устойчивость к левой панели
 ```
 
 ---
@@ -216,23 +218,62 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ### Task 2: Вложения операций — загрузка, список, скачивание, мягкое удаление
 
 **Files:**
-- Create: `src/server/modules/attachments/service.ts`, `src/server/modules/attachments/routes.ts`, `src/server/db/migrations/0004_*.sql` (генерируется), `tests/server/attachments.test.ts`
+- Create: `src/server/modules/attachments/file-type.ts`, `src/server/modules/attachments/service.ts`, `src/server/modules/attachments/routes.ts`, `src/server/db/migrations/0004_*.sql` (генерируется), `tests/server/file-type.test.ts`, `tests/server/attachments.test.ts`
 - Modify: `src/server/db/schema.ts`, `src/server/errors.ts`, `src/server/app.ts`, `tests/helpers/api.ts`
 
 **Interfaces:**
-- Consumes: таблица `operations` (4a), `mutate`, `requireCompany`, `cleanName`, `config.uploadsDir`.
+- Consumes: таблица `operations` (4a), `mutate`, `requireCompany`, `cleanName`, `config.uploadsDir`, `readSessionToken` (план 1).
 - Produces:
   - таблица `attachments`;
+  - `detectFileType(data, name): { mime; ext } | null` — тип по содержимому (§8);
   - `ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024`, `AttachmentRow`, `createAttachmentsService(d: { db; audit; uploadsDir; now? })` → `list`, `add`, `open`, `remove`;
-  - маршруты:
-    - `POST /api/v1/companies/:cid/operations/:id/attachments` (тело — байты файла, `Content-Type: application/octet-stream`, `X-File-Name`, `X-File-Type`) → 201 `{ attachment }`;
+  - маршруты (в отдельной области Fastify: парсер байтов и лимит 10 МБ не действуют на остальные маршруты):
+    - `POST /api/v1/companies/:cid/operations/:id/attachments` (тело — байты файла, `Content-Type: application/octet-stream`, имя — `X-File-Name`) → 201 `{ attachment }`;
     - `GET …/operations/:id/attachments` → `{ attachments }`;
     - `GET /api/v1/companies/:cid/attachments/:id` → файл;
     - `DELETE /api/v1/companies/:cid/attachments/:id` → 204;
-  - ошибка 413 → `{ code: 'TOO_LARGE', message: 'Слишком большой запрос: файл — не больше 10 МБ' }`;
+  - ошибка 413 → `TOO_LARGE`: «Файл больше 10 МБ» на маршруте загрузки, «Слишком большой запрос» на остальных;
   - `ApiHarness.cookie` — кука сессии для запросов в обход `req` (бинарное тело).
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
+
+`tests/server/file-type.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { detectFileType } from '../../src/server/modules/attachments/file-type';
+
+const bytes = (...xs: (number | string)[]) => Buffer.concat(xs.map((x) => (typeof x === 'string' ? Buffer.from(x, 'latin1') : Buffer.from([x]))));
+
+describe('detectFileType (§8: тип по содержимому)', () => {
+  it('распознаёт разрешённые форматы по сигнатуре, а не по имени', () => {
+    expect(detectFileType(bytes(0x89, 'PNG\r\n\x1a\n', 'rest'), 'a.pdf')).toEqual({ mime: 'image/png', ext: '.png' });
+    expect(detectFileType(bytes(0xff, 0xd8, 0xff, 0xe0, 'jfif'), 'a')).toEqual({ mime: 'image/jpeg', ext: '.jpg' });
+    expect(detectFileType(bytes('RIFF', 0, 0, 0, 0, 'WEBPVP8 '), 'a')).toEqual({ mime: 'image/webp', ext: '.webp' });
+    expect(detectFileType(bytes(0, 0, 0, 0x18, 'ftypheic', 0, 0, 0, 0), 'a')).toEqual({ mime: 'image/heic', ext: '.heic' });
+    expect(detectFileType(bytes(0, 0, 0, 0x18, 'ftypmif1', 0, 0, 0, 0), 'a')).toEqual({ mime: 'image/heic', ext: '.heic' });
+    expect(detectFileType(bytes('%PDF-1.7\n'), 'a')).toEqual({ mime: 'application/pdf', ext: '.pdf' });
+    expect(detectFileType(bytes('PK\x03\x04', '....[Content_Types].xml....xl/workbook.xml'), 'a')).toEqual({
+      mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ext: '.xlsx',
+    });
+  });
+
+  it('CSV — текст UTF-8 без нулевых байтов и с расширением .csv; иначе не принимается', () => {
+    expect(detectFileType(Buffer.from('дата;сумма\n01.10.2026;100\n'), 'выписка.CSV')).toEqual({ mime: 'text/csv', ext: '.csv' });
+    expect(detectFileType(Buffer.from('a,b\n1,2\n'), 'x.txt')).toBeNull();
+    expect(detectFileType(Buffer.from([0x61, 0x00, 0x62]), 'x.csv')).toBeNull();
+    expect(detectFileType(Buffer.from([0xc3, 0x28]), 'x.csv')).toBeNull(); // битый UTF-8
+  });
+
+  it('прочее — не принимается: HTML, ZIP без книги Excel, исполняемый файл, обрезанная сигнатура', () => {
+    expect(detectFileType(Buffer.from('<html><script>alert(1)</script></html>'), 'x.html')).toBeNull();
+    expect(detectFileType(bytes('PK\x03\x04', 'word/document.xml'), 'x.xlsx')).toBeNull();
+    expect(detectFileType(bytes('MZ', 0x90, 0), 'x.png')).toBeNull();
+    expect(detectFileType(bytes(0x89, 'PN'), 'x.png')).toBeNull();
+  });
+});
+```
 
 `tests/helpers/api.ts` — кука в интерфейсе и результате:
 
@@ -263,41 +304,44 @@ import { opsWorld, type OpsWorld } from '../helpers/ops';
 let w: OpsWorld;
 afterEach(async () => w?.h.t.cleanup());
 
-const upload = (url: string, data: Buffer, name = 'чек.png', type = 'image/png') =>
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+
+const upload = (url: string, data: Buffer, name = 'чек.png', cookie: string | null = w.h.cookie) =>
   w.h.t.app.inject({
     method: 'POST',
     url,
     headers: {
       ...ORIGIN_HEADERS,
-      cookie: w.h.cookie,
+      ...(cookie ? { cookie } : {}),
       'content-type': 'application/octet-stream',
       'x-file-name': encodeURIComponent(name),
-      'x-file-type': type,
     },
     payload: data,
   });
 const newOp = async () => (await w.post(w.ops, { type: 'income', paidAt: '2026-10-05T10:00:00Z', accountId: w.kzt, amount: 100 })).operation.id as number;
+const uploadsCount = () => (fs.existsSync(w.h.t.config.uploadsDir) ? fs.readdirSync(w.h.t.config.uploadsDir).length : 0);
 
 describe('attachments', () => {
   it('загрузка, список, скачивание как файл, мягкое удаление; файл остаётся на диске', async () => {
     w = await opsWorld();
     const opId = await newOp();
-    const data = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
-    const res = await upload(`${w.ops}/${opId}/attachments`, data);
+    const res = await upload(`${w.ops}/${opId}/attachments`, PNG, 'чек (1).png');
     expect(res.statusCode).toBe(201);
     const att = res.json().attachment;
-    expect(att).toMatchObject({ operationId: opId, originalName: 'чек.png', mime: 'image/png', size: 7, deletedAt: null });
+    expect(att).toMatchObject({ operationId: opId, originalName: 'чек (1).png', mime: 'image/png', size: PNG.length, deletedAt: null });
     expect(att.storedName).toMatch(/^[0-9a-f-]{36}\.png$/);
     const onDisk = path.join(w.h.t.config.uploadsDir, att.storedName);
-    expect(fs.readFileSync(onDisk).equals(data)).toBe(true);
+    expect(fs.readFileSync(onDisk).equals(PNG)).toBe(true);
     expect((await w.h.req('GET', `${w.ops}/${opId}/attachments`)).json().attachments).toHaveLength(1);
 
     const file = await w.h.req('GET', `/api/v1/companies/${w.cid}/attachments/${att.id}`);
     expect(file.statusCode).toBe(200);
-    expect(file.rawPayload.equals(data)).toBe(true);
+    expect(file.rawPayload.equals(PNG)).toBe(true);
     expect(file.headers['content-type']).toBe('application/octet-stream');
-    expect(file.headers['content-disposition']).toBe(`attachment; filename*=UTF-8''${encodeURIComponent('чек.png')}`);
+    // RFC 8187: скобки тоже кодируются; запасное ASCII-имя для старых клиентов
+    expect(file.headers['content-disposition']).toBe(`attachment; filename="___ (1).png"; filename*=UTF-8''%D1%87%D0%B5%D0%BA%20%281%29.png`);
     expect(file.headers['x-content-type-options']).toBe('nosniff');
+    expect(file.headers['cache-control']).toBe('private, no-store');
 
     expect((await w.h.req('DELETE', `/api/v1/companies/${w.cid}/attachments/${att.id}`)).statusCode).toBe(204);
     expect((await w.h.req('GET', `${w.ops}/${opId}/attachments`)).json().attachments).toEqual([]);
@@ -307,64 +351,78 @@ describe('attachments', () => {
     expect(w.h.auditCount('attachment', 'delete')).toBe(1);
   });
 
-  it('HTML со скриптом скачивается как файл, недопустимый тип заменяется (Review Focus 2)', async () => {
+  it('HTML со скриптом не принимается: тип определяется по содержимому (Review Focus 2)', async () => {
     w = await opsWorld();
     const opId = await newOp();
-    const res = await upload(`${w.ops}/${opId}/attachments`, Buffer.from('<script>alert(1)</script>'), 'x.html', 'text/html;<script>');
-    const att = res.json().attachment;
-    expect(att.mime).toBe('application/octet-stream');
-    const file = await w.h.req('GET', `/api/v1/companies/${w.cid}/attachments/${att.id}`);
-    expect(file.headers['content-type']).toBe('application/octet-stream');
-    expect(String(file.headers['content-disposition'])).toMatch(/^attachment;/);
+    const before = uploadsCount();
+    const res = await upload(`${w.ops}/${opId}/attachments`, Buffer.from('<html><script>alert(1)</script></html>'), 'чек.png');
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.fields.file).toBe('Допустимые файлы: PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV');
+    expect(uploadsCount()).toBe(before);
   });
 
-  it('проверки: пустой файл, без имени, больше 10 МБ, удалённая операция, не octet-stream, чужая компания (Review Focus 3)', async () => {
+  it('проверки: пустой файл, без имени, больше 10 МБ, не octet-stream, без входа, чужая компания, удалённая операция (Review Focus 3)', async () => {
     w = await opsWorld();
     const opId = await newOp();
     const url = `${w.ops}/${opId}/attachments`;
-    const filesBefore = () => (fs.existsSync(w.h.t.config.uploadsDir) ? fs.readdirSync(w.h.t.config.uploadsDir).length : 0);
-    const before = filesBefore();
+    const before = uploadsCount();
 
     expect((await upload(url, Buffer.alloc(0))).json().error.fields.file).toBe('Файл пустой');
-    expect((await upload(url, Buffer.from('x'), '\u200B')).json().error.fields.name).toBe('Имя файла: от 1 до 200 символов');
-    const big = await upload(url, Buffer.alloc(10 * 1024 * 1024 + 1));
+    expect((await upload(url, PNG, '\u200B')).json().error.fields.name).toBe('Имя файла: от 1 до 200 символов');
+    const big = await upload(url, Buffer.concat([PNG, Buffer.alloc(10 * 1024 * 1024)]));
     expect(big.statusCode).toBe(413);
-    expect(big.json().error).toEqual({ code: 'TOO_LARGE', message: 'Слишком большой запрос: файл — не больше 10 МБ' });
-    const json = await w.h.req('POST', url, { not: 'a file' });
-    expect(json.statusCode).toBe(400);
-    expect(filesBefore()).toBe(before); // отказ — ничего не записано
+    expect(big.json().error).toEqual({ code: 'TOO_LARGE', message: 'Файл больше 10 МБ' });
+    expect((await w.h.req('POST', url, { not: 'a file' })).json().error.fields.file).toBe('Нет файла');
+    const anonymous = await upload(url, PNG, 'чек.png', null);
+    expect(anonymous.statusCode).toBe(401);
+    expect(uploadsCount()).toBe(before); // отказ — ничего не записано
+
+    // лимит 10 МБ и парсер байтов действуют только на загрузку: остальным маршрутам octet-stream не принять
+    const elsewhere = await w.h.t.app.inject({
+      method: 'POST',
+      url: '/api/v1/companies',
+      headers: { ...ORIGIN_HEADERS, cookie: w.h.cookie, 'content-type': 'application/octet-stream' },
+      payload: Buffer.alloc(16),
+    });
+    expect(elsewhere.statusCode).toBe(415);
 
     const other = await w.h.company('Чужая');
-    expect((await upload(`/api/v1/companies/${other}/operations/${opId}/attachments`, Buffer.from('x'))).statusCode).toBe(404);
-    const att = (await upload(url, Buffer.from('x'), 'a.txt', 'text/plain')).json().attachment;
+    expect((await upload(`/api/v1/companies/${other}/operations/${opId}/attachments`, PNG)).statusCode).toBe(404);
+    const att = (await upload(url, Buffer.from('a;b\n1;2\n'), 'выписка.csv')).json().attachment;
+    expect(att.mime).toBe('text/csv');
     expect((await w.h.req('GET', `/api/v1/companies/${other}/attachments/${att.id}`)).statusCode).toBe(404);
     expect((await w.h.req('DELETE', `/api/v1/companies/${other}/attachments/${att.id}`)).statusCode).toBe(404);
 
     await w.h.req('DELETE', `${w.ops}/${opId}`);
-    const toDeleted = await upload(url, Buffer.from('x'));
+    const toDeleted = await upload(url, PNG);
     expect(toDeleted.statusCode).toBe(409);
     expect(toDeleted.json().error.code).toBe('VERSION_CONFLICT');
+  });
+
+  it('413 на других маршрутах — общее сообщение, не про файл', async () => {
+    w = await opsWorld();
+    const res = await w.h.req('POST', '/api/v1/companies', { name: 'x'.repeat(2 * 1024 * 1024) });
+    expect(res.statusCode).toBe(413);
+    expect(res.json().error).toEqual({ code: 'TOO_LARGE', message: 'Слишком большой запрос' });
   });
 
   it('сбой записи в БД удаляет уже записанный файл (Review Focus 3)', async () => {
     w = await opsWorld();
     const opId = await newOp();
-    const dir = w.h.t.config.uploadsDir;
-    const count = () => (fs.existsSync(dir) ? fs.readdirSync(dir).length : 0);
-    const before = count();
+    const before = uploadsCount();
     w.h.t.sqlite.exec("CREATE TEMP TRIGGER audit_down BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'audit down'); END");
-    expect((await upload(`${w.ops}/${opId}/attachments`, Buffer.from('x'))).statusCode).toBe(500);
+    expect((await upload(`${w.ops}/${opId}/attachments`, PNG)).statusCode).toBe(500);
     w.h.t.sqlite.exec('DROP TRIGGER audit_down');
-    expect(count()).toBe(before);
+    expect(uploadsCount()).toBe(before);
     expect((w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM attachments').get() as { n: number }).n).toBe(0);
   });
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npx vitest run tests/server/attachments.test.ts`
-Expected: FAIL — маршруты 404, нет поля `cookie`.
+Run: `npx vitest run tests/server/file-type.test.ts tests/server/attachments.test.ts`
+Expected: FAIL — нет модуля `file-type`, маршруты 404, нет поля `cookie`.
 
 - [ ] **Step 3: Implement**
 
@@ -382,8 +440,9 @@ export const attachments = sqliteTable(
       .notNull()
       .references(() => operations.id),
     originalName: text('original_name').notNull(),
-    /** Имя файла в data/uploads: случайный UUID и расширение исходного файла. */
+    /** Имя файла в data/uploads: случайный UUID и расширение распознанного типа. */
     storedName: text('stored_name').notNull(),
+    /** Тип, распознанный по содержимому (§8). */
     mime: text('mime').notNull(),
     size: integer('size').notNull(),
     createdAt: text('created_at').notNull(),
@@ -399,8 +458,49 @@ Run: `npm run db:generate` — создан `0004_<имя>.sql` с таблиц�
 
 ```ts
     if (status === 413) {
-      return reply.status(413).send({ error: { code: 'TOO_LARGE', message: 'Слишком большой запрос: файл — не больше 10 МБ' } });
+      // лимит 10 МБ есть только у загрузки вложений; остальным маршрутам — общий лимит тела запроса
+      const upload = req.routeOptions.url?.endsWith('/attachments') ?? false;
+      return reply.status(413).send({ error: { code: 'TOO_LARGE', message: upload ? 'Файл больше 10 МБ' : 'Слишком большой запрос' } });
     }
+```
+
+`src/server/modules/attachments/file-type.ts`:
+
+```ts
+/** Тип файла по содержимому (§8): png, jpg, webp, heic, pdf, xlsx, csv. Расширение имени учитывается только для CSV. */
+export interface DetectedType {
+  mime: string;
+  ext: string;
+}
+
+const HEIC_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1']);
+const XLSX: DetectedType = { mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ext: '.xlsx' };
+
+const startsWith = (data: Buffer, sig: number[], offset = 0) => data.length >= offset + sig.length && sig.every((b, i) => data[offset + i] === b);
+const ascii = (data: Buffer, start: number, end: number) => data.subarray(start, end).toString('latin1');
+
+/** Текст UTF-8 без нулевых байтов — у CSV нет сигнатуры, поэтому нужен ещё и .csv в имени. */
+function isUtf8Text(data: Buffer): boolean {
+  if (data.includes(0)) return false;
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function detectFileType(data: Buffer, name: string): DetectedType | null {
+  if (startsWith(data, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return { mime: 'image/png', ext: '.png' };
+  if (startsWith(data, [0xff, 0xd8, 0xff])) return { mime: 'image/jpeg', ext: '.jpg' };
+  if (ascii(data, 0, 4) === 'RIFF' && ascii(data, 8, 12) === 'WEBP') return { mime: 'image/webp', ext: '.webp' };
+  if (ascii(data, 4, 8) === 'ftyp' && HEIC_BRANDS.has(ascii(data, 8, 12))) return { mime: 'image/heic', ext: '.heic' };
+  if (ascii(data, 0, 5) === '%PDF-') return { mime: 'application/pdf', ext: '.pdf' };
+  // xlsx — ZIP-архив с книгой Excel внутри (имя части есть в заголовках архива)
+  if (startsWith(data, [0x50, 0x4b, 0x03, 0x04])) return data.includes('xl/workbook.xml') ? XLSX : null;
+  if (/\.csv$/i.test(name) && isUtf8Text(data)) return { mime: 'text/csv', ext: '.csv' };
+  return null;
+}
 ```
 
 `src/server/modules/attachments/service.ts`:
@@ -417,6 +517,7 @@ import { AppError } from '../../errors';
 import { mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
+import { detectFileType } from './file-type';
 
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 
@@ -424,15 +525,13 @@ export type AttachmentRow = typeof attachments.$inferSelect;
 
 export interface AttachmentsService {
   list(companyId: number, operationId: number): AttachmentRow[];
-  add(companyId: number, operationId: number, file: { name: string; mime: string; data: Buffer }, userId: number): AttachmentRow;
+  add(companyId: number, operationId: number, file: { name: string; data: Buffer }, userId: number): AttachmentRow;
   /** Неудалённое вложение компании и путь к файлу. */
   open(companyId: number, id: number): { row: AttachmentRow; filePath: string };
   /** Мягкое удаление: файл на диске остаётся (§4.5). */
   remove(companyId: number, id: number, userId: number): void;
 }
 
-const MIME_RE = /^[a-z0-9][\w.+-]*\/[\w.+-]+$/i;
-const EXT_RE = /\.[a-z0-9]{1,10}$/i;
 const invalid = (fields: Record<string, string>) => new AppError(400, 'VALIDATION', 'Проверьте файл', fields);
 
 export function createAttachmentsService(d: { db: Db; audit: AuditService; uploadsDir: string; now?: () => Date }): AttachmentsService {
@@ -474,11 +573,10 @@ export function createAttachmentsService(d: { db: Db; audit: AuditService; uploa
       const name = cleanName(file.name);
       if (name.length < 1 || name.length > 200) throw invalid({ name: 'Имя файла: от 1 до 200 символов' });
       if (file.data.length === 0) throw invalid({ file: 'Файл пустой' });
-      if (file.data.length > ATTACHMENT_MAX_BYTES) {
-        throw new AppError(413, 'TOO_LARGE', 'Слишком большой запрос: файл — не больше 10 МБ');
-      }
-      const mime = MIME_RE.test(file.mime) ? file.mime.toLowerCase() : 'application/octet-stream';
-      const storedName = `${crypto.randomUUID()}${EXT_RE.exec(name)?.[0].toLowerCase() ?? ''}`;
+      if (file.data.length > ATTACHMENT_MAX_BYTES) throw new AppError(413, 'TOO_LARGE', 'Файл больше 10 МБ');
+      const type = detectFileType(file.data, name);
+      if (!type) throw invalid({ file: 'Допустимые файлы: PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV' });
+      const storedName = `${crypto.randomUUID()}${type.ext}`;
       fs.mkdirSync(d.uploadsDir, { recursive: true });
       const filePath = path.join(d.uploadsDir, storedName);
       fs.writeFileSync(filePath, file.data, { flag: 'wx' });
@@ -486,10 +584,10 @@ export function createAttachmentsService(d: { db: Db; audit: AuditService; uploa
         return mutate(db, audit, (tx, record) => {
           const row = tx
             .insert(attachments)
-            .values({ companyId, operationId, originalName: name, storedName, mime, size: file.data.length, createdAt: now().toISOString() })
+            .values({ companyId, operationId, originalName: name, storedName, mime: type.mime, size: file.data.length, createdAt: now().toISOString() })
             .returning()
             .get();
-          record({ companyId, userId, entity: 'attachment', entityId: row.id, action: 'create', diff: { operationId, name, size: row.size, mime } });
+          record({ companyId, userId, entity: 'attachment', entityId: row.id, action: 'create', diff: { operationId, name, size: row.size, mime: type.mime } });
           return row;
         });
       } catch (e) {
@@ -523,6 +621,7 @@ import fs from 'node:fs';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../errors';
 import { parseId } from '../../http/params';
+import { readSessionToken } from '../auth/plugin';
 import { ATTACHMENT_MAX_BYTES, type AttachmentsService } from './service';
 
 type P = { Params: { cid: string; id: string } };
@@ -537,40 +636,56 @@ function headerName(value: unknown): string {
   }
 }
 
+/** Content-Disposition по RFC 6266/8187: ASCII-запасное имя и полное имя в UTF-8 (кодируются и символы '()*). */
+function contentDisposition(name: string): string {
+  const fallback = name.replace(/[^\x20-\x7e]|["\\]/g, '_');
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
 export function registerAttachmentsRoutes(app: FastifyInstance, deps: { attachments: AttachmentsService }): void {
   const { attachments } = deps;
 
-  // файл приходит телом запроса целиком: multipart не нужен (одно вложение на запрос)
-  app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: ATTACHMENT_MAX_BYTES }, (_req, body, done) => done(null, body));
+  // отдельная область: парсер байтов и лимит 10 МБ не действуют на остальные маршруты
+  app.register(async (scope) => {
+    scope.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: ATTACHMENT_MAX_BYTES }, (_req, body, done) =>
+      done(null, body),
+    );
+    // без куки сессии тело не читаем: полная проверка сеанса — как у всех маршрутов, в preHandler
+    scope.addHook('onRequest', async (req) => {
+      if (req.method === 'POST' && !readSessionToken(req)) throw new AppError(401, 'UNAUTHORIZED', 'Требуется вход');
+    });
 
-  app.post<P>('/api/v1/companies/:cid/operations/:id/attachments', { bodyLimit: ATTACHMENT_MAX_BYTES }, async (req, reply) => {
-    const cid = parseId(req.params.cid);
-    const id = parseId(req.params.id);
-    if (!Buffer.isBuffer(req.body)) {
-      throw new AppError(400, 'VALIDATION', 'Отправьте файл телом запроса application/octet-stream', { file: 'Нет файла' });
-    }
-    const mime = typeof req.headers['x-file-type'] === 'string' ? req.headers['x-file-type'] : '';
-    const attachment = attachments.add(cid, id, { name: headerName(req.headers['x-file-name']), mime, data: req.body }, req.user!.id);
-    return reply.status(201).send({ attachment });
-  });
+    scope.post<P>('/api/v1/companies/:cid/operations/:id/attachments', { bodyLimit: ATTACHMENT_MAX_BYTES }, async (req, reply) => {
+      if (!Buffer.isBuffer(req.body)) throw new AppError(400, 'VALIDATION', 'Проверьте файл', { file: 'Нет файла' });
+      const attachment = attachments.add(
+        parseId(req.params.cid),
+        parseId(req.params.id),
+        { name: headerName(req.headers['x-file-name']), data: req.body },
+        req.user!.id,
+      );
+      return reply.status(201).send({ attachment });
+    });
 
-  app.get<P>('/api/v1/companies/:cid/operations/:id/attachments', async (req) => ({
-    attachments: attachments.list(parseId(req.params.cid), parseId(req.params.id)),
-  }));
+    scope.get<P>('/api/v1/companies/:cid/operations/:id/attachments', async (req) => ({
+      attachments: attachments.list(parseId(req.params.cid), parseId(req.params.id)),
+    }));
 
-  app.get<P>('/api/v1/companies/:cid/attachments/:id', async (req, reply) => {
-    const { row, filePath } = attachments.open(parseId(req.params.cid), parseId(req.params.id));
-    if (!fs.existsSync(filePath)) throw new AppError(404, 'NOT_FOUND', 'Файл вложения не найден');
-    // всегда как файл: пользовательский HTML не должен исполняться в origin приложения
-    reply.header('Content-Type', 'application/octet-stream');
-    reply.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(row.originalName)}`);
-    reply.header('X-Content-Type-Options', 'nosniff');
-    return reply.send(fs.createReadStream(filePath));
-  });
+    scope.get<P>('/api/v1/companies/:cid/attachments/:id', async (req, reply) => {
+      const { row, filePath } = attachments.open(parseId(req.params.cid), parseId(req.params.id));
+      if (!fs.existsSync(filePath)) throw new AppError(404, 'NOT_FOUND', 'Файл вложения не найден');
+      // всегда как файл и без кэширования у посредников
+      reply.header('Content-Type', 'application/octet-stream');
+      reply.header('Content-Disposition', contentDisposition(row.originalName));
+      reply.header('X-Content-Type-Options', 'nosniff');
+      reply.header('Cache-Control', 'private, no-store');
+      return reply.send(fs.createReadStream(filePath));
+    });
 
-  app.delete<P>('/api/v1/companies/:cid/attachments/:id', async (req, reply) => {
-    attachments.remove(parseId(req.params.cid), parseId(req.params.id), req.user!.id);
-    return reply.status(204).send();
+    scope.delete<P>('/api/v1/companies/:cid/attachments/:id', async (req, reply) => {
+      attachments.remove(parseId(req.params.cid), parseId(req.params.id), req.user!.id);
+      return reply.status(204).send();
+    });
   });
 }
 ```
@@ -590,7 +705,7 @@ import { createAttachmentsService } from './modules/attachments/service';
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npx vitest run tests/server/attachments.test.ts tests/server/backup.test.ts tests/server/errors-and-health.test.ts`
+Run: `npx vitest run tests/server/file-type.test.ts tests/server/attachments.test.ts tests/server/backup.test.ts tests/server/errors-and-health.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Full check and commit**
@@ -598,8 +713,8 @@ Expected: PASS.
 Run: `npm test` и `npm run typecheck` — зелёные.
 
 ```bash
-git add src/server/db src/server/errors.ts src/server/modules/attachments src/server/app.ts tests/helpers/api.ts tests/server/attachments.test.ts
-git commit -m "feat: вложения операций — загрузка телом запроса, скачивание как файл, мягкое удаление
+git add src/server/db src/server/errors.ts src/server/modules/attachments src/server/app.ts tests/helpers/api.ts tests/server/file-type.test.ts tests/server/attachments.test.ts
+git commit -m "feat: вложения операций — тип по содержимому, загрузка телом запроса, скачивание как файл, мягкое удаление
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
@@ -618,7 +733,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - `rng(seed): () => number` — детерминированный генератор;
   - `seedDemo(d: { db; timezone; now: Date; operations?: number }): DemoResult` — бросает `Error`, если в базе есть компании или нет пользователя;
   - `DemoResult { companies; projects; accounts; categories; counterparties; operations }`;
-  - `npm run seed:demo [-- <число операций>]`.
+  - `npm run seed:demo [-- <число операций> [<дата «сегодня» ГГГГ-ММ-ДД>]]`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -691,7 +806,7 @@ describe('seed:demo', () => {
     }
   });
 
-  it('детерминированность: два запуска на пустых базах дают одинаковые данные; по непустой базе — отказ без записей (Review Focus 4)', () => {
+  it('детерминированность: два запуска на пустых базах с одной датой дают одинаковые данные; по непустой базе — отказ без записей (Review Focus 4)', () => {
     const a = freshDb();
     const b = freshDb();
     seedDemo({ db: a.db, timezone: 'Asia/Almaty', now: NOW, operations: 300 });
@@ -703,6 +818,16 @@ describe('seed:demo', () => {
     const before = (a.sqlite.prepare('SELECT COUNT(*) n FROM operations').get() as { n: number }).n;
     expect(() => seedDemo({ db: a.db, timezone: 'Asia/Almaty', now: NOW, operations: 10 })).toThrow('Демо-набор заливается только в пустую базу');
     expect((a.sqlite.prepare('SELECT COUNT(*) n FROM operations').get() as { n: number }).n).toBe(before);
+  });
+
+  it('сбой посередине откатывает всё: база пуста и пригодна для повторного запуска', () => {
+    const t = freshDb();
+    t.sqlite.exec("CREATE TEMP TRIGGER stop_ops BEFORE INSERT ON operations WHEN (SELECT COUNT(*) FROM operations) >= 20 BEGIN SELECT RAISE(ABORT, 'stop'); END");
+    expect(() => seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 50 })).toThrow('stop');
+    t.sqlite.exec('DROP TRIGGER stop_ops');
+    const n = (table: string) => (t.sqlite.prepare(`SELECT COUNT(*) n FROM ${table}`).get() as { n: number }).n;
+    expect([n('companies'), n('operations'), n('exchange_rates'), n('audit_log')]).toEqual([0, 0, 0, 0]);
+    expect(seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 50 }).operations).toBe(50);
   });
 
   it('без пользователя — понятная ошибка', () => {
@@ -776,16 +901,21 @@ interface Ctx {
  * не меньше 60 статей, 150 контрагентов, `operations` операций за 2 года. Только в пустую базу.
  */
 export function seedDemo(d: { db: Db; timezone: string; now: Date; operations?: number }): DemoResult {
-  const { db, timezone: tz } = d;
-  const total = d.operations ?? 10_000;
-  const now = () => d.now;
+  const { db } = d;
   const user = db.select({ id: users.id }).from(users).orderBy(asc(users.id)).limit(1).get();
   if (!user) throw new Error('Сначала создайте пользователя: npm run user:add');
   if ((db.select({ n: count() }).from(companiesTable).get()?.n ?? 0) > 0) {
     throw new Error('Демо-набор заливается только в пустую базу: в ней уже есть компании');
   }
-  const uid = user.id;
+  // всё или ничего: сбой посередине не оставляет полубазу, которую повторный запуск уже не примет.
+  // Транзакции сервисов внутри становятся точками сохранения (better-sqlite3).
+  return db.transaction(() => fill(d, user.id));
+}
 
+function fill(d: { db: Db; timezone: string; now: Date; operations?: number }, uid: number): DemoResult {
+  const { db, timezone: tz } = d;
+  const total = d.operations ?? 10_000;
+  const now = () => d.now;
   const audit = createAuditService(db, now);
   const references = createOperationsReferences(db, tz);
   const balances = createLedgerBalances(db);
@@ -803,7 +933,8 @@ export function seedDemo(d: { db: Db; timezone: string; now: Date; operations?: 
   const today = todayInTimezone(tz, d.now);
   const start = addDays(today, -730);
 
-  // курсы USD к тенге на каждый день истории (и неделю до неё): детерминированная «волна» около 475
+  // курсы USD к тенге на каждый день истории (и неделю до неё): «волна» около 475. Источник nbrk — так выглядят
+  // курсы из фикстур (§4.3): без записей в истории и не в списке ручных курсов
   db.transaction((tx) => {
     for (let i = -7; i <= 730; i++) {
       tx.insert(exchangeRates)
@@ -811,7 +942,7 @@ export function seedDemo(d: { db: Db; timezone: string; now: Date; operations?: 
           date: addDays(start, i),
           currency: 'USD',
           rateToKzt: (475 + 15 * Math.sin(i / 45)).toFixed(2),
-          source: 'manual',
+          source: 'nbrk',
           createdBy: uid,
           fetchedAt: d.now.toISOString(),
         })
@@ -871,7 +1002,8 @@ export function seedDemo(d: { db: Db; timezone: string; now: Date; operations?: 
   };
   const ctxs = [ctx(c1.id), ctx(c2.id), ctx(c3.id)];
 
-  // операции: 70 % / 20 % / 10 % по компаниям, ~10 % переводов, ~15 % разбитых, ~1 % удалённых
+  // операции: 70 % / 20 % / 10 % по компаниям; ~10 % переводов, ~50 % доходов, ~40 % расходов (балансы растут);
+  // ~15 % разбитых, ~1 % удалённых
   for (let i = 0; i < total; i++) {
     const r = random();
     const c = r < 0.7 ? ctxs[0]! : r < 0.9 ? ctxs[1]! : ctxs[2]!;
@@ -889,7 +1021,7 @@ export function seedDemo(d: { db: Db; timezone: string; now: Date; operations?: 
       const lines: LineInput[] = random() < 0.3 ? [{ categoryId: null, projectId: pick(c.projects), amount: minor }] : [];
       input = { type: 'transfer', paidAt, accrualDate: null, accountId: account.id, amount: minor, toAccountId: to.id, toAmount, counterpartyId: null, comment: null, lines, tagIds: [] };
     } else {
-      const type = kindRoll < 0.45 ? 'income' : 'expense';
+      const type = kindRoll < 0.6 ? 'income' : 'expense';
       const cats = type === 'income' ? c.income : c.expense;
       let lines: LineInput[];
       if (random() < 0.15) {
@@ -936,10 +1068,11 @@ import { openDb } from '../src/server/db/client';
 import { migrateWithBackup } from '../src/server/db/migrate';
 import { seedCurrencies } from '../src/server/db/seed';
 import { isLockHeld } from '../src/server/lock';
+import { isValidDate } from '../src/shared/dates';
 import { createBackupService } from '../src/server/modules/backup/service';
 import { seedDemo } from './lib/demo';
 
-// Демо-набор §10 для проверки и замеров: npm run seed:demo [-- <число операций, по умолчанию 10000>]
+// Демо-набор §10 для проверки и замеров: npm run seed:demo [-- <число операций, по умолчанию 10000> [<дата «сегодня» ГГГГ-ММ-ДД>]]
 if (fs.existsSync('.env')) process.loadEnvFile('.env');
 const config = loadConfig();
 if (isLockHeld(config.lockPath)) {
@@ -951,6 +1084,13 @@ if (!Number.isInteger(count) || count < 1) {
   console.error('Число операций — целое больше нуля.');
   process.exit(1);
 }
+// набор детерминирован для одной даты «сегодня»: явная дата повторяет его день в день
+const anchor = process.argv[3];
+if (anchor !== undefined && !isValidDate(anchor)) {
+  console.error('Дата — в формате ГГГГ-ММ-ДД.');
+  process.exit(1);
+}
+const now = anchor ? new Date(`${anchor}T12:00:00.000Z`) : new Date();
 fs.mkdirSync(config.dataDir, { recursive: true });
 fs.mkdirSync(config.backupsDir, { recursive: true });
 const dbExisted = fs.existsSync(config.dbPath);
@@ -963,10 +1103,8 @@ try {
     backup: createBackupService({ sqlite, config, log: (m, e) => (e ? console.error(m, e) : console.log(m)) }),
   });
   seedCurrencies(db);
-  // тысячи коротких транзакций без fsync на каждую; для демо-набора это допустимо
-  sqlite.pragma('synchronous = OFF');
   const started = Date.now();
-  const r = seedDemo({ db, timezone: config.timezone, now: new Date(), operations: count });
+  const r = seedDemo({ db, timezone: config.timezone, now, operations: count });
   console.log(
     `Готово за ${((Date.now() - started) / 1000).toFixed(1)} с: компаний ${r.companies}, проектов ${r.projects}, счетов ${r.accounts}, ` +
       `статей ${r.categories}, контрагентов ${r.counterparties}, операций ${r.operations}.`,
@@ -1014,7 +1152,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 **Files:**
 - Create: `src/client/lib/accounts-panel.ts`, `src/client/components/AccountsPanel.tsx`, `tests/client/accounts-panel.test.ts`, `e2e/money.spec.ts`
-- Modify: `src/shared/money.ts`, `tests/shared/money.test.ts`, `src/client/lib/queries.ts`, `src/client/pages/CompanyLayout.tsx`, `src/client/components/CompanySwitcher.tsx`
+- Modify: `src/shared/money.ts`, `tests/shared/money.test.ts`, `src/client/lib/queries.ts`, `src/client/pages/CompanyLayout.tsx`, `src/client/components/CompanySwitcher.tsx`, `e2e/companies.spec.ts`, `e2e/dictionaries.spec.ts`
 
 **Interfaces:**
 - Consumes:
@@ -1448,20 +1586,36 @@ const companyItemClass =
           })}
 ```
 
+Прежние e2e, которые панель задевает (проверено прогоном):
+
+- `e2e/dictionaries.spec.ts`, тест «статьи: …» — панель сужает дерево статей, строка «Таргетинг» переносится, и в её центре оказывается список «Перенести в…»; нажатие мыши на списке не начинает перетаскивание. Тянем за ручку ⠿:
+
+```ts
+  // тянем за ручку ⠿ (левый верхний угол строки): в центре строки может оказаться выпадающий список «Перенести в…»
+  await item('Таргетинг').locator(':scope > div').dragTo(item('Зарплата').locator(':scope > div'), { sourcePosition: { x: 16, y: 20 } });
+```
+
+- `e2e/companies.spec.ts`, тест «истёкшая сессия уводит на вход» — запросы панели ещё в полёте, когда тест стирает куки: их 401 уводит на вход раньше клика по «Настройкам». После `createCompany`:
+
+```ts
+  // левая панель счетов грузит данные сразу после входа в компанию: дожидаемся её, иначе 401 придёт раньше клика
+  await page.waitForLoadState('networkidle');
+```
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run tests/shared/money.test.ts tests/client/accounts-panel.test.ts`
 Expected: PASS.
 
-Run: `npm run test:e2e`
-Expected: PASS — новый `e2e/money.spec.ts` и все прежние (панель не добавляет ролей, которые ищут прежние тесты).
+Run: `npm run test:e2e` — дважды подряд.
+Expected: PASS оба раза — новый `e2e/money.spec.ts` и все прежние.
 
 - [ ] **Step 5: Full check and commit**
 
 Run: `npm test` и `npm run typecheck` — зелёные.
 
 ```bash
-git add src/shared/money.ts tests/shared/money.test.ts src/client tests/client e2e/money.spec.ts
+git add src/shared/money.ts tests/shared/money.test.ts src/client tests/client e2e
 git commit -m "feat: левая панель счетов с балансами и итоги компаний в переключателе
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
@@ -1573,7 +1727,8 @@ export interface ManualRate {
   currency: string;
   /** Курс за 1 единицу валюты в тенге, десятичная строка с точкой. */
   rateToKzt: string;
-  source: 'nbrk' | 'manual';
+  /** Экран получает только ручные курсы. */
+  source: 'manual';
   createdBy: number | null;
   fetchedAt: string;
 }
@@ -1948,7 +2103,6 @@ function ManualRatesSection() {
                     <span className="font-semibold">
                       1 {r.currency} = {showRate(r.rateToKzt)} KZT
                     </span>
-                    {r.source === 'nbrk' && <span className="ml-2 text-xs text-muted">Нацбанк</span>}
                   </span>
                   {editingId === r.id ? (
                     <form
@@ -2124,13 +2278,15 @@ test('валюта счёта с операциями и базовая валю
   await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minuteAgo(), accountId: kaspi, amount: 100 });
 
   await page.goto(`/c/${cid}/settings/accounts`);
-  const row = page.getByRole('listitem').filter({ hasText: 'Kaspi' });
-  await row.getByRole('button', { name: 'Изменить' }).click();
+  // в режиме правки название — значение поля, а не текст строки: строку формы ищем по полю
+  const editRow = (accountName: string) => page.getByRole('listitem').filter({ has: page.locator(`input[value="${accountName}"]`) });
+  await page.getByRole('listitem').filter({ hasText: 'Kaspi' }).getByRole('button', { name: 'Изменить' }).click();
+  const row = editRow('Kaspi');
   await expect(row.getByLabel('Валюта')).toBeDisabled();
   await expect(row).toContainText('По счёту есть операции — валюту изменить нельзя');
   await row.getByRole('button', { name: 'Отмена' }).click();
-  const empty = page.getByRole('listitem').filter({ hasText: 'Пустой' });
-  await empty.getByRole('button', { name: 'Изменить' }).click();
+  await page.getByRole('listitem').filter({ hasText: 'Пустой' }).getByRole('button', { name: 'Изменить' }).click();
+  const empty = editRow('Пустой');
   await expect(empty.getByLabel('Валюта')).toBeEnabled();
   await empty.getByRole('button', { name: 'Отмена' }).click();
 
@@ -2149,7 +2305,7 @@ Run: `npx vitest run tests/client/audit-format.test.ts`
 Expected: FAIL — нет `SYSTEM_ENTITIES`, нет подписей.
 
 Run: `npx playwright test e2e/money.spec.ts -g "заблокированы"`
-Expected: FAIL — поле валюты доступно.
+Expected: FAIL — поле «Валюта» у счёта с операциями доступно (`toBeDisabled` не выполняется).
 
 - [ ] **Step 3: Implement**
 
@@ -2280,6 +2436,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 | §7 Настройки → Курсы (без Нацбанка, решение 2026-10-06) | Task 5 |
 | §4.2, §4.4, §7: блокировка валюты счёта и базовой валюты компании в интерфейсе | Tasks 1, 6 |
 | §4.5 `attachments`, §6 Вложения: загрузка, список, скачивание, мягкое удаление; файл остаётся на диске | Task 2 |
+| §8 Загрузки: 10 МБ, тип по содержимому (png, jpg, webp, heic, pdf, xlsx, csv), случайное имя, отдача с авторизацией, `attachment`, `nosniff` | Task 2 |
 | §9.2 вложения в бэкапе (папка `data/uploads/` уже входит в архив) | Task 2 (файлы пишутся в `config.uploadsDir`) |
 | §10 демо-набор: 3 компании, 5 проектов, 8 счетов, ≥ 60 статей, 150 контрагентов, 10 000 операций, ~15 % разбитых, ~10 % переводов | Task 3 |
 | §12 сверка SQL-балансов с пересчётом в JS | Task 3 |
