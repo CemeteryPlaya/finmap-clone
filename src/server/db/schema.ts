@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { COUNTERPARTY_TYPES } from '../../shared/counterparties';
 
 export const users = sqliteTable('users', {
@@ -183,4 +183,114 @@ export const userPreferences = sqliteTable(
     updatedAt: text('updated_at').notNull(),
   },
   (t) => [uniqueIndex('user_preferences_uq').on(t.userId, t.key)],
+);
+
+export const exchangeRates = sqliteTable(
+  'exchange_rates',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** Календарная дата `YYYY-MM-DD`. */
+    date: text('date').notNull(),
+    currency: text('currency')
+      .notNull()
+      .references(() => currencies.code),
+    /** Курс за 1 единицу валюты в тенге, десятичная строка. */
+    rateToKzt: text('rate_to_kzt').notNull(),
+    source: text('source', { enum: ['nbrk', 'manual'] }).notNull(),
+    createdBy: integer('created_by').references(() => users.id),
+    fetchedAt: text('fetched_at').notNull(),
+  },
+  (t) => [uniqueIndex('exchange_rates_uq').on(t.date, t.currency), index('exchange_rates_currency_idx').on(t.currency, t.date)],
+);
+
+export const fixedRates = sqliteTable(
+  'fixed_rates',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id),
+    currency: text('currency')
+      .notNull()
+      .references(() => currencies.code),
+    /** Курс за 1 единицу валюты в базовой валюте компании. */
+    rate: text('rate').notNull(),
+    validFrom: text('valid_from').notNull(),
+    /** null — бессрочно. */
+    validTo: text('valid_to'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [index('fixed_rates_company_idx').on(t.companyId, t.currency, t.validFrom)],
+);
+
+export const operations = sqliteTable(
+  'operations',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id),
+    type: text('type', { enum: ['income', 'expense', 'transfer'] }).notNull(),
+    /** На этапе 1 только 'actual'; 'planned' — для этапа 3. */
+    status: text('status', { enum: ['actual', 'planned'] }).notNull(),
+    paidAt: text('paid_at').notNull(),
+    accrualDate: text('accrual_date'),
+    accountId: integer('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    amount: integer('amount').notNull(),
+    toAccountId: integer('to_account_id').references(() => accounts.id),
+    toAmount: integer('to_amount'),
+    /** Курс к базовой валюте для показа (10 значащих цифр). */
+    rate: text('rate').notNull(),
+    baseAmount: integer('base_amount').notNull(),
+    counterpartyId: integer('counterparty_id').references(() => counterparties.id),
+    comment: text('comment'),
+    createdBy: integer('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    version: integer('version').notNull(),
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [
+    index('operations_company_paid_idx').on(t.companyId, t.paidAt, t.id),
+    index('operations_account_idx').on(t.accountId),
+    index('operations_to_account_idx').on(t.toAccountId),
+    index('operations_counterparty_idx').on(t.counterpartyId),
+  ],
+);
+
+export const operationLines = sqliteTable(
+  'operation_lines',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    operationId: integer('operation_id')
+      .notNull()
+      .references(() => operations.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    categoryId: integer('category_id').references(() => categories.id),
+    projectId: integer('project_id').references(() => projects.id),
+    amount: integer('amount').notNull(),
+    baseAmount: integer('base_amount').notNull(),
+  },
+  (t) => [
+    index('operation_lines_op_idx').on(t.operationId, t.position),
+    index('operation_lines_category_idx').on(t.categoryId),
+    index('operation_lines_project_idx').on(t.projectId),
+  ],
+);
+
+export const operationTags = sqliteTable(
+  'operation_tags',
+  {
+    operationId: integer('operation_id')
+      .notNull()
+      .references(() => operations.id, { onDelete: 'cascade' }),
+    tagId: integer('tag_id')
+      .notNull()
+      .references(() => tags.id),
+  },
+  (t) => [primaryKey({ columns: [t.operationId, t.tagId] }), index('operation_tags_tag_idx').on(t.tagId)],
 );
