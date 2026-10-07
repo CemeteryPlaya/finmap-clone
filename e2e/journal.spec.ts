@@ -248,3 +248,60 @@ test('тулбар: поиск с паузой, период, сумма от/д
   await expect(bodyRows(page)).toHaveCount(3);
   await expect(page.getByRole('button', { name: 'Сбросить фильтр' })).toHaveCount(0);
 });
+
+test('колонки: выбор сохраняется в настройках пользователя и переживает перезагрузку; дату и сумму не скрыть', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Колонки ${Date.now()}`);
+  const kaspi = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: todayAgo(1), accountId: kaspi, amount: 100, comment: 'Видимый комментарий' });
+  await page.reload();
+  const header = (name: string) => table(page).getByRole('columnheader', { name, exact: true });
+  await expect(header('Комментарий')).toBeVisible();
+
+  // настройка общая для пользователя admin и остальных e2e: после теста все колонки снова видны
+  try {
+    const columns = page.getByRole('button', { name: 'Колонки', exact: true });
+    await columns.click();
+    await expect(columns).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('checkbox', { name: 'Дата' })).toBeDisabled();
+    // фокус — на первом доступном флажке
+    await expect(page.getByRole('checkbox', { name: 'Счёт' })).toBeFocused();
+    // панель — в портале, но порядок Tab не рвётся: Shift+Tab с первого флажка ведёт на кнопку, Tab с кнопки — обратно в панель
+    await page.keyboard.press('Shift+Tab');
+    await expect(columns).toBeFocused();
+    await expect(columns).toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('checkbox', { name: 'Счёт' })).toBeFocused();
+    const saved = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/journal.columns') && r.request().method() === 'PUT');
+    await page.getByRole('checkbox', { name: 'Комментарий' }).uncheck();
+    await saved;
+    await expect(header('Комментарий')).toHaveCount(0);
+    await expect(table(page)).not.toContainText('Видимый комментарий');
+    // Esc закрывает панель и возвращает фокус на кнопку
+    await page.keyboard.press('Escape');
+    await expect(columns).toHaveAttribute('aria-expanded', 'false');
+    await expect(columns).toBeFocused();
+
+    // Tab за последним элементом панели закрывает её и возвращает фокус на кнопку
+    await columns.click();
+    await expect(columns).toHaveAttribute('aria-expanded', 'true');
+    await page.getByRole('checkbox', { name: 'Комментарий' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(columns).toHaveAttribute('aria-expanded', 'false');
+    await expect(columns).toBeFocused();
+
+    // фокус, ушедший за пределы кнопки и панели, закрывает панель
+    await columns.click();
+    await expect(columns).toHaveAttribute('aria-expanded', 'true');
+    await page.getByRole('heading', { name: 'Журнал' }).focus();
+    await expect(columns).toHaveAttribute('aria-expanded', 'false');
+
+    await page.reload();
+    await expect(header('Счёт')).toBeVisible();
+    await expect(header('Комментарий')).toHaveCount(0);
+  } finally {
+    await page.request.put('/api/v1/preferences/journal.columns', { data: { value: null }, headers: csrf(page) });
+  }
+  await page.reload();
+  await expect(header('Комментарий')).toBeVisible();
+});

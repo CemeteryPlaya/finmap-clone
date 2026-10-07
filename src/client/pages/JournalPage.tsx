@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router';
 import { todayInTimezone } from '../../shared/dates';
+import { ColumnsPicker } from '../components/journal/ColumnsPicker';
 import { JournalTable, type JournalLookups } from '../components/journal/JournalTable';
 import { JournalToolbar } from '../components/journal/JournalToolbar';
 import { LoadMore } from '../components/journal/LoadMore';
@@ -70,7 +71,14 @@ function JournalScreen({ company }: { company: Company }) {
       <h1 tabIndex={-1} className="mb-4 text-2xl font-bold outline-none">
         Журнал
       </h1>
-      <JournalToolbar state={state} onChange={update} companyId={company.id} baseCurrency={company.baseCurrency} today={today} />
+      <JournalToolbar
+        state={state}
+        onChange={update}
+        companyId={company.id}
+        baseCurrency={company.baseCurrency}
+        today={today}
+        actions={<ColumnsPicker visible={columns} />}
+      />
       {items.length === 0 ? (
         <p className="py-8 text-center text-muted">{isFiltered(state) ? 'По этому фильтру операций нет.' : 'Операций пока нет.'}</p>
       ) : (
