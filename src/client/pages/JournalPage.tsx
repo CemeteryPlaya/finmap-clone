@@ -86,12 +86,15 @@ function JournalScreen({ company }: { company: Company }) {
           busy={journal.isPlaceholderData}
         />
       )}
-      <LoadMore
-        hasNext={journal.hasNextPage}
-        loading={journal.isFetchingNextPage}
-        failed={journal.isFetchNextPageError}
-        onLoad={() => void journal.fetchNextPage()}
-      />
+      {/* пока новый фильтр или сортировка грузятся, старые страницы — лишь заглушка: «ещё» к ним не относится */}
+      {!journal.isPlaceholderData && (
+        <LoadMore
+          hasNext={journal.hasNextPage}
+          loading={journal.isFetchingNextPage}
+          failed={journal.isFetchNextPageError}
+          onLoad={() => void journal.fetchNextPage()}
+        />
+      )}
     </section>
   );
 }

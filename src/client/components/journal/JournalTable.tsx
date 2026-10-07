@@ -89,6 +89,8 @@ export function JournalTable(props: JournalTableProps) {
   const onRowClick = (item: JournalItem) => (e: MouseEvent<HTMLTableRowElement>) => {
     // клики по настоящим элементам управления внутри строки — не открытие операции;
     // «2 статьи» (подсказка с tabIndex) — открывает: по §7 клик по ним открывает форму
+    // события из портала (подсказка) всплывают по дереву React, но в DOM лежат вне строки — их игнорируем
+    if (!e.currentTarget.contains(e.target as Node)) return;
     if ((e.target as HTMLElement).closest('button, a, input, label, select, [role="combobox"], [role="listbox"]')) return;
     props.onOpenOperation?.(item);
   };
@@ -128,6 +130,11 @@ export function JournalTable(props: JournalTableProps) {
                 <span className="block whitespace-nowrap tabular-nums">
                   <span className={`block font-semibold ${AMOUNT_CLASS[item.type]}`}>
                     {item.type === 'transfer' && <span aria-hidden="true">⇄ </span>}
+                    {item.type === 'transfer' && (
+                      <span className="sr-only">
+                        Перевод: со счёта {account?.name ?? '…'} на счёт {toAccount?.name ?? '…'},{' '}
+                      </span>
+                    )}
                     {signedMoney(item.type, item.amount, currency)}
                   </span>
                   {item.type === 'transfer' && toAccount && toAccount.currency !== currency && item.toAmount !== null && (

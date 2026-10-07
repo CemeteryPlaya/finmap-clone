@@ -58,6 +58,9 @@ export function SplitHint({ label, lines }: { label: string; lines: string[] }) 
             style={style}
             onMouseEnter={open}
             onMouseLeave={closeSoon}
+            // события портала всплывают по дереву React до строки таблицы: подсказка не открывает операцию
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
             className="z-40 w-max max-w-xs rounded-xl bg-ink px-3 py-2 text-xs text-white shadow-lg"
           >
             {lines.map((line, i) => (

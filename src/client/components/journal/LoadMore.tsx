@@ -30,7 +30,15 @@ export function LoadMore(props: { hasNext: boolean; loading: boolean; failed: bo
           Не удалось загрузить продолжение списка.
         </p>
       )}
-      <button type="button" onClick={props.onLoad} disabled={props.loading} className={btnSecondary}>
+      {/* aria-disabled, а не disabled: фокус клавиатуры не теряется, повторные нажатия игнорируются */}
+      <button
+        type="button"
+        onClick={() => {
+          if (!props.loading) props.onLoad();
+        }}
+        aria-disabled={props.loading}
+        className={`${btnSecondary} ${props.loading ? 'cursor-wait opacity-60' : ''}`}
+      >
         {props.loading ? 'Загрузка…' : 'Показать ещё'}
       </button>
     </div>
