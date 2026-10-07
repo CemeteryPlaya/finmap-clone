@@ -45,6 +45,7 @@ const yesterdayNoon = () => new Date(startOfTodayAlmaty() - 12 * 3600_000).toISO
 
 const table = (page: Page) => page.getByRole('table', { name: 'Операции' });
 const bodyRows = (page: Page) => table(page).locator('tbody tr');
+const panel = (page: Page) => page.getByRole('navigation', { name: 'Счета' });
 /** Буквы операций в порядке строк журнала: у каждой операции комментарий «операция X». */
 const letters = async (page: Page) => (await bodyRows(page).allInnerTexts()).map((t) => /операция ([A-Z])/.exec(t)?.[1] ?? '?').join('');
 
@@ -248,4 +249,111 @@ test('«Указать»: список с поиском и клавиатуро
   await expect(row('A')).toContainText('ИП Клиент');
   await expect(row('A')).toContainText('Бар');
   await expect(row('C')).toContainText('Клуб 1');
+});
+
+test('массовые действия: статья с итогом и причинами, проект, удаление с подтверждением и «Отменить» — балансы в панели обновляются', async ({ page }) => {
+  await login(page);
+  const name = `ТОО Массовые ${Date.now()}`;
+  const cid = await createCompany(page, name);
+  const base = `/api/v1/companies/${cid}`;
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 100000 })).account.id;
+  await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда' });
+  const otherName = `ТОО Соседняя ${Date.now()}`;
+  const other = (await apiPost(page, '/api/v1/companies', { name: otherName })).company.id;
+  const club = (await apiPost(page, `${base}/projects`, { name: 'Клуб 1', templateKey: 'general' })).project.id;
+  const club2 = (await apiPost(page, `${base}/projects`, { name: 'Клуб 2', templateKey: 'general' })).project.id;
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(5), accountId: kaspi, amount: 1000, comment: 'операция A' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(4), accountId: kaspi, amount: 2000, comment: 'операция B' });
+  await apiPost(page, `${base}/operations`, {
+    type: 'expense',
+    paidAt: todayAgo(3),
+    accountId: kaspi,
+    amount: 3000,
+    comment: 'операция C',
+    lines: [
+      { projectId: club, amount: 1000 },
+      { projectId: club2, amount: 2000 },
+    ],
+  });
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(2), accountId: kaspi, amount: 4000, comment: 'операция D' });
+  await page.reload();
+  await expect.poll(() => letters(page)).toBe('DCBA');
+  const row = (letter: string) => bodyRows(page).filter({ hasText: `операция ${letter}` });
+  const bar = page.getByRole('region', { name: 'Действия с выбранными' });
+  const kaspiLink = panel(page).getByRole('link', { name: /^Kaspi/ });
+  // 1000 - 10 - 20 - 30 + 40 = 980 ₸
+  await expect(kaspiLink).toContainText(/980,00\s₸/);
+
+  // выбрать все загруженные → «Статья»: расходы с одной строкой меняются, разбитая и доход пропущены с причинами
+  await table(page).getByRole('checkbox', { name: 'Выбрать все загруженные операции' }).check();
+  await expect(bar).toContainText('Выбрано: 4');
+  await bar.getByRole('button', { name: 'Статья', exact: true }).click();
+  await page.getByRole('listbox', { name: 'Статьи' }).getByRole('option', { name: 'Расход: Аренда' }).click();
+  const summary = page.getByRole('status').filter({ hasText: 'Статья:' });
+  await expect(summary).toContainText('Статья: изменено 2, пропущено 2');
+  // фокус после выбора — на кнопке списка, а не на body
+  await expect(bar.getByRole('button', { name: 'Статья', exact: true })).toBeFocused();
+  await expect(summary).toContainText('Разбитая операция — измените её в форме — 1');
+  await expect(summary).toContainText('Статья расходов не подходит для дохода — 1');
+  await expect(row('A')).toContainText('Аренда');
+  await expect(row('B')).toContainText('Аренда');
+  await expect(row('D')).not.toContainText('Аренда');
+  // выделение остаётся — можно назначить ещё и проект
+  await expect(bar).toContainText('Выбрано: 4');
+  await bar.getByRole('button', { name: 'Проект', exact: true }).click();
+  await page.getByRole('listbox', { name: 'Проекты' }).getByRole('option', { name: 'Клуб 2' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Проект:' })).toContainText('Проект: изменено 3, пропущено 1');
+  await expect(row('D')).toContainText('Клуб 2');
+
+  // удалить две операции: подтверждение, тост с фокусом на «Отменить», балансы пересчитаны
+  await bar.getByRole('button', { name: 'Снять выделение' }).click();
+  await expect(bar).toHaveCount(0);
+
+  // смена фильтра снимает выделение: действие не уйдёт на строки, которых уже не видно (Review Focus 4)
+  await row('A').getByRole('checkbox').check();
+  await expect(bar).toContainText('Выбрано: 1');
+  await page.getByLabel('Период').selectOption({ label: 'Вчера' });
+  await expect(bar).toHaveCount(0);
+  await page.getByLabel('Период').selectOption({ label: 'Всё время' });
+  await expect.poll(() => letters(page)).toBe('DCBA');
+  await expect(row('A').getByRole('checkbox')).not.toBeChecked();
+  await row('A').getByRole('checkbox').check();
+  await row('D').getByRole('checkbox').check();
+  await expect(row('A').getByRole('checkbox')).toHaveAccessibleName(/^Выбрать операцию: сегодня \d{2}:\d{2}, \u221210,00\s₸$/);
+  await bar.getByRole('button', { name: 'Удалить', exact: true }).click();
+  await expect(bar.getByRole('button', { name: 'Отмена' })).toBeFocused();
+  await bar.getByRole('button', { name: 'Да, удалить' }).click();
+  const undo = page.getByRole('button', { name: 'Отменить' });
+  await expect(page.getByRole('status').filter({ hasText: 'Удалено 2' })).toBeVisible();
+  await expect(undo).toBeFocused();
+  await expect.poll(() => letters(page)).toBe('CB');
+  await expect(kaspiLink).toContainText(/950,00\s₸/);
+
+  // «Отменить» возвращает именно эти операции
+  await undo.click();
+  await expect(page.getByRole('status').filter({ hasText: 'Отмена удаления:' })).toContainText('Отмена удаления: изменено 2, пропущено 0');
+  await expect.poll(() => letters(page)).toBe('DCBA');
+  await expect(kaspiLink).toContainText(/980,00\s₸/);
+  await expect(page.getByRole('button', { name: 'Отменить' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Журнал' })).toBeFocused();
+
+  // удалили и сразу перешли в другую компанию: тост остаётся, «Отменить» возвращает операции той компании, где удаляли
+  await row('B').getByRole('checkbox').check();
+  await bar.getByRole('button', { name: 'Удалить', exact: true }).click();
+  await bar.getByRole('button', { name: 'Да, удалить' }).click();
+  await expect(undo).toBeFocused();
+  await expect.poll(() => letters(page)).toBe('DCA');
+  await page.getByRole('button', { name: /Сменить компанию/ }).click();
+  await page.getByRole('menuitem', { name: otherName }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${other}/log$`));
+  await expect(page.getByText('Операций пока нет.')).toBeVisible();
+  await expect(bar).toHaveCount(0);
+  await undo.click();
+  await expect(undo).toHaveCount(0);
+  await page.getByRole('button', { name: /Сменить компанию/ }).click();
+  await page.getByRole('menuitem', { name }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
+  await expect.poll(() => letters(page)).toBe('DCBA');
+  await expect(page.getByRole('status').filter({ hasText: 'Отмена удаления:' })).toContainText('Отмена удаления: изменено 1, пропущено 0');
+  await expect(kaspiLink).toContainText(/980,00\s₸/);
 });

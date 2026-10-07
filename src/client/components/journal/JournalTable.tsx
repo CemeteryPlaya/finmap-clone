@@ -35,6 +35,12 @@ export interface JournalTableProps {
   onOpenOperation?: (item: JournalItem) => void;
   /** «Указать» в пустой ячейке (§7): вызывается только там, где оно разрешено (canAssign). */
   renderAssign?: (item: JournalItem, field: AssignField) => ReactNode;
+  /** Выделение строк для массовых действий: колонка флажков слева. */
+  selection?: {
+    selected: ReadonlySet<number>;
+    onToggle: (id: number) => void;
+    onToggleAll: (select: boolean) => void;
+  };
 }
 
 const AMOUNT_CLASS: Record<JournalItem['type'], string> = {
@@ -86,8 +92,10 @@ function AccountLine({ account, balance }: { account: Account | undefined; balan
 }
 
 export function JournalTable(props: JournalTableProps) {
-  const { lookups, columns } = props;
+  const { lookups, columns, selection } = props;
   const shown = JOURNAL_COLUMNS.filter((c) => columns.includes(c.id));
+  const selectedCount = selection ? props.items.filter((i) => selection.selected.has(i.id)).length : 0;
+  const allSelected = props.items.length > 0 && selectedCount === props.items.length;
 
   const onRowClick = (item: JournalItem) => (e: MouseEvent<HTMLTableRowElement>) => {
     // клики по настоящим элементам управления внутри строки — не открытие операции;
@@ -104,6 +112,19 @@ export function JournalTable(props: JournalTableProps) {
         <caption className="sr-only">Операции</caption>
         <thead>
           <tr className="border-b border-field">
+            {selection && (
+              <th scope="col" className={`${thClass} w-8`}>
+                <input
+                  type="checkbox"
+                  aria-label="Выбрать все загруженные операции"
+                  checked={allSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = selectedCount > 0 && !allSelected;
+                  }}
+                  onChange={() => selection.onToggleAll(!allSelected)}
+                />
+              </th>
+            )}
             {shown.map((c) =>
               c.id === 'date' || c.id === 'amount' ? (
                 <SortHeader key={c.id} label={c.label} column={c.id} sort={props.sort} order={props.order} onSort={props.onSort} />
@@ -177,8 +198,18 @@ export function JournalTable(props: JournalTableProps) {
                 tabIndex={-1}
                 data-operation-id={item.id}
                 onClick={props.onOpenOperation ? onRowClick(item) : undefined}
-                className={`border-b border-field outline-none last:border-0 focus:bg-field/60 ${props.onOpenOperation ? 'cursor-pointer hover:bg-field/60' : ''}`}
+                className={`border-b border-field outline-none last:border-0 focus:bg-field/60 ${props.onOpenOperation ? 'cursor-pointer hover:bg-field/60' : ''} ${selection?.selected.has(item.id) ? 'bg-income-soft/40' : ''}`}
               >
+                {selection && (
+                  <td className={tdClass}>
+                    <input
+                      type="checkbox"
+                      aria-label={`Выбрать операцию: ${dayLabel(dayOf(item.paidAt, props.timeZone), props.today)} ${timeLabel(item.paidAt, props.timeZone)}, ${signedMoney(item.type, item.amount, currency)}`}
+                      checked={selection.selected.has(item.id)}
+                      onChange={() => selection.onToggle(item.id)}
+                    />
+                  </td>
+                )}
                 {shown.map((c) => (
                   <td key={c.id} className={tdClass}>
                     {cells[c.id]}

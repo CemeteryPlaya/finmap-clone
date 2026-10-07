@@ -25,6 +25,11 @@ export function Popover(props: {
   align?: 'left' | 'right';
   panelClassName?: string;
   disabled?: boolean;
+  /**
+   * Кнопка недоступна, но остаётся в порядке фокуса (aria-disabled, щелчок не открывает панель): фокус,
+   * вернувшийся на неё после выбора, не теряется, пока идёт начатое действие.
+   */
+  inactive?: boolean;
   children: (close: (returnFocus?: boolean) => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -77,7 +82,10 @@ export function Popover(props: {
         aria-controls={open ? panelId : undefined}
         aria-label={props.ariaLabel}
         disabled={props.disabled}
-        onClick={() => setOpen((v) => !v)}
+        aria-disabled={props.inactive || undefined}
+        onClick={() => {
+          if (!props.inactive) setOpen((v) => !v);
+        }}
         onKeyDown={(e) => {
           // фокус на кнопке при открытой панели (после Shift+Tab с первого элемента): Esc всё равно закрывает
           if (e.key === 'Escape' && open) {
@@ -92,7 +100,7 @@ export function Popover(props: {
           e.preventDefault();
           first.focus();
         }}
-        className={props.buttonClassName ?? btnSmall}
+        className={`${props.buttonClassName ?? btnSmall} aria-disabled:cursor-not-allowed aria-disabled:opacity-50`}
       >
         {props.label}
       </button>

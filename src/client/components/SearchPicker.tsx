@@ -84,6 +84,8 @@ export function SearchPicker(props: {
   onPick: (id: number) => void;
   buttonClassName?: string;
   align?: 'left' | 'right';
+  /** Недоступна без потери фокуса (aria-disabled) — см. Popover. */
+  inactive?: boolean;
 }) {
   return (
     <Popover
@@ -91,6 +93,7 @@ export function SearchPicker(props: {
       ariaLabel={props.ariaLabel}
       buttonClassName={props.buttonClassName}
       align={props.align}
+      inactive={props.inactive}
       panelClassName="w-72"
     >
       {(close) => (

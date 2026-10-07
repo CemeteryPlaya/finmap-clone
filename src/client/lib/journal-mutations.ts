@@ -1,6 +1,7 @@
 import { useMutation, type InfiniteData } from '@tanstack/react-query';
 import { api, ApiError } from './api';
 import { assignPatch, withAssigned, type AssignField } from './journal-assign';
+import type { BulkAction, BulkResult } from './journal-bulk';
 import type { JournalItem, JournalPageData } from './queries';
 import { queryClient } from './query';
 
@@ -58,4 +59,13 @@ export function useAssign(companyId: number, onError: (message: string) => void)
     },
     onSettled: () => invalidateOperations(companyId),
   });
+}
+
+/** Массовое действие над выбранными операциями (§7); журнал, счета и компании перечитываются и при ошибке. */
+export async function runBulk(companyId: number, ids: number[], action: BulkAction): Promise<BulkResult> {
+  try {
+    return await api<BulkResult>(`/companies/${companyId}/operations/bulk`, { method: 'POST', body: { ...action, ids } });
+  } finally {
+    void invalidateOperations(companyId);
+  }
 }
