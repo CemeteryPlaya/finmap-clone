@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { journalQuerySchema } from '../../../shared/schemas/journal';
+import { journalExportSchema, journalQuerySchema } from '../../../shared/schemas/journal';
 import { operationBulkSchema, operationCreateSchema, operationUpdateSchema } from '../../../shared/schemas/operations';
+import { contentDisposition } from '../../http/content-disposition';
 import { parseId } from '../../http/params';
+import { XLSX_MIME } from '../../http/xlsx';
 import type { BulkService } from './bulk';
 import type { JournalService } from './journal';
 import type { OperationsService } from './service';
@@ -18,6 +20,16 @@ export function registerOperationsRoutes(
 
   // журнал: фильтр и курсор в строке запроса (§6)
   app.get<C>(BASE, async (req) => journal.list(parseId(req.params.cid), journalQuerySchema.parse(req.query)));
+
+  // выгрузка по тому же фильтру; статический сегмент export.xlsx важнее параметра :id
+  app.get<C>(`${BASE}/export.xlsx`, async (req, reply) => {
+    const { fileName, data } = journal.exportXlsx(parseId(req.params.cid), journalExportSchema.parse(req.query));
+    reply.header('Content-Type', XLSX_MIME);
+    reply.header('Content-Disposition', contentDisposition(fileName));
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('Cache-Control', 'private, no-store');
+    return reply.send(data);
+  });
 
   app.post<C>(BASE, async (req, reply) => {
     const cid = parseId(req.params.cid);

@@ -130,7 +130,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const operations = createOperationsService({ db, audit, rates, timezone: config.timezone, now });
   registerOperationsRoutes(app, {
     operations,
-    journal: createJournal({ db, balances, timezone: config.timezone }),
+    journal: createJournal({ db, balances, timezone: config.timezone, now }),
     bulk: createBulkService({ db, operations }),
   });
   registerSavedFiltersRoutes(app, { savedFilters: createSavedFiltersService({ db, now }) });

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../errors';
+import { contentDisposition } from '../../http/content-disposition';
 import { parseId } from '../../http/params';
 import { readSessionToken } from '../auth/plugin';
 import { ATTACHMENT_MAX_BYTES, type AttachmentsService } from './service';
@@ -15,13 +16,6 @@ function headerName(value: unknown): string {
   } catch {
     return '';
   }
-}
-
-/** Content-Disposition по RFC 6266/8187: ASCII-запасное имя и полное имя в UTF-8 (кодируются и символы '()*). */
-function contentDisposition(name: string): string {
-  const fallback = name.replace(/[^\x20-\x7e]|["\\]/g, '_');
-  const encoded = encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
-  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
 
 export function registerAttachmentsRoutes(app: FastifyInstance, deps: { attachments: AttachmentsService }): void {

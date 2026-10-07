@@ -1,12 +1,14 @@
 import { and, asc, count, inArray, isNull, sql, type SQL } from 'drizzle-orm';
-import { addDays, startOfDayUtc } from '../../../shared/dates';
-import type { JournalFilter, JournalOrder, JournalQuery, JournalSort } from '../../../shared/schemas/journal';
+import { addDays, startOfDayUtc, todayInTimezone } from '../../../shared/dates';
+import type { JournalExportQuery, JournalFilter, JournalOrder, JournalQuery, JournalSort } from '../../../shared/schemas/journal';
 import { foldCase } from '../../../shared/search';
 import type { Db } from '../../db/client';
 import { attachments, operationLines, operations, operationTags } from '../../db/schema';
 import { AppError } from '../../errors';
+import { buildXlsx } from '../../http/xlsx';
 import type { LedgerBalances } from '../balances/service';
 import { requireCompany } from '../companies/guard';
+import { journalSheet, type ExportOperation } from './journal-export';
 import type { OperationDto, OperationLineDto } from './service';
 
 export interface JournalItem extends OperationDto {
@@ -27,7 +29,12 @@ export interface JournalPage {
 export interface JournalService {
   /** Страница журнала (§6): фильтр, сортировка, курсор. Удалённые операции не показываются. */
   list(companyId: number, query: JournalQuery): JournalPage;
+  /** Выгрузка в Excel по тому же фильтру, без страниц (§7). Больше exportLimit операций — 422 EXPORT_LIMIT. */
+  exportXlsx(companyId: number, query: JournalExportQuery): { fileName: string; data: Buffer };
 }
+
+/** Не больше операций в одной выгрузке: книга собирается в памяти. */
+export const JOURNAL_EXPORT_MAX = 50_000;
 
 /** Шаблон LIKE (§6.1): запрос в нижнем регистре и с «е» вместо «ё»; `\`, `%` и `_` экранированы. */
 export function likePattern(q: string): string {
@@ -127,8 +134,10 @@ function decodeCursor(raw: string, sort: JournalSort, order: JournalOrder): Curs
   return k as CursorKey;
 }
 
-export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: string }): JournalService {
+export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: string; now?: () => Date; exportLimit?: number }): JournalService {
   const { db, balances, timezone } = d;
+  const now = d.now ?? (() => new Date());
+  const exportLimit = d.exportLimit ?? JOURNAL_EXPORT_MAX;
 
   /** Операции страницы в заданном порядке: со строками, тегами, числом вложений и остатками после операции. */
   function loadItems(companyId: number, ids: number[]): JournalItem[] {
@@ -193,6 +202,81 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
       return {
         items: loadItems(companyId, rows.map((r) => r.id)),
         nextCursor: more && last ? encodeCursor({ s: q.sort, o: q.order, v: q.sort === 'date' ? last.paidAt : last.baseAmount, id: last.id }) : null,
+      };
+    },
+
+    exportXlsx(companyId, q) {
+      const company = requireCompany(db, companyId);
+      const where = journalWhere(companyId, q, timezone);
+      const rows = db.all<{
+        id: number;
+        type: ExportOperation['type'];
+        paidAt: string;
+        accrualDate: string | null;
+        amount: number;
+        baseAmount: number;
+        comment: string | null;
+        accountId: number;
+        accountName: string;
+        currency: string;
+        toAccountId: number | null;
+        toAccountName: string | null;
+        toCurrency: string | null;
+        toAmount: number | null;
+        counterpartyName: string | null;
+      }>(sql`
+        SELECT o.id AS id, o.type AS type, o.paid_at AS paidAt, o.accrual_date AS accrualDate, o.amount AS amount,
+               o.base_amount AS baseAmount, o.comment AS comment, o.account_id AS accountId, a.name AS accountName,
+               a.currency AS currency, o.to_account_id AS toAccountId, ta.name AS toAccountName, ta.currency AS toCurrency,
+               o.to_amount AS toAmount, cp.name AS counterpartyName
+          FROM operations o
+          JOIN accounts a ON a.id = o.account_id
+          LEFT JOIN accounts ta ON ta.id = o.to_account_id
+          LEFT JOIN counterparties cp ON cp.id = o.counterparty_id
+         WHERE ${where}
+         ORDER BY ${journalOrder(q.sort, q.order)}
+         LIMIT ${exportLimit + 1}`);
+      if (rows.length > exportLimit) {
+        throw new AppError(422, 'EXPORT_LIMIT', `Больше ${exportLimit.toLocaleString('ru-RU')} операций — сузьте период или фильтр`);
+      }
+
+      // строки и теги — одним запросом на всю выгрузку (тот же фильтр подзапросом, без длинных списков id)
+      const lines = new Map<number, { categories: string[]; projects: string[] }>();
+      for (const l of db.all<{ operationId: number; category: string | null; project: string | null }>(sql`
+        SELECT l.operation_id AS operationId, c.name AS category, p.name AS project
+          FROM operation_lines l
+          LEFT JOIN categories c ON c.id = l.category_id
+          LEFT JOIN projects p ON p.id = l.project_id
+         WHERE l.operation_id IN (SELECT o.id FROM operations o WHERE ${where})
+         ORDER BY l.operation_id, l.position`)) {
+        const x = lines.get(l.operationId) ?? { categories: [], projects: [] };
+        if (l.category && !x.categories.includes(l.category)) x.categories.push(l.category);
+        if (l.project && !x.projects.includes(l.project)) x.projects.push(l.project);
+        lines.set(l.operationId, x);
+      }
+      const tagNames = new Map<number, string[]>();
+      for (const t of db.all<{ operationId: number; name: string }>(sql`
+        SELECT ot.operation_id AS operationId, t.name AS name
+          FROM operation_tags ot JOIN tags t ON t.id = ot.tag_id
+         WHERE ot.operation_id IN (SELECT o.id FROM operations o WHERE ${where})
+         ORDER BY t.order_index, t.id`)) {
+        tagNames.set(t.operationId, [...(tagNames.get(t.operationId) ?? []), t.name]);
+      }
+      const after = balances.balancesAfter(companyId);
+
+      const ops: ExportOperation[] = rows.map((r) => ({
+        ...r,
+        balanceAfter: after.get(`${r.id}:${r.accountId}`) ?? null,
+        toBalanceAfter: r.toAccountId === null ? null : (after.get(`${r.id}:${r.toAccountId}`) ?? null),
+        categories: lines.get(r.id)?.categories ?? [],
+        projects: lines.get(r.id)?.projects ?? [],
+        tags: tagNames.get(r.id) ?? [],
+      }));
+      // имя файла без символов, запрещённых в Windows
+      const safeName = company.name.replace(/[\\/:*?"<>|\u0000-\u001F]/g, '_');
+      return {
+        fileName: `Операции ${safeName} ${todayInTimezone(timezone, now())}.xlsx`,
+        data: buildXlsx(journalSheet(ops, company.baseCurrency, timezone)),
       };
     },
   };
