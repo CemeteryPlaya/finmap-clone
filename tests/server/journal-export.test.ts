@@ -155,7 +155,7 @@ describe('выгрузка: граница дат (финальные правк
   });
 
   it('xlsx: U+FFFE и U+FFFF вырезаются, CR внутри текста сохраняется как &#13;, неподдерживаемое число знаков — ошибка', () => {
-    expect(xmlText('a￾b￿c')).toBe('abc');
+    expect(xmlText('a\uFFFEb\uFFFFc')).toBe('abc');
     expect(xmlText('a\r\nb')).toBe('a&#13;\nb');
     const sheet = { name: 'Л', columns: [{ header: 'A', width: 10 }], rows: [[{ kind: 'number' as const, value: '1.5', decimals: 5 }]] };
     expect(() => buildXlsx(sheet)).toThrow(/знаков/);
