@@ -252,6 +252,8 @@ test('«Указать»: список с поиском и клавиатуро
 });
 
 test('массовые действия: статья с итогом и причинами, проект, удаление с подтверждением и «Отменить» — балансы в панели обновляются', async ({ page }) => {
+  // часы подменены: тост «Отменить» живёт 10 с только пока тест сам не продвинет время (медленная машина его не сожжёт)
+  await page.clock.install();
   await login(page);
   const name = `ТОО Массовые ${Date.now()}`;
   const cid = await createCompany(page, name);
@@ -319,21 +321,37 @@ test('массовые действия: статья с итогом и при�
   await expect(row('A').getByRole('checkbox')).not.toBeChecked();
   await row('A').getByRole('checkbox').check();
   await row('D').getByRole('checkbox').check();
-  await expect(row('A').getByRole('checkbox')).toHaveAccessibleName(/^Выбрать операцию: сегодня \d{2}:\d{2}, \u221210,00\s₸$/);
+  await expect(row('A').getByRole('checkbox')).toHaveAccessibleName(/^Выбрать операцию: сегодня \d{2}:\d{2}, \u221210,00\s₸, операция A$/);
+  await expect(row('D').getByRole('checkbox')).toHaveAccessibleName(/, \+40,00\s₸, операция D$/);
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
+  // время стоит: react-query и счётчики двигаются только вместе с часами — поэтому проверки подталкивают их на 100 мс
+  const lettersTick = async () => {
+    await page.clock.runFor(100);
+    return letters(page);
+  };
+  const settled = (check: () => Promise<void>) =>
+    expect(async () => {
+      await page.clock.runFor(100);
+      await check();
+    }).toPass();
   await bar.getByRole('button', { name: 'Удалить', exact: true }).click();
   await expect(bar.getByRole('button', { name: 'Отмена' })).toBeFocused();
+  // «Отмена» возвращает фокус на «Удалить», а не на body
+  await bar.getByRole('button', { name: 'Отмена' }).click();
+  await expect(bar.getByRole('button', { name: 'Удалить', exact: true })).toBeFocused();
+  await bar.getByRole('button', { name: 'Удалить', exact: true }).click();
   await bar.getByRole('button', { name: 'Да, удалить' }).click();
   const undo = page.getByRole('button', { name: 'Отменить' });
   await expect(page.getByRole('status').filter({ hasText: 'Удалено 2' })).toBeVisible();
   await expect(undo).toBeFocused();
-  await expect.poll(() => letters(page)).toBe('CB');
-  await expect(kaspiLink).toContainText(/950,00\s₸/);
+  await expect.poll(lettersTick).toBe('CB');
+  await settled(() => expect(kaspiLink).toContainText(/950,00\s₸/));
 
   // «Отменить» возвращает именно эти операции
   await undo.click();
-  await expect(page.getByRole('status').filter({ hasText: 'Отмена удаления:' })).toContainText('Отмена удаления: изменено 2, пропущено 0');
-  await expect.poll(() => letters(page)).toBe('DCBA');
-  await expect(kaspiLink).toContainText(/980,00\s₸/);
+  await settled(() => expect(page.getByRole('status').filter({ hasText: 'Отмена удаления:' })).toContainText('Отмена удаления: изменено 2, пропущено 0'));
+  await expect.poll(lettersTick).toBe('DCBA');
+  await settled(() => expect(kaspiLink).toContainText(/980,00\s₸/));
   await expect(page.getByRole('button', { name: 'Отменить' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Журнал' })).toBeFocused();
 
@@ -342,18 +360,28 @@ test('массовые действия: статья с итогом и при�
   await bar.getByRole('button', { name: 'Удалить', exact: true }).click();
   await bar.getByRole('button', { name: 'Да, удалить' }).click();
   await expect(undo).toBeFocused();
-  await expect.poll(() => letters(page)).toBe('DCA');
+  await expect.poll(lettersTick).toBe('DCA');
   await page.getByRole('button', { name: /Сменить компанию/ }).click();
   await page.getByRole('menuitem', { name: otherName }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${other}/log$`));
-  await expect(page.getByText('Операций пока нет.')).toBeVisible();
+  await settled(() => expect(page.getByText('Операций пока нет.')).toBeVisible());
   await expect(bar).toHaveCount(0);
   await undo.click();
   await expect(undo).toHaveCount(0);
   await page.getByRole('button', { name: /Сменить компанию/ }).click();
   await page.getByRole('menuitem', { name }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
-  await expect.poll(() => letters(page)).toBe('DCBA');
-  await expect(page.getByRole('status').filter({ hasText: 'Отмена удаления:' })).toContainText('Отмена удаления: изменено 1, пропущено 0');
-  await expect(kaspiLink).toContainText(/980,00\s₸/);
+  await expect.poll(lettersTick).toBe('DCBA');
+  await settled(() => expect(page.getByRole('status').filter({ hasText: 'Отмена удаления:' })).toContainText('Отмена удаления: изменено 1, пропущено 0'));
+  await settled(() => expect(kaspiLink).toContainText(/980,00\s₸/));
+
+  // тост сам исчезает через 10 секунд
+  await row('B').getByRole('checkbox').check();
+  await bar.getByRole('button', { name: 'Удалить', exact: true }).click();
+  await bar.getByRole('button', { name: 'Да, удалить' }).click();
+  await expect(undo).toBeVisible();
+  await page.clock.runFor(9_000);
+  await expect(undo).toBeVisible();
+  await page.clock.runFor(2_000);
+  await expect(undo).toHaveCount(0);
 });

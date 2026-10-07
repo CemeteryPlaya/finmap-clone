@@ -283,7 +283,7 @@ test('колонки: выбор сохраняется в настройках 
     await expect(columns).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByRole('checkbox', { name: 'Счёт' })).toBeFocused();
     const saved = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/journal.columns') && r.request().method() === 'PUT');
-    await page.getByRole('checkbox', { name: 'Комментарий' }).uncheck();
+    await page.getByRole('checkbox', { name: 'Комментарий', exact: true }).uncheck();
     await saved;
     await expect(header('Комментарий')).toHaveCount(0);
     await expect(table(page)).not.toContainText('Видимый комментарий');
@@ -295,7 +295,7 @@ test('колонки: выбор сохраняется в настройках 
     // Tab за последним элементом панели закрывает её и возвращает фокус на кнопку
     await columns.click();
     await expect(columns).toHaveAttribute('aria-expanded', 'true');
-    await page.getByRole('checkbox', { name: 'Комментарий' }).focus();
+    await page.getByRole('checkbox', { name: 'Комментарий', exact: true }).focus();
     await page.keyboard.press('Tab');
     await expect(columns).toHaveAttribute('aria-expanded', 'false');
     await expect(columns).toBeFocused();

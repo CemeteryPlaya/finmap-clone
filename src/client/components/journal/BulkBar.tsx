@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BULK_MAX, type BulkAction } from '../../lib/journal-bulk';
 import { SearchPicker } from '../SearchPicker';
 import { btnDanger, btnSecondary, btnSmall } from '../ui';
@@ -11,6 +11,15 @@ import { categoryPickerOptions, type AssignData } from './AssignPicker';
  */
 export function BulkBar(props: { count: number; data: AssignData; pending: boolean; onRun: (action: BulkAction) => void; onClear: () => void }) {
   const [confirm, setConfirm] = useState(false);
+  const deleteRef = useRef<HTMLButtonElement>(null);
+  // «Отмена» убирает сфокусированную кнопку: фокус возвращается на «Удалить», как только она снова на месте
+  const refocusDelete = useRef(false);
+  useEffect(() => {
+    if (!confirm && refocusDelete.current) {
+      refocusDelete.current = false;
+      deleteRef.current?.focus();
+    }
+  }, [confirm]);
   const tooMany = props.count > BULK_MAX;
   const disabled = props.pending || tooMany;
   const pickerClass = btnSmall;
@@ -51,7 +60,7 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
             inactive={props.pending}
           />
           {!confirm && (
-            <button type="button" disabled={disabled} onClick={() => setConfirm(true)} className={`${btnSmall} text-expense`}>
+            <button ref={deleteRef} type="button" disabled={disabled} onClick={() => setConfirm(true)} className={`${btnSmall} text-expense`}>
               Удалить
             </button>
           )}
@@ -71,7 +80,14 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
           >
             Да, удалить
           </button>
-          <button type="button" autoFocus onClick={() => setConfirm(false)} className={`${btnSecondary} px-3 py-1.5 text-sm`}>
+          <button
+            type="button"
+            autoFocus
+            onClick={() => {
+              refocusDelete.current = true;
+              setConfirm(false);
+            }}
+            className={`${btnSecondary} px-3 py-1.5 text-sm`}>
             Отмена
           </button>
         </span>

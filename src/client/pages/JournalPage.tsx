@@ -134,7 +134,20 @@ function JournalScreen(props: {
   const [bulkPending, setBulkPending] = useState(false);
   const filterKey = params.toString();
   // другой фильтр — выделение снимается (другая компания — новый экран, см. key выше)
-  useEffect(() => setSelected(new Set()), [filterKey]);
+  useEffect(() => {
+    setSelected(new Set());
+    setSummary(null);
+  }, [filterKey]);
+  // строка пропала из загруженных (удалена, ушла из фильтра) — выделение с неё снимается, а не возвращается вместе с ней
+  const loadedIds = journal.data ? journal.data.pages.flatMap((p) => p.items.map((i) => i.id)).join(',') : null;
+  useEffect(() => {
+    if (loadedIds === null) return;
+    const loaded = new Set(loadedIds.split(',').map(Number));
+    setSelected((prev) => {
+      const next = [...prev].filter((id) => loaded.has(id));
+      return next.length === prev.size ? prev : new Set(next);
+    });
+  }, [loadedIds]);
 
   const lookups = useMemo<JournalLookups | null>(() => {
     if (!accounts.data || !categories.data || !projects.data || !counterparties.data) return null;

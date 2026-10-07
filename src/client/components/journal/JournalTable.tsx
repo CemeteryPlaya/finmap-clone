@@ -204,7 +204,14 @@ export function JournalTable(props: JournalTableProps) {
                   <td className={tdClass}>
                     <input
                       type="checkbox"
-                      aria-label={`Выбрать операцию: ${dayLabel(dayOf(item.paidAt, props.timeZone), props.today)} ${timeLabel(item.paidAt, props.timeZone)}, ${signedMoney(item.type, item.amount, currency)}`}
+                      aria-label={[
+                        `Выбрать операцию: ${dayLabel(dayOf(item.paidAt, props.timeZone), props.today)} ${timeLabel(item.paidAt, props.timeZone)}`,
+                        signedMoney(item.type, item.amount, currency),
+                        item.counterpartyId === null ? null : lookups.counterparties.get(item.counterpartyId),
+                        item.comment,
+                      ]
+                        .filter(Boolean)
+                        .join(', ')}
                       checked={selection.selected.has(item.id)}
                       onChange={() => selection.onToggle(item.id)}
                     />
