@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery, type InfiniteData } from '@tanstack/react-query';
 import { api, type ApiError } from './api';
 import type { CounterpartyType } from '../../shared/system-categories';
+import type { SavedJournalFilter } from './journal-filter';
 import { queryClient } from './query';
 
 export interface Company {
@@ -373,5 +374,25 @@ export function useJournal(companyId: number, params: string | null) {
     getNextPageParam: (last) => last.nextCursor,
     // при смене фильтра старые строки остаются на экране до ответа; журнал другой компании не показывается
     placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === companyId ? prev : undefined),
+  });
+}
+
+export interface SavedFilter {
+  id: number;
+  companyId: number;
+  name: string;
+  /** Фильтр без недоступных ссылок (сервер их убирает). */
+  filter: SavedJournalFilter;
+  /** Сколько ссылок убрано: элемент удалён, в архиве или из другой компании (инвариант 10). */
+  unavailable: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Личные сохранённые фильтры журнала в компании. */
+export function useSavedFilters(companyId: number) {
+  return useQuery<SavedFilter[], ApiError>({
+    queryKey: ['saved-filters', companyId],
+    queryFn: async () => (await api<{ savedFilters: SavedFilter[] }>(`/companies/${companyId}/saved-filters`)).savedFilters,
   });
 }

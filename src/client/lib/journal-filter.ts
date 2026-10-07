@@ -269,3 +269,53 @@ export function pickDialogFields(state: DialogFields): DialogFields {
 export function applyDialogFields(state: JournalUrlState, draft: DialogFields): JournalUrlState {
   return { ...state, ...pickDialogFields(draft) };
 }
+
+/**
+ * JSON сохранённого фильтра (journalFilterSchema плана 5a): поля API, период — датами, пустые списки
+ * и выключенные флаги не пишутся. Сортировка не сохраняется.
+ */
+export interface SavedJournalFilter {
+  from?: string;
+  to?: string;
+  q?: string;
+  amountMin?: number;
+  amountMax?: number;
+  types?: OperationType[];
+  accountIds?: number[];
+  categoryIds?: number[];
+  projectIds?: number[];
+  counterpartyIds?: number[];
+  tagIds?: number[];
+  withoutCategory?: true;
+  withoutProject?: true;
+  withoutCounterparty?: true;
+}
+
+/** Текущий фильтр → JSON для сохранения. Относительный период («текущий месяц») сохраняется датами (решение 6 плана 5a). */
+export function savedFilterFromState(state: JournalUrlState, today: string): SavedJournalFilter {
+  const f: SavedJournalFilter = { ...periodRange(state, today) };
+  if (state.q) f.q = state.q;
+  if (state.amountMin !== undefined) f.amountMin = state.amountMin;
+  if (state.amountMax !== undefined) f.amountMax = state.amountMax;
+  if (state.types.length) f.types = [...state.types];
+  for (const field of LIST_FIELDS) if (state[field].length) f[field] = [...state[field]];
+  for (const field of FLAG_FIELDS) if (state[field]) f[field] = true;
+  return f;
+}
+
+/** Сохранённый фильтр → фильтр журнала: даты — период «Произвольно», сортировка остаётся текущей. */
+export function stateFromSavedFilter(filter: SavedJournalFilter, current: Pick<JournalUrlState, 'sort' | 'order'>): JournalUrlState {
+  const state: JournalUrlState = { ...EMPTY_JOURNAL_STATE, sort: current.sort, order: current.order };
+  if (filter.from || filter.to) {
+    state.period = 'custom';
+    if (filter.from) state.from = filter.from;
+    if (filter.to) state.to = filter.to;
+  }
+  if (filter.q) state.q = filter.q;
+  if (filter.amountMin !== undefined) state.amountMin = filter.amountMin;
+  if (filter.amountMax !== undefined) state.amountMax = filter.amountMax;
+  state.types = OPERATION_TYPES.filter((t) => filter.types?.includes(t));
+  for (const field of LIST_FIELDS) state[field] = sortedUnique(filter[field] ?? []);
+  for (const field of FLAG_FIELDS) state[field] = filter[field] === true;
+  return state;
+}

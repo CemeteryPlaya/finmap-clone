@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from 'react';
+import { ApiError } from '../../lib/api';
 import { matchesQuery } from '../../../shared/search';
 import { pickDialogFields, sortedUnique, type DialogFields, type JournalUrlState, type OperationType } from '../../lib/journal-filter';
 import type { Account, CategoryNode, CategoryTree, Counterparty, Project, Tag } from '../../lib/queries';
+import { Field } from '../Field';
 import { Modal } from '../Modal';
 import { btnPrimary, btnSecondary, inputClass } from '../ui';
 
@@ -74,9 +76,20 @@ function Section({ legend, children }: { legend: string; children: ReactNode }) 
  * Модалка «Фильтр» (§7): все условия фильтра журнала §6, кроме периода, поиска и суммы (они в тулбаре).
  * Меняет черновик; «Готово» применяет его, Esc и «Отмена» закрывают без изменений.
  */
-function FilterForm(props: { state: JournalUrlState; data: FilterDialogData; onApply: (next: DialogFields) => void; onCancel: () => void }) {
+function FilterForm(props: {
+  state: JournalUrlState;
+  data: FilterDialogData;
+  onApply: (next: DialogFields) => void;
+  onCancel: () => void;
+  onSave: (draft: DialogFields, name: string) => Promise<void>;
+}) {
   const [draft, setDraft] = useState<DialogFields>(() => pickDialogFields(props.state));
   const [cpQuery, setCpQuery] = useState('');
+  // «Сохранить фильтр»: поле названия, ошибка, запрос в пути
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState('');
+  const [saveError, setSaveError] = useState<string | undefined>();
+  const [saving, setSaving] = useState(false);
   const { data } = props;
 
   const toggle = (field: ListField) => (id: number) =>
@@ -101,6 +114,19 @@ function FilterForm(props: { state: JournalUrlState; data: FilterDialogData; onA
       withoutProject: false,
       withoutCounterparty: false,
     });
+
+  const save = async () => {
+    setSaving(true);
+    setSaveError(undefined);
+    try {
+      await props.onSave(draft, name);
+      props.onApply(draft);
+    } catch (e) {
+      setSaveError(e instanceof ApiError ? (e.fields?.name ?? e.message) : 'Ошибка сервера');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const counterparties = options(data.counterparties, draft.counterpartyIds).filter(
     (o) => draft.counterpartyIds.includes(o.id) || matchesQuery(o.name, cpQuery),
@@ -166,6 +192,9 @@ function FilterForm(props: { state: JournalUrlState; data: FilterDialogData; onA
         <button type="submit" className={btnPrimary}>
           Готово
         </button>
+        <button type="button" aria-expanded={naming} onClick={() => setNaming((v) => !v)} className={btnSecondary}>
+          Сохранить фильтр
+        </button>
         <button type="button" onClick={clear} className={btnSecondary}>
           Очистить
         </button>
@@ -173,6 +202,32 @@ function FilterForm(props: { state: JournalUrlState; data: FilterDialogData; onA
           Отмена
         </button>
       </div>
+      {naming && (
+        <div className="mt-4 flex flex-wrap items-start gap-2 rounded-2xl bg-field/50 p-3">
+          <Field label="Название фильтра" error={saveError} hint="Сохраняются условия окна, период, поиск и сумма; период — датами" className="min-w-56 flex-1">
+            {(c) => (
+              <input
+                {...c}
+                value={name}
+                maxLength={100}
+                autoFocus
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter сохраняет фильтр, а не применяет окно
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void save();
+                  }
+                }}
+                className={`${inputClass} py-2`}
+              />
+            )}
+          </Field>
+          <button type="button" disabled={saving} onClick={() => void save()} className={`${btnPrimary} mt-6`}>
+            Сохранить
+          </button>
+        </div>
+      )}
     </form>
   );
 }
@@ -184,6 +239,11 @@ export function FilterDialog(props: {
   /** Только поля модалки: их накладывают на текущий фильтр, а не на снимок при открытии. */
   onApply: (next: DialogFields) => void;
   onClose: () => void;
+  /**
+   * Сохраняет поля окна как именованный фильтр — тоже поверх текущего фильтра (applyDialogFields);
+   * при успехе окно применяет черновик и закрывается.
+   */
+  onSave: (draft: DialogFields, name: string) => Promise<void>;
 }) {
   return (
     <Modal open={props.open} title="Фильтр" onClose={props.onClose}>
@@ -195,6 +255,7 @@ export function FilterDialog(props: {
           props.onClose();
         }}
         onCancel={props.onClose}
+        onSave={props.onSave}
       />
     </Modal>
   );
