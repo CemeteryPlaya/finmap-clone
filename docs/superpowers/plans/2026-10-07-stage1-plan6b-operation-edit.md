@@ -30,10 +30,10 @@
 Записаны в спецификацию (§6.2 и §7, блоки «Решения планирования от 2026-10-07 (планы 6a и 6b)») тем же коммитом, что и план 6a.
 
 1. **Открытие с клавиатуры.** В ячейке даты строки журнала — кнопка «Открыть операцию: <день> <время>, <сумма>» (видимый текст — дата и время). Клик по любому месту строки, кроме кнопок и полей, тоже открывает форму (план 5b). После закрытия фокус возвращается на кнопку строки.
-2. **PATCH — только изменённое:** дата оплаты — если сменился день (время суток остаётся прежним, но не позже «сейчас»); `toAccountId` и `toAmount` — только непустые и только у перевода; строки — если отличаются статья, проект или сумма хотя бы одной; теги — без учёта порядка. Ничего не изменилось — запроса нет, окно закрывается.
+2. **PATCH — только изменённое:** дата оплаты — если сменился день (время суток остаётся прежним, но не позже «сейчас»); `toAccountId` и `toAmount` — только непустые и только у перевода; строки — если отличаются статья, проект или сумма хотя бы одной; теги — без учёта порядка. У перевода между валютами при смене суммы или счетов сумма зачисления уходит всегда: без неё сервер сбрасывает её и отвечает 400 «Укажите сумму зачисления». Ничего не изменилось — запроса нет, окно закрывается.
 3. **Тип существующей операции не меняется** (схема правки плана 4a): переключателя типа в правке нет.
-4. **«Дублировать»** — новая операция с текущими значениями формы и датой оплаты «сегодня»; архивные счета, статьи, проекты, контрагент и теги не переносятся (их нельзя выбрать заново). Файлы не копируются. Закрыть копию без сохранения — с вопросом.
-5. **«Удалить»** — подтверждение в окне («Удалить операцию?», фокус на «Не удалять»). Операцию на архивном счёте удалить нельзя: кнопка недоступна, рядом — «Удалить нельзя: счёт в архиве («…»)».
+4. **«Дублировать»** — новая операция с текущими значениями формы и датой оплаты «сегодня»; архивные счета, статьи, проекты, контрагент и теги не переносятся (их нельзя выбрать заново). Файлы не копируются. Закрыть копию без сохранения — с вопросом. «Сохранить и создать похожий» после правки тоже не переносит архивные ссылки (`withoutArchived`).
+5. **«Удалить»** — подтверждение в окне («Удалить операцию?», фокус на «Не удалять»). Esc при открытом подтверждении отменяет только его, фокус возвращается на «Удалить». После удаления строки, с которой открыли форму, больше нет — фокус уходит на заголовок «Журнал» (`focusAfterDelete` в запросе формы). Операцию на архивном счёте удалить нельзя: кнопка недоступна, рядом — «Удалить нельзя: счёт в архиве («…»)».
 6. **409:** изменили — «Операция изменена другим пользователем» и «Загрузить актуальную» (форма показывает свежую версию, свои изменения пользователь вносит заново); удалили — «Операция удалена другим пользователем» и «Закрыть». В обоих случаях журнал, счета и компании перечитываются.
 7. **`RATE_UNAVAILABLE` → `details: { currency, date }`** у ошибки (и у `GET /rates`). «Указать курс на ДД.ММ.ГГГГ» открывает поле «Курс X к тенге на ДД.ММ.ГГГГ» и создаёт ручной курс только на эту дату (`POST /rates/manual`); «Повторить» сохраняет операцию тем же способом, что и в первый раз («Сохранить» или «Сохранить и создать похожий»).
 8. **Файлы:** до 10 МБ проверяется в браузере (без отправки), тип — сервером по содержимому; ошибки — у поля, с именем файла. Выбранные до создания операции файлы загружаются сразу после неё; если какой-то файл сервер не принял, операция остаётся сохранённой, форма переходит к её правке с сообщением «Операция сохранена, но не загружено: «имя»: причина». Удаление — с подтверждением, мягкое (§4.5). Блок «Проект, теги, комментарий, файл».
@@ -48,7 +48,7 @@
 - **Сброс кэшей:** после изменения операции — `invalidateOperations(cid)` (`['journal', cid]`, `['accounts', cid]`, `['companies']`); после ручного курса — `['rates-manual']`, `['accounts', cid]`, `['companies']`; после изменения файлов — `['attachments', cid, opId]` и `['journal', cid]`.
 - **Доступность:** ошибки и конфликт — `role="alert"`; подсказка «счёт в архиве» связана с полем (`aria-describedby`); подтверждение удаления ставит фокус на безопасную кнопку.
 - **Без новых npm-пакетов.**
-- **E2E:** левая панель `<nav aria-label="Счета">` есть на каждой странице компании — строки ищите в `getByRole('table', { name: 'Операции' })`, поля — в окне `getByRole('dialog', { name: 'Изменить операцию' })`; `name:` — подстрока без учёта регистра (`'Удалить'` найдёт и «Удалить файл …» — `exact: true`); ручной курс общий для всех компаний — в e2e только валюта и дата, которых нет в других тестах; данные — через `page.request` с `origin` и `x-requested-with: fetch`; без фиксированных пауз.
+- **E2E:** операции «сегодня» — через `todayAgo(n)` (момент сегодняшнего дня по Алматы, не в будущем), чтобы проверки «сегодня» не падали после полуночи; поле суммы получает фокус кадр спустя после открытия формы — дождитесь `toBeFocused()`, прежде чем заполнять другие поля; левая панель `<nav aria-label="Счета">` есть на каждой странице компании — строки ищите в `getByRole('table', { name: 'Операции' })`, поля — в окне `getByRole('dialog', { name: 'Изменить операцию' })`; `name:` — подстрока без учёта регистра (`'Удалить'` найдёт и «Удалить файл …» — `exact: true`); ручной курс общий для всех компаний — в e2e только валюта и дата, которых нет в других тестах; данные — через `page.request` с `origin` и `x-requested-with: fetch`; без фиксированных пауз.
 - **Невидимые символы** (U+2212, U+202F, U+00A0, U+200B) в коде — только экранированием `\uXXXX`; после записи файлов с такими строками — проверка из шага задачи.
 - **Концы строк:** рабочая копия в CRLF. Правки «найдите → замените» — инструментом правки файлов.
 - **Безопасность хуков среды:** shell-команды не содержат подстроку «.env»; собирать её из частей запрещено.
@@ -56,7 +56,7 @@
 
 ## Review Focus
 
-1. **Правка перевода в одной валюте и правка без изменений:** новая сумма уходит без прежней суммы зачисления (иначе `INVARIANT_4`) и без `null` в полях перевода (иначе 400); без изменений запроса нет. Тест — задача 1 (`patchBody`).
+1. **Правка суммы перевода:** в одной валюте новая сумма уходит без прежней суммы зачисления (иначе `INVARIANT_4`) и без `null` в полях перевода (иначе 400); между валютами — вместе с суммой зачисления (иначе сервер её сбросит и ответит 400); без изменений запроса нет. Тесты — задача 1 (`patchBody` и e2e правки перевода KZT → USD).
 2. **Операцию изменили или удалили в другом окне, пока открыта форма:** понятное сообщение, «Загрузить актуальную» показывает чужую правку, повтор проходит; удалённая — «Закрыть», строка из журнала уходит. Тест — задача 2.
 3. **Операция на архивном счёте:** сумма, дата и счёт недоступны с подсказкой, «Удалить» недоступна с объяснением, а комментарий сохраняется. Тест — задача 1 (e2e).
 4. **Нет курса базовой валюты компании** (база USD, счёт в тенге): «Указать курс» предлагает курс USD, а не тенге (курс тенге к тенге создать нельзя). Тест — задача 3 (`tests/server/rate-unavailable.test.ts`).
@@ -95,9 +95,9 @@ README.md
 **Interfaces:**
 - Consumes: план 6a — `OperationDraft`, `OperationBody`, `buildBody`, `DraftContext`, `emptyDraft`, `similarDraft`, `newLine`, `OperationForm`, `useOpenOperationForm`; `amountInputText`, `dayOf` (`journal-format.ts`); `JournalTable.onOpenOperation` (план 5b), `signedMoney`, `dayLabel`, `timeLabel`; `invalidateOperations`; `useQuery`.
 - Produces:
-  - `operation-edit.ts`: `interface OperationRecord { id; type; paidAt; accrualDate; accountId; amount; toAccountId; toAmount; counterpartyId; comment; version; deletedAt; lines: { categoryId; projectId; amount }[]; tagIds }`, `draftFromOperation(op, accounts, timeZone): OperationDraft`, `type OperationPatch`, `patchBody(op, body, timeZone): OperationPatch | null`, `interface Available { accounts; categories; projects; counterparties; tags: ReadonlySet<number> }`, `duplicateDraft(draft, available, today)`, `archivedAccountOf(op, accounts)`;
-  - `OperationFormRequest = { kind: 'create'; type } | { kind: 'edit'; id: number }`; окно правки — «Изменить операцию»; кнопки «Дублировать», «Удалить» → «Да, удалить» / «Не удалять»; подсказка `LOCKED_HINT = 'счёт в архиве'`;
-  - `JournalTable`: при `onOpenOperation` в ячейке даты — кнопка «Открыть операцию: …»; `JournalPage` передаёт `onOpenOperation` → `openForm({ kind: 'edit', id })`.
+  - `operation-edit.ts`: `interface OperationRecord { id; type; paidAt; accrualDate; accountId; amount; toAccountId; toAmount; counterpartyId; comment; version; deletedAt; lines: { categoryId; projectId; amount }[]; tagIds }`, `draftFromOperation(op, accounts, timeZone): OperationDraft`, `type OperationPatch`, `patchBody(op, body, timeZone): OperationPatch | null`, `interface Available { accounts; categories; projects; counterparties; tags: ReadonlySet<number> }`, `withoutArchived(draft, available)`, `duplicateDraft(draft, available, today)`, `archivedAccountOf(op, accounts)`;
+  - `OperationFormRequest = { kind: 'create'; type } | { kind: 'edit'; id: number; focusAfterDelete?: () => HTMLElement | null }`; окно правки — «Изменить операцию»; кнопки «Дублировать», «Удалить» → «Да, удалить» / «Не удалять»; подсказка `LOCKED_HINT = 'счёт в архиве'`;
+  - `JournalTable`: при `onOpenOperation` в ячейке даты — кнопка «Открыть операцию: …»; `JournalPage` передаёт `onOpenOperation` → `openForm({ kind: 'edit', id, focusAfterDelete: () => document.getElementById(HEADING_ID) })`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -105,7 +105,7 @@ README.md
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { archivedAccountOf, draftFromOperation, duplicateDraft, patchBody, type OperationRecord } from '../../src/client/lib/operation-edit';
+import { archivedAccountOf, draftFromOperation, duplicateDraft, patchBody, withoutArchived, type OperationRecord } from '../../src/client/lib/operation-edit';
 import { buildBody, type DraftContext, type OperationDraft } from '../../src/client/lib/operation-form';
 
 const TZ = 'Asia/Almaty';
@@ -209,6 +209,12 @@ describe('patchBody — в PATCH только изменённые поля (и�
     const t = op({ type: 'transfer', toAccountId: 3, toAmount: 1000, counterpartyId: null, comment: null, lines: [] });
     expect(patchFor(t, (d) => ({ ...d, toAmount: '11' }))).toEqual({ version: 3, toAmount: 1100 });
   });
+
+  it('перевод KZT → USD: новая сумма списания — вместе с суммой зачисления (иначе сервер её сбросит и ответит 400)', () => {
+    const t = op({ type: 'transfer', amount: 5000000, toAccountId: 3, toAmount: 10000, counterpartyId: null, comment: null, lines: [] });
+    expect(patchFor(t, (d) => ({ ...d, amount: '500' }))).toEqual({ version: 3, amount: 50000, toAmount: 10000 });
+    expect(patchFor(t, (d) => ({ ...d, accountId: 2 }))).toEqual({ version: 3, accountId: 2, toAmount: 10000 });
+  });
 });
 
 describe('duplicateDraft, archivedAccountOf', () => {
@@ -225,6 +231,12 @@ describe('duplicateDraft, archivedAccountOf', () => {
       amount: '1500,5',
       comment: 'аренда',
     });
+  });
+
+  it('без архивных ссылок — для «Сохранить и создать похожий» после правки; дата остаётся', () => {
+    const d = draftFromOperation(op({ accountId: 4 }), accounts, TZ);
+    const available = { accounts: new Set([1]), categories: new Set<number>(), projects: new Set([8]), counterparties: new Set([5]), tags: new Set([1, 2]) };
+    expect(withoutArchived(d, available)).toMatchObject({ accountId: null, categoryId: null, projectId: 8, counterpartyId: 5, paidDate: '2026-10-05' });
   });
 
   it('архивный счёт операции — любой из двух у перевода', () => {
@@ -265,7 +277,20 @@ async function apiPost(page: Page, url: string, data: unknown) {
   return res.json();
 }
 
-const minuteAgo = (n = 1) => new Date(Date.now() - n * 60_000).toISOString();
+/** Начало сегодняшнего дня по Алматы — APP_TIMEZONE e2e-сервера (с 01.03.2024 — UTC+5). */
+function startOfTodayAlmaty(): number {
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date());
+  return Date.parse(`${day}T00:00:00+05:00`);
+}
+
+/**
+ * Момент «сегодня по Алматы»: чем больше n (0 < n < 1000), тем раньше, но всегда сегодня и не в будущем
+ * (инвариант 6) — проверка «сегодня» не падает сразу после полуночи.
+ */
+const todayAgo = (n: number) => {
+  const start = startOfTodayAlmaty();
+  return new Date(start + (Date.now() - start) * (1 - n / 1000)).toISOString();
+};
 const table = (page: Page) => page.getByRole('table', { name: 'Операции' });
 const rows = (page: Page) => table(page).locator('tbody tr');
 const editForm = (page: Page) => page.getByRole('dialog', { name: 'Изменить операцию' });
@@ -278,7 +303,7 @@ test('правка из журнала: клик по строке и с кла�
   const rent = (await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда' })).category.id;
   await apiPost(page, `${base}/operations`, {
     type: 'expense',
-    paidAt: minuteAgo(),
+    paidAt: todayAgo(1),
     accountId: cash,
     amount: 30000,
     comment: 'старый',
@@ -294,6 +319,8 @@ test('правка из журнала: клик по строке и с кла�
   await expect(dialog.getByRole('button', { name: 'Счёт: Касса (KZT)' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Статья: Аренда' })).toBeVisible();
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('300');
+  // форма ставит фокус в сумму кадр спустя — дождаться, прежде чем заполнять другие поля
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
   await dialog.getByLabel('Комментарий').fill('новый');
   const patch = page.waitForRequest((r) => r.method() === 'PATCH');
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
@@ -307,6 +334,7 @@ test('правка из журнала: клик по строке и с кла�
   await page.keyboard.press('Enter');
   dialog = editForm(page);
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  await expect(amount).toBeFocused();
   await amount.fill('300+50');
   await amount.press('Enter');
   await expect(dialog).toBeHidden();
@@ -324,14 +352,23 @@ test('правка из журнала: клик по строке и с кла�
   await expect(dialog).toBeHidden();
   await expect(rows(page)).toHaveCount(2);
 
-  // «Удалить» с подтверждением
+  // «Удалить» с подтверждением; Esc отменяет только подтверждение
   await rows(page).first().getByText('новый').click();
   dialog = editForm(page);
-  await dialog.getByRole('button', { name: 'Удалить', exact: true }).click();
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  const remove = dialog.getByRole('button', { name: 'Удалить', exact: true });
+  await remove.click();
   await expect(dialog.getByRole('button', { name: 'Не удалять' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog.getByRole('button', { name: 'Да, удалить' })).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await expect(remove).toBeFocused();
+  await remove.click();
   await dialog.getByRole('button', { name: 'Да, удалить' }).click();
   await expect(dialog).toBeHidden();
   await expect(rows(page)).toHaveCount(1);
+  // строки, с которой открыли форму, больше нет — фокус на заголовке журнала
+  await expect(page.getByRole('heading', { name: 'Журнал' })).toBeFocused();
 });
 
 test('операция на архивном счёте: сумма, дата и счёт заблокированы с подсказкой, «Удалить» недоступна, комментарий меняется', async ({ page }) => {
@@ -339,8 +376,8 @@ test('операция на архивном счёте: сумма, дата и
   const cid = await createCompany(page, `ТОО Архив ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
   const old = (await apiPost(page, `${base}/accounts`, { name: 'Старый', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
-  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minuteAgo(2), accountId: old, amount: 10000, comment: 'приход' });
-  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: minuteAgo(1), accountId: old, amount: 10000, comment: 'расход' });
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(2), accountId: old, amount: 10000, comment: 'приход' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: old, amount: 10000, comment: 'расход' });
   await apiPost(page, `${base}/accounts/${old}/archive`, {});
   await page.reload();
 
@@ -365,7 +402,7 @@ test('ширина 390 px: правка операции — форма на в�
   const cid = await createCompany(page, `ТОО Телефон правка ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
   const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
-  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: minuteAgo(), accountId: cash, amount: 10000 });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: cash, amount: 10000 });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
 
@@ -374,6 +411,7 @@ test('ширина 390 px: правка операции — форма на в�
   const box = (await dialog.boundingBox())!;
   expect(box.width).toBeGreaterThanOrEqual(389);
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  await expect(amount).toBeFocused();
   await amount.click();
   await page.keyboard.press('End');
   await dialog.getByRole('button', { name: 'Оператор умножение' }).click();
@@ -383,6 +421,34 @@ test('ширина 390 px: правка операции — форма на в�
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(rows(page).first()).toContainText(/200,00\s₸/);
+});
+
+test('перевод KZT → USD: новая сумма списания сохраняется вместе с прежней суммой зачисления', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Перевод правка ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 1000000 })).account.id;
+  const usd = (await apiPost(page, `${base}/accounts`, { name: 'Валютный', currency: 'USD', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/fixed-rates`, { currency: 'USD', rate: '500', validFrom: '2020-01-01' });
+  await apiPost(page, `${base}/operations`, { type: 'transfer', paidAt: todayAgo(1), accountId: cash, amount: 5000000, toAccountId: usd, toAmount: 10000 });
+  await page.reload();
+
+  await table(page).getByRole('button', { name: /^Открыть операцию/ }).click();
+  const dialog = editForm(page);
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  await expect(amount).toBeFocused();
+  await expect(amount).toHaveValue('50000');
+  await expect(dialog.getByRole('textbox', { name: /^Сумма зачисления/ })).toHaveValue('100');
+  await amount.fill('500');
+  await expect(dialog.getByText('Курс: 1 USD = 5 KZT')).toBeVisible();
+  const patch = page.waitForRequest((r) => r.method() === 'PATCH');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  expect((await patch).postDataJSON()).toEqual({ version: 1, amount: 50000, toAmount: 10000 });
+  await expect(dialog).toBeHidden();
+  const row = table(page).locator('tbody tr').first();
+  await expect(row).toContainText(/500,00\s₸/);
+  await expect(row).toContainText(/100,00\s\$/);
+  await expect(page.getByRole('navigation', { name: 'Счета' }).getByRole('link', { name: /^Касса/ })).toContainText(/9\s500,00\s₸/);
 });
 ```
 
@@ -468,7 +534,9 @@ const sameIds = (a: readonly number[], b: readonly number[]) => JSON.stringify([
 /**
  * Изменённые поля для PATCH (итоги плана 4a, п. 1): `null` в `toAccountId`/`toAmount` схема правки не принимает,
  * а прежняя сумма зачисления вместе с новой суммой у перевода в одной валюте дала бы INVARIANT_4.
- * Дата оплаты отправляется, только если сменился день (время суток прежнее). null — менять нечего.
+ * Дата оплаты отправляется, только если сменился день (время суток прежнее). У перевода между валютами сервер
+ * сбрасывает сумму зачисления при смене суммы или счетов, если её нет в запросе, — поэтому тогда она уходит всегда.
+ * null — менять нечего.
  */
 export function patchBody(op: OperationRecord, body: OperationBody, timeZone: string): OperationPatch | null {
   const patch: OperationPatch = { version: op.version };
@@ -477,7 +545,9 @@ export function patchBody(op: OperationRecord, body: OperationBody, timeZone: st
   if (body.accountId !== op.accountId) patch.accountId = body.accountId;
   if (body.amount !== op.amount) patch.amount = body.amount;
   if (body.toAccountId !== null && body.toAccountId !== op.toAccountId) patch.toAccountId = body.toAccountId;
-  if (body.toAmount !== null && body.toAmount !== op.toAmount) patch.toAmount = body.toAmount;
+  if (body.toAmount !== null && (body.toAmount !== op.toAmount || 'amount' in patch || 'accountId' in patch || 'toAccountId' in patch)) {
+    patch.toAmount = body.toAmount;
+  }
   if (body.counterpartyId !== op.counterpartyId) patch.counterpartyId = body.counterpartyId;
   if (body.comment !== op.comment) patch.comment = body.comment;
   if (!sameLines(op.lines, body.lines)) patch.lines = body.lines;
@@ -495,14 +565,13 @@ export interface Available {
 }
 
 /**
- * «Дублировать» (§7): новая операция с теми же значениями и датой оплаты «сегодня»;
- * архивные счета, статьи, проекты, контрагент и теги не переносятся — их нельзя выбрать заново.
+ * Черновик без архивных ссылок: новая операция не может выбрать архивный счёт, статью, проект, контрагента
+ * или тег (инвариант 7) — их место остаётся пустым. Для «Дублировать» и «Сохранить и создать похожий» после правки.
  */
-export function duplicateDraft(draft: OperationDraft, available: Available, today: string): OperationDraft {
+export function withoutArchived(draft: OperationDraft, available: Available): OperationDraft {
   const keep = (set: ReadonlySet<number>, id: number | null) => (id !== null && set.has(id) ? id : null);
   return {
     ...draft,
-    paidDate: today,
     accountId: keep(available.accounts, draft.accountId),
     toAccountId: keep(available.accounts, draft.toAccountId),
     categoryId: keep(available.categories, draft.categoryId),
@@ -514,6 +583,11 @@ export function duplicateDraft(draft: OperationDraft, available: Available, toda
       lines: draft.split.lines.map((l) => newLine({ categoryId: keep(available.categories, l.categoryId), projectId: keep(available.projects, l.projectId), value: l.value })),
     },
   };
+}
+
+/** «Дублировать» (§7): новая операция с теми же значениями, без архивных ссылок и с датой оплаты «сегодня». */
+export function duplicateDraft(draft: OperationDraft, available: Available, today: string): OperationDraft {
+  return { ...withoutArchived(draft, available), paidDate: today };
 }
 
 /** Архивный счёт, который затрагивает операция: сумму, дату оплаты и счета менять нельзя, удалить нельзя (инвариант 7). */
@@ -535,7 +609,14 @@ export type OperationFormRequest = { kind: 'create'; type: OperationType };
 
 ```tsx
 /** Что открыть в форме операции: новую операцию заданного типа или существующую по id. */
-export type OperationFormRequest = { kind: 'create'; type: OperationType } | { kind: 'edit'; id: number };
+export type OperationFormRequest =
+  | { kind: 'create'; type: OperationType }
+  | {
+      kind: 'edit';
+      id: number;
+      /** Куда поставить фокус, если операцию удалили (строки, с которой открыли форму, больше нет). */
+      focusAfterDelete?: () => HTMLElement | null;
+    };
 ```
 
 2. Найдите:
@@ -562,7 +643,7 @@ import { api, ApiError } from '../../lib/api';
 import type { OperationType } from '../../lib/journal-filter';
 import { invalidateOperations } from '../../lib/journal-mutations';
 import { createFromForm, type CreatableKind } from '../../lib/operation-create';
-import { archivedAccountOf, draftFromOperation, duplicateDraft, patchBody, type OperationRecord } from '../../lib/operation-edit';
+import { archivedAccountOf, draftFromOperation, duplicateDraft, patchBody, withoutArchived, type Available, type OperationRecord } from '../../lib/operation-edit';
 import { buildBody, changeType, emptyDraft, positiveAmount, similarDraft, transferRateText, COMMENT_MAX, type OperationDraft } from '../../lib/operation-form';
 import { accountOptions, categoryOptions, counterpartyOptions, preferredCounterpartyType, projectOptions, tagOptions } from '../../lib/operation-options';
 import { queryClient, useMeta } from '../../lib/query';
@@ -626,6 +707,7 @@ export function serverFieldErrors(fields: Record<string, string> | undefined): R
  */
 export function OperationForm(props: { company: Company; request: OperationFormRequest; onClose: () => void }) {
   const [open, setOpen] = useState(true);
+  const deleted = useRef(false);
   const [editing, setEditing] = useState(props.request.kind === 'edit');
   const editId = props.request.kind === 'edit' ? props.request.id : null;
   // операция для правки — всегда свежая с сервера: версия нужна для PATCH
@@ -660,7 +742,12 @@ export function OperationForm(props: { company: Company; request: OperationFormR
     <Modal
       open={open}
       title={editing ? 'Изменить операцию' : 'Новая операция'}
-      onClose={props.onClose}
+      onClose={() => {
+        props.onClose();
+        // после удаления строки, с которой открыли форму, больше нет — фокус туда, куда просил открывший
+        const target = deleted.current && props.request.kind === 'edit' ? props.request.focusAfterDelete?.() : null;
+        if (target) requestAnimationFrame(() => target.focus());
+      }}
       onCancel={() => cancel.current()}
       className={MODAL_CLASS}
     >
@@ -672,6 +759,7 @@ export function OperationForm(props: { company: Company; request: OperationFormR
           type={props.request.kind === 'create' ? props.request.type : operation.data!.type}
           operation={operation.data ?? null}
           onEditingChange={setEditing}
+          onDeleted={() => (deleted.current = true)}
           close={() => setOpen(false)}
           cancelRef={cancel}
         />
@@ -691,6 +779,8 @@ function OperationEditor(p: {
   operation: OperationRecord | null;
   /** Форма перешла от правки к новой операции («Дублировать», «Сохранить и создать похожий») или обратно. */
   onEditingChange: (editing: boolean) => void;
+  /** Операция удалена: окно закроется, фокус — не на исчезнувшую строку. */
+  onDeleted: () => void;
   close: () => void;
   /** Что делать по Esc: форма решает сама (несохранённые изменения). */
   cancelRef: MutableRefObject<() => void>;
@@ -703,6 +793,9 @@ function OperationEditor(p: {
   const [initial, setInitial] = useState(() => (op ? draftFromOperation(op, accounts, p.timeZone) : emptyDraft(p.type, today, firstAccount)));
   const [draft, setDraft] = useState(initial);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** После «Не удалять» (или Esc) фокус возвращается на «Удалить». */
+  const deleteRef = useRef<HTMLButtonElement>(null);
+  const deleteAsked = useRef(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -717,13 +810,20 @@ function OperationEditor(p: {
   const focusBefore = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
+    if (confirmDelete || !deleteAsked.current) return;
+    deleteAsked.current = false;
+    deleteRef.current?.focus();
+  }, [confirmDelete]);
+
+  useEffect(() => {
     if (confirmClose) continueRef.current?.focus();
     else focusBefore.current?.focus();
   }, [confirmClose]);
 
   // Esc: открыт вопрос — продолжить ввод; есть несохранённые изменения — спросить; иначе закрыть
   p.cancelRef.current = () => {
-    if (confirmClose) setConfirmClose(false);
+    if (confirmDelete) setConfirmDelete(false);
+    else if (confirmClose) setConfirmClose(false);
     else if (dirty) {
       focusBefore.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setConfirmClose(true);
@@ -825,7 +925,8 @@ function OperationEditor(p: {
         p.close();
         return;
       }
-      const next = similarDraft(draft);
+      // после правки: архивные счёт, статьи и прочее в новую операцию не переносятся (инвариант 7)
+      const next = op ? withoutArchived(similarDraft(draft), available()) : similarDraft(draft);
       setOp(null);
       p.onEditingChange(false);
       setDraft(next);
@@ -840,6 +941,17 @@ function OperationEditor(p: {
     }
   };
 
+  /** Неархивные элементы справочников: только их может выбрать новая операция (инвариант 7). */
+  const available = (): Available => {
+    const ids = <T extends { id: number; archivedAt: string | null }>(xs: readonly T[]) => new Set(xs.filter((x) => !x.archivedAt).map((x) => x.id));
+    const categories = new Set(
+      [...p.data.categories.income, ...p.data.categories.expense].flatMap((n) =>
+        n.archivedAt ? [] : [n.id, ...n.children.filter((c) => !c.archivedAt).map((c) => c.id)],
+      ),
+    );
+    return { accounts: ids(p.data.accounts), categories, projects: ids(p.data.projects), counterparties: ids(p.data.counterparties), tags: ids(p.data.tags) };
+  };
+
   const remove = async () => {
     if (!op) return;
     setPending(true);
@@ -849,6 +961,7 @@ function OperationEditor(p: {
         method: 'DELETE',
       });
       void invalidateOperations(p.company.id);
+      p.onDeleted();
       p.close();
     } catch (e) {
       setConfirmDelete(false);
@@ -860,23 +973,7 @@ function OperationEditor(p: {
 
   /** «Дублировать» (§7): новая операция с теми же значениями на сегодня; закрыть её без сохранения — с вопросом. */
   const duplicate = () => {
-    const ids = <T extends { id: number; archivedAt: string | null }>(xs: readonly T[]) => new Set(xs.filter((x) => !x.archivedAt).map((x) => x.id));
-    const categoryIds = new Set(
-      [...p.data.categories.income, ...p.data.categories.expense].flatMap((n) =>
-        n.archivedAt ? [] : [n.id, ...n.children.filter((c) => !c.archivedAt).map((c) => c.id)],
-      ),
-    );
-    const copy = duplicateDraft(
-      draft,
-      {
-        accounts: ids(p.data.accounts),
-        categories: categoryIds,
-        projects: ids(p.data.projects),
-        counterparties: ids(p.data.counterparties),
-        tags: ids(p.data.tags),
-      },
-      today,
-    );
+    const copy = duplicateDraft(draft, available(), today);
     setOp(null);
     p.onEditingChange(false);
     setDraft(copy);
@@ -1152,11 +1249,10 @@ function OperationEditor(p: {
           {formError}
         </p>
       )}
-      {status && (
-        <p role="status" className="rounded-xl bg-income-soft px-4 py-3 text-sm text-income">
-          {status}
-        </p>
-      )}
+      {/* область role="status" есть всегда — меняется только текст, так его объявляют программы чтения с экрана */}
+      <p role="status" className={status ? 'rounded-xl bg-income-soft px-4 py-3 text-sm text-income' : 'sr-only'}>
+        {status}
+      </p>
 
       {confirmDelete && op ? (
         <div role="group" aria-label="Удаление операции" className="flex flex-wrap items-center gap-2 text-sm">
@@ -1195,7 +1291,11 @@ function OperationEditor(p: {
                 type="button"
                 disabled={pending || !!locked}
                 aria-describedby={locked ? 'operation-delete-locked' : undefined}
-                onClick={() => setConfirmDelete(true)}
+                ref={deleteRef}
+                onClick={() => {
+                  deleteAsked.current = true;
+                  setConfirmDelete(true);
+                }}
                 className={btnDanger}
               >
                 Удалить
@@ -1354,7 +1454,7 @@ import { useOpenOperationForm } from '../components/operation/OperationFormHost'
 
 ```tsx
           busy={journal.isPlaceholderData}
-          onOpenOperation={(item) => openForm({ kind: 'edit', id: item.id })}
+          onOpenOperation={(item) => openForm({ kind: 'edit', id: item.id, focusAfterDelete: () => document.getElementById(HEADING_ID) })}
 ```
 
 Проверка экранирований:
@@ -1403,14 +1503,15 @@ test('409: операцию изменили в другом окне — «За
   const cid = await createCompany(page, `ТОО Конфликт ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
   const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
-  const id = (await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: minuteAgo(2), accountId: cash, amount: 10000, comment: 'первая' })).operation.id;
-  const other = (await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: minuteAgo(1), accountId: cash, amount: 5000, comment: 'вторая' })).operation.id;
+  const id = (await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(2), accountId: cash, amount: 10000, comment: 'первая' })).operation.id;
+  const other = (await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: cash, amount: 5000, comment: 'вторая' })).operation.id;
   await page.reload();
 
   await rows(page).filter({ hasText: 'первая' }).getByText('первая').click();
   let dialog = editForm(page);
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
   await expect(amount).toHaveValue('100');
+  await expect(amount).toBeFocused();
   // другой пользователь меняет комментарий (версия 1 → 2)
   const res = await page.request.patch(`${base}/operations/${id}`, { data: { version: 1, comment: 'чужая правка' }, headers: csrf(page) });
   expect(res.status()).toBe(200);
@@ -1430,8 +1531,11 @@ test('409: операцию изменили в другом окне — «За
   // операцию удалили, пока форма открыта
   await rows(page).filter({ hasText: 'вторая' }).getByText('вторая').click();
   dialog = editForm(page);
+  // форма ставит фокус в сумму кадр спустя — дождаться, прежде чем заполнять комментарий
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
   expect((await page.request.delete(`${base}/operations/${other}`, { headers: csrf(page) })).status()).toBe(200);
   await dialog.getByLabel('Комментарий').fill('поздно');
+  await expect(dialog.getByLabel('Комментарий')).toHaveValue('поздно');
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('Операция удалена другим пользователем');
   await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
@@ -1452,13 +1556,13 @@ Expected: FAIL — нет кнопки «Загрузить актуальную
 1. Найдите:
 
 ```tsx
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteAsked = useRef(false);
 ```
 
    замените на:
 
 ```tsx
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteAsked = useRef(false);
   /** 409 при сохранении правки: операцию изменили или удалили после того, как форму открыли. */
   const [conflict, setConflict] = useState<'changed' | 'deleted' | null>(null);
 ```
@@ -1548,7 +1652,10 @@ Expected: FAIL — нет кнопки «Загрузить актуальную
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npx playwright test e2e/operation-edit.spec.ts`
-Expected: PASS (4 теста).
+Expected: PASS (5 тестов).
+
+Run: `npx playwright test e2e/operation-edit.spec.ts -g "409" --repeat-each=30`
+Expected: PASS — тест не зависит от того, когда форма ставит фокус в сумму.
 
 - [ ] **Step 5: Full check and commit**
 
@@ -1740,25 +1847,31 @@ export const rateUnavailable = (currency: string, date: string) =>
 1. Найдите:
 
 ```ts
+import type { FastifyInstance } from 'fastify';
 import { formatDateRu } from '../../../shared/dates';
+import { decToString } from '../../../shared/decimal';
 ```
 
    замените на:
 
 ```ts
-
+import type { FastifyInstance } from 'fastify';
+import { decToString } from '../../../shared/decimal';
 ```
 
 2. Найдите:
 
 ```ts
+import { currencies } from '../../db/schema';
 import { AppError } from '../../errors';
+import { parseId } from '../../http/params';
 ```
 
    замените на:
 
 ```ts
-
+import { currencies } from '../../db/schema';
+import { parseId } from '../../http/params';
 ```
 
 3. Найдите:
@@ -2011,7 +2124,7 @@ Run: `npx vitest run tests/server/rate-unavailable.test.ts tests/server/rates-ap
 Expected: PASS.
 
 Run: `npx playwright test e2e/operation-form.spec.ts`
-Expected: PASS (6 тестов).
+Expected: PASS (7 тестов).
 
 - [ ] **Step 5: Full check and commit**
 
@@ -2593,7 +2706,7 @@ Run: `npx vitest run tests/client/attachments.test.ts`
 Expected: PASS.
 
 Run: `npx playwright test e2e/operation-edit.spec.ts e2e/operation-form.spec.ts`
-Expected: PASS (6 + 6 тестов).
+Expected: PASS (7 + 7 тестов).
 
 - [ ] **Step 5: Full check and commit**
 

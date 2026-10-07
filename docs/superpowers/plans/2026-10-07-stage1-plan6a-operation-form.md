@@ -33,7 +33,7 @@
 
 Записаны в спецификацию (§7, блок «Решения планирования от 2026-10-07 (планы 6a и 6b)») тем же коммитом, что и план.
 
-1. **Калькулятор:** операторы `+`, `-` и `−`, `*` и `×`, `/`, `÷` и `:`, скобки, унарные плюс и минус; разделитель — запятая или точка; любые пробелы (в том числе неразрывные) не учитываются. Умножение и деление округляются half-up на 20-м знаке (`Dec`, как курсы), результат — half-up до минимальных единиц валюты счёта. Ошибки: «Введите сумму», «Не удалось вычислить — проверьте выражение», «Деление на ноль», «Слишком большая сумма». Выражение вычисляется при уходе из поля и при сохранении; «сумма больше нуля» проверяет форма.
+1. **Калькулятор:** операторы `+`, `-` и `−`, `*` и `×`, `/`, `÷` и `:`, скобки, унарные плюс и минус; разделитель — запятая или точка; любые пробелы (в том числе неразрывные) не учитываются. Умножение и деление округляются half-up на 20-м знаке (`Dec`, как курсы), результат — half-up до минимальных единиц валюты счёта. Число с больше чем 20 знаками после запятой округляется half-up на 20-м знаке. Ошибки: «Введите сумму», «Не удалось вычислить — проверьте выражение», «Деление на ноль», «Слишком большая сумма». Выражение вычисляется при уходе из поля и при сохранении; «сумма больше нуля» проверяет форма.
 2. **Дата оплаты — календарная дата.** Новая операция за сегодня — момент «сейчас»; за прошлый день — тот же час и минута суток (по APP_TIMEZONE), что сейчас. Будущий день выбрать нельзя (`max`, проверка формы, инвариант 6 на сервере).
 3. **Форма — одна на страницу компании**, кнопки «Доход», «Расход», «Перевод» (с символами `+`, `−`, `⇄`) есть в шапке на любой странице компании, в том числе в настройках. Заголовок окна — «Новая операция»; тип переключается внутри формы. Счёт по умолчанию — первый неархивный; в компании без счетов форма предлагает «Добавить счёт».
 4. **Смена типа** сбрасывает статью и разбиение; у перевода нет контрагента и даты сделки (переключатель есть только у дохода и расхода).
@@ -42,7 +42,9 @@
 7. **«Разделить»:** режимы «Суммами» и «В процентах» (смена режима очищает значения строк). В процентах суммы строк считаются методом наибольшего остатка (`allocate`); строка, которой досталось 0, — ошибка «Слишком маленькая доля для этой суммы». Индикатор — «Не распределено: …», «Распределено больше суммы на …», «Распределено полностью». «Отменить разбиение» возвращает статью и проект первой строки. Не больше 50 строк.
 8. **Шаблон разделения (инвариант 10):** удалённые и архивные статьи и проекты и статьи другого вида, чем операция, отбрасываются, их число видно в предупреждении («1 элемент недоступен (удалены, в архиве или другого вида) — не применены»). Строка без статьи и проекта не применяется, её доля остаётся нераспределённой — пользователь распределяет её сам. Не осталось строк — шаблон не применяется. «Сохранить как шаблон» из сумм переводит их в доли методом наибольшего остатка (ровно 100 %).
 9. **«+ Создать „…“»** — пункт в конце списка, если такого названия (без учёта регистра и «ё») ещё нет. Статья создаётся верхнего уровня вида операции, проект — по шаблону «Общий», контрагент — подходящего статье типа (по эффективному `systemKey`), иначе «Клиент» у дохода и «Поставщик» у расхода. Ошибка сервера (например, тег с таким именем в архиве) — над кнопками: «Не удалось создать «…»: …».
-10. **Списки:** счёт — «Касса (KZT)»; статьи — «Родитель → Дочерняя»; у статьи с эффективным `systemKey` контрагенты подходящего типа идут первыми под заголовком типа («Сотрудники»), остальные — под «Остальные». Уже выбранный архивный элемент остаётся в списке с пометкой «(в архиве)».
+10. **Списки:** счёт — «Касса (KZT)»; статьи — «Родитель → Дочерняя»; у статьи с эффективным `systemKey` контрагенты подходящего типа идут первыми под заголовком типа («Сотрудники»), остальные — под «Остальные». Уже выбранный архивный элемент остаётся в списке с пометкой «(в архиве)». При открытии списка активен уже выбранный пункт (у него `aria-selected`, активный — по `aria-activedescendant`); группы — `role="group"` с названием.
+11. **Фокус при открытии** — в поле суммы, кадр спустя после открытия окна; если пользователь за это время уже перешёл в другое текстовое поле, фокус не перехватывается.
+12. **Сообщения формы** («Операция сохранена…», предупреждения шаблона) — в областях `role="status"`, которые есть на странице всегда: меняется только текст, поэтому программы чтения с экрана его объявляют.
 
 ## Global Constraints
 
@@ -55,7 +57,7 @@
 - **Сброс кэшей:** после записи операции — `invalidateOperations(cid)`: `['journal', cid]`, `['accounts', cid]` (балансы, `hasOperations`), `['companies']` (`currencyLocked`, итоги в переключателе).
 - **Доступность:** поле — `Field` (подпись, подсказка, ошибка через `aria-describedby`, `aria-invalid`); список — `role="combobox"` + `listbox`/`option` с `aria-activedescendant`; модальное окно — `<dialog>` через `showModal()`; ошибки — `role="alert"`, сообщения — `role="status"`.
 - **Без новых npm-пакетов.**
-- **E2E:** левая панель `<nav aria-label="Счета">` есть на каждой странице компании — кнопки шапки ищите в `getByRole('banner')`, поля — внутри окна `getByRole('dialog', { name: 'Новая операция' })`; `name:` в Playwright — подстрока без учёта регистра (`'Сохранить'` найдёт и «Сохранить и создать похожий», `'Разделить'` — `exact: true`); панели списков рисуются внутри окна — пункты ищите в окне; данные — через `page.request` с `origin` и `x-requested-with: fetch`; без фиксированных пауз.
+- **E2E:** поле суммы получает фокус кадр спустя после открытия формы — дождитесь `toBeFocused()` у него, прежде чем заполнять другие поля; левая панель `<nav aria-label="Счета">` есть на каждой странице компании — кнопки шапки ищите в `getByRole('banner')`, поля — внутри окна `getByRole('dialog', { name: 'Новая операция' })`; `name:` в Playwright — подстрока без учёта регистра (`'Сохранить'` найдёт и «Сохранить и создать похожий», `'Разделить'` — `exact: true`); панели списков рисуются внутри окна — пункты ищите в окне; данные — через `page.request` с `origin` и `x-requested-with: fetch`; без фиксированных пауз.
 - **Невидимые символы** (U+2212, U+202F, U+00A0, U+200B) в коде — только экранированием `\uXXXX`. Инструмент записи файлов может превратить `\u2212` в сам символ: после записи файлов с такими строками выполните проверку из шага задачи — она падает, если в файле оказался символ вместо экранирования.
 - **Концы строк:** рабочая копия в CRLF (`core.autocrlf=true`). Правки «найдите → замените» — инструментом правки файлов.
 - **Безопасность хуков среды:** shell-команды не содержат подстроку «.env»; собирать её из частей запрещено.
@@ -169,6 +171,9 @@ describe('evaluateAmount — калькулятор поля суммы (§7, §
     expect(ok('10/4', 0)).toBe(3); // 2,5 JPY → 3
     expect(ok('1/3', 3)).toBe(333);
     expect(ok('1/3*3')).toBe(100); // 0,99999999999999999999 → 1,00
+    // больше 20 знаков после запятой — округление, а не ошибка
+    expect(ok('1,999999999999999999995')).toBe(200);
+    expect(ok('0,1234567890123456789012345', 3)).toBe(123);
   });
 
   it('деление на ноль — ошибка (§10)', () => {
@@ -264,8 +269,10 @@ function tokenize(text: string): Token[] {
       const int = m[1] ?? '';
       const frac = m[2] ?? '';
       if (int === '' && frac === '') throw new CalcError('syntax');
-      if (frac.length > SCALE_DIGITS) throw new CalcError('syntax');
-      tokens.push({ kind: 'num', value: BigInt(int || '0') * DEC_ONE + BigInt(frac.padEnd(SCALE_DIGITS, '0')) });
+      // больше 20 знаков после запятой — half-up на 20-м знаке, как в умножении и делении
+      const extra = frac.length > SCALE_DIGITS && frac.charCodeAt(SCALE_DIGITS) >= 53 ? 1n : 0n;
+      const value = BigInt(int || '0') * DEC_ONE + BigInt(frac.slice(0, SCALE_DIGITS).padEnd(SCALE_DIGITS, '0')) + extra;
+      tokens.push({ kind: 'num', value });
       i += m[0].length;
     }
   }
@@ -794,10 +801,10 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Consumes: `Popover`, `SearchPicker`, `PickerOption` (план 5b/5c); `Field`, `FieldControlProps`; `foldCase`, `matchesQuery` (`src/shared/search.ts`); `COUNTERPARTY_TYPE_LABELS` (`src/shared/counterparties.ts`); `SYSTEM_CATEGORIES`, `CounterpartyType` (`src/shared/system-categories.ts`); типы `Account`, `CategoryNode`, `CategoryTree`, `Counterparty`, `Project`, `Tag` (`src/client/lib/queries.ts`); `CALC_MAX_LENGTH` (задача 1); `positiveAmount` (задача 2); `amountInputText` (`src/client/lib/journal-format.ts`, план 5b).
 - Produces:
   - `Popover`: свойства `control?: FieldControlProps` (id и aria-атрибуты поля на кнопке) и `panelLabel?: string`; внутри открытого `<dialog>` панель рисуется в нём;
-  - `SearchPicker.tsx`: `PickerOption.section?: string`; `export function PickerList(props: { label; options; onPick; onCreate?: (name: string) => void })`; `SearchPicker` получает `onCreate?: (name: string) => void`; пункт создания — «+ Создать „<название>“»;
+  - `SearchPicker.tsx`: `PickerOption.section?: string`; `export function PickerList(props: { label; options; onPick; onCreate?: (name: string) => void; selectedId?: number | null })` — при открытии активен `selectedId`, у него `aria-selected`; варианты с `section` — в `<li role="group" aria-label=…>`; `SearchPicker` получает `onCreate?: (name: string) => void`; пункт создания — «+ Создать „<название>“»;
   - `operation-options.ts`: `accountOptions(accounts, selected)`, `categoryOptions(tree, kind, selected[])`, `projectOptions(projects, selected[])`, `tagOptions(tags, selected[])`, `findCategory(tree, id)`, `preferredCounterpartyType(tree, categoryId): CounterpartyType | null`, `counterpartyOptions(counterparties, selected, preferred)` — все возвращают `PickerOption[]`;
   - `ComboSelect({ label, listLabel, value, options, emptyLabel: string | null, placeholder?, onChange(id | null), onCreate?(name), error?, hint?, disabled?, className? })` — имя кнопки «<label>: <значение>», пустое значение — пункт с `emptyLabel`; `selectButtonClass`;
-  - `AmountField({ label, value, onChange, minorUnits, error?, hint?, disabled?, focusSignal?, className? })` — `inputMode="decimal"`, вычисление при уходе из поля, группа «Операторы: <label>» с кнопками «Оператор плюс», «Оператор минус», «Оператор умножение», «Оператор деление» (видна ниже 768 px), `focusSignal` — поставить фокус при появлении и при каждом изменении.
+  - `AmountField({ label, value, onChange, minorUnits, error?, hint?, disabled?, focusSignal?, className? })` — `inputMode="decimal"`, вычисление при уходе из поля, группа «Операторы: <label>» с кнопками «Оператор плюс», «Оператор минус», «Оператор умножение», «Оператор деление» (видна ниже 768 px), `focusSignal` — поставить фокус при появлении и при каждом изменении (кадр спустя; не перехватывает фокус из другого текстового поля).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -907,7 +914,7 @@ Expected: FAIL — модуля `operation-options` нет.
 
 - [ ] **Step 3: Implement**
 
-`src/client/components/Popover.tsx` — правки (места — из плана 5b; если код после решений по выполнению 5b выглядит иначе, внесите те же изменения по смыслу):
+`src/client/components/Popover.tsx` — правки:
 
 1. Найдите:
 
@@ -976,17 +983,19 @@ import type { FieldControlProps } from './Field';
           rootRef.current?.closest('dialog') ?? document.body,
 ```
 
-`src/client/components/SearchPicker.tsx` — правки. Файл создаёт план 5c; если после его выполнения места правок выглядят иначе, внесите изменения по смыслу: экспортируйте `PickerList`; у варианта — необязательный `section` и заголовок группы (`<li role="presentation">`) перед первым вариантом группы; с `onCreate` последним пунктом списка (`role="option"`, стрелки и Enter доходят и до него) идёт «+ Создать „<набранное>“», если варианта с таким названием (сравнение через `foldCase`) нет; `SearchPicker` передаёт `onCreate` в `PickerList` и закрывает панель перед вызовом. Решение по выполнению 5c про `aria-disabled` не затрагивается — оставьте его как есть:
+`src/client/components/SearchPicker.tsx` — правки (свойство `inactive` плана 5c не меняется):
 
 1. Найдите:
 
 ```tsx
+import { useEffect, useId, useState, type KeyboardEvent } from 'react';
 import { matchesQuery } from '../../shared/search';
 ```
 
    замените на:
 
 ```tsx
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { foldCase, matchesQuery } from '../../shared/search';
 ```
 
@@ -1012,13 +1021,22 @@ import { foldCase, matchesQuery } from '../../shared/search';
 type Item = { kind: 'option'; option: PickerOption } | { kind: 'create'; name: string };
 
 /**
- * Список с поиском (шаблон combobox + listbox): фокус в поле поиска, стрелки двигают выбор,
- * Enter выбирает, Esc закрывает. Поиск — без учёта регистра и «ё» (тем же правилом, что сервер, §6.1).
- * С `onCreate` последним пунктом идёт «+ Создать „…“», если такого названия ещё нет (§7).
+ * Список с поиском (шаблон combobox + listbox): фокус в поле поиска, стрелки двигают активный пункт
+ * (`aria-activedescendant`), Enter выбирает, Esc закрывает. При открытии активен уже выбранный пункт
+ * (`selectedId`, у него `aria-selected`). Поиск — без учёта регистра и «ё» (тем же правилом, что сервер, §6.1).
+ * Варианты с `section` собираются в группы (`role="group"` с названием). С `onCreate` последним пунктом идёт
+ * «+ Создать „…“», если такого названия ещё нет (§7).
  */
-export function PickerList(props: { label: string; options: PickerOption[]; onPick: (id: number) => void; onCreate?: (name: string) => void }) {
+export function PickerList(props: {
+  label: string;
+  options: PickerOption[];
+  onPick: (id: number) => void;
+  onCreate?: (name: string) => void;
+  /** Уже выбранное значение: активно при открытии, отмечено `aria-selected`. */
+  selectedId?: number | null;
+}) {
   const [query, setQuery] = useState('');
-  const [active, setActive] = useState(0);
+  const [active, setActive] = useState(() => Math.max(0, props.options.findIndex((o) => o.id === props.selectedId)));
   const listId = useId();
   const shown = props.options.filter((o) => matchesQuery(o.label, query));
   const name = query.trim();
@@ -1029,8 +1047,21 @@ export function PickerList(props: { label: string; options: PickerOption[]; onPi
   ];
   const itemId = (it: Item) => (it.kind === 'option' ? `${listId}-${it.option.id}` : `${listId}-create`);
   const current = items[Math.min(active, items.length - 1)];
+  // подряд идущие пункты одной группы — вместе; пункты без группы и «+ Создать» — сами по себе
+  const groups: { section?: string; entries: { it: Item; i: number }[] }[] = [];
+  items.forEach((it, i) => {
+    const section = it.kind === 'option' ? it.option.section : undefined;
+    const last = groups[groups.length - 1];
+    if (section && last?.section === section) last.entries.push({ it, i });
+    else groups.push({ section, entries: [{ it, i }] });
+  });
 
-  useEffect(() => setActive(0), [query]);
+  const opened = useRef(true);
+  useEffect(() => {
+    // при открытии активен выбранный пункт; новый запрос — снова первый
+    if (opened.current) opened.current = false;
+    else setActive(0);
+  }, [query]);
   useEffect(() => {
     if (current) document.getElementById(itemId(current))?.scrollIntoView({ block: 'nearest' });
   }, [current && itemId(current)]);
@@ -1050,6 +1081,25 @@ export function PickerList(props: { label: string; options: PickerOption[]; onPi
     }
   };
 
+  const optionItem = ({ it, i }: { it: Item; i: number }) => {
+    const selected = it.kind === 'option' && it.option.id === props.selectedId;
+    return (
+      <li
+        key={itemId(it)}
+        id={itemId(it)}
+        role="option"
+        aria-selected={selected}
+        // фокус остаётся в поле поиска
+        onMouseDown={(e) => e.preventDefault()}
+        onMouseEnter={() => setActive(i)}
+        onClick={() => choose(it)}
+        className={`cursor-pointer truncate rounded-lg px-3 py-1.5 text-sm ${it === current ? 'bg-field' : ''} ${selected ? 'font-semibold' : ''} ${it.kind === 'create' ? 'font-medium text-income' : ''}`}
+      >
+        {it.kind === 'option' ? it.option.label : `+ Создать „${it.name}“`}
+      </li>
+    );
+  };
+
   return (
     <div>
       <input
@@ -1066,31 +1116,18 @@ export function PickerList(props: { label: string; options: PickerOption[]; onPi
         className="mb-2 w-full rounded-xl bg-field px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-focus"
       />
       <ul id={listId} role="listbox" aria-label={props.label} className="max-h-60 overflow-y-auto">
-        {items.map((it, i) => {
-          const prev = items[i - 1];
-          const section = it.kind === 'option' ? it.option.section : undefined;
-          const prevSection = prev?.kind === 'option' ? prev.option.section : undefined;
-          return [
-            section && section !== prevSection ? (
-              <li key={`section-${section}`} role="presentation" className="px-3 pb-1 pt-2 text-xs font-semibold text-muted">
-                {section}
-              </li>
-            ) : null,
-            <li
-              key={itemId(it)}
-              id={itemId(it)}
-              role="option"
-              aria-selected={it === current}
-              // фокус остаётся в поле поиска
-              onMouseDown={(e) => e.preventDefault()}
-              onMouseEnter={() => setActive(i)}
-              onClick={() => choose(it)}
-              className={`cursor-pointer truncate rounded-lg px-3 py-1.5 text-sm ${it === current ? 'bg-field' : ''} ${it.kind === 'create' ? 'font-medium text-income' : ''}`}
-            >
-              {it.kind === 'option' ? it.option.label : `+ Создать „${it.name}“`}
-            </li>,
-          ];
-        })}
+        {groups.map((g) =>
+          g.section ? (
+            <li key={`section-${g.entries[0]!.i}`} role="group" aria-label={g.section}>
+              <span aria-hidden="true" className="block px-3 pb-1 pt-2 text-xs font-semibold text-muted">
+                {g.section}
+              </span>
+              <ul role="none">{g.entries.map(optionItem)}</ul>
+            </li>
+          ) : (
+            g.entries.map(optionItem)
+          ),
+        )}
       </ul>
       {items.length === 0 && <p className="px-3 py-1.5 text-sm text-muted">Ничего не найдено</p>}
     </div>
@@ -1268,6 +1305,7 @@ export function ComboSelect(props: {
             <PickerList
               label={props.listLabel}
               options={options}
+              selectedId={props.value ?? (props.emptyLabel === null ? null : NONE)}
               onPick={(id) => {
                 close(true);
                 props.onChange(id === NONE ? null : id);
@@ -1338,7 +1376,15 @@ export function AmountField(props: {
 
   useEffect(() => {
     // кадр спустя: окно <dialog> к этому моменту уже открыто через showModal()
-    if (props.focusSignal) requestAnimationFrame(() => ref.current?.focus());
+    if (!props.focusSignal) return;
+    const frame = requestAnimationFrame(() => {
+      const input = ref.current;
+      const active = document.activeElement;
+      // пользователь уже набирает в другом поле окна — фокус не перехватываем
+      const typing = active instanceof HTMLElement && active !== input && active.matches('textarea, input:not([type="radio"]):not([type="checkbox"]):not([type="file"])');
+      if (input && !typing) input.focus();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [props.focusSignal]);
 
   const evaluate = () => {
@@ -1442,7 +1488,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - `Modal`: свойство `onCancel?: () => void` — с ним Esc не закрывает окно сам;
   - `AppHeader`: свойство `actions?: ReactNode` (между левой и правой частью шапки, шапка переносится);
   - `OperationFormHost.tsx`: `type OperationFormRequest = { kind: 'create'; type: OperationType }` (план 6b добавит `edit`), `useOpenOperationForm(): (request) => void`, `OperationFormHost({ company, children })`, `NewOperationButtons()` — кнопки с именами «Доход», «Расход», «Перевод» (символы `+`, `−`, `⇄` скрыты от программ чтения с экрана);
-  - `OperationForm.tsx`: `OperationForm({ company, request, onClose })` — окно «Новая операция», форма `aria-label="Операция"`; `interface FormData { accounts; categories; projects; counterparties; tags }`; `serverFieldErrors(fields)` (`lines.0.amount` → `lines`).
+  - `OperationForm.tsx`: `OperationForm({ company, request, onClose })` — окно «Новая операция», форма `aria-label="Операция"`; `interface FormData { accounts; categories; projects; counterparties; tags }`; `serverFieldErrors(fields)` (`lines.0.amount` → `lines`); область `role="status"` формы есть всегда.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2174,11 +2220,10 @@ function OperationEditor(p: {
           {formError}
         </p>
       )}
-      {status && (
-        <p role="status" className="rounded-xl bg-income-soft px-4 py-3 text-sm text-income">
-          {status}
-        </p>
-      )}
+      {/* область role="status" есть всегда — меняется только текст, так его объявляют программы чтения с экрана */}
+      <p role="status" className={status ? 'rounded-xl bg-income-soft px-4 py-3 text-sm text-income' : 'sr-only'}>
+        {status}
+      </p>
 
       {confirmClose ? (
         <div role="group" aria-label="Несохранённые изменения" className="flex flex-wrap items-center gap-2 text-sm">
@@ -2563,7 +2608,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 ```
 
-и в конец файла:
+и в конец файла: тест разбиения и сценарий 3 §10 целиком через форму (доход, расход на два проекта, перевод KZT → USD; балансы в панели и остатки в журнале).
 
 ```ts
 test('«Разделить» в процентах на два проекта; шаблон разделения: применить с недоступной статьёй, сохранить текущее', async ({ page }) => {
@@ -2640,6 +2685,77 @@ test('«Разделить» в процентах на два проекта; �
     { categoryId: rent, projectId: north, bp: 7000 },
     { categoryId: null, projectId: south, bp: 3000 },
   ]);
+});
+
+test('сценарий 3 §10 через форму: доход, расход на два проекта, перевод KZT → USD — балансы в панели и остатки в журнале', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Сценарий формы ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 100000 });
+  await apiPost(page, `${base}/accounts`, { name: 'Валютный', currency: 'USD', openedAt: '2020-01-01' });
+  await apiPost(page, `${base}/projects`, { name: 'Север', templateKey: 'general' });
+  await apiPost(page, `${base}/projects`, { name: 'Юг', templateKey: 'general' });
+  await apiPost(page, `${base}/categories`, { kind: 'income', name: 'Выручка' });
+  await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда' });
+  // курс компании: доллары входят в «Всего на счетах»
+  await apiPost(page, `${base}/fixed-rates`, { currency: 'USD', rate: '500', validFrom: '2020-01-01' });
+  await page.reload();
+
+  // доход 500 на проект «Север»
+  let dialog = await openForm(page, 'Доход');
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  await expect(amount).toBeFocused();
+  await amount.fill('500');
+  await pick(page, 'Счёт', 'Касса (KZT)');
+  await pick(page, 'Статья', 'Выручка');
+  await dialog.getByRole('button', { name: 'Проект, теги, комментарий' }).click();
+  await pick(page, 'Проект', 'Север');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).toBeHidden();
+
+  // расход 300: «Аренда» на два проекта суммами — 100 и 200
+  dialog = await openForm(page, 'Расход');
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('300');
+  await dialog.getByRole('button', { name: 'Разделить', exact: true }).click();
+  const split = dialog.getByRole('region', { name: 'Разбиение' });
+  const line1 = split.getByRole('group', { name: 'Строка 1' });
+  const line2 = split.getByRole('group', { name: 'Строка 2' });
+  await pick(page, 'Статья', 'Аренда', line1);
+  await pick(page, 'Проект', 'Север', line1);
+  await line1.getByRole('textbox', { name: /^Сумма/ }).fill('100');
+  await pick(page, 'Статья', 'Аренда', line2);
+  await pick(page, 'Проект', 'Юг', line2);
+  await line2.getByRole('textbox', { name: /^Сумма/ }).fill('200');
+  await expect(split.getByRole('status').first()).toHaveText('Распределено полностью');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).toBeHidden();
+
+  // перевод 500 ₸ → 1 $
+  dialog = await openForm(page, 'Перевод');
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('500');
+  await pick(page, 'Со счёта', 'Касса (KZT)');
+  await pick(page, 'На счёт', 'Валютный (USD)');
+  await dialog.getByRole('textbox', { name: /^Сумма зачисления/ }).fill('1');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).toBeHidden();
+
+  // левая панель: 1 000 + 500 - 300 - 500 = 700 ₸ и 1 $ (= 500 ₸ по курсу компании)
+  await expect(panel(page).getByRole('link', { name: /^Касса/ })).toContainText(/700,00\s₸/);
+  await expect(panel(page).getByRole('link', { name: /^Валютный/ })).toContainText(/1,00\s\$/);
+  await expect(panel(page)).toContainText(/Всего на счетах\s*1\s200,00\s₸/);
+
+  // журнал: остатки после каждой операции; у расхода — «2 проекта», у перевода — остатки обоих счетов
+  const rows = table(page).locator('tbody tr');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.filter({ hasText: 'Выручка' })).toContainText(/остаток 1\s500,00\s₸/);
+  const rent = rows.filter({ hasText: 'Аренда' });
+  await expect(rent).toContainText('2 проекта');
+  await expect(rent).toContainText(/остаток 1\s200,00\s₸/);
+  const transfer = rows.filter({ hasText: 'Валютный' });
+  await expect(transfer).toContainText(/остаток 700,00\s₸/);
+  await expect(transfer).toContainText(/остаток 1,00\s\$/);
 });
 ```
 
@@ -3154,14 +3270,17 @@ export function SplitEditor(props: {
         </p>
       </div>
       {props.error && <p className="text-sm text-expense">{props.error}</p>}
-      {notice && (
-        <p role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-field px-3 py-2 text-sm">
-          <span>{notice}</span>
-          <button type="button" onClick={() => setNotice(null)} className="font-semibold underline">
-            Скрыть
-          </button>
-        </p>
-      )}
+      {/* область role="status" есть всегда — меняется только текст, так его объявляют программы чтения с экрана */}
+      <div role="status" className={notice ? 'flex flex-wrap items-center justify-between gap-2 rounded-xl bg-field px-3 py-2 text-sm' : 'sr-only'}>
+        {notice && (
+          <>
+            <span>{notice}</span>
+            <button type="button" onClick={() => setNotice(null)} className="font-semibold underline">
+              Скрыть
+            </button>
+          </>
+        )}
+      </div>
       {saving && (
         <div role="group" aria-label="Новый шаблон разделения" className="flex flex-wrap items-end gap-2">
           <Field label="Название шаблона" error={saving.error ?? undefined} className="min-w-48 flex-1">
@@ -3435,7 +3554,7 @@ Run: `npx vitest run tests/client/split.test.ts tests/client/operation-form.test
 Expected: PASS.
 
 Run: `npx playwright test e2e/operation-form.spec.ts`
-Expected: PASS (4 теста).
+Expected: PASS (5 тестов).
 
 - [ ] **Step 5: Full check and commit**
 
@@ -3488,7 +3607,9 @@ test('«+ Создать „…“» прямо из формы: контраг�
   const search = dialog.getByRole('combobox', { name: 'Статьи: поиск' });
   await search.fill('Интернет');
   await search.press('ArrowDown');
-  await expect(dialog.getByRole('option', { name: '+ Создать „Интернет“' })).toHaveAttribute('aria-selected', 'true');
+  // активный пункт — тот, на который указывает aria-activedescendant поля поиска
+  const createId = await dialog.getByRole('option', { name: '+ Создать „Интернет“' }).getAttribute('id');
+  await expect(search).toHaveAttribute('aria-activedescendant', createId!);
   await search.press('Enter');
   await expect(dialog.getByRole('button', { name: 'Статья: Интернет' })).toBeVisible();
   // такое название уже есть (без учёта регистра) — «Создать» не предлагается
@@ -3810,7 +3931,7 @@ function TagsField(props: { tags: Tag[]; value: number[]; onChange: (ids: number
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx playwright test e2e/operation-form.spec.ts`
-Expected: PASS (5 тестов).
+Expected: PASS (6 тестов).
 
 - [ ] **Step 5: Full check and commit**
 
