@@ -8,13 +8,16 @@
 - массовые действия по выделенным строкам: «Статья», «Проект», «Контрагент», «Удалить» с подтверждением; итог «изменено N, пропущено M» с причинами; тост «Удалено N — Отменить» на 10 секунд (`bulk restore` по `changed` из ответа удаления);
 - после любого изменения операций — сброс кэшей журнала, счетов (`['accounts', cid]`: балансы, `hasOperations`) и компаний (`['companies']`: `currencyLocked`, итоги).
 
-**Предусловие:** выполнены планы 5a (API журнала, массовых действий, сохранённых фильтров) и 5b (экран журнала: `JournalPage`, `JournalTable`, `JournalToolbar`, `FilterDialog`, `Popover`, `Modal`, `journal-filter.ts`, `e2e/journal.spec.ts`).
+**Предусловие:** выполнены планы 5a (API журнала, массовых действий, сохранённых фильтров) и 5b **в том виде, в каком он реализован** (коммит `4d8ad10`): экран журнала `JournalPage` → `JournalScreen key={company.id}`, `JournalTable`, `JournalToolbar`, `FilterDialog`, `Popover`, `Modal`, `journal-filter.ts` (в том числе `DialogFields`, `pickDialogFields`, `applyDialogFields`), `journal-format.ts` (в том числе `uniqueById`), `e2e/journal.spec.ts`.
+
+**Правки — точечные, от фактического кода 5b.** Шаги ниже меняют файлы 5b только парами «замените … на …» (каждый фрагмент встречается в файле ровно один раз) или дописывают в конец; файлы 5b целиком не заменяются. Так не теряются правки 5b, которых не было в первом тексте плана: строки журнала без повторов (`uniqueById`), «Показать ещё» только не на заглушке (`!journal.isPlaceholderData &&`), клик по строке только из самой строки (`e.currentTarget.contains(e.target as Node)`), скрытая подпись перевода «Перевод: со счёта … на счёт …», `aria-disabled` у «Показать ещё», порядок Tab и Esc в `Popover`, «Готово» в «Фильтре» поверх текущего фильтра (`applyDialogFields`), ошибка журнала под тулбаром. После правок `JournalPage.tsx` и `JournalTable.tsx` шаг задачи проверяет, что эти места на месте.
 
 **Architecture:**
 - **Сохранённые фильтры** — запрос `useSavedFilters(cid)` (ключ `['saved-filters', cid]`) и чистые функции `savedFilterFromState` / `stateFromSavedFilter` (JSON фильтра API плана 5a ↔ фильтр адресной строки). Меню — на `Popover` плана 5b.
 - **«Указать» и массовые действия** используют общий `SearchPicker` — кнопку с выпадающим списком с поиском (combobox + listbox: стрелки, Enter, Esc). Правила «где есть „Указать“» и тело `PATCH` — чистые функции `journal-assign.ts`. Оптимистичное изменение правит строки во всех страницах `['journal', cid, …]` через `setQueriesData` и откатывается по снимку.
 - **`invalidateOperations(cid)`** (`src/client/lib/journal-mutations.ts`) — единая точка сброса после изменения операций: `['journal', cid]`, `['accounts', cid]`, `['companies']`. Её же вызовет форма операции шага 6 (вместе с `onOpenOperation` таблицы — точкой подключения из плана 5b).
 - **Выделение** — множество id в экране компании (`JournalScreen` с `key={company.id}`, план 5b), только среди загруженных строк; колонка флажков в `JournalTable` (`selection`). Итог действия и тост — области `role="status"`.
+- **Тулбар на экране всегда, когда справочники загружены:** пока у запроса журнала нет ни данных, ни ошибки (например, после ошибки и смены поиска — новый ключ запроса), под тулбаром — «Загрузка…», а не заглушка вместо всего экрана: поле поиска не пропадает вместе с фокусом.
 - **Тост «Отменить» живёт выше экрана компании** — в `JournalPage`, и помнит компанию, где удаляли (`UndoState.companyId`): после перехода в другую компанию в течение 10 секунд «Отменить» восстанавливает операции именно там.
 
 **Tech Stack:** как в планах 1–5b. Новых пакетов нет.
@@ -25,17 +28,19 @@
 
 ## Решения, принятые при планировании
 
-Записаны в спецификацию (§7, блок «Решения планирования от 2026-10-07 (планы 5b и 5c)») тем же коммитом, что и план 5b.
+Записаны в спецификацию (§7, блок «Решения планирования от 2026-10-07 (планы 5b и 5c)»).
 
-1. **Сохранение фильтра** — в окне «Фильтр»: «Сохранить фильтр» открывает поле «Название фильтра» и кнопку «Сохранить». Сохраняются условия окна и тулбара (период, поиск, сумма); период — датами (решение 6 плана 5a), сортировка не сохраняется. После сохранения окно применяет фильтр и закрывается; ошибка (пустое название) — у поля, окно остаётся открытым. После переименования фокус — на переименованном пункте, после удаления меню закрывается и фокус — на его кнопке.
+1. **Сохранение фильтра** — в окне «Фильтр»: «Сохранить фильтр» открывает поле «Название фильтра» и кнопку «Сохранить». Сохраняются условия окна поверх ТЕКУЩЕГО фильтра — той же `applyDialogFields`, что у «Готово» (поиск, дошедший до адреса при открытом окне, не заменяется устаревшим), с периодом, поиском и суммой тулбара; период — датами (решение 6 плана 5a), сортировка не сохраняется. После сохранения окно применяет фильтр и закрывается; ошибка (пустое название) — у поля, окно остаётся открытым. После переименования фокус — на переименованном пункте, после удаления меню закрывается и фокус — на его кнопке.
 2. **Применение сохранённого фильтра** заменяет все условия, сортировка остаётся текущей; даты — период «Произвольно». Если сервер убрал недоступные ссылки (`unavailable > 0`), у пункта меню видно «(N условий недоступно)», а после применения — сообщение «Фильтр «…»: N условий недоступно (удалены или в архиве) — они не применены.» до «Скрыть» или следующего применения.
 3. **«Указать»** (§7) — у операции с одной строкой: контрагент и статья — у дохода и расхода, проект — ещё у перевода без строк (ему создаётся строка на всю сумму). В списке нет архивных элементов (инвариант 7), статьи — только вида операции (инвариант 3). `PATCH` шлёт `version` и одно поле. При ошибке значение откатывается и над таблицей — сообщение (`role="alert"`); при 409 — «Операция изменена другим пользователем. Журнал обновлён — проверьте и повторите.», а если операцию удалили — «Операция удалена другим пользователем. Журнал обновлён.» В любом случае журнал, счета и компании перечитываются. Кнопка «Указать» после выбора исчезает — фокус переходит на строку операции (у неё `tabIndex={-1}`, план 5b). Список «Указать» — в панели `Popover` (портал, план 5b): обёртка таблицы его не обрезает.
-4. **Выделение** — флажки строк и «Выбрать все загруженные операции» в заголовке (только загруженные страницы); не больше 500 (BULK_MAX плана 5a) — иначе действия недоступны с подсказкой. Смена фильтра или компании снимает выделение. После «Статья», «Проект», «Контрагент» выделение остаётся (можно назначить следующее), после удаления снимается. Пока действие выполняется, его кнопки и списки недоступны.
+4. **Выделение** — флажки строк и «Выбрать все загруженные операции» в заголовке (только загруженные страницы); не больше 500 (BULK_MAX плана 5a) — иначе действия недоступны с подсказкой. Смена фильтра или компании снимает выделение. После «Статья», «Проект», «Контрагент» выделение остаётся (можно назначить следующее), после удаления снимается. Пока действие выполняется, списки «Статья», «Проект», «Контрагент» помечены `aria-disabled` (щелчок не открывает список), а не `disabled`: после выбора фокус возвращается на кнопку списка и не падает на `<body>`.
 5. **«Статья» в массовых действиях** предлагает статьи обоих видов с пометкой «Доход: …» / «Расход: …»: сервер сам пропускает операции другого вида с причиной.
 6. **Итог** — «Статья: изменено N, пропущено M» и список причин с числом операций («Разбитая операция — измените её в форме — 2»).
 7. **Тост «Удалено N — Отменить»** висит 10 секунд и не останавливается. Область `role="status"` есть на странице всегда, чтобы появление текста объявлялось. Фокус переходит на «Отменить» (выделенные строки и кнопка подтверждения исчезли); когда тост закрывается, фокус, если был в нём, переходит на заголовок «Журнал». «Отменить» шлёт `bulk restore` с `changed` из ответа удаления в ту компанию, где удаляли, — даже если пользователь уже перешёл в другую; операции, удалённые раньше другим действием, не возвращаются (решение 5 плана 5a).
 
 ## Global Constraints
+
+- **Код 5b не откатывать:** правки `JournalPage.tsx`, `JournalTable.tsx`, `FilterDialog.tsx`, `Popover.tsx` — только точечные, как в шагах; после них — проверка из шага задачи (`uniqueById(`, `!journal.isPlaceholderData &&`, `applyDialogFields(`, `e.currentTarget.contains(e.target as Node)`, «Перевод: со счёта»).
 
 - **Массовые действия (§7):** «Категория» меняет единственную строку операций с одной строкой, пропускаются разбитые операции, переводы и операции другого вида, чем выбранная категория; «Проект» меняет единственную строку, переводу без строк создаёт строку, пропускаются разбитые; «Контрагент» — всем выделенным доходам и расходам; «Удалить» с подтверждением, пропускаются операции на архивном счёте, затем тост «Удалено N — Отменить» на 10 секунд (`bulk restore`); после каждого действия — итог «изменено N, пропущено M» с причинами; массовые действия не проверяют `version`.
 - **«Указать» (§7):** в пустой ячейке контрагента, категории или проекта, только у операций с одной строкой (для проекта — также у перевода); выпадающий список с поиском; значение сохраняется сразу, оптимистично, с откатом при ошибке; передаёт `version` и при конфликте получает 409.
@@ -52,9 +57,9 @@
 ## Review Focus
 
 1. **«Указать» по операции, которую только что изменили в другом окне:** значение откатывается, видно «Операция изменена другим пользователем…», журнал перечитан, повтор с новой версией проходит. Тест — задача 2.
-2. **Сохранённый фильтр, тег которого ушёл в архив:** в меню — «(1 условие недоступно)», при применении — предупреждение, фильтр применяется без тега. Тест — задача 1.
-3. **Удалили и сразу перешли в другую компанию:** тост остаётся, «Отменить» возвращает операции в той компании, где их удалили (а не «Операция не найдена» в новой), балансы в левой панели возвращаются к прежним; фокус не теряется (на «Отменить», затем на заголовке). Тест — задача 3.
-4. **Выделение и смена фильтра:** строки, которые ушли из списка после смены периода, не остаются выделенными — массовое действие не уходит на невидимые операции. Тест — задача 3.
+2. **Удалили и сразу перешли в другую компанию:** тост остаётся, «Отменить» возвращает операции в той компании, где их удалили, балансы в левой панели возвращаются; фокус не теряется (на «Отменить», затем на заголовке). Тест — задача 3.
+3. **Ошибка журнала, затем новый поиск:** тулбар не пропадает, поле поиска не теряет фокус и набранный текст, журнал загружается. Тест — задача 1.
+4. **Выделение и смена фильтра; массовое действие в процессе:** строки, ушедшие из списка, не остаются выделенными; после выбора в «Статья» фокус остаётся на кнопке списка. Тест — задача 3.
 5. **«Указать» в последней строке короткой таблицы:** список не обрезан обёрткой таблицы с прокруткой — последний вариант виден и нажимается (проверка `elementFromPoint`). Тест — задача 2.
 
 ---
@@ -69,6 +74,7 @@ src/client/
   lib/journal-mutations.ts            # (новый) invalidateOperations, useAssign, runBulk
   lib/journal-bulk.ts                 # (новый) типы и итог массового действия
   components/SearchPicker.tsx         # (новый) кнопка со списком с поиском
+  components/Popover.tsx              # + inactive (aria-disabled)
   components/journal/SavedFiltersMenu.tsx  # (новый)
   components/journal/AssignPicker.tsx      # (новый)
   components/journal/BulkBar.tsx           # (новый)
@@ -82,19 +88,20 @@ README.md
 ```
 
 ---
-### Task 1: Сохранённые фильтры — сохранить, применить, переименовать, удалить; предупреждение о недоступных условиях
+### Task 1: Сохранённые фильтры — сохранить, применить, переименовать, удалить; предупреждение о недоступных условиях; тулбар при загрузке журнала
 
 **Files:**
-- Create: `src/client/components/journal/SavedFiltersMenu.tsx`, `tests/client/journal-saved-filter.test.ts`, `e2e/journal-actions.spec.ts`
+- Create: `e2e/journal-actions.spec.ts`, `src/client/components/journal/SavedFiltersMenu.tsx`, `tests/client/journal-saved-filter.test.ts`
 - Modify: `src/client/lib/journal-filter.ts`, `src/client/lib/queries.ts`, `src/client/components/journal/FilterDialog.tsx`, `src/client/pages/JournalPage.tsx`
 
 **Interfaces:**
-- Consumes: `JournalUrlState`, `EMPTY_JOURNAL_STATE`, `OPERATION_TYPES`, `periodRange`, `sortedUnique` (план 5b, `journal-filter.ts`); `pluralRu` (план 5b, `journal-format.ts`); `Popover`, `FilterDialog`, `JournalPage` (план 5b); `api`, `ApiError`; `queryClient`; `Field`; API сохранённых фильтров плана 5a.
+- Consumes: `JournalUrlState`, `DialogFields`, `applyDialogFields`, `EMPTY_JOURNAL_STATE`, `OPERATION_TYPES`, `periodRange`, `sortedUnique` (план 5b, `journal-filter.ts`); `pluralRu` (план 5b, `journal-format.ts`); `Popover`, `FilterDialog`, `JournalPage` (план 5b); `api`, `ApiError`; `queryClient`; `Field`; API сохранённых фильтров плана 5a.
 - Produces:
   - `journal-filter.ts`: `interface SavedJournalFilter` (поля API: `from?`, `to?`, `q?`, `amountMin?`, `amountMax?`, `types?`, `accountIds?`, `categoryIds?`, `projectIds?`, `counterpartyIds?`, `tagIds?`, `withoutCategory?: true`, `withoutProject?: true`, `withoutCounterparty?: true`), `savedFilterFromState(state, today): SavedJournalFilter`, `stateFromSavedFilter(filter, current: Pick<JournalUrlState, 'sort' | 'order'>): JournalUrlState`;
   - `queries.ts`: `interface SavedFilter`, `useSavedFilters(companyId)` — ключ `['saved-filters', companyId]`;
   - `SavedFiltersMenu({ companyId, filters, onApply })`, `unavailableText(n): string` («1 условие недоступно», «2 условия недоступны», «5 условий недоступно»); пункты меню — кнопки «Применить фильтр «…»», «Переименовать фильтр «…»», «Удалить фильтр «…»»; после переименования и отмены фокус — на кнопке «Применить…» пункта, после удаления меню закрывается с фокусом на его кнопке;
-  - `FilterDialog` получает обязательное свойство `onSave: (draft: JournalUrlState, name: string) => Promise<void>` и кнопку «Сохранить фильтр».
+  - `FilterDialog` получает обязательное свойство `onSave: (draft: DialogFields, name: string) => Promise<void>` и кнопку «Сохранить фильтр»; `JournalPage` сохраняет `savedFilterFromState(applyDialogFields(state, draft), today)`;
+  - `JournalPage`: после загрузки справочников тулбар есть всегда; пока у журнала нет ни данных, ни ошибки — «Загрузка…» под тулбаром.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -134,7 +141,7 @@ describe('сохранённый фильтр ↔ фильтр журнала', 
 });
 ```
 
-`e2e/journal-actions.spec.ts` (вспомогательные функции и первый тест; задачи 2 и 3 дописывают тесты в конец файла):
+`e2e/journal-actions.spec.ts`:
 
 ```ts
 import { expect, test, type Page } from '@playwright/test';
@@ -266,7 +273,39 @@ test('сохранённые фильтры: сохранить из окна «
   await expect(shifts).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Применить фильтр «Доходы»' })).toBeVisible();
 });
+
+test('ошибка журнала, затем новый поиск: тулбар остаётся на месте, поле поиска не теряет фокус', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Сбой ${Date.now()}`);
+  const kaspi = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: todayAgo(2), accountId: kaspi, amount: 100, comment: 'операция A' });
+  await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: todayAgo(1), accountId: kaspi, amount: 200, comment: 'операция B' });
+
+  // журнал отвечает ошибкой (400 — без повторов запроса): ошибка под тулбаром
+  const journalUrl = /\/api\/v1\/companies\/\d+\/operations\?/;
+  await page.route(journalUrl, (route) =>
+    route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: { code: 'VALIDATION', message: 'Сбой журнала для теста' } }) }),
+  );
+  await page.reload();
+  await expect(page.getByRole('alert')).toContainText('Сбой журнала для теста');
+  await page.unroute(journalUrl);
+
+  // поиск уходит в адрес — у нового запроса ещё нет ни данных, ни ошибки; тулбар не пропадает, ввод продолжается
+  const search = page.getByLabel('Поиск');
+  await search.fill('опер');
+  await expect(page).toHaveURL(/q=/);
+  await expect(search).toBeFocused();
+  await search.pressSequentially('ация A');
+  await expect(search).toHaveValue('операция A');
+  await expect.poll(() => letters(page)).toBe('A');
+  await expect(search).toBeFocused();
+});
 ```
+
+Проверьте экранирования:
+
+Run: `node -e "for (const f of process.argv.slice(1)) if (/[\u00a0\u202f\u2212]/.test(require('fs').readFileSync(f, 'utf8'))) { console.error('невидимый символ вместо экранирования: ' + f); process.exit(1); }" tests/client/journal-saved-filter.test.ts e2e/journal-actions.spec.ts`
+Expected: ничего не выводит.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -274,7 +313,7 @@ Run: `npx vitest run tests/client/journal-saved-filter.test.ts`
 Expected: FAIL — нет `savedFilterFromState`.
 
 Run: `npx playwright test e2e/journal-actions.spec.ts`
-Expected: FAIL — нет кнопки «Сохранить фильтр».
+Expected: FAIL — нет кнопки «Сохранить фильтр»; после ошибки журнала и нового поиска тулбар пропадает (поле поиска теряет фокус).
 
 - [ ] **Step 3: Implement**
 
@@ -332,13 +371,22 @@ export function stateFromSavedFilter(filter: SavedJournalFilter, current: Pick<J
 }
 ```
 
-`src/client/lib/queries.ts` — после строки `import type { CounterpartyType } from '../../shared/system-categories';` добавьте:
+`src/client/lib/queries.ts` — точечные правки (каждый фрагмент встречается в файле один раз):
+
+1. Замените
 
 ```ts
+import type { CounterpartyType } from '../../shared/system-categories';
+```
+
+на
+
+```ts
+import type { CounterpartyType } from '../../shared/system-categories';
 import type { SavedJournalFilter } from './journal-filter';
 ```
 
-и допишите в конец файла:
+`src/client/lib/queries.ts` — допишите в конец файла:
 
 ```ts
 export interface SavedFilter {
@@ -533,125 +581,70 @@ export function SavedFiltersMenu(props: { companyId: number; filters: SavedFilte
 }
 ```
 
-`src/client/components/journal/FilterDialog.tsx` — замените файл целиком:
+`src/client/components/journal/FilterDialog.tsx` — точечные правки (каждый фрагмент встречается в файле один раз):
+
+1. Замените
+
+```ts
+import { useState, type ReactNode } from 'react';
+```
+
+на
 
 ```ts
 import { useState, type ReactNode } from 'react';
 import { ApiError } from '../../lib/api';
-import { matchesQuery } from '../../../shared/search';
-import { sortedUnique, type JournalUrlState, type OperationType } from '../../lib/journal-filter';
-import type { Account, CategoryNode, CategoryTree, Counterparty, Project, Tag } from '../../lib/queries';
+```
+
+2. Замените
+
+```ts
 import { Modal } from '../Modal';
+```
+
+на
+
+```ts
 import { Field } from '../Field';
-import { btnPrimary, btnSecondary, inputClass } from '../ui';
+import { Modal } from '../Modal';
+```
 
-export interface FilterDialogData {
-  accounts: Account[];
-  categories: CategoryTree;
-  projects: Project[];
-  counterparties: Counterparty[];
-  tags: Tag[];
-}
+3. Замените
 
-interface Option {
-  id: number;
-  label: string;
-  /** Отступ дочерней статьи. */
-  nested?: boolean;
-}
+```ts
+function FilterForm(props: { state: JournalUrlState; data: FilterDialogData; onApply: (next: DialogFields) => void; onCancel: () => void }) {
+  const [draft, setDraft] = useState<DialogFields>(() => pickDialogFields(props.state));
+  const [cpQuery, setCpQuery] = useState('');
+```
 
-const TYPE_LABELS: Record<OperationType, string> = { income: 'Доход', expense: 'Расход', transfer: 'Перевод' };
-type ListField = 'accountIds' | 'categoryIds' | 'projectIds' | 'counterpartyIds' | 'tagIds';
-type FlagField = 'withoutCategory' | 'withoutProject' | 'withoutCounterparty';
+на
 
-/** Архивные элементы не предлагаются — кроме уже выбранных (например, из адреса): их можно снять. */
-function options<T extends { id: number; name: string; archivedAt: string | null }>(rows: T[], selected: readonly number[]): Option[] {
-  return rows
-    .filter((r) => !r.archivedAt || selected.includes(r.id))
-    .map((r) => ({ id: r.id, label: r.archivedAt ? `${r.name} (архив)` : r.name }));
-}
-
-function categoryOptions(nodes: CategoryNode[], selected: readonly number[]): Option[] {
-  return nodes.flatMap((n) => {
-    const children = n.children
-      .filter((c) => (!c.archivedAt && !n.archivedAt) || selected.includes(c.id))
-      .map((c) => ({ id: c.id, label: c.archivedAt || n.archivedAt ? `${c.name} (архив)` : c.name, nested: true }));
-    const self = !n.archivedAt || selected.includes(n.id) ? [{ id: n.id, label: n.archivedAt ? `${n.name} (архив)` : n.name }] : [];
-    return [...self, ...children];
-  });
-}
-
-const sectionClass = 'min-w-0 rounded-2xl bg-field/50 p-3';
-const legendClass = 'px-1 text-sm font-semibold';
-const checkClass = 'flex items-center gap-2 py-0.5 text-sm';
-
-function CheckList(props: { items: Option[]; selected: readonly number[]; onToggle: (id: number) => void; empty: string }) {
-  if (props.items.length === 0) return <p className="py-1 text-sm text-muted">{props.empty}</p>;
-  return (
-    <div className="max-h-48 overflow-y-auto">
-      {props.items.map((o) => (
-        <label key={o.id} className={`${checkClass} ${o.nested ? 'pl-5' : ''}`}>
-          <input type="checkbox" checked={props.selected.includes(o.id)} onChange={() => props.onToggle(o.id)} />
-          <span className="truncate">{o.label}</span>
-        </label>
-      ))}
-    </div>
-  );
-}
-
-function Section({ legend, children }: { legend: string; children: ReactNode }) {
-  return (
-    <fieldset className={sectionClass}>
-      <legend className={legendClass}>{legend}</legend>
-      {children}
-    </fieldset>
-  );
-}
-
-/**
- * Модалка «Фильтр» (§7): все условия фильтра журнала §6, кроме периода, поиска и суммы (они в тулбаре).
- * Меняет черновик; «Готово» применяет его, Esc и «Отмена» закрывают без изменений.
- */
+```ts
 function FilterForm(props: {
   state: JournalUrlState;
   data: FilterDialogData;
-  onApply: (next: JournalUrlState) => void;
+  onApply: (next: DialogFields) => void;
   onCancel: () => void;
-  onSave: (draft: JournalUrlState, name: string) => Promise<void>;
+  onSave: (draft: DialogFields, name: string) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState<JournalUrlState>(props.state);
+  const [draft, setDraft] = useState<DialogFields>(() => pickDialogFields(props.state));
   const [cpQuery, setCpQuery] = useState('');
   // «Сохранить фильтр»: поле названия, ошибка, запрос в пути
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
   const [saveError, setSaveError] = useState<string | undefined>();
   const [saving, setSaving] = useState(false);
-  const { data } = props;
+```
 
-  const toggle = (field: ListField) => (id: number) =>
-    setDraft((d) => ({ ...d, [field]: d[field].includes(id) ? d[field].filter((x) => x !== id) : sortedUnique([...d[field], id]) }));
-  const toggleType = (t: OperationType) =>
-    setDraft((d) => ({ ...d, types: (['income', 'expense', 'transfer'] as const).filter((x) => (x === t ? !d.types.includes(t) : d.types.includes(x))) }));
-  const flag = (field: FlagField, label: string) => (
-    <label className={`${checkClass} font-medium`}>
-      <input type="checkbox" checked={draft[field]} onChange={() => setDraft((d) => ({ ...d, [field]: !d[field] }))} />
-      {label}
-    </label>
-  );
-  const clear = () =>
-    setDraft((d) => ({
-      ...d,
-      types: [],
-      accountIds: [],
-      categoryIds: [],
-      projectIds: [],
-      counterpartyIds: [],
-      tagIds: [],
-      withoutCategory: false,
-      withoutProject: false,
-      withoutCounterparty: false,
-    }));
+4. Замените
 
+```ts
+  const counterparties = options(data.counterparties, draft.counterpartyIds).filter(
+```
+
+на
+
+```ts
   const save = async () => {
     setSaving(true);
     setSaveError(undefined);
@@ -666,71 +659,40 @@ function FilterForm(props: {
   };
 
   const counterparties = options(data.counterparties, draft.counterpartyIds).filter(
-    (o) => draft.counterpartyIds.includes(o.id) || matchesQuery(o.label, cpQuery),
-  );
+```
 
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        props.onApply(draft);
-      }}
-    >
-      <div className="grid max-h-[60dvh] gap-3 overflow-y-auto md:grid-cols-2">
-        <Section legend="Тип операции">
-          {(['income', 'expense', 'transfer'] as const).map((t) => (
-            <label key={t} className={checkClass}>
-              <input type="checkbox" checked={draft.types.includes(t)} onChange={() => toggleType(t)} />
-              {TYPE_LABELS[t]}
-            </label>
-          ))}
-        </Section>
-        <Section legend="Счета">
-          <CheckList items={options(data.accounts, draft.accountIds)} selected={draft.accountIds} onToggle={toggle('accountIds')} empty="Счетов нет" />
-        </Section>
-        <Section legend="Статьи">
-          {flag('withoutCategory', 'Без статьи')}
-          <p className="mt-1 text-xs text-muted">Доходы</p>
-          <CheckList items={categoryOptions(data.categories.income, draft.categoryIds)} selected={draft.categoryIds} onToggle={toggle('categoryIds')} empty="Статей нет" />
-          <p className="mt-1 text-xs text-muted">Расходы</p>
-          <CheckList items={categoryOptions(data.categories.expense, draft.categoryIds)} selected={draft.categoryIds} onToggle={toggle('categoryIds')} empty="Статей нет" />
-        </Section>
-        <Section legend="Проекты">
-          {flag('withoutProject', 'Без проекта')}
-          <CheckList items={options(data.projects, draft.projectIds)} selected={draft.projectIds} onToggle={toggle('projectIds')} empty="Проектов нет" />
-        </Section>
-        <Section legend="Контрагенты">
-          {flag('withoutCounterparty', 'Без контрагента')}
-          <input
-            type="search"
-            aria-label="Найти контрагента"
-            placeholder="Найти контрагента"
-            value={cpQuery}
-            onChange={(e) => setCpQuery(e.target.value)}
-            // Enter в поиске не применяет фильтр
-            onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-            className={`${inputClass} my-1 py-1.5 text-sm`}
-          />
-          <CheckList items={counterparties} selected={draft.counterpartyIds} onToggle={toggle('counterpartyIds')} empty="Никого не нашли" />
-        </Section>
-        <Section legend="Теги">
-          <CheckList items={options(data.tags, draft.tagIds)} selected={draft.tagIds} onToggle={toggle('tagIds')} empty="Тегов нет" />
-        </Section>
-      </div>
-      <p className="mt-3 text-xs text-muted">
-        Внутри одного раздела подходит любой из выбранных вариантов («Аренда» или «Без статьи»), между разделами — все условия сразу. Родительская статья включает
-        дочерние.
-      </p>
-      <div className="mt-4 flex flex-wrap gap-2">
+5. Замените
+
+```ts
+        <button type="submit" className={btnPrimary}>
+          Готово
+        </button>
+```
+
+на
+
+```ts
         <button type="submit" className={btnPrimary}>
           Готово
         </button>
         <button type="button" aria-expanded={naming} onClick={() => setNaming((v) => !v)} className={btnSecondary}>
           Сохранить фильтр
         </button>
-        <button type="button" onClick={clear} className={btnSecondary}>
-          Очистить
+```
+
+6. Замените
+
+```ts
+        <button type="button" onClick={props.onCancel} className={btnSecondary}>
+          Отмена
         </button>
+      </div>
+    </form>
+```
+
+на
+
+```ts
         <button type="button" onClick={props.onCancel} className={btnSecondary}>
           Отмена
         </button>
@@ -762,52 +724,73 @@ function FilterForm(props: {
         </div>
       )}
     </form>
-  );
-}
+```
 
-export function FilterDialog(props: {
-  open: boolean;
-  state: JournalUrlState;
-  data: FilterDialogData;
-  onApply: (next: JournalUrlState) => void;
+7. Замените
+
+```ts
+  /** Только поля модалки: их накладывают на текущий фильтр, а не на снимок при открытии. */
+  onApply: (next: DialogFields) => void;
   onClose: () => void;
-  /** Сохраняет черновик как именованный фильтр; при успехе окно применяет черновик и закрывается. */
-  onSave: (draft: JournalUrlState, name: string) => Promise<void>;
 }) {
-  return (
-    <Modal open={props.open} title="Фильтр" onClose={props.onClose}>
-      <FilterForm
-        state={props.state}
-        data={props.data}
-        onApply={(next) => {
-          props.onApply(next);
-          props.onClose();
-        }}
+```
+
+на
+
+```ts
+  /** Только поля модалки: их накладывают на текущий фильтр, а не на снимок при открытии. */
+  onApply: (next: DialogFields) => void;
+  onClose: () => void;
+  /**
+   * Сохраняет поля окна как именованный фильтр — тоже поверх текущего фильтра (applyDialogFields);
+   * при успехе окно применяет черновик и закрывается.
+   */
+  onSave: (draft: DialogFields, name: string) => Promise<void>;
+}) {
+```
+
+8. Замените
+
+```ts
+        onCancel={props.onClose}
+      />
+```
+
+на
+
+```ts
         onCancel={props.onClose}
         onSave={props.onSave}
       />
-    </Modal>
-  );
-}
 ```
 
-`src/client/pages/JournalPage.tsx` — замените файл целиком:
+`src/client/pages/JournalPage.tsx` — точечные правки (каждый фрагмент встречается в файле один раз):
+
+1. Замените
 
 ```ts
-import { useMemo, useState } from 'react';
-import { useOutletContext, useSearchParams } from 'react-router';
-import { todayInTimezone } from '../../shared/dates';
-import { ColumnsPicker } from '../components/journal/ColumnsPicker';
+import { FilterDialog } from '../components/journal/FilterDialog';
+```
+
+на
+
+```ts
 import { FilterDialog } from '../components/journal/FilterDialog';
 import { SavedFiltersMenu, unavailableText } from '../components/journal/SavedFiltersMenu';
-import { JournalTable, type JournalLookups } from '../components/journal/JournalTable';
-import { JournalToolbar } from '../components/journal/JournalToolbar';
-import { LoadMore } from '../components/journal/LoadMore';
-import { Pending, StaleNotice } from '../components/QueryState';
-import { btnSmall } from '../components/ui';
-import { JOURNAL_COLUMNS_PREF, visibleColumns } from '../lib/journal-columns';
+```
+
+2. Замените
+
+```ts
+import { applyDialogFields, filterConditionCount, isFiltered, journalApiParams, journalSearch, parseJournalSearch, type JournalUrlState } from '../lib/journal-filter';
+```
+
+на
+
+```ts
 import { api } from '../lib/api';
 import {
+  applyDialogFields,
   filterConditionCount,
   isFiltered,
   journalApiParams,
@@ -815,90 +798,91 @@ import {
   parseJournalSearch,
   savedFilterFromState,
   stateFromSavedFilter,
+  type DialogFields,
   type JournalUrlState,
 } from '../lib/journal-filter';
+```
+
+3. Замените
+
+```ts
+import { useMeta } from '../lib/query';
+```
+
+на
+
+```ts
 import { queryClient, useMeta } from '../lib/query';
-import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useSavedFilters, useTags, type CategoryTree, type Company } from '../lib/queries';
-import type { CompanyOutletContext } from './CompanyLayout';
+```
 
-/** Статьи плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
-function categoryNames(tree: CategoryTree): Map<number, string> {
-  const names = new Map<number, string>();
-  for (const node of [...tree.income, ...tree.expense]) {
-    names.set(node.id, node.name);
-    for (const child of node.children) names.set(child.id, `${node.name} → ${child.name}`);
-  }
-  return names;
-}
+4. Замените
 
-/**
- * Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка.
- * Маршрут не пересоздаёт страницу при смене компании, поэтому экран компании — с key: окно «Фильтр»,
- * выделение и сообщения начинаются заново.
- */
-export function JournalPage() {
-  const { company } = useOutletContext<CompanyOutletContext>();
-  return <JournalScreen key={company.id} company={company} />;
-}
+```ts
+useProjects, useTags, type CategoryTree, type Company } from '../lib/queries';
+```
 
-function JournalScreen({ company }: { company: Company }) {
-  const meta = useMeta();
-  const prefs = usePreferences();
-  const [params, setParams] = useSearchParams();
-  const state = useMemo(() => parseJournalSearch(params), [params]);
-  const timeZone = meta.data?.timezone;
-  const today = timeZone ? todayInTimezone(timeZone) : null;
-  const journal = useJournal(company.id, today ? journalApiParams(state, today).toString() : null);
-  const accounts = useAccounts(company.id);
-  const categories = useCategories(company.id);
-  const projects = useProjects(company.id);
-  const counterparties = useCounterparties(company.id);
-  const tags = useTags(company.id);
+на
+
+```ts
+useProjects, useSavedFilters, useTags, type CategoryTree, type Company } from '../lib/queries';
+```
+
+5. Замените
+
+```ts
+  const [filterOpen, setFilterOpen] = useState(false);
+```
+
+на
+
+```ts
   const [filterOpen, setFilterOpen] = useState(false);
   const savedFilters = useSavedFilters(company.id);
   // предупреждение после применения сохранённого фильтра с недоступными ссылками (инвариант 10)
   const [notice, setNotice] = useState<string | null>(null);
+```
 
-  const lookups = useMemo<JournalLookups | null>(() => {
-    if (!accounts.data || !categories.data || !projects.data || !counterparties.data) return null;
-    return {
-      accounts: new Map(accounts.data.map((a) => [a.id, a])),
-      categories: categoryNames(categories.data),
-      projects: new Map(projects.data.map((p) => [p.id, p.name])),
-      counterparties: new Map(counterparties.data.map((c) => [c.id, c.name])),
-    };
-  }, [accounts.data, categories.data, projects.data, counterparties.data]);
+6. Замените
 
-  const queries = [meta, journal, accounts, categories, projects, counterparties, tags];
-  if (!journal.data || !lookups || !tags.data || !timeZone || !today) return <Pending queries={queries} />;
+```ts
+  if (!lookups || !tags.data || !timeZone || !today) return <Pending queries={lookupQueries} />;
+  if (!journal.data && !journal.error) return <Pending queries={[...lookupQueries, journal]} />;
+```
 
-  // фильтр меняет адрес без новой записи в истории браузера: «Назад» уводит со страницы, а не по шагам фильтра
-  const update = (next: JournalUrlState) => setParams(journalSearch(next), { replace: true });
-  const items = journal.data.pages.flatMap((p) => p.items);
-  const columns = visibleColumns(prefs.data?.[JOURNAL_COLUMNS_PREF]);
+на
+
+```ts
+  // без справочников журнал не показать; дальше тулбар на экране всегда — и пока грузится новый запрос журнала
+  // (например, после ошибки и смены поиска): иначе поле поиска пропало бы вместе с фокусом
+  if (!lookups || !tags.data || !timeZone || !today) return <Pending queries={lookupQueries} />;
+```
+
+7. Замените
+
+```ts
   const conditions = filterConditionCount(state);
-  const saveFilter = async (draft: JournalUrlState, name: string) => {
-    await api(`/companies/${company.id}/saved-filters`, { method: 'POST', body: { name, filter: savedFilterFromState(draft, today) } });
+```
+
+на
+
+```ts
+  const conditions = filterConditionCount(state);
+  // сохраняются поля окна поверх ТЕКУЩЕГО фильтра — как у «Готово», без устаревшего поиска из снимка
+  const saveFilter = async (draft: DialogFields, name: string) => {
+    await api(`/companies/${company.id}/saved-filters`, { method: 'POST', body: { name, filter: savedFilterFromState(applyDialogFields(state, draft), today) } });
     await queryClient.invalidateQueries({ queryKey: ['saved-filters', company.id] });
   };
+```
 
-  return (
-    <section>
-      <StaleNotice queries={queries} />
-      <h1 tabIndex={-1} className="mb-4 text-2xl font-bold outline-none">
-        Журнал
-      </h1>
-      <JournalToolbar
-        state={state}
-        onChange={update}
-        companyId={company.id}
-        baseCurrency={company.baseCurrency}
-        today={today}
-        actions={
-          <>
-            <button type="button" aria-haspopup="dialog" onClick={() => setFilterOpen(true)} className={btnSmall}>
-              Фильтр{conditions > 0 && ` · ${conditions}`}
-            </button>
+8. Замените
+
+```ts
+            <ColumnsPicker visible={columns} />
+```
+
+на
+
+```ts
             <SavedFiltersMenu
               companyId={company.id}
               filters={savedFilters.data}
@@ -908,14 +892,19 @@ function JournalScreen({ company }: { company: Company }) {
               }}
             />
             <ColumnsPicker visible={columns} />
-          </>
-        }
+```
+
+9. Замените
+
+```ts
+        onClose={() => setFilterOpen(false)}
       />
-      <FilterDialog
-        open={filterOpen}
-        state={state}
-        data={{ accounts: accounts.data!, categories: categories.data!, projects: projects.data!, counterparties: counterparties.data!, tags: tags.data }}
-        onApply={update}
+      {!journal.data ? (
+```
+
+на
+
+```ts
         onClose={() => setFilterOpen(false)}
         onSave={saveFilter}
       />
@@ -927,35 +916,17 @@ function JournalScreen({ company }: { company: Company }) {
           </button>
         </p>
       )}
-      {items.length === 0 ? (
-        <p className="py-8 text-center text-muted">{isFiltered(state) ? 'По этому фильтру операций нет.' : 'Операций пока нет.'}</p>
-      ) : (
-        <JournalTable
-          items={items}
-          columns={columns}
-          lookups={lookups}
-          baseCurrency={company.baseCurrency}
-          timeZone={timeZone}
-          today={today}
-          projectFilter={state.projectIds}
-          sort={state.sort}
-          order={state.order}
-          onSort={(sort, order) => update({ ...state, sort, order })}
-          busy={journal.isPlaceholderData}
-        />
-      )}
-      <LoadMore
-        hasNext={journal.hasNextPage}
-        loading={journal.isFetchingNextPage}
-        failed={journal.isFetchNextPageError}
-        onLoad={() => void journal.fetchNextPage()}
-      />
-    </section>
-  );
-}
+      {!journal.data && !journal.error ? (
+        <p className="py-8 text-center text-muted">Загрузка…</p>
+      ) : !journal.data ? (
 ```
 
-У кнопки пункта меню доступное имя «Применить фильтр «…»» (с числом недоступных условий): видимое название входит в него (WCAG 2.5.3), а кнопки «Переименовать…» и «Удалить…» не совпадают с ним по подстроке.
+У кнопки пункта меню доступное имя «Применить фильтр «…»» (с числом недоступных условий): видимое название входит в него (WCAG 2.5.3), а кнопки «Переименовать…» и «Удалить…» не совпадают с ним по подстроке. Тест «ошибка журнала» отвечает на первый запрос журнала 400 (`page.route`, без повторов запроса) и проверяет, что после нового поиска поле поиска остаётся в фокусе: с прежним `if (!journal.data && !journal.error) return <Pending …>` он падает.
+
+Проверьте, что правки не затёрли код плана 5b:
+
+Run: `node -e "const fs = require('fs'); const need = { 'src/client/pages/JournalPage.tsx': ['uniqueById(', '!journal.isPlaceholderData &&', 'applyDialogFields('], 'src/client/components/journal/JournalTable.tsx': ['e.currentTarget.contains(e.target as Node)', 'Перевод: со счёта'] }; for (const [f, xs] of Object.entries(need)) { const s = fs.readFileSync(f, 'utf8'); for (const x of xs) if (!s.includes(x)) { console.error(f + ': пропало «' + x + '» — правка затёрла код плана 5b'); process.exit(1); } }"`
+Expected: ничего не выводит, код выхода 0.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -971,27 +942,28 @@ Run: `npm test`, `npm run typecheck` и `npm run test:e2e` — зелёные.
 
 ```bash
 git add src/client/lib/journal-filter.ts src/client/lib/queries.ts src/client/components/journal/SavedFiltersMenu.tsx src/client/components/journal/FilterDialog.tsx src/client/pages/JournalPage.tsx tests/client/journal-saved-filter.test.ts e2e/journal-actions.spec.ts
-git commit -m "feat: сохранённые фильтры журнала — сохранить, применить, переименовать, удалить; предупреждение о недоступных условиях
+git commit -m "feat: сохранённые фильтры журнала — сохранить, применить, переименовать, удалить; тулбар остаётся при загрузке журнала
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
+
 ### Task 2: «Указать» — список с поиском, оптимистичное сохранение с версией, откат и 409
 
 **Files:**
-- Create: `src/client/lib/journal-assign.ts`, `src/client/lib/journal-mutations.ts`, `src/client/components/SearchPicker.tsx`, `src/client/components/journal/AssignPicker.tsx`, `tests/client/journal-assign.test.ts`
+- Create: `src/client/components/SearchPicker.tsx`, `src/client/components/journal/AssignPicker.tsx`, `src/client/lib/journal-assign.ts`, `src/client/lib/journal-mutations.ts`, `tests/client/journal-assign.test.ts`
 - Modify: `src/client/components/journal/JournalTable.tsx`, `src/client/pages/JournalPage.tsx`, `e2e/journal-actions.spec.ts`
 
 **Interfaces:**
-- Consumes: `JournalItem`, `JournalPageData`, `CategoryNode`, `CategoryTree`, `Counterparty`, `Project` (`queries.ts`); `Popover` (план 5b); `matchesQuery` (`src/shared/search.ts`); `api`, `ApiError`; `queryClient`; `JournalTable` (план 5b); `PATCH /operations/:id` (план 4a; 409 `VERSION_CONFLICT`).
+- Consumes: `JournalItem`, `JournalPageData`, `CategoryNode`, `CategoryTree`, `Counterparty`, `Project` (`queries.ts`); `Popover` (план 5b); `matchesQuery` (`src/shared/search.ts`); `api`, `ApiError`; `queryClient`; `JournalTable` (план 5b: у строки `tabIndex={-1}` и `data-operation-id`); `PATCH /operations/:id` (план 4a; 409 `VERSION_CONFLICT`).
 - Produces:
   - `journal-assign.ts`: `type AssignField = 'counterparty' | 'category' | 'project'`, `ASSIGN_LABELS` («Указать контрагента», «Указать статью», «Указать проект»), `AssignTarget`, `canAssign(item, field): boolean`, `interface AssignPatch`, `assignPatch(item, field, id): AssignPatch`, `withAssigned(item, field, id)`;
   - `journal-mutations.ts`: `invalidateOperations(companyId): Promise<void>`, `operationErrorText(e: unknown): string` (409 «изменена» — «… Журнал обновлён — проверьте и повторите.», 409 «удалена» — «Операция удалена другим пользователем. Журнал обновлён.», прочее — текст сервера), `useAssign(companyId, onError: (message: string) => void)` — мутация `{ item, field, id }`;
-  - `JournalPage`: после выбора в «Указать» фокус — на строку операции (`focusRow(id)`: `tr[data-operation-id]`, план 5b);
-  - `SearchPicker(props: { label; ariaLabel?; listLabel; options: PickerOption[]; onPick: (id: number) => void; buttonClassName?; align?; disabled? })`, `interface PickerOption { id: number; label: string }` — поле поиска `combobox` с именем «{listLabel}: поиск», список `listbox` с именем listLabel;
+  - `SearchPicker(props: { label; ariaLabel?; listLabel; options: PickerOption[]; onPick: (id: number) => void; buttonClassName?; align? })`, `interface PickerOption { id: number; label: string }` — поле поиска `combobox` с именем «{listLabel}: поиск», список `listbox` с именем listLabel;
   - `AssignPicker({ item, field, data, onPick })`, `interface AssignData { categories; projects; counterparties }`, `categoryPickerOptions(nodes): PickerOption[]`;
-  - `JournalTable`: свойство `renderAssign?: (item, field) => ReactNode` — вызывается только там, где `canAssign`.
+  - `JournalTable`: свойство `renderAssign?: (item, field) => ReactNode` — вызывается только там, где `canAssign`;
+  - `JournalPage`: после выбора в «Указать» фокус — на строку операции (`focusRow(id)`: `tr[data-operation-id]`).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1159,6 +1131,11 @@ test('«Указать»: список с поиском и клавиатуро
   await expect(row('C')).toContainText('Клуб 1');
 });
 ```
+
+Проверьте экранирования:
+
+Run: `node -e "for (const f of process.argv.slice(1)) if (/[\u00a0\u202f\u2212]/.test(require('fs').readFileSync(f, 'utf8'))) { console.error('невидимый символ вместо экранирования: ' + f); process.exit(1); }" tests/client/journal-assign.test.ts e2e/journal-actions.spec.ts`
+Expected: ничего не выводит.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -1390,7 +1367,6 @@ export function SearchPicker(props: {
   onPick: (id: number) => void;
   buttonClassName?: string;
   align?: 'left' | 'right';
-  disabled?: boolean;
 }) {
   return (
     <Popover
@@ -1398,7 +1374,6 @@ export function SearchPicker(props: {
       ariaLabel={props.ariaLabel}
       buttonClassName={props.buttonClassName}
       align={props.align}
-      disabled={props.disabled}
       panelClassName="w-72"
     >
       {(close) => (
@@ -1460,336 +1435,170 @@ export function AssignPicker(props: { item: JournalItem; field: AssignField; dat
 }
 ```
 
-`src/client/components/journal/JournalTable.tsx` — замените файл целиком:
+`src/client/components/journal/JournalTable.tsx` — точечные правки (каждый фрагмент встречается в файле один раз):
+
+1. Замените
 
 ```ts
-import type { MouseEvent, ReactNode } from 'react';
-import { formatMoney } from '../../../shared/money';
+import { JOURNAL_COLUMNS, type JournalColumnId } from '../../lib/journal-columns';
+```
+
+на
+
+```ts
 import { canAssign, type AssignField } from '../../lib/journal-assign';
 import { JOURNAL_COLUMNS, type JournalColumnId } from '../../lib/journal-columns';
-import type { JournalSortKey, JournalSortOrder } from '../../lib/journal-filter';
-import { dayLabel, dayOf, lineDimension, projectShare, signedMoney, splitLabel, timeLabel } from '../../lib/journal-format';
-import type { Account, JournalItem } from '../../lib/queries';
-import { SplitHint } from './SplitHint';
+```
 
-/** Названия справочников для ячеек журнала (архивные тоже: операции на них ссылаются). */
-export interface JournalLookups {
-  accounts: Map<number, Account>;
-  categories: Map<number, string>;
-  projects: Map<number, string>;
-  counterparties: Map<number, string>;
+2. Замените
+
+```ts
+  onOpenOperation?: (item: JournalItem) => void;
 }
+```
 
-export interface JournalTableProps {
-  items: JournalItem[];
-  columns: readonly JournalColumnId[];
-  lookups: JournalLookups;
-  baseCurrency: string;
-  timeZone: string;
-  today: string;
-  /** Выбранные в фильтре проекты: у разбитых операций под суммой — «доля проекта». */
-  projectFilter: readonly number[];
-  sort: JournalSortKey;
-  order: JournalSortOrder;
-  onSort: (sort: JournalSortKey, order: JournalSortOrder) => void;
-  busy: boolean;
-  /**
-   * Точка подключения формы операции (шаг 6): клик по строке открывает операцию. Пока не передаётся —
-   * строка не реагирует на клик.
-   */
+на
+
+```ts
   onOpenOperation?: (item: JournalItem) => void;
   /** «Указать» в пустой ячейке (§7): вызывается только там, где оно разрешено (canAssign). */
   renderAssign?: (item: JournalItem, field: AssignField) => ReactNode;
 }
+```
 
-const AMOUNT_CLASS: Record<JournalItem['type'], string> = {
-  income: 'text-income',
-  expense: 'text-expense',
-  transfer: 'text-transfer',
-};
+3. Замените
 
-const thClass = 'px-3 py-2 text-left text-xs font-semibold text-muted';
-const tdClass = 'px-3 py-2 align-top';
-
-function SortHeader(props: { label: string; column: JournalSortKey; sort: JournalSortKey; order: JournalSortOrder; onSort: JournalTableProps['onSort'] }) {
-  const active = props.sort === props.column;
-  const next: JournalSortOrder = active && props.order === 'desc' ? 'asc' : 'desc';
-  return (
-    <th scope="col" className={thClass} aria-sort={active ? (props.order === 'asc' ? 'ascending' : 'descending') : undefined}>
-      <button type="button" onClick={() => props.onSort(props.column, next)} className="inline-flex items-center gap-1 rounded hover:text-ink">
-        {props.label}
-        <span aria-hidden="true">{active ? (props.order === 'asc' ? '↑' : '↓') : '↕'}</span>
-      </button>
-    </th>
-  );
+```ts
+/** Ячейка статьи или проекта: название, «N категорий» с подсказкой у разбитой операции или пусто. */
+function dimensionCell(item: JournalItem, key: 'categoryId' | 'projectId', names: Map<number, string>, hint: string[]): ReactNode {
+  const d = lineDimension(item.lines, key);
+  if (d.kind === 'many') return <SplitHint label={splitLabel(d.count, key === 'categoryId' ? 'category' : 'project')} lines={hint} />;
+  return d.id === null ? null : (names.get(d.id) ?? '…');
 }
+```
 
-function lineHint(item: JournalItem, lookups: JournalLookups, currency: string): string[] {
-  return item.lines.map((l) => {
-    const category = l.categoryId === null ? 'без статьи' : (lookups.categories.get(l.categoryId) ?? '…');
-    const project = l.projectId === null ? 'без проекта' : (lookups.projects.get(l.projectId) ?? '…');
-    return `${category} · ${project} — ${formatMoney(l.amount, currency)}`;
-  });
-}
+на
 
+```ts
 /** Ячейка статьи или проекта: название, «N категорий» с подсказкой у разбитой операции, «Указать» или пусто. */
 function dimensionCell(item: JournalItem, key: 'categoryId' | 'projectId', names: Map<number, string>, hint: string[], assign: ReactNode): ReactNode {
   const d = lineDimension(item.lines, key);
   if (d.kind === 'many') return <SplitHint label={splitLabel(d.count, key === 'categoryId' ? 'category' : 'project')} lines={hint} />;
   return d.id === null ? assign : (names.get(d.id) ?? '…');
 }
+```
 
-function AccountLine({ account, balance }: { account: Account | undefined; balance: number | null }) {
-  return (
-    <span className="block">
-      <span className="block truncate">{account?.name ?? '…'}</span>
-      {account && balance !== null && (
-        <span className={`block text-xs tabular-nums ${balance < 0 ? 'text-expense' : 'text-muted'}`}>остаток {formatMoney(balance, account.currency)}</span>
-      )}
-    </span>
-  );
-}
+4. Замените
 
-export function JournalTable(props: JournalTableProps) {
-  const { lookups, columns } = props;
-  const shown = JOURNAL_COLUMNS.filter((c) => columns.includes(c.id));
+```ts
+            const share = projectShare(item.lines, props.projectFilter);
+```
 
-  const onRowClick = (item: JournalItem) => (e: MouseEvent<HTMLTableRowElement>) => {
-    // клики по настоящим элементам управления внутри строки — не открытие операции;
-    // «2 статьи» (подсказка с tabIndex) — открывает: по §7 клик по ним открывает форму
-    if ((e.target as HTMLElement).closest('button, a, input, label, select, [role="combobox"], [role="listbox"]')) return;
-    props.onOpenOperation?.(item);
-  };
+на
 
-  return (
-    <div className="overflow-x-auto">
-      <table aria-busy={props.busy} className={`w-full min-w-[56rem] border-collapse text-sm ${props.busy ? 'opacity-60' : ''}`}>
-        <caption className="sr-only">Операции</caption>
-        <thead>
-          <tr className="border-b border-field">
-            {shown.map((c) =>
-              c.id === 'date' || c.id === 'amount' ? (
-                <SortHeader key={c.id} label={c.label} column={c.id} sort={props.sort} order={props.order} onSort={props.onSort} />
-              ) : (
-                <th key={c.id} scope="col" className={thClass}>
-                  {c.label}
-                </th>
-              ),
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {props.items.map((item) => {
-            const account = lookups.accounts.get(item.accountId);
-            const toAccount = item.toAccountId === null ? undefined : lookups.accounts.get(item.toAccountId);
-            const currency = account?.currency ?? props.baseCurrency;
-            const hint = lineHint(item, lookups, currency);
+```ts
             const share = projectShare(item.lines, props.projectFilter);
             const assign = (field: AssignField) => (props.renderAssign && canAssign(item, field) ? props.renderAssign(item, field) : null);
-            const cells: Record<JournalColumnId, ReactNode> = {
-              date: (
-                <time dateTime={item.paidAt} className="whitespace-nowrap">
-                  {dayLabel(dayOf(item.paidAt, props.timeZone), props.today)}
-                  <span className="ml-1 text-xs text-muted">{timeLabel(item.paidAt, props.timeZone)}</span>
-                </time>
-              ),
-              amount: (
-                <span className="block whitespace-nowrap tabular-nums">
-                  <span className={`block font-semibold ${AMOUNT_CLASS[item.type]}`}>
-                    {item.type === 'transfer' && <span aria-hidden="true">⇄ </span>}
-                    {signedMoney(item.type, item.amount, currency)}
-                  </span>
-                  {item.type === 'transfer' && toAccount && toAccount.currency !== currency && item.toAmount !== null && (
-                    <span className="block text-xs text-transfer">→ {formatMoney(item.toAmount, toAccount.currency)}</span>
-                  )}
-                  {currency !== props.baseCurrency && <span className="block text-xs text-muted">{formatMoney(item.baseAmount, props.baseCurrency)}</span>}
-                  {share !== null && <span className="block text-xs text-muted">доля проекта: {formatMoney(share, currency)}</span>}
-                </span>
-              ),
-              account: (
-                <>
-                  <AccountLine account={account} balance={item.balanceAfter} />
-                  {item.type === 'transfer' && (
-                    <span className="mt-1 flex gap-1">
-                      <span aria-hidden="true" className="text-muted">
-                        →
-                      </span>
-                      <AccountLine account={toAccount} balance={item.toBalanceAfter} />
-                    </span>
-                  )}
-                </>
-              ),
+```
+
+5. Замените
+
+```ts
+              counterparty: item.counterpartyId === null ? null : (lookups.counterparties.get(item.counterpartyId) ?? '…'),
+              category: dimensionCell(item, 'categoryId', lookups.categories, hint),
+              project: dimensionCell(item, 'projectId', lookups.projects, hint),
+```
+
+на
+
+```ts
               counterparty: item.counterpartyId === null ? assign('counterparty') : (lookups.counterparties.get(item.counterpartyId) ?? '…'),
               category: dimensionCell(item, 'categoryId', lookups.categories, hint, assign('category')),
               project: dimensionCell(item, 'projectId', lookups.projects, hint, assign('project')),
-              comment: item.comment && (
-                <span className="line-clamp-2 max-w-xs break-words" title={item.comment}>
-                  {item.comment}
-                </span>
-              ),
-            };
-            return (
-              <tr
-                key={item.id}
-                // фокус сюда переводит «Указать» после выбора: кнопка в ячейке исчезает (план 5c)
-                tabIndex={-1}
-                data-operation-id={item.id}
-                onClick={props.onOpenOperation ? onRowClick(item) : undefined}
-                className={`border-b border-field outline-none last:border-0 focus:bg-field/60 ${props.onOpenOperation ? 'cursor-pointer hover:bg-field/60' : ''}`}
-              >
-                {shown.map((c) => (
-                  <td key={c.id} className={tdClass}>
-                    {cells[c.id]}
-                  </td>
-                ))}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
 ```
 
-`src/client/pages/JournalPage.tsx` — замените файл целиком:
+`src/client/pages/JournalPage.tsx` — точечные правки (каждый фрагмент встречается в файле один раз):
+
+1. Замените
 
 ```ts
-import { useMemo, useState } from 'react';
-import { useOutletContext, useSearchParams } from 'react-router';
-import { todayInTimezone } from '../../shared/dates';
+import { ColumnsPicker } from '../components/journal/ColumnsPicker';
+```
+
+на
+
+```ts
 import { AssignPicker } from '../components/journal/AssignPicker';
 import { ColumnsPicker } from '../components/journal/ColumnsPicker';
-import { FilterDialog } from '../components/journal/FilterDialog';
-import { SavedFiltersMenu, unavailableText } from '../components/journal/SavedFiltersMenu';
-import { JournalTable, type JournalLookups } from '../components/journal/JournalTable';
-import { JournalToolbar } from '../components/journal/JournalToolbar';
-import { LoadMore } from '../components/journal/LoadMore';
-import { Pending, StaleNotice } from '../components/QueryState';
-import { btnSmall } from '../components/ui';
-import { JOURNAL_COLUMNS_PREF, visibleColumns } from '../lib/journal-columns';
-import { api } from '../lib/api';
-import {
-  filterConditionCount,
-  isFiltered,
-  journalApiParams,
-  journalSearch,
-  parseJournalSearch,
-  savedFilterFromState,
-  stateFromSavedFilter,
-  type JournalUrlState,
-} from '../lib/journal-filter';
-import { useAssign } from '../lib/journal-mutations';
-import { queryClient, useMeta } from '../lib/query';
-import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useSavedFilters, useTags, type CategoryTree, type Company } from '../lib/queries';
-import type { CompanyOutletContext } from './CompanyLayout';
+```
 
+2. Замените
+
+```ts
+import { uniqueById } from '../lib/journal-format';
+```
+
+на
+
+```ts
+import { uniqueById } from '../lib/journal-format';
+import { useAssign } from '../lib/journal-mutations';
+```
+
+3. Замените
+
+```ts
+/** Статьи плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
+```
+
+на
+
+```ts
 /** Фокус на строку операции (у строки tabIndex=-1 и data-operation-id). */
 function focusRow(id: number): void {
   requestAnimationFrame(() => document.querySelector<HTMLElement>(`tr[data-operation-id="${id}"]`)?.focus());
 }
 
 /** Статьи плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
-function categoryNames(tree: CategoryTree): Map<number, string> {
-  const names = new Map<number, string>();
-  for (const node of [...tree.income, ...tree.expense]) {
-    names.set(node.id, node.name);
-    for (const child of node.children) names.set(child.id, `${node.name} → ${child.name}`);
-  }
-  return names;
-}
+```
 
-/**
- * Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка.
- * Маршрут не пересоздаёт страницу при смене компании, поэтому экран компании — с key: окно «Фильтр»,
- * выделение и сообщения начинаются заново.
- */
-export function JournalPage() {
-  const { company } = useOutletContext<CompanyOutletContext>();
-  return <JournalScreen key={company.id} company={company} />;
-}
+4. Замените
 
-function JournalScreen({ company }: { company: Company }) {
-  const meta = useMeta();
-  const prefs = usePreferences();
-  const [params, setParams] = useSearchParams();
-  const state = useMemo(() => parseJournalSearch(params), [params]);
-  const timeZone = meta.data?.timezone;
-  const today = timeZone ? todayInTimezone(timeZone) : null;
-  const journal = useJournal(company.id, today ? journalApiParams(state, today).toString() : null);
-  const accounts = useAccounts(company.id);
-  const categories = useCategories(company.id);
-  const projects = useProjects(company.id);
-  const counterparties = useCounterparties(company.id);
-  const tags = useTags(company.id);
-  const [filterOpen, setFilterOpen] = useState(false);
-  const savedFilters = useSavedFilters(company.id);
-  // предупреждение после применения сохранённого фильтра с недоступными ссылками (инвариант 10)
+```ts
+  const [notice, setNotice] = useState<string | null>(null);
+```
+
+на
+
+```ts
   const [notice, setNotice] = useState<string | null>(null);
   // ошибка «Указать» (конфликт версии, архив) — над таблицей, пока её не скроют или не начнут новое действие
   const [actionError, setActionError] = useState<string | null>(null);
   const assign = useAssign(company.id, setActionError);
+```
 
-  const lookups = useMemo<JournalLookups | null>(() => {
-    if (!accounts.data || !categories.data || !projects.data || !counterparties.data) return null;
-    return {
-      accounts: new Map(accounts.data.map((a) => [a.id, a])),
-      categories: categoryNames(categories.data),
-      projects: new Map(projects.data.map((p) => [p.id, p.name])),
-      counterparties: new Map(counterparties.data.map((c) => [c.id, c.name])),
-    };
-  }, [accounts.data, categories.data, projects.data, counterparties.data]);
+5. Замените
 
-  const queries = [meta, journal, accounts, categories, projects, counterparties, tags];
-  if (!journal.data || !lookups || !tags.data || !timeZone || !today) return <Pending queries={queries} />;
-
-  // фильтр меняет адрес без новой записи в истории браузера: «Назад» уводит со страницы, а не по шагам фильтра
-  const update = (next: JournalUrlState) => setParams(journalSearch(next), { replace: true });
-  const items = journal.data.pages.flatMap((p) => p.items);
-  const columns = visibleColumns(prefs.data?.[JOURNAL_COLUMNS_PREF]);
+```ts
   const conditions = filterConditionCount(state);
-  const saveFilter = async (draft: JournalUrlState, name: string) => {
-    await api(`/companies/${company.id}/saved-filters`, { method: 'POST', body: { name, filter: savedFilterFromState(draft, today) } });
-    await queryClient.invalidateQueries({ queryKey: ['saved-filters', company.id] });
-  };
+```
 
-  return (
-    <section>
-      <StaleNotice queries={queries} />
-      <h1 tabIndex={-1} className="mb-4 text-2xl font-bold outline-none">
-        Журнал
-      </h1>
-      <JournalToolbar
-        state={state}
-        onChange={update}
-        companyId={company.id}
-        baseCurrency={company.baseCurrency}
-        today={today}
-        actions={
-          <>
-            <button type="button" aria-haspopup="dialog" onClick={() => setFilterOpen(true)} className={btnSmall}>
-              Фильтр{conditions > 0 && ` · ${conditions}`}
-            </button>
-            <SavedFiltersMenu
-              companyId={company.id}
-              filters={savedFilters.data}
-              onApply={(f) => {
-                update(stateFromSavedFilter(f.filter, state));
-                setNotice(f.unavailable > 0 ? `Фильтр «${f.name}»: ${unavailableText(f.unavailable)} (удалены или в архиве) — они не применены.` : null);
-              }}
-            />
-            <ColumnsPicker visible={columns} />
-          </>
-        }
-      />
-      <FilterDialog
-        open={filterOpen}
-        state={state}
-        data={{ accounts: accounts.data!, categories: categories.data!, projects: projects.data!, counterparties: counterparties.data!, tags: tags.data }}
-        onApply={update}
-        onClose={() => setFilterOpen(false)}
-        onSave={saveFilter}
-      />
+на
+
+```ts
+  const conditions = filterConditionCount(state);
+  const assignData = { categories: categories.data!, projects: projects.data!, counterparties: counterparties.data! };
+```
+
+6. Замените
+
+```ts
+      {notice && (
+```
+
+на
+
+```ts
       {actionError && (
         <p role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
           <span>{actionError}</span>
@@ -1799,33 +1608,24 @@ function JournalScreen({ company }: { company: Company }) {
         </p>
       )}
       {notice && (
-        <p role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
-          <span>{notice}</span>
-          <button type="button" onClick={() => setNotice(null)} className="font-semibold underline">
-            Скрыть
-          </button>
-        </p>
-      )}
-      {items.length === 0 ? (
-        <p className="py-8 text-center text-muted">{isFiltered(state) ? 'По этому фильтру операций нет.' : 'Операций пока нет.'}</p>
-      ) : (
-        <JournalTable
-          items={items}
-          columns={columns}
-          lookups={lookups}
-          baseCurrency={company.baseCurrency}
-          timeZone={timeZone}
-          today={today}
-          projectFilter={state.projectIds}
-          sort={state.sort}
-          order={state.order}
-          onSort={(sort, order) => update({ ...state, sort, order })}
+```
+
+7. Замените
+
+```ts
+          busy={journal.isPlaceholderData}
+        />
+```
+
+на
+
+```ts
           busy={journal.isPlaceholderData}
           renderAssign={(item, field) => (
             <AssignPicker
               item={item}
               field={field}
-              data={{ categories: categories.data!, projects: projects.data!, counterparties: counterparties.data! }}
+              data={assignData}
               onPick={(id) => {
                 setActionError(null);
                 assign.mutate({ item, field, id });
@@ -1835,21 +1635,16 @@ function JournalScreen({ company }: { company: Company }) {
             />
           )}
         />
-      )}
-      <LoadMore
-        hasNext={journal.hasNextPage}
-        loading={journal.isFetchingNextPage}
-        failed={journal.isFetchNextPageError}
-        onLoad={() => void journal.fetchNextPage()}
-      />
-    </section>
-  );
-}
 ```
 
 В e2e правка «в другом окне» отправляется только после ответа на перечитывание журнала, вызванное предыдущим «Указать»: иначе поздний ответ мог бы принести новую версию раньше выбора, и конфликта не было бы. Проверка «не обрезан» сравнивает список с обёрткой таблицы и проверяет `elementFromPoint` у последнего варианта: `boundingBox` обрезку не видит, а точка в обрезанной части попадает в другой элемент.
 
-Почему так: снимок `getQueriesData` берётся до оптимистичной правки и возвращается при ошибке; `cancelQueries` не даёт идущему запросу журнала затереть оптимистичное значение. `onSettled` сбрасывает журнал, счета и компании и при успехе, и при ошибке — после 409 строка приходит с новой версией, и повтор проходит.
+Почему так: снимок `getQueriesData` берётся до оптимистичной правки и возвращается при ошибке; `cancelQueries` не даёт идущему запросу журнала затереть оптимистичное значение. `onSettled` сбрасывает журнал, счета и компании и при успехе, и при ошибке — после 409 строка приходит с новой версией, и повтор проходит. Оптимистичная правка меняет строку на всех страницах; повторы по id страница всё равно убирает (`uniqueById` плана 5b).
+
+Проверьте, что правки не затёрли код плана 5b:
+
+Run: `node -e "const fs = require('fs'); const need = { 'src/client/pages/JournalPage.tsx': ['uniqueById(', '!journal.isPlaceholderData &&', 'applyDialogFields('], 'src/client/components/journal/JournalTable.tsx': ['e.currentTarget.contains(e.target as Node)', 'Перевод: со счёта'] }; for (const [f, xs] of Object.entries(need)) { const s = fs.readFileSync(f, 'utf8'); for (const x of xs) if (!s.includes(x)) { console.error(f + ': пропало «' + x + '» — правка затёрла код плана 5b'); process.exit(1); } }"`
+Expected: ничего не выводит, код выхода 0.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -1864,25 +1659,27 @@ Expected: PASS.
 Run: `npm test`, `npm run typecheck` и `npm run test:e2e` — зелёные.
 
 ```bash
-git add src/client/lib/journal-assign.ts src/client/lib/journal-mutations.ts src/client/components/SearchPicker.tsx src/client/components/journal/AssignPicker.tsx src/client/components/journal/JournalTable.tsx src/client/pages/JournalPage.tsx tests/client/journal-assign.test.ts e2e/journal-actions.spec.ts
+git add src/client/lib/journal-assign.ts src/client/lib/journal-mutations.ts src/client/components/SearchPicker.tsx src/client/components/journal/AssignPicker.tsx tests/client/journal-assign.test.ts src/client/components/journal/JournalTable.tsx src/client/pages/JournalPage.tsx e2e/journal-actions.spec.ts
 git commit -m "feat: «Указать» в журнале — список с поиском, оптимистичное сохранение с версией, откат при ошибке и конфликте
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
+
 ### Task 3: Массовые действия, итог с причинами и «Удалено N — Отменить»
 
 **Files:**
-- Create: `src/client/lib/journal-bulk.ts`, `src/client/components/journal/BulkBar.tsx`, `src/client/components/journal/UndoToast.tsx`, `tests/client/journal-bulk.test.ts`
-- Modify: `src/client/lib/journal-mutations.ts`, `src/client/components/journal/JournalTable.tsx`, `src/client/pages/JournalPage.tsx`, `e2e/journal-actions.spec.ts`, `README.md`
+- Create: `src/client/components/journal/BulkBar.tsx`, `src/client/components/journal/UndoToast.tsx`, `src/client/lib/journal-bulk.ts`, `tests/client/journal-bulk.test.ts`
+- Modify: `src/client/lib/journal-mutations.ts`, `src/client/components/Popover.tsx`, `src/client/components/SearchPicker.tsx`, `src/client/components/journal/JournalTable.tsx`, `src/client/pages/JournalPage.tsx`, `e2e/journal-actions.spec.ts`, `README.md`
 
 **Interfaces:**
-- Consumes: `invalidateOperations`, `operationErrorText` (задача 2); `SearchPicker`, `categoryPickerOptions`, `AssignData` (задача 2); `dayLabel`, `dayOf`, `timeLabel`, `signedMoney` (план 5b); `POST …/operations/bulk` (план 5a).
+- Consumes: `invalidateOperations`, `operationErrorText` (задача 2); `SearchPicker`, `categoryPickerOptions`, `AssignData` (задача 2); `Popover` (план 5b); `dayLabel`, `dayOf`, `timeLabel`, `signedMoney` (план 5b); `POST …/operations/bulk` (план 5a).
 - Produces:
   - `journal-bulk.ts`: `BULK_MAX = 500`, `type BulkAction` (`{ action: 'setCategory'; categoryId } | { action: 'setProject'; projectId } | { action: 'setCounterparty'; counterpartyId } | { action: 'delete' } | { action: 'restore' }`), `interface BulkResult { changed: number[]; skipped: { id: number; reason: string }[] }`, `interface BulkSummary { text: string; reasons: { reason: string; count: number }[] }`, `bulkSummary(action, result): BulkSummary`;
   - `journal-mutations.ts`: `runBulk(companyId, ids, action): Promise<BulkResult>`;
-  - `BulkBar({ count, data, pending, onRun, onClear })` — `role="region"` «Действия с выбранными»: «Выбрано: N», «Статья», «Проект», «Контрагент», «Удалить» (подтверждение «Да, удалить» / «Отмена»), «Снять выделение»; пока `pending`, кнопки и списки недоступны;
+  - `Popover`: свойство `inactive?: boolean` — `aria-disabled`, щелчок не открывает панель, кнопка остаётся в порядке фокуса; `SearchPicker`: то же свойство `inactive`;
+  - `BulkBar({ count, data, pending, onRun, onClear })` — `role="region"` «Действия с выбранными»: «Выбрано: N», «Статья», «Проект», «Контрагент» (пока `pending` — `inactive`), «Удалить» (подтверждение «Да, удалить» / «Отмена»), «Снять выделение»;
   - `UndoToast({ toast, pending, onUndo, onClose, focusAfter })`, `UNDO_TOAST_MS = 10_000`;
   - `JournalPage` держит тост (`interface UndoState { key; companyId; count; ids }`) и итог «Отмены удаления» с компанией; `JournalScreen` получает `onDeleted(ids)`, `undoSummary`, `onClearUndoSummary()`; заголовок — `<h1 id="journal-heading">`;
   - `JournalTable`: свойство `selection?: { selected: ReadonlySet<number>; onToggle: (id) => void; onToggleAll: (select: boolean) => void }` — колонка флажков «Выбрать все загруженные операции» и «Выбрать операцию: {дата} {время}, {сумма}».
@@ -1919,24 +1716,28 @@ describe('итог массового действия (§7)', () => {
 });
 ```
 
-`e2e/journal-actions.spec.ts` — после строки
+`e2e/journal-actions.spec.ts` — точечные правки (каждый фрагмент встречается в файле один раз):
+
+1. Замените
 
 ```ts
 const bodyRows = (page: Page) => table(page).locator('tbody tr');
 ```
 
-добавьте
+на
 
 ```ts
+const bodyRows = (page: Page) => table(page).locator('tbody tr');
 const panel = (page: Page) => page.getByRole('navigation', { name: 'Счета' });
 ```
 
-и допишите в конец файла:
+`e2e/journal-actions.spec.ts` — допишите в конец файла:
 
 ```ts
 test('массовые действия: статья с итогом и причинами, проект, удаление с подтверждением и «Отменить» — балансы в панели обновляются', async ({ page }) => {
   await login(page);
-  const cid = await createCompany(page, `ТОО Массовые ${Date.now()}`);
+  const name = `ТОО Массовые ${Date.now()}`;
+  const cid = await createCompany(page, name);
   const base = `/api/v1/companies/${cid}`;
   const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 100000 })).account.id;
   await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда' });
@@ -1973,6 +1774,8 @@ test('массовые действия: статья с итогом и при�
   await page.getByRole('listbox', { name: 'Статьи' }).getByRole('option', { name: 'Расход: Аренда' }).click();
   const summary = page.getByRole('status').filter({ hasText: 'Статья:' });
   await expect(summary).toContainText('Статья: изменено 2, пропущено 2');
+  // фокус после выбора — на кнопке списка, а не на body
+  await expect(bar.getByRole('button', { name: 'Статья', exact: true })).toBeFocused();
   await expect(summary).toContainText('Разбитая операция — измените её в форме — 1');
   await expect(summary).toContainText('Статья расходов не подходит для дохода — 1');
   await expect(row('A')).toContainText('Аренда');
@@ -2031,7 +1834,7 @@ test('массовые действия: статья с итогом и при�
   await undo.click();
   await expect(undo).toHaveCount(0);
   await page.getByRole('button', { name: /Сменить компанию/ }).click();
-  await page.getByRole('menuitem', { name: /^ТОО Массовые/ }).click();
+  await page.getByRole('menuitem', { name }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
   await expect.poll(() => letters(page)).toBe('DCBA');
   await expect(page.getByRole('status').filter({ hasText: 'Отмена удаления:' })).toContainText('Отмена удаления: изменено 1, пропущено 0');
@@ -2039,7 +1842,9 @@ test('массовые действия: статья с итогом и при�
 });
 ```
 
-Run: `node -e "for (const f of process.argv.slice(1)) if (/[\u00a0\u202f\u2212]/.test(require('fs').readFileSync(f, 'utf8'))) { console.error('невидимый символ вместо экранирования: ' + f); process.exit(1); }" e2e/journal-actions.spec.ts`
+Проверьте экранирования:
+
+Run: `node -e "for (const f of process.argv.slice(1)) if (/[\u00a0\u202f\u2212]/.test(require('fs').readFileSync(f, 'utf8'))) { console.error('невидимый символ вместо экранирования: ' + f); process.exit(1); }" tests/client/journal-bulk.test.ts e2e/journal-actions.spec.ts`
 Expected: ничего не выводит.
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -2095,13 +1900,22 @@ export function bulkSummary(action: BulkAction['action'], r: BulkResult): BulkSu
 }
 ```
 
-`src/client/lib/journal-mutations.ts` — после строки `import { assignPatch, withAssigned, type AssignField } from './journal-assign';` добавьте:
+`src/client/lib/journal-mutations.ts` — точечные правки (каждый фрагмент встречается в файле один раз):
+
+1. Замените
 
 ```ts
+import { assignPatch, withAssigned, type AssignField } from './journal-assign';
+```
+
+на
+
+```ts
+import { assignPatch, withAssigned, type AssignField } from './journal-assign';
 import type { BulkAction, BulkResult } from './journal-bulk';
 ```
 
-и допишите в конец файла:
+`src/client/lib/journal-mutations.ts` — допишите в конец файла:
 
 ```ts
 /** Массовое действие над выбранными операциями (§7); журнал, счета и компании перечитываются и при ошибке. */
@@ -2112,6 +1926,89 @@ export async function runBulk(companyId: number, ids: number[], action: BulkActi
     void invalidateOperations(companyId);
   }
 }
+```
+
+`src/client/components/Popover.tsx` — точечные правки (каждый фрагмент встречается в файле один раз):
+
+1. Замените
+
+```ts
+  panelClassName?: string;
+  disabled?: boolean;
+```
+
+на
+
+```ts
+  panelClassName?: string;
+  disabled?: boolean;
+  /**
+   * Кнопка недоступна, но остаётся в порядке фокуса (aria-disabled, щелчок не открывает панель): фокус,
+   * вернувшийся на неё после выбора, не теряется, пока идёт начатое действие.
+   */
+  inactive?: boolean;
+```
+
+2. Замените
+
+```ts
+        disabled={props.disabled}
+        onClick={() => setOpen((v) => !v)}
+```
+
+на
+
+```ts
+        disabled={props.disabled}
+        aria-disabled={props.inactive || undefined}
+        onClick={() => {
+          if (!props.inactive) setOpen((v) => !v);
+        }}
+```
+
+3. Замените
+
+```ts
+        className={props.buttonClassName ?? btnSmall}
+      >
+```
+
+на
+
+```ts
+        className={`${props.buttonClassName ?? btnSmall} aria-disabled:cursor-not-allowed aria-disabled:opacity-50`}
+      >
+```
+
+`src/client/components/SearchPicker.tsx` — точечные правки (каждый фрагмент встречается в файле один раз):
+
+1. Замените
+
+```ts
+  align?: 'left' | 'right';
+}) {
+```
+
+на
+
+```ts
+  align?: 'left' | 'right';
+  /** Недоступна без потери фокуса (aria-disabled) — см. Popover. */
+  inactive?: boolean;
+}) {
+```
+
+2. Замените
+
+```ts
+      align={props.align}
+```
+
+на
+
+```ts
+      align={props.align}
+      inactive={props.inactive}
 ```
 
 `src/client/components/journal/BulkBar.tsx`:
@@ -2125,7 +2022,8 @@ import { categoryPickerOptions, type AssignData } from './AssignPicker';
 
 /**
  * Массовые действия с выбранными строками (§7): «Статья», «Проект», «Контрагент» (только назначают значение),
- * «Удалить» с подтверждением. Не больше BULK_MAX операций за раз.
+ * «Удалить» с подтверждением. Не больше BULK_MAX операций за раз. Пока действие выполняется, списки только помечены
+ * недоступными (aria-disabled): после выбора фокус возвращается на кнопку списка и там остаётся.
  */
 export function BulkBar(props: { count: number; data: AssignData; pending: boolean; onRun: (action: BulkAction) => void; onClear: () => void }) {
   const [confirm, setConfirm] = useState(false);
@@ -2150,7 +2048,7 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
             options={categoryOptions}
             onPick={(categoryId) => props.onRun({ action: 'setCategory', categoryId })}
             buttonClassName={pickerClass}
-            disabled={disabled}
+            inactive={props.pending}
           />
           <SearchPicker
             label="Проект"
@@ -2158,7 +2056,7 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
             options={props.data.projects.filter((p) => !p.archivedAt).map((p) => ({ id: p.id, label: p.name }))}
             onPick={(projectId) => props.onRun({ action: 'setProject', projectId })}
             buttonClassName={pickerClass}
-            disabled={disabled}
+            inactive={props.pending}
           />
           <SearchPicker
             label="Контрагент"
@@ -2166,7 +2064,7 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
             options={props.data.counterparties.filter((c) => !c.archivedAt).map((c) => ({ id: c.id, label: c.name }))}
             onPick={(counterpartyId) => props.onRun({ action: 'setCounterparty', counterpartyId })}
             buttonClassName={pickerClass}
-            disabled={disabled}
+            inactive={props.pending}
           />
           {!confirm && (
             <button type="button" disabled={disabled} onClick={() => setConfirm(true)} className={`${btnSmall} text-expense`}>
@@ -2261,45 +2159,18 @@ export function UndoToast(props: {
 }
 ```
 
-`src/client/components/journal/JournalTable.tsx` — замените файл целиком:
+`src/client/components/journal/JournalTable.tsx` — точечные правки (каждый фрагмент встречается в файле один раз):
+
+1. Замените
 
 ```ts
-import type { MouseEvent, ReactNode } from 'react';
-import { formatMoney } from '../../../shared/money';
-import { canAssign, type AssignField } from '../../lib/journal-assign';
-import { JOURNAL_COLUMNS, type JournalColumnId } from '../../lib/journal-columns';
-import type { JournalSortKey, JournalSortOrder } from '../../lib/journal-filter';
-import { dayLabel, dayOf, lineDimension, projectShare, signedMoney, splitLabel, timeLabel } from '../../lib/journal-format';
-import type { Account, JournalItem } from '../../lib/queries';
-import { SplitHint } from './SplitHint';
-
-/** Названия справочников для ячеек журнала (архивные тоже: операции на них ссылаются). */
-export interface JournalLookups {
-  accounts: Map<number, Account>;
-  categories: Map<number, string>;
-  projects: Map<number, string>;
-  counterparties: Map<number, string>;
+  renderAssign?: (item: JournalItem, field: AssignField) => ReactNode;
 }
+```
 
-export interface JournalTableProps {
-  items: JournalItem[];
-  columns: readonly JournalColumnId[];
-  lookups: JournalLookups;
-  baseCurrency: string;
-  timeZone: string;
-  today: string;
-  /** Выбранные в фильтре проекты: у разбитых операций под суммой — «доля проекта». */
-  projectFilter: readonly number[];
-  sort: JournalSortKey;
-  order: JournalSortOrder;
-  onSort: (sort: JournalSortKey, order: JournalSortOrder) => void;
-  busy: boolean;
-  /**
-   * Точка подключения формы операции (шаг 6): клик по строке открывает операцию. Пока не передаётся —
-   * строка не реагирует на клик.
-   */
-  onOpenOperation?: (item: JournalItem) => void;
-  /** «Указать» в пустой ячейке (§7): вызывается только там, где оно разрешено (canAssign). */
+на
+
+```ts
   renderAssign?: (item: JournalItem, field: AssignField) => ReactNode;
   /** Выделение строк для массовых действий: колонка флажков слева. */
   selection?: {
@@ -2308,73 +2179,36 @@ export interface JournalTableProps {
     onToggleAll: (select: boolean) => void;
   };
 }
+```
 
-const AMOUNT_CLASS: Record<JournalItem['type'], string> = {
-  income: 'text-income',
-  expense: 'text-expense',
-  transfer: 'text-transfer',
-};
+2. Замените
 
-const thClass = 'px-3 py-2 text-left text-xs font-semibold text-muted';
-const tdClass = 'px-3 py-2 align-top';
+```ts
+export function JournalTable(props: JournalTableProps) {
+  const { lookups, columns } = props;
+  const shown = JOURNAL_COLUMNS.filter((c) => columns.includes(c.id));
+```
 
-function SortHeader(props: { label: string; column: JournalSortKey; sort: JournalSortKey; order: JournalSortOrder; onSort: JournalTableProps['onSort'] }) {
-  const active = props.sort === props.column;
-  const next: JournalSortOrder = active && props.order === 'desc' ? 'asc' : 'desc';
-  return (
-    <th scope="col" className={thClass} aria-sort={active ? (props.order === 'asc' ? 'ascending' : 'descending') : undefined}>
-      <button type="button" onClick={() => props.onSort(props.column, next)} className="inline-flex items-center gap-1 rounded hover:text-ink">
-        {props.label}
-        <span aria-hidden="true">{active ? (props.order === 'asc' ? '↑' : '↓') : '↕'}</span>
-      </button>
-    </th>
-  );
-}
+на
 
-function lineHint(item: JournalItem, lookups: JournalLookups, currency: string): string[] {
-  return item.lines.map((l) => {
-    const category = l.categoryId === null ? 'без статьи' : (lookups.categories.get(l.categoryId) ?? '…');
-    const project = l.projectId === null ? 'без проекта' : (lookups.projects.get(l.projectId) ?? '…');
-    return `${category} · ${project} — ${formatMoney(l.amount, currency)}`;
-  });
-}
-
-/** Ячейка статьи или проекта: название, «N категорий» с подсказкой у разбитой операции, «Указать» или пусто. */
-function dimensionCell(item: JournalItem, key: 'categoryId' | 'projectId', names: Map<number, string>, hint: string[], assign: ReactNode): ReactNode {
-  const d = lineDimension(item.lines, key);
-  if (d.kind === 'many') return <SplitHint label={splitLabel(d.count, key === 'categoryId' ? 'category' : 'project')} lines={hint} />;
-  return d.id === null ? assign : (names.get(d.id) ?? '…');
-}
-
-function AccountLine({ account, balance }: { account: Account | undefined; balance: number | null }) {
-  return (
-    <span className="block">
-      <span className="block truncate">{account?.name ?? '…'}</span>
-      {account && balance !== null && (
-        <span className={`block text-xs tabular-nums ${balance < 0 ? 'text-expense' : 'text-muted'}`}>остаток {formatMoney(balance, account.currency)}</span>
-      )}
-    </span>
-  );
-}
-
+```ts
 export function JournalTable(props: JournalTableProps) {
   const { lookups, columns, selection } = props;
   const shown = JOURNAL_COLUMNS.filter((c) => columns.includes(c.id));
   const selectedCount = selection ? props.items.filter((i) => selection.selected.has(i.id)).length : 0;
   const allSelected = props.items.length > 0 && selectedCount === props.items.length;
+```
 
-  const onRowClick = (item: JournalItem) => (e: MouseEvent<HTMLTableRowElement>) => {
-    // клики по настоящим элементам управления внутри строки — не открытие операции;
-    // «2 статьи» (подсказка с tabIndex) — открывает: по §7 клик по ним открывает форму
-    if ((e.target as HTMLElement).closest('button, a, input, label, select, [role="combobox"], [role="listbox"]')) return;
-    props.onOpenOperation?.(item);
-  };
+3. Замените
 
-  return (
-    <div className="overflow-x-auto">
-      <table aria-busy={props.busy} className={`w-full min-w-[56rem] border-collapse text-sm ${props.busy ? 'opacity-60' : ''}`}>
-        <caption className="sr-only">Операции</caption>
-        <thead>
+```ts
+          <tr className="border-b border-field">
+            {shown.map((c) =>
+```
+
+на
+
+```ts
           <tr className="border-b border-field">
             {selection && (
               <th scope="col" className={`${thClass} w-8`}>
@@ -2390,73 +2224,18 @@ export function JournalTable(props: JournalTableProps) {
               </th>
             )}
             {shown.map((c) =>
-              c.id === 'date' || c.id === 'amount' ? (
-                <SortHeader key={c.id} label={c.label} column={c.id} sort={props.sort} order={props.order} onSort={props.onSort} />
-              ) : (
-                <th key={c.id} scope="col" className={thClass}>
-                  {c.label}
-                </th>
-              ),
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {props.items.map((item) => {
-            const account = lookups.accounts.get(item.accountId);
-            const toAccount = item.toAccountId === null ? undefined : lookups.accounts.get(item.toAccountId);
-            const currency = account?.currency ?? props.baseCurrency;
-            const hint = lineHint(item, lookups, currency);
-            const share = projectShare(item.lines, props.projectFilter);
-            const assign = (field: AssignField) => (props.renderAssign && canAssign(item, field) ? props.renderAssign(item, field) : null);
-            const cells: Record<JournalColumnId, ReactNode> = {
-              date: (
-                <time dateTime={item.paidAt} className="whitespace-nowrap">
-                  {dayLabel(dayOf(item.paidAt, props.timeZone), props.today)}
-                  <span className="ml-1 text-xs text-muted">{timeLabel(item.paidAt, props.timeZone)}</span>
-                </time>
-              ),
-              amount: (
-                <span className="block whitespace-nowrap tabular-nums">
-                  <span className={`block font-semibold ${AMOUNT_CLASS[item.type]}`}>
-                    {item.type === 'transfer' && <span aria-hidden="true">⇄ </span>}
-                    {signedMoney(item.type, item.amount, currency)}
-                  </span>
-                  {item.type === 'transfer' && toAccount && toAccount.currency !== currency && item.toAmount !== null && (
-                    <span className="block text-xs text-transfer">→ {formatMoney(item.toAmount, toAccount.currency)}</span>
-                  )}
-                  {currency !== props.baseCurrency && <span className="block text-xs text-muted">{formatMoney(item.baseAmount, props.baseCurrency)}</span>}
-                  {share !== null && <span className="block text-xs text-muted">доля проекта: {formatMoney(share, currency)}</span>}
-                </span>
-              ),
-              account: (
-                <>
-                  <AccountLine account={account} balance={item.balanceAfter} />
-                  {item.type === 'transfer' && (
-                    <span className="mt-1 flex gap-1">
-                      <span aria-hidden="true" className="text-muted">
-                        →
-                      </span>
-                      <AccountLine account={toAccount} balance={item.toBalanceAfter} />
-                    </span>
-                  )}
-                </>
-              ),
-              counterparty: item.counterpartyId === null ? assign('counterparty') : (lookups.counterparties.get(item.counterpartyId) ?? '…'),
-              category: dimensionCell(item, 'categoryId', lookups.categories, hint, assign('category')),
-              project: dimensionCell(item, 'projectId', lookups.projects, hint, assign('project')),
-              comment: item.comment && (
-                <span className="line-clamp-2 max-w-xs break-words" title={item.comment}>
-                  {item.comment}
-                </span>
-              ),
-            };
-            return (
-              <tr
-                key={item.id}
-                // фокус сюда переводит «Указать» после выбора: кнопка в ячейке исчезает (план 5c)
-                tabIndex={-1}
-                data-operation-id={item.id}
-                onClick={props.onOpenOperation ? onRowClick(item) : undefined}
+```
+
+4. Замените
+
+```ts
+                className={`border-b border-field outline-none last:border-0 focus:bg-field/60 ${props.onOpenOperation ? 'cursor-pointer hover:bg-field/60' : ''}`}
+              >
+```
+
+на
+
+```ts
                 className={`border-b border-field outline-none last:border-0 focus:bg-field/60 ${props.onOpenOperation ? 'cursor-pointer hover:bg-field/60' : ''} ${selection?.selected.has(item.id) ? 'bg-income-soft/40' : ''}`}
               >
                 {selection && (
@@ -2469,71 +2248,80 @@ export function JournalTable(props: JournalTableProps) {
                     />
                   </td>
                 )}
-                {shown.map((c) => (
-                  <td key={c.id} className={tdClass}>
-                    {cells[c.id]}
-                  </td>
-                ))}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
 ```
 
-`src/client/pages/JournalPage.tsx` — замените файл целиком:
+`src/client/pages/JournalPage.tsx` — точечные правки (каждый фрагмент встречается в файле один раз):
+
+1. Замените
+
+```ts
+import { useMemo, useState } from 'react';
+```
+
+на
 
 ```ts
 import { useEffect, useMemo, useState } from 'react';
-import { useOutletContext, useSearchParams } from 'react-router';
-import { todayInTimezone } from '../../shared/dates';
+```
+
+2. Замените
+
+```ts
+import { AssignPicker } from '../components/journal/AssignPicker';
+```
+
+на
+
+```ts
 import { AssignPicker } from '../components/journal/AssignPicker';
 import { BulkBar } from '../components/journal/BulkBar';
-import { ColumnsPicker } from '../components/journal/ColumnsPicker';
-import { FilterDialog } from '../components/journal/FilterDialog';
+```
+
+3. Замените
+
+```ts
+import { SavedFiltersMenu, unavailableText } from '../components/journal/SavedFiltersMenu';
+```
+
+на
+
+```ts
 import { SavedFiltersMenu, unavailableText } from '../components/journal/SavedFiltersMenu';
 import { UndoToast } from '../components/journal/UndoToast';
-import { JournalTable, type JournalLookups } from '../components/journal/JournalTable';
-import { JournalToolbar } from '../components/journal/JournalToolbar';
-import { LoadMore } from '../components/journal/LoadMore';
-import { Pending, StaleNotice } from '../components/QueryState';
-import { btnSmall } from '../components/ui';
-import { JOURNAL_COLUMNS_PREF, visibleColumns } from '../lib/journal-columns';
-import { api } from '../lib/api';
-import {
-  filterConditionCount,
-  isFiltered,
-  journalApiParams,
-  journalSearch,
-  parseJournalSearch,
-  savedFilterFromState,
-  stateFromSavedFilter,
-  type JournalUrlState,
-} from '../lib/journal-filter';
+```
+
+4. Замените
+
+```ts
+import { useAssign } from '../lib/journal-mutations';
+```
+
+на
+
+```ts
 import { bulkSummary, type BulkAction, type BulkSummary } from '../lib/journal-bulk';
 import { operationErrorText, runBulk, useAssign } from '../lib/journal-mutations';
-import { queryClient, useMeta } from '../lib/query';
-import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useSavedFilters, useTags, type CategoryTree, type Company } from '../lib/queries';
-import type { CompanyOutletContext } from './CompanyLayout';
+```
 
-/** Фокус на строку операции (у строки tabIndex=-1 и data-operation-id). */
-function focusRow(id: number): void {
-  requestAnimationFrame(() => document.querySelector<HTMLElement>(`tr[data-operation-id="${id}"]`)?.focus());
+5. Замените
+
+```ts
+/**
+ * Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка.
+ * Маршрут не пересоздаёт страницу при смене компании, поэтому экран компании — с key: окно «Фильтр»,
+ * выделение и сообщения начинаются заново.
+ */
+export function JournalPage() {
+  const { company } = useOutletContext<CompanyOutletContext>();
+  return <JournalScreen key={company.id} company={company} />;
 }
 
-/** Статьи плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
-function categoryNames(tree: CategoryTree): Map<number, string> {
-  const names = new Map<number, string>();
-  for (const node of [...tree.income, ...tree.expense]) {
-    names.set(node.id, node.name);
-    for (const child of node.children) names.set(child.id, `${node.name} → ${child.name}`);
-  }
-  return names;
-}
+function JournalScreen({ company }: { company: Company }) {
+```
 
+на
+
+```ts
 /** id заголовка «Журнал»: на него уходит фокус, когда закрывается тост. */
 const HEADING_ID = 'journal-heading';
 
@@ -2595,51 +2383,37 @@ function JournalScreen(props: {
   onClearUndoSummary: () => void;
 }) {
   const { company } = props;
-  const meta = useMeta();
-  const prefs = usePreferences();
-  const [params, setParams] = useSearchParams();
-  const state = useMemo(() => parseJournalSearch(params), [params]);
-  const timeZone = meta.data?.timezone;
-  const today = timeZone ? todayInTimezone(timeZone) : null;
-  const journal = useJournal(company.id, today ? journalApiParams(state, today).toString() : null);
-  const accounts = useAccounts(company.id);
-  const categories = useCategories(company.id);
-  const projects = useProjects(company.id);
-  const counterparties = useCounterparties(company.id);
-  const tags = useTags(company.id);
-  const [filterOpen, setFilterOpen] = useState(false);
-  const savedFilters = useSavedFilters(company.id);
-  // предупреждение после применения сохранённого фильтра с недоступными ссылками (инвариант 10)
-  const [notice, setNotice] = useState<string | null>(null);
-  // ошибка «Указать» (конфликт версии, архив) — над таблицей, пока её не скроют или не начнут новое действие
-  const [actionError, setActionError] = useState<string | null>(null);
+```
+
+6. Замените
+
+```ts
   const assign = useAssign(company.id, setActionError);
-  // массовые действия: выделение (только загруженные строки), итог, тост отмены удаления
+```
+
+на
+
+```ts
+  const assign = useAssign(company.id, setActionError);
+  // массовые действия: выделение (только загруженные строки), итог, тост отмены удаления (в JournalPage)
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const [summary, setSummary] = useState<BulkSummary | null>(null);
   const [bulkPending, setBulkPending] = useState(false);
   const filterKey = params.toString();
   // другой фильтр — выделение снимается (другая компания — новый экран, см. key выше)
   useEffect(() => setSelected(new Set()), [filterKey]);
+```
 
-  const lookups = useMemo<JournalLookups | null>(() => {
-    if (!accounts.data || !categories.data || !projects.data || !counterparties.data) return null;
-    return {
-      accounts: new Map(accounts.data.map((a) => [a.id, a])),
-      categories: categoryNames(categories.data),
-      projects: new Map(projects.data.map((p) => [p.id, p.name])),
-      counterparties: new Map(counterparties.data.map((c) => [c.id, c.name])),
-    };
-  }, [accounts.data, categories.data, projects.data, counterparties.data]);
+7. Замените
 
-  const queries = [meta, journal, accounts, categories, projects, counterparties, tags];
-  if (!journal.data || !lookups || !tags.data || !timeZone || !today) return <Pending queries={queries} />;
+```ts
+  const assignData = { categories: categories.data!, projects: projects.data!, counterparties: counterparties.data! };
+```
 
-  // фильтр меняет адрес без новой записи в истории браузера: «Назад» уводит со страницы, а не по шагам фильтра
-  const update = (next: JournalUrlState) => setParams(journalSearch(next), { replace: true });
-  const items = journal.data.pages.flatMap((p) => p.items);
-  const columns = visibleColumns(prefs.data?.[JOURNAL_COLUMNS_PREF]);
-  const conditions = filterConditionCount(state);
+на
+
+```ts
+  const assignData = { categories: categories.data!, projects: projects.data!, counterparties: counterparties.data! };
   const selectedIds = items.filter((i) => selected.has(i.id)).map((i) => i.id);
   const shownSummary = props.undoSummary ?? summary;
   const run = async (action: BulkAction, ids: number[]) => {
@@ -2660,57 +2434,29 @@ function JournalScreen(props: {
       setBulkPending(false);
     }
   };
-  const assignData = { categories: categories.data!, projects: projects.data!, counterparties: counterparties.data! };
-  const saveFilter = async (draft: JournalUrlState, name: string) => {
-    await api(`/companies/${company.id}/saved-filters`, { method: 'POST', body: { name, filter: savedFilterFromState(draft, today) } });
-    await queryClient.invalidateQueries({ queryKey: ['saved-filters', company.id] });
-  };
+```
 
-  return (
-    <section>
-      <StaleNotice queries={queries} />
+8. Замените
+
+```ts
+      <h1 tabIndex={-1} className="mb-4 text-2xl font-bold outline-none">
+```
+
+на
+
+```ts
       <h1 id={HEADING_ID} tabIndex={-1} className="mb-4 text-2xl font-bold outline-none">
-        Журнал
-      </h1>
-      <JournalToolbar
-        state={state}
-        onChange={update}
-        companyId={company.id}
-        baseCurrency={company.baseCurrency}
-        today={today}
-        actions={
-          <>
-            <button type="button" aria-haspopup="dialog" onClick={() => setFilterOpen(true)} className={btnSmall}>
-              Фильтр{conditions > 0 && ` · ${conditions}`}
-            </button>
-            <SavedFiltersMenu
-              companyId={company.id}
-              filters={savedFilters.data}
-              onApply={(f) => {
-                update(stateFromSavedFilter(f.filter, state));
-                setNotice(f.unavailable > 0 ? `Фильтр «${f.name}»: ${unavailableText(f.unavailable)} (удалены или в архиве) — они не применены.` : null);
-              }}
-            />
-            <ColumnsPicker visible={columns} />
-          </>
-        }
-      />
-      <FilterDialog
-        open={filterOpen}
-        state={state}
-        data={{ accounts: accounts.data!, categories: categories.data!, projects: projects.data!, counterparties: counterparties.data!, tags: tags.data }}
-        onApply={update}
-        onClose={() => setFilterOpen(false)}
-        onSave={saveFilter}
-      />
-      {actionError && (
-        <p role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
-          <span>{actionError}</span>
-          <button type="button" onClick={() => setActionError(null)} className="font-semibold underline">
-            Скрыть
-          </button>
-        </p>
-      )}
+```
+
+9. Замените
+
+```ts
+      {notice && (
+```
+
+на
+
+```ts
       {shownSummary && (
         <div role="status" className="mb-4 rounded-xl bg-field px-4 py-2 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2738,40 +2484,36 @@ function JournalScreen(props: {
         </div>
       )}
       {notice && (
-        <p role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
-          <span>{notice}</span>
-          <button type="button" onClick={() => setNotice(null)} className="font-semibold underline">
-            Скрыть
-          </button>
-        </p>
-      )}
+```
+
+10. Замените
+
+```ts
+      {!journal.data && !journal.error ? (
+```
+
+на
+
+```ts
       {selectedIds.length > 0 && (
         <BulkBar count={selectedIds.length} data={assignData} pending={bulkPending} onRun={(action) => void run(action, selectedIds)} onClear={() => setSelected(new Set())} />
       )}
-      {items.length === 0 ? (
-        <p className="py-8 text-center text-muted">{isFiltered(state) ? 'По этому фильтру операций нет.' : 'Операций пока нет.'}</p>
-      ) : (
-        <JournalTable
-          items={items}
-          columns={columns}
-          lookups={lookups}
-          baseCurrency={company.baseCurrency}
-          timeZone={timeZone}
-          today={today}
-          projectFilter={state.projectIds}
-          sort={state.sort}
-          order={state.order}
-          onSort={(sort, order) => update({ ...state, sort, order })}
-          busy={journal.isPlaceholderData}
-          renderAssign={(item, field) => (
-            <AssignPicker
-              item={item}
-              field={field}
-              data={assignData}
-              onPick={(id) => {
-                setActionError(null);
-                assign.mutate({ item, field, id });
-                // кнопка «Указать» исчезает вместе с пустой ячейкой — фокус на строку операции
+      {!journal.data && !journal.error ? (
+```
+
+11. Замените
+
+```ts
+                focusRow(item.id);
+              }}
+            />
+          )}
+        />
+```
+
+на
+
+```ts
                 focusRow(item.id);
               }}
             />
@@ -2788,28 +2530,53 @@ function JournalScreen(props: {
             onToggleAll: (select) => setSelected(select ? new Set(items.map((i) => i.id)) : new Set()),
           }}
         />
-      )}
-      <LoadMore
-        hasNext={journal.hasNextPage}
-        loading={journal.isFetchingNextPage}
-        failed={journal.isFetchNextPageError}
-        onLoad={() => void journal.fetchNextPage()}
-      />
-    </section>
-  );
-}
 ```
 
-`README.md`:
+`README.md` — точечные правки (каждый фрагмент встречается в файле один раз):
 
-1. Замените строку `Сделаны шаги 1–4 этапа 1 и серверная часть шага 5 (§11 спецификации):` на `Сделаны шаги 1–5 этапа 1 (§11 спецификации):`.
-2. В списке «**Экран журнала (шаг 5):**» после строки `  - фильтр хранится в адресе страницы; клик по счёту в левой панели фильтрует журнал.` добавьте строку:
+1. Замените
 
+```md
+Сделаны шаги 1–4 этапа 1 и серверная часть шага 5 (§11 спецификации):
 ```
+
+на
+
+```md
+Сделаны шаги 1–5 этапа 1 (§11 спецификации):
+```
+
+2. Замените
+
+```md
+  - фильтр хранится в адресе страницы; клик по счёту в левой панели фильтрует журнал.
+```
+
+на
+
+```md
+  - фильтр хранится в адресе страницы; клик по счёту в левой панели фильтрует журнал;
   - сохранённые фильтры, «Указать» в пустой ячейке, массовые действия с итогом и «Отменить» после удаления.
 ```
 
-3. Замените строку `Пока нет (следующие шаги): сохранённые фильтры, «Указать» и массовые действия на экране журнала, форма операции, отчёты, мобильная версия и PWA.` на `Пока нет (следующие шаги): форма операции в интерфейсе, отчёты, мобильная версия и PWA.`
+3. Замените
+
+```md
+Пока нет (следующие шаги): сохранённые фильтры, «Указать» и массовые действия на экране журнала, форма операции, отчёты, мобильная версия и PWA.
+```
+
+на
+
+```md
+Пока нет (следующие шаги): форма операции в интерфейсе, отчёты, мобильная версия и PWA.
+```
+
+Компанию в e2e переключатель выбирает по точному сохранённому названию (`name`), а не по шаблону: так тест не зависит от компаний других тестов с похожими названиями.
+
+Проверьте, что правки не затёрли код плана 5b:
+
+Run: `node -e "const fs = require('fs'); const need = { 'src/client/pages/JournalPage.tsx': ['uniqueById(', '!journal.isPlaceholderData &&', 'applyDialogFields('], 'src/client/components/journal/JournalTable.tsx': ['e.currentTarget.contains(e.target as Node)', 'Перевод: со счёта'] }; for (const [f, xs] of Object.entries(need)) { const s = fs.readFileSync(f, 'utf8'); for (const x of xs) if (!s.includes(x)) { console.error(f + ': пропало «' + x + '» — правка затёрла код плана 5b'); process.exit(1); } }"`
+Expected: ничего не выводит, код выхода 0.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -2824,7 +2591,7 @@ Expected: PASS.
 Run: `npm test`, `npm run typecheck` и `npm run test:e2e` — зелёные (два прогона e2e подряд — тост и фокус не должны давать нестабильности).
 
 ```bash
-git add src/client/lib/journal-bulk.ts src/client/lib/journal-mutations.ts src/client/components/journal/BulkBar.tsx src/client/components/journal/UndoToast.tsx src/client/components/journal/JournalTable.tsx src/client/pages/JournalPage.tsx tests/client/journal-bulk.test.ts e2e/journal-actions.spec.ts README.md
+git add src/client/lib/journal-bulk.ts tests/client/journal-bulk.test.ts src/client/lib/journal-mutations.ts src/client/components/Popover.tsx src/client/components/SearchPicker.tsx src/client/components/journal/BulkBar.tsx src/client/components/journal/UndoToast.tsx src/client/components/journal/JournalTable.tsx src/client/pages/JournalPage.tsx e2e/journal-actions.spec.ts README.md
 git commit -m "feat: массовые действия журнала — статья, проект, контрагент, удаление с «Отменить», итог с причинами
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
@@ -2844,5 +2611,6 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 | §7 массовые действия: «Категория», «Проект», «Контрагент», «Удалить» с подтверждением; итог «изменено N, пропущено M» с причинами | Task 3 |
 | §7 тост «Удалено N — Отменить» на 10 секунд (`bulk restore`) | Task 3 |
 | Сброс `['accounts', cid]`, `['companies']` и журнала после любого изменения операций | Tasks 2, 3 (`invalidateOperations`) |
+| Тулбар журнала не пропадает, пока грузится новый запрос после ошибки (замечание повторного ревью 5b) | Task 1 |
 
 Вне этого плана: форма операции и клик по строке (шаг 6 — подключается через `onOpenOperation` таблицы и `invalidateOperations`); мобильная версия журнала (шаг 7).
