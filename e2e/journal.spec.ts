@@ -272,6 +272,16 @@ test('колонки: выбор сохраняется в настройках 
     await expect(columns).toHaveAttribute('aria-expanded', 'true');
     await page.keyboard.press('Tab');
     await expect(page.getByRole('checkbox', { name: 'Счёт' })).toBeFocused();
+    // Esc с кнопки (фокус вернулся на неё Shift+Tab) тоже закрывает панель, фокус остаётся на кнопке
+    await page.keyboard.press('Shift+Tab');
+    await expect(columns).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(columns).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByRole('checkbox', { name: 'Счёт' })).toBeHidden();
+    await expect(columns).toBeFocused();
+    await columns.click();
+    await expect(columns).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('checkbox', { name: 'Счёт' })).toBeFocused();
     const saved = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/journal.columns') && r.request().method() === 'PUT');
     await page.getByRole('checkbox', { name: 'Комментарий' }).uncheck();
     await saved;
@@ -396,4 +406,27 @@ test('модалка «Фильтр»: все условия §6, «Готово
   await dialog.getByRole('button', { name: 'Готово' }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
   await expect(bodyRows(page)).toHaveCount(4);
+});
+
+test('«Готово» в окне «Фильтр» не затирает поиск, дошедший до адреса, пока окно было открыто', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Поиск и фильтр ${Date.now()}`);
+  const kaspi = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: todayAgo(1), accountId: kaspi, amount: 100, comment: 'аренда зала' });
+  await page.reload();
+  await expect(bodyRows(page)).toHaveCount(1);
+
+  const search = page.getByRole('searchbox', { name: 'Поиск' });
+  const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
+  // окно открывается раньше, чем истекает пауза поиска (300 мс): запрос доходит до адреса при открытом окне
+  await search.fill('аренда');
+  await page.getByRole('button', { name: /^Фильтр/ }).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('checkbox', { name: 'Доход' }).check();
+  await expect(page).toHaveURL(/q=/);
+  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page).toHaveURL(/q=/);
+  await expect(page).toHaveURL(/type=income/);
+  await expect(search).toHaveValue('аренда');
 });

@@ -240,3 +240,32 @@ export function isFiltered(state: JournalUrlState): boolean {
 export function clearFilter(state: JournalUrlState): JournalUrlState {
   return { ...EMPTY_JOURNAL_STATE, sort: state.sort, order: state.order };
 }
+
+/** Поля фильтра, которыми управляет модалка «Фильтр»: тип, счета, статьи, проекты, контрагенты, теги и «без …». */
+export type DialogFields = Pick<
+  JournalUrlState,
+  'types' | 'accountIds' | 'categoryIds' | 'projectIds' | 'counterpartyIds' | 'tagIds' | 'withoutCategory' | 'withoutProject' | 'withoutCounterparty'
+>;
+
+/** Поля модалки из фильтра — начальный черновик. */
+export function pickDialogFields(state: DialogFields): DialogFields {
+  return {
+    types: state.types,
+    accountIds: state.accountIds,
+    categoryIds: state.categoryIds,
+    projectIds: state.projectIds,
+    counterpartyIds: state.counterpartyIds,
+    tagIds: state.tagIds,
+    withoutCategory: state.withoutCategory,
+    withoutProject: state.withoutProject,
+    withoutCounterparty: state.withoutCounterparty,
+  };
+}
+
+/**
+ * Черновик модалки поверх ТЕКУЩЕГО фильтра: меняются только её поля. Поиск, период, сумма и сортировка
+ * остаются как есть — например, запрос, который дошёл до адреса, пока окно было открыто.
+ */
+export function applyDialogFields(state: JournalUrlState, draft: DialogFields): JournalUrlState {
+  return { ...state, ...pickDialogFields(draft) };
+}

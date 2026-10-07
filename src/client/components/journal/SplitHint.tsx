@@ -26,6 +26,15 @@ export function SplitHint({ label, lines }: { label: string; lines: string[] }) 
     hideTimer.current = window.setTimeout(() => setShow(false), 150);
   };
   useEffect(() => () => window.clearTimeout(hideTimer.current), []);
+  // Esc прячет подсказку и тогда, когда фокус не на подписи (подсказка открыта наведением)
+  useEffect(() => {
+    if (!show) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShow(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [show]);
 
   return (
     <>
@@ -61,7 +70,7 @@ export function SplitHint({ label, lines }: { label: string; lines: string[] }) 
             // события портала всплывают по дереву React до строки таблицы: подсказка не открывает операцию
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
-            className="z-40 w-max max-w-xs rounded-xl bg-ink px-3 py-2 text-xs text-white shadow-lg"
+            className="z-40 w-max max-w-xs overflow-y-auto rounded-xl bg-ink px-3 py-2 text-xs text-white shadow-lg"
           >
             {lines.map((line, i) => (
               <span key={i} className="block">

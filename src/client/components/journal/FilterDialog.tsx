@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { matchesQuery } from '../../../shared/search';
-import { sortedUnique, type JournalUrlState, type OperationType } from '../../lib/journal-filter';
+import { pickDialogFields, sortedUnique, type DialogFields, type JournalUrlState, type OperationType } from '../../lib/journal-filter';
 import type { Account, CategoryNode, CategoryTree, Counterparty, Project, Tag } from '../../lib/queries';
 import { Modal } from '../Modal';
 import { btnPrimary, btnSecondary, inputClass } from '../ui';
@@ -15,6 +15,8 @@ export interface FilterDialogData {
 
 interface Option {
   id: number;
+  /** Имя без пометки «(архив)»: по нему идёт поиск. */
+  name: string;
   label: string;
   /** Отступ дочерней статьи. */
   nested?: boolean;
@@ -28,15 +30,15 @@ type FlagField = 'withoutCategory' | 'withoutProject' | 'withoutCounterparty';
 function options<T extends { id: number; name: string; archivedAt: string | null }>(rows: T[], selected: readonly number[]): Option[] {
   return rows
     .filter((r) => !r.archivedAt || selected.includes(r.id))
-    .map((r) => ({ id: r.id, label: r.archivedAt ? `${r.name} (архив)` : r.name }));
+    .map((r) => ({ id: r.id, name: r.name, label: r.archivedAt ? `${r.name} (архив)` : r.name }));
 }
 
 function categoryOptions(nodes: CategoryNode[], selected: readonly number[]): Option[] {
   return nodes.flatMap((n) => {
     const children = n.children
       .filter((c) => (!c.archivedAt && !n.archivedAt) || selected.includes(c.id))
-      .map((c) => ({ id: c.id, label: c.archivedAt || n.archivedAt ? `${c.name} (архив)` : c.name, nested: true }));
-    const self = !n.archivedAt || selected.includes(n.id) ? [{ id: n.id, label: n.archivedAt ? `${n.name} (архив)` : n.name }] : [];
+      .map((c) => ({ id: c.id, name: c.name, label: c.archivedAt || n.archivedAt ? `${c.name} (архив)` : c.name, nested: true }));
+    const self = !n.archivedAt || selected.includes(n.id) ? [{ id: n.id, name: n.name, label: n.archivedAt ? `${n.name} (архив)` : n.name }] : [];
     return [...self, ...children];
   });
 }
@@ -72,8 +74,8 @@ function Section({ legend, children }: { legend: string; children: ReactNode }) 
  * Модалка «Фильтр» (§7): все условия фильтра журнала §6, кроме периода, поиска и суммы (они в тулбаре).
  * Меняет черновик; «Готово» применяет его, Esc и «Отмена» закрывают без изменений.
  */
-function FilterForm(props: { state: JournalUrlState; data: FilterDialogData; onApply: (next: JournalUrlState) => void; onCancel: () => void }) {
-  const [draft, setDraft] = useState<JournalUrlState>(props.state);
+function FilterForm(props: { state: JournalUrlState; data: FilterDialogData; onApply: (next: DialogFields) => void; onCancel: () => void }) {
+  const [draft, setDraft] = useState<DialogFields>(() => pickDialogFields(props.state));
   const [cpQuery, setCpQuery] = useState('');
   const { data } = props;
 
@@ -88,8 +90,7 @@ function FilterForm(props: { state: JournalUrlState; data: FilterDialogData; onA
     </label>
   );
   const clear = () =>
-    setDraft((d) => ({
-      ...d,
+    setDraft({
       types: [],
       accountIds: [],
       categoryIds: [],
@@ -99,10 +100,10 @@ function FilterForm(props: { state: JournalUrlState; data: FilterDialogData; onA
       withoutCategory: false,
       withoutProject: false,
       withoutCounterparty: false,
-    }));
+    });
 
   const counterparties = options(data.counterparties, draft.counterpartyIds).filter(
-    (o) => draft.counterpartyIds.includes(o.id) || matchesQuery(o.label, cpQuery),
+    (o) => draft.counterpartyIds.includes(o.id) || matchesQuery(o.name, cpQuery),
   );
 
   return (
@@ -126,10 +127,14 @@ function FilterForm(props: { state: JournalUrlState; data: FilterDialogData; onA
         </Section>
         <Section legend="Статьи">
           {flag('withoutCategory', 'Без статьи')}
-          <p className="mt-1 text-xs text-muted">Доходы</p>
-          <CheckList items={categoryOptions(data.categories.income, draft.categoryIds)} selected={draft.categoryIds} onToggle={toggle('categoryIds')} empty="Статей нет" />
-          <p className="mt-1 text-xs text-muted">Расходы</p>
-          <CheckList items={categoryOptions(data.categories.expense, draft.categoryIds)} selected={draft.categoryIds} onToggle={toggle('categoryIds')} empty="Статей нет" />
+          <fieldset className="mt-1">
+            <legend className="text-xs text-muted">Доходы</legend>
+            <CheckList items={categoryOptions(data.categories.income, draft.categoryIds)} selected={draft.categoryIds} onToggle={toggle('categoryIds')} empty="Статей нет" />
+          </fieldset>
+          <fieldset className="mt-1">
+            <legend className="text-xs text-muted">Расходы</legend>
+            <CheckList items={categoryOptions(data.categories.expense, draft.categoryIds)} selected={draft.categoryIds} onToggle={toggle('categoryIds')} empty="Статей нет" />
+          </fieldset>
         </Section>
         <Section legend="Проекты">
           {flag('withoutProject', 'Без проекта')}
@@ -176,7 +181,8 @@ export function FilterDialog(props: {
   open: boolean;
   state: JournalUrlState;
   data: FilterDialogData;
-  onApply: (next: JournalUrlState) => void;
+  /** Только поля модалки: их накладывают на текущий фильтр, а не на снимок при открытии. */
+  onApply: (next: DialogFields) => void;
   onClose: () => void;
 }) {
   return (

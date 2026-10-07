@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { toggleColumn, visibleColumns } from '../../src/client/lib/journal-columns';
 import {
+  applyDialogFields,
   clearFilter,
   EMPTY_JOURNAL_STATE,
   filterConditionCount,
@@ -9,6 +10,7 @@ import {
   journalSearch,
   parseJournalSearch,
   periodRange,
+  pickDialogFields,
   type JournalUrlState,
 } from '../../src/client/lib/journal-filter';
 import {
@@ -48,6 +50,33 @@ describe('periodRange — периоды тулбара от «сегодня» 
     expect(periodRange({ period: 'yesterday' }, '2026-01-01')).toEqual({ from: '2025-12-31', to: '2025-12-31' });
     expect(periodRange({ period: 'week' }, '2026-03-01')).toEqual({ from: '2026-02-23', to: '2026-03-01' });
     expect(periodRange({ period: 'month' }, '2024-02-29')).toEqual({ from: '2024-02-01', to: '2024-02-29' });
+  });
+});
+
+describe('поля модалки «Фильтр» накладываются на текущий фильтр', () => {
+  const dialog = {
+    types: ['expense'],
+    accountIds: [1],
+    categoryIds: [2],
+    projectIds: [3],
+    counterpartyIds: [4],
+    tagIds: [5],
+    withoutCategory: true,
+    withoutProject: true,
+    withoutCounterparty: true,
+  } satisfies ReturnType<typeof pickDialogFields>;
+
+  it('pickDialogFields берёт только поля модалки', () => {
+    const full = state({ ...dialog, q: 'аренда', amountMin: 100, period: 'month', sort: 'amount', order: 'asc' });
+    expect(pickDialogFields(full)).toEqual(dialog);
+  });
+
+  it('applyDialogFields меняет только поля модалки: поиск, период, сумма и сортировка текущего фильтра остаются', () => {
+    const current = state({ q: 'аренда', amountMax: 500, period: 'month', sort: 'amount', order: 'asc', accountIds: [9] });
+    expect(applyDialogFields(current, dialog)).toEqual({ ...current, ...dialog });
+    const cleared = applyDialogFields(current, pickDialogFields(EMPTY_JOURNAL_STATE));
+    expect(cleared).toEqual({ ...current, ...pickDialogFields(EMPTY_JOURNAL_STATE) });
+    expect(cleared.q).toBe('аренда');
   });
 });
 

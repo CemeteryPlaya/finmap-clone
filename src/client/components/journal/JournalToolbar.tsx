@@ -200,7 +200,7 @@ export function JournalToolbar(props: {
   const currency = getCurrency(props.baseCurrency);
   const exportHref = `/api/v1/companies/${props.companyId}/operations/export.xlsx?${journalApiParams(state, props.today).toString()}`;
   const setAmount = (key: 'amountMin' | 'amountMax') => (v: number | undefined) => onChange(v === undefined ? omit(state, key) : { ...state, [key]: v });
-  // сброс пересоздаёт поле поиска: набранный, но ещё не отправленный запрос не вернёт фильтр после сброса
+  // сброс пересоздаёт поиск и суммы: набранный, но не применённый текст (запрос, неверная сумма) не переживёт сброс
   const [searchKey, setSearchKey] = useState(0);
 
   return (
@@ -208,8 +208,8 @@ export function JournalToolbar(props: {
       <div className="flex flex-wrap items-start gap-3">
         <PeriodPicker state={state} today={props.today} onChange={onChange} />
         <SearchBox key={searchKey} value={state.q ?? ''} onSearch={(q) => onChange(q ? { ...state, q } : omit(state, 'q'))} />
-        <AmountInput label={`Сумма от, ${currency.symbol}`} value={state.amountMin} minorUnits={currency.minorUnits} onCommit={setAmount('amountMin')} />
-        <AmountInput label={`Сумма до, ${currency.symbol}`} value={state.amountMax} minorUnits={currency.minorUnits} onCommit={setAmount('amountMax')} />
+        <AmountInput key={`min-${searchKey}`} label={`Сумма от, ${currency.symbol}`} value={state.amountMin} minorUnits={currency.minorUnits} onCommit={setAmount('amountMin')} />
+        <AmountInput key={`max-${searchKey}`} label={`Сумма до, ${currency.symbol}`} value={state.amountMax} minorUnits={currency.minorUnits} onCommit={setAmount('amountMax')} />
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {props.actions}

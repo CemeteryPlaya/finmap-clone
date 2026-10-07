@@ -1,10 +1,17 @@
-import { addDays, formatDateRu, todayInTimezone } from '../../shared/dates';
+import { addDays, formatDateRu } from '../../shared/dates';
 import { formatAmount, formatMoney } from '../../shared/money';
 import type { OperationType } from './journal-filter';
 
+const dayFormatters = new Map<string, Intl.DateTimeFormat>();
+
 /** Календарная дата момента времени в поясе приложения (APP_TIMEZONE). */
 export function dayOf(iso: string, timeZone: string): string {
-  return todayInTimezone(timeZone, new Date(iso));
+  let fmt = dayFormatters.get(timeZone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    dayFormatters.set(timeZone, fmt);
+  }
+  return fmt.format(new Date(iso));
 }
 
 /** Подпись даты в журнале: «сегодня», «вчера» или «ДД.ММ.ГГГГ». */

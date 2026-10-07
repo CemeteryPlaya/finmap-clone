@@ -7,9 +7,9 @@ import { JournalTable, type JournalLookups } from '../components/journal/Journal
 import { JournalToolbar } from '../components/journal/JournalToolbar';
 import { LoadMore } from '../components/journal/LoadMore';
 import { Pending, StaleNotice } from '../components/QueryState';
-import { btnSmall } from '../components/ui';
+import { btnSecondary, btnSmall } from '../components/ui';
 import { JOURNAL_COLUMNS_PREF, visibleColumns } from '../lib/journal-columns';
-import { filterConditionCount, isFiltered, journalApiParams, journalSearch, parseJournalSearch, type JournalUrlState } from '../lib/journal-filter';
+import { applyDialogFields, filterConditionCount, isFiltered, journalApiParams, journalSearch, parseJournalSearch, type JournalUrlState } from '../lib/journal-filter';
 import { uniqueById } from '../lib/journal-format';
 import { useMeta } from '../lib/query';
 import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useTags, type CategoryTree, type Company } from '../lib/queries';
@@ -60,19 +60,22 @@ function JournalScreen({ company }: { company: Company }) {
     };
   }, [accounts.data, categories.data, projects.data, counterparties.data]);
 
-  const queries = [meta, journal, accounts, categories, projects, counterparties, tags];
-  if (!journal.data || !lookups || !tags.data || !timeZone || !today) return <Pending queries={queries} />;
+  // справочники нужны всегда: без них журнал не показать. Ошибка самого журнала (например, после смены фильтра) — ниже, под тулбаром
+  const lookupQueries = [meta, accounts, categories, projects, counterparties, tags];
+  if (!lookups || !tags.data || !timeZone || !today) return <Pending queries={lookupQueries} />;
+  if (!journal.data && !journal.error) return <Pending queries={[...lookupQueries, journal]} />;
 
   // фильтр меняет адрес без новой записи в истории браузера: «Назад» уводит со страницы, а не по шагам фильтра
   const update = (next: JournalUrlState) => setParams(journalSearch(next), { replace: true });
   // повторы по id (операция изменилась на другой странице во время прокрутки) — иначе ключи строк совпадут
-  const items = uniqueById(journal.data.pages.flatMap((p) => p.items));
+  const items = uniqueById(journal.data?.pages.flatMap((p) => p.items) ?? []);
   const columns = visibleColumns(prefs.data?.[JOURNAL_COLUMNS_PREF]);
   const conditions = filterConditionCount(state);
 
   return (
     <section>
-      <StaleNotice queries={queries} />
+      {/* ошибка следующей страницы — у «Показать ещё»: плашка с тем же сообщением не нужна */}
+      <StaleNotice queries={journal.isFetchNextPageError || !journal.data ? lookupQueries : [...lookupQueries, journal]} />
       <h1 tabIndex={-1} className="mb-4 text-2xl font-bold outline-none">
         Журнал
       </h1>
@@ -95,10 +98,20 @@ function JournalScreen({ company }: { company: Company }) {
         open={filterOpen}
         state={state}
         data={{ accounts: accounts.data!, categories: categories.data!, projects: projects.data!, counterparties: counterparties.data!, tags: tags.data }}
-        onApply={update}
+        // поля модалки — поверх текущего фильтра: поиск, дошедший до адреса при открытом окне, не теряется
+        onApply={(draft) => update(applyDialogFields(state, draft))}
         onClose={() => setFilterOpen(false)}
       />
-      {items.length === 0 ? (
+      {!journal.data ? (
+        <div className="py-8 text-center">
+          <p role="alert" className="mb-4 text-expense">
+            {journal.error?.message}
+          </p>
+          <button type="button" onClick={() => void journal.refetch()} className={btnSecondary}>
+            Повторить
+          </button>
+        </div>
+      ) : items.length === 0 ? (
         <p className="py-8 text-center text-muted">{isFiltered(state) ? 'По этому фильтру операций нет.' : 'Операций пока нет.'}</p>
       ) : (
         <JournalTable
@@ -116,7 +129,7 @@ function JournalScreen({ company }: { company: Company }) {
         />
       )}
       {/* пока новый фильтр или сортировка грузятся, старые страницы — лишь заглушка: «ещё» к ним не относится */}
-      {!journal.isPlaceholderData && (
+      {journal.data && !journal.isPlaceholderData && (
         <LoadMore
           hasNext={journal.hasNextPage}
           loading={journal.isFetchingNextPage}
