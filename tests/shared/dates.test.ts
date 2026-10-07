@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, formatDateRu, formatDateTime, isValidDate, todayInTimezone } from '../../src/shared/dates';
+import { addDays, formatDateRu, formatDateTime, isValidDate, startOfDayUtc, todayInTimezone, zoneOffsetMs } from '../../src/shared/dates';
 
 describe('todayInTimezone', () => {
   it('возвращает календарную дату в указанном поясе', () => {
@@ -46,5 +46,28 @@ describe('addDays', () => {
     expect(addDays('2026-03-01', -1)).toBe('2026-02-28');
     expect(addDays('2024-03-01', -1)).toBe('2024-02-29');
     expect(addDays('2026-12-31', 1)).toBe('2027-01-01');
+  });
+});
+
+describe('startOfDayUtc', () => {
+  it('начало суток в Алматы — момент UTC; смещение берётся на эту дату (UTC+6 до 01.03.2024) (Review Focus 1)', () => {
+    expect(startOfDayUtc('2026-10-05', 'Asia/Almaty')).toBe('2026-10-04T19:00:00.000Z');
+    expect(startOfDayUtc('2024-01-15', 'Asia/Almaty')).toBe('2024-01-14T18:00:00.000Z');
+    // 29.02.2024 длился 25 часов: в полночь 1 марта часы перевели на 23:00
+    expect(startOfDayUtc('2024-02-29', 'Asia/Almaty')).toBe('2024-02-28T18:00:00.000Z');
+    expect(startOfDayUtc('2024-03-01', 'Asia/Almaty')).toBe('2024-02-29T19:00:00.000Z');
+  });
+
+  it('пояса с переходом на летнее время и UTC', () => {
+    expect(startOfDayUtc('2026-03-29', 'Europe/Berlin')).toBe('2026-03-28T23:00:00.000Z');
+    expect(startOfDayUtc('2026-10-25', 'Europe/Berlin')).toBe('2026-10-24T22:00:00.000Z');
+    expect(startOfDayUtc('2026-10-05', 'UTC')).toBe('2026-10-05T00:00:00.000Z');
+  });
+});
+
+describe('zoneOffsetMs', () => {
+  it('смещение в момент времени, миллисекунды не мешают', () => {
+    expect(zoneOffsetMs(Date.parse('2026-10-05T05:00:00.500Z'), 'Asia/Almaty')).toBe(5 * 3600_000);
+    expect(zoneOffsetMs(Date.parse('2024-01-15T05:00:00.000Z'), 'Asia/Almaty')).toBe(6 * 3600_000);
   });
 });
