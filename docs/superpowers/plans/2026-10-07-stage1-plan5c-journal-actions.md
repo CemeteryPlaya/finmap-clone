@@ -14,7 +14,8 @@
 - **Сохранённые фильтры** — запрос `useSavedFilters(cid)` (ключ `['saved-filters', cid]`) и чистые функции `savedFilterFromState` / `stateFromSavedFilter` (JSON фильтра API плана 5a ↔ фильтр адресной строки). Меню — на `Popover` плана 5b.
 - **«Указать» и массовые действия** используют общий `SearchPicker` — кнопку с выпадающим списком с поиском (combobox + listbox: стрелки, Enter, Esc). Правила «где есть „Указать“» и тело `PATCH` — чистые функции `journal-assign.ts`. Оптимистичное изменение правит строки во всех страницах `['journal', cid, …]` через `setQueriesData` и откатывается по снимку.
 - **`invalidateOperations(cid)`** (`src/client/lib/journal-mutations.ts`) — единая точка сброса после изменения операций: `['journal', cid]`, `['accounts', cid]`, `['companies']`. Её же вызовет форма операции шага 6 (вместе с `onOpenOperation` таблицы — точкой подключения из плана 5b).
-- **Выделение** — множество id в `JournalPage`, только среди загруженных строк; колонка флажков в `JournalTable` (`selection`). Итог действия и тост — области `role="status"`.
+- **Выделение** — множество id в экране компании (`JournalScreen` с `key={company.id}`, план 5b), только среди загруженных строк; колонка флажков в `JournalTable` (`selection`). Итог действия и тост — области `role="status"`.
+- **Тост «Отменить» живёт выше экрана компании** — в `JournalPage`, и помнит компанию, где удаляли (`UndoState.companyId`): после перехода в другую компанию в течение 10 секунд «Отменить» восстанавливает операции именно там.
 
 **Tech Stack:** как в планах 1–5b. Новых пакетов нет.
 
@@ -26,13 +27,13 @@
 
 Записаны в спецификацию (§7, блок «Решения планирования от 2026-10-07 (планы 5b и 5c)») тем же коммитом, что и план 5b.
 
-1. **Сохранение фильтра** — в окне «Фильтр»: «Сохранить фильтр» открывает поле «Название фильтра» и кнопку «Сохранить». Сохраняются условия окна и тулбара (период, поиск, сумма); период — датами (решение 6 плана 5a), сортировка не сохраняется. После сохранения окно применяет фильтр и закрывается; ошибка (пустое название) — у поля, окно остаётся открытым.
+1. **Сохранение фильтра** — в окне «Фильтр»: «Сохранить фильтр» открывает поле «Название фильтра» и кнопку «Сохранить». Сохраняются условия окна и тулбара (период, поиск, сумма); период — датами (решение 6 плана 5a), сортировка не сохраняется. После сохранения окно применяет фильтр и закрывается; ошибка (пустое название) — у поля, окно остаётся открытым. После переименования фокус — на переименованном пункте, после удаления меню закрывается и фокус — на его кнопке.
 2. **Применение сохранённого фильтра** заменяет все условия, сортировка остаётся текущей; даты — период «Произвольно». Если сервер убрал недоступные ссылки (`unavailable > 0`), у пункта меню видно «(N условий недоступно)», а после применения — сообщение «Фильтр «…»: N условий недоступно (удалены или в архиве) — они не применены.» до «Скрыть» или следующего применения.
-3. **«Указать»** (§7) — у операции с одной строкой: контрагент и статья — у дохода и расхода, проект — ещё у перевода без строк (ему создаётся строка на всю сумму). В списке нет архивных элементов (инвариант 7), статьи — только вида операции (инвариант 3). `PATCH` шлёт `version` и одно поле. При ошибке значение откатывается и над таблицей — сообщение (`role="alert"`); при 409 — «Операция изменена другим пользователем. Журнал обновлён — проверьте и повторите.» В любом случае журнал, счета и компании перечитываются.
-4. **Выделение** — флажки строк и «Выбрать все загруженные операции» в заголовке (только загруженные страницы); не больше 500 (BULK_MAX плана 5a) — иначе действия недоступны с подсказкой. Смена фильтра или компании снимает выделение. После «Статья», «Проект», «Контрагент» выделение остаётся (можно назначить следующее), после удаления снимается.
+3. **«Указать»** (§7) — у операции с одной строкой: контрагент и статья — у дохода и расхода, проект — ещё у перевода без строк (ему создаётся строка на всю сумму). В списке нет архивных элементов (инвариант 7), статьи — только вида операции (инвариант 3). `PATCH` шлёт `version` и одно поле. При ошибке значение откатывается и над таблицей — сообщение (`role="alert"`); при 409 — «Операция изменена другим пользователем. Журнал обновлён — проверьте и повторите.», а если операцию удалили — «Операция удалена другим пользователем. Журнал обновлён.» В любом случае журнал, счета и компании перечитываются. Кнопка «Указать» после выбора исчезает — фокус переходит на строку операции (у неё `tabIndex={-1}`, план 5b). Список «Указать» — в панели `Popover` (портал, план 5b): обёртка таблицы его не обрезает.
+4. **Выделение** — флажки строк и «Выбрать все загруженные операции» в заголовке (только загруженные страницы); не больше 500 (BULK_MAX плана 5a) — иначе действия недоступны с подсказкой. Смена фильтра или компании снимает выделение. После «Статья», «Проект», «Контрагент» выделение остаётся (можно назначить следующее), после удаления снимается. Пока действие выполняется, его кнопки и списки недоступны.
 5. **«Статья» в массовых действиях** предлагает статьи обоих видов с пометкой «Доход: …» / «Расход: …»: сервер сам пропускает операции другого вида с причиной.
 6. **Итог** — «Статья: изменено N, пропущено M» и список причин с числом операций («Разбитая операция — измените её в форме — 2»).
-7. **Тост «Удалено N — Отменить»** висит 10 секунд и не останавливается. Область `role="status"` есть на странице всегда, чтобы появление текста объявлялось. Фокус переходит на «Отменить» (выделенные строки и кнопка подтверждения исчезли); когда тост закрывается, фокус, если был в нём, переходит на заголовок «Журнал». «Отменить» шлёт `bulk restore` с `changed` из ответа удаления — операции, удалённые раньше другим действием, не возвращаются (решение 5 плана 5a).
+7. **Тост «Удалено N — Отменить»** висит 10 секунд и не останавливается. Область `role="status"` есть на странице всегда, чтобы появление текста объявлялось. Фокус переходит на «Отменить» (выделенные строки и кнопка подтверждения исчезли); когда тост закрывается, фокус, если был в нём, переходит на заголовок «Журнал». «Отменить» шлёт `bulk restore` с `changed` из ответа удаления в ту компанию, где удаляли, — даже если пользователь уже перешёл в другую; операции, удалённые раньше другим действием, не возвращаются (решение 5 плана 5a).
 
 ## Global Constraints
 
@@ -52,9 +53,9 @@
 
 1. **«Указать» по операции, которую только что изменили в другом окне:** значение откатывается, видно «Операция изменена другим пользователем…», журнал перечитан, повтор с новой версией проходит. Тест — задача 2.
 2. **Сохранённый фильтр, тег которого ушёл в архив:** в меню — «(1 условие недоступно)», при применении — предупреждение, фильтр применяется без тега. Тест — задача 1.
-3. **«Отменить» после удаления:** возвращаются ровно удалённые операции, балансы в левой панели возвращаются к прежним, фокус не теряется (на «Отменить», затем на заголовке). Тест — задача 3.
+3. **Удалили и сразу перешли в другую компанию:** тост остаётся, «Отменить» возвращает операции в той компании, где их удалили (а не «Операция не найдена» в новой), балансы в левой панели возвращаются к прежним; фокус не теряется (на «Отменить», затем на заголовке). Тест — задача 3.
 4. **Выделение и смена фильтра:** строки, которые ушли из списка после смены периода, не остаются выделенными — массовое действие не уходит на невидимые операции. Тест — задача 3.
-5. **Пустое название при сохранении фильтра:** окно не закрывается, поле помечено ошибкой сервера, фильтр не применяется. Тест — задача 1.
+5. **«Указать» в последней строке короткой таблицы:** список не обрезан обёрткой таблицы с прокруткой — последний вариант виден и нажимается (проверка `elementFromPoint`). Тест — задача 2.
 
 ---
 
@@ -92,7 +93,7 @@ README.md
 - Produces:
   - `journal-filter.ts`: `interface SavedJournalFilter` (поля API: `from?`, `to?`, `q?`, `amountMin?`, `amountMax?`, `types?`, `accountIds?`, `categoryIds?`, `projectIds?`, `counterpartyIds?`, `tagIds?`, `withoutCategory?: true`, `withoutProject?: true`, `withoutCounterparty?: true`), `savedFilterFromState(state, today): SavedJournalFilter`, `stateFromSavedFilter(filter, current: Pick<JournalUrlState, 'sort' | 'order'>): JournalUrlState`;
   - `queries.ts`: `interface SavedFilter`, `useSavedFilters(companyId)` — ключ `['saved-filters', companyId]`;
-  - `SavedFiltersMenu({ companyId, filters, onApply })`, `unavailableText(n): string` («1 условие недоступно», «2 условия недоступны», «5 условий недоступно»); пункты меню — кнопки «Применить фильтр «…»», «Переименовать фильтр «…»», «Удалить фильтр «…»»;
+  - `SavedFiltersMenu({ companyId, filters, onApply })`, `unavailableText(n): string` («1 условие недоступно», «2 условия недоступны», «5 условий недоступно»); пункты меню — кнопки «Применить фильтр «…»», «Переименовать фильтр «…»», «Удалить фильтр «…»»; после переименования и отмены фокус — на кнопке «Применить…» пункта, после удаления меню закрывается с фокусом на его кнопке;
   - `FilterDialog` получает обязательное свойство `onSave: (draft: JournalUrlState, name: string) => Promise<void>` и кнопку «Сохранить фильтр».
 
 - [ ] **Step 1: Write the failing tests**
@@ -163,8 +164,23 @@ async function apiPost(page: Page, url: string, data: unknown) {
   return res.json();
 }
 
-/** Момент n минут назад: операции не могут быть в будущем (инвариант 6). */
-const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
+/** Начало сегодняшнего дня по Алматы — APP_TIMEZONE e2e-сервера (с 01.03.2024 — UTC+5). */
+function startOfTodayAlmaty(): number {
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date());
+  return Date.parse(`${day}T00:00:00+05:00`);
+}
+
+/**
+ * Момент «сегодня по Алматы»: чем больше n (0 < n < 1000), тем раньше, но всегда сегодня и не в будущем
+ * (инвариант 6) — проверки «сегодня» и периода не падают сразу после полуночи.
+ */
+const todayAgo = (n: number) => {
+  const start = startOfTodayAlmaty();
+  return new Date(start + (Date.now() - start) * (1 - n / 1000)).toISOString();
+};
+
+/** Вчера в полдень по Алматы. */
+const yesterdayNoon = () => new Date(startOfTodayAlmaty() - 12 * 3600_000).toISOString();
 
 const table = (page: Page) => page.getByRole('table', { name: 'Операции' });
 const bodyRows = (page: Page) => table(page).locator('tbody tr');
@@ -177,14 +193,14 @@ test('сохранённые фильтры: сохранить из окна «
   const base = `/api/v1/companies/${cid}`;
   const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
   const shift = (await apiPost(page, `${base}/tags`, { name: 'Смена' })).tag.id;
-  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minutesAgo(3), accountId: kaspi, amount: 100, tagIds: [shift], comment: 'операция A' });
-  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: minutesAgo(2), accountId: kaspi, amount: 200, comment: 'операция B' });
-  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minutesAgo(1), accountId: kaspi, amount: 300, comment: 'операция C' });
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(3), accountId: kaspi, amount: 100, tagIds: [shift], comment: 'операция A' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(2), accountId: kaspi, amount: 200, comment: 'операция B' });
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(1), accountId: kaspi, amount: 300, comment: 'операция C' });
   await page.reload();
   await expect.poll(() => letters(page)).toBe('CBA');
 
   const filterButton = page.getByRole('button', { name: /^Фильтр/ });
-  const dialog = page.getByRole('dialog', { name: 'Фильтр' });
+  const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
   const menuButton = page.getByRole('button', { name: 'Сохранённые фильтры' });
 
   // период «Сегодня» в тулбаре + доходы в окне → «Сохранить фильтр»
@@ -215,7 +231,8 @@ test('сохранённые фильтры: сохранить из окна «
   await page.getByRole('button', { name: 'Переименовать фильтр «Доходы за день»' }).click();
   await page.getByLabel('Новое название фильтра «Доходы за день»').fill('Доходы');
   await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Применить фильтр «Доходы»' })).toBeVisible();
+  // поле названия исчезло — фокус на переименованном фильтре
+  await expect(page.getByRole('button', { name: 'Применить фильтр «Доходы»' })).toBeFocused();
   await page.keyboard.press('Escape');
 
   // фильтр по тегу; тег уходит в архив — при применении предупреждение, условие отброшено (инвариант 10)
@@ -243,6 +260,9 @@ test('сохранённые фильтры: сохранить из окна «
   await page.getByRole('button', { name: 'Удалить фильтр «Смены»' }).click();
   await expect(page.getByRole('button', { name: 'Отмена' })).toBeFocused();
   await page.getByRole('button', { name: 'Да, удалить' }).click();
+  // пункт исчез — меню закрыто, фокус на его кнопке
+  await expect(menuButton).toBeFocused();
+  await menuButton.click();
   await expect(shifts).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Применить фильтр «Доходы»' })).toBeVisible();
 });
@@ -345,7 +365,7 @@ export function useSavedFilters(companyId: number) {
 `src/client/components/journal/SavedFiltersMenu.tsx`:
 
 ```ts
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../../lib/api';
 import { pluralRu } from '../../lib/journal-format';
 import { queryClient } from '../../lib/query';
@@ -360,21 +380,33 @@ export function unavailableText(n: number): string {
 
 const errorText = (e: unknown) => (e instanceof ApiError ? (e.fields?.name ?? e.message) : 'Ошибка сервера');
 
-function SavedFilterItem(props: { filter: SavedFilter; companyId: number; onApply: () => void }) {
+function SavedFilterItem(props: { filter: SavedFilter; companyId: number; onApply: () => void; onRemoved: () => void }) {
   const { filter } = props;
   const [mode, setMode] = useState<'view' | 'rename' | 'delete'>('view');
   const [name, setName] = useState(filter.name);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const url = `/companies/${props.companyId}/saved-filters/${filter.id}`;
+  // поле названия и подтверждение исчезают — фокус возвращается на кнопку фильтра, а не теряется
+  const applyRef = useRef<HTMLButtonElement>(null);
+  const [focusApply, setFocusApply] = useState(false);
+  useEffect(() => {
+    if (mode !== 'view' || !focusApply) return;
+    applyRef.current?.focus();
+    setFocusApply(false);
+  }, [mode, focusApply]);
+  const back = () => {
+    setMode('view');
+    setFocusApply(true);
+  };
 
-  const run = async (request: () => Promise<unknown>) => {
+  const run = async (request: () => Promise<unknown>, done: () => void) => {
     setPending(true);
     setError(null);
     try {
       await request();
       await queryClient.invalidateQueries({ queryKey: ['saved-filters', props.companyId] });
-      setMode('view');
+      done();
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -388,7 +420,7 @@ function SavedFilterItem(props: { filter: SavedFilter; companyId: number; onAppl
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void run(() => api(url, { method: 'PATCH', body: { name } }));
+            void run(() => api(url, { method: 'PATCH', body: { name } }), back);
           }}
           className="flex flex-col gap-2"
         >
@@ -406,7 +438,7 @@ function SavedFilterItem(props: { filter: SavedFilter; companyId: number; onAppl
             <button type="submit" disabled={pending} className={btnSmall}>
               Сохранить
             </button>
-            <button type="button" onClick={() => setMode('view')} className={btnSmall}>
+            <button type="button" onClick={back} className={btnSmall}>
               Отмена
             </button>
           </div>
@@ -421,10 +453,10 @@ function SavedFilterItem(props: { filter: SavedFilter; companyId: number; onAppl
         <span>Удалить фильтр «{filter.name}»?</span>
         {error && <p className="text-xs text-expense">{error}</p>}
         <div className="flex gap-2">
-          <button type="button" disabled={pending} onClick={() => void run(() => api(url, { method: 'DELETE' }))} className={`${btnDanger} px-3 py-1.5 text-sm`}>
+          <button type="button" disabled={pending} onClick={() => void run(() => api(url, { method: 'DELETE' }), props.onRemoved)} className={`${btnDanger} px-3 py-1.5 text-sm`}>
             Да, удалить
           </button>
-          <button type="button" autoFocus onClick={() => setMode('view')} className={`${btnSecondary} px-3 py-1.5 text-sm`}>
+          <button type="button" autoFocus onClick={back} className={`${btnSecondary} px-3 py-1.5 text-sm`}>
             Отмена
           </button>
         </div>
@@ -435,6 +467,7 @@ function SavedFilterItem(props: { filter: SavedFilter; companyId: number; onAppl
   return (
     <li className="flex items-center gap-1 py-0.5">
       <button
+        ref={applyRef}
         type="button"
         aria-label={`Применить фильтр «${filter.name}»${filter.unavailable > 0 ? `, ${unavailableText(filter.unavailable)}` : ''}`}
         onClick={props.onApply}
@@ -487,6 +520,8 @@ export function SavedFiltersMenu(props: { companyId: number; filters: SavedFilte
                     props.onApply(f);
                     close(true);
                   }}
+                  // удалённый пункт исчезает — фокус на кнопку меню
+                  onRemoved={() => close(true)}
                 />
               ))}
             </ul>
@@ -783,7 +818,7 @@ import {
   type JournalUrlState,
 } from '../lib/journal-filter';
 import { queryClient, useMeta } from '../lib/query';
-import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useSavedFilters, useTags, type CategoryTree } from '../lib/queries';
+import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useSavedFilters, useTags, type CategoryTree, type Company } from '../lib/queries';
 import type { CompanyOutletContext } from './CompanyLayout';
 
 /** Статьи плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
@@ -796,9 +831,17 @@ function categoryNames(tree: CategoryTree): Map<number, string> {
   return names;
 }
 
-/** Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка. */
+/**
+ * Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка.
+ * Маршрут не пересоздаёт страницу при смене компании, поэтому экран компании — с key: окно «Фильтр»,
+ * выделение и сообщения начинаются заново.
+ */
 export function JournalPage() {
   const { company } = useOutletContext<CompanyOutletContext>();
+  return <JournalScreen key={company.id} company={company} />;
+}
+
+function JournalScreen({ company }: { company: Company }) {
   const meta = useMeta();
   const prefs = usePreferences();
   const [params, setParams] = useSearchParams();
@@ -901,7 +944,12 @@ export function JournalPage() {
           busy={journal.isPlaceholderData}
         />
       )}
-      <LoadMore hasNext={journal.hasNextPage} loading={journal.isFetchingNextPage} onLoad={() => void journal.fetchNextPage()} />
+      <LoadMore
+        hasNext={journal.hasNextPage}
+        loading={journal.isFetchingNextPage}
+        failed={journal.isFetchNextPageError}
+        onLoad={() => void journal.fetchNextPage()}
+      />
     </section>
   );
 }
@@ -939,8 +987,9 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Consumes: `JournalItem`, `JournalPageData`, `CategoryNode`, `CategoryTree`, `Counterparty`, `Project` (`queries.ts`); `Popover` (план 5b); `matchesQuery` (`src/shared/search.ts`); `api`, `ApiError`; `queryClient`; `JournalTable` (план 5b); `PATCH /operations/:id` (план 4a; 409 `VERSION_CONFLICT`).
 - Produces:
   - `journal-assign.ts`: `type AssignField = 'counterparty' | 'category' | 'project'`, `ASSIGN_LABELS` («Указать контрагента», «Указать статью», «Указать проект»), `AssignTarget`, `canAssign(item, field): boolean`, `interface AssignPatch`, `assignPatch(item, field, id): AssignPatch`, `withAssigned(item, field, id)`;
-  - `journal-mutations.ts`: `invalidateOperations(companyId): Promise<void>`, `operationErrorText(e: unknown): string`, `useAssign(companyId, onError: (message: string) => void)` — мутация `{ item, field, id }`;
-  - `SearchPicker(props: { label; ariaLabel?; listLabel; options: PickerOption[]; onPick: (id: number) => void; buttonClassName?; align? })`, `interface PickerOption { id: number; label: string }` — поле поиска `combobox` с именем «{listLabel}: поиск», список `listbox` с именем listLabel;
+  - `journal-mutations.ts`: `invalidateOperations(companyId): Promise<void>`, `operationErrorText(e: unknown): string` (409 «изменена» — «… Журнал обновлён — проверьте и повторите.», 409 «удалена» — «Операция удалена другим пользователем. Журнал обновлён.», прочее — текст сервера), `useAssign(companyId, onError: (message: string) => void)` — мутация `{ item, field, id }`;
+  - `JournalPage`: после выбора в «Указать» фокус — на строку операции (`focusRow(id)`: `tr[data-operation-id]`, план 5b);
+  - `SearchPicker(props: { label; ariaLabel?; listLabel; options: PickerOption[]; onPick: (id: number) => void; buttonClassName?; align?; disabled? })`, `interface PickerOption { id: number; label: string }` — поле поиска `combobox` с именем «{listLabel}: поиск», список `listbox` с именем listLabel;
   - `AssignPicker({ item, field, data, onPick })`, `interface AssignData { categories; projects; counterparties }`, `categoryPickerOptions(nodes): PickerOption[]`;
   - `JournalTable`: свойство `renderAssign?: (item, field) => ReactNode` — вызывается только там, где `canAssign`.
 
@@ -950,7 +999,9 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 ```ts
 import { describe, expect, it } from 'vitest';
+import { ApiError } from '../../src/client/lib/api';
 import { assignPatch, canAssign, withAssigned, type AssignTarget } from '../../src/client/lib/journal-assign';
+import { operationErrorText } from '../../src/client/lib/journal-mutations';
 
 const FIELDS = ['counterparty', 'category', 'project'] as const;
 const line = (categoryId: number | null, projectId: number | null, amount = 1000) => ({ id: 1, position: 0, categoryId, projectId, amount, baseAmount: amount });
@@ -996,6 +1047,17 @@ describe('«Указать» (§7)', () => {
       { id: 0, position: 0, categoryId: null, projectId: 9, amount: 500, baseAmount: 500 },
     ]);
   });
+
+  it('текст ошибки: конфликт версии — журнал обновлён; удалённая операция — без «повторите»; прочее — как есть', () => {
+    expect(operationErrorText(new ApiError(409, 'VERSION_CONFLICT', 'Операция изменена другим пользователем'))).toBe(
+      'Операция изменена другим пользователем. Журнал обновлён — проверьте и повторите.',
+    );
+    expect(operationErrorText(new ApiError(409, 'VERSION_CONFLICT', 'Операция удалена — обновите страницу'))).toBe(
+      'Операция удалена другим пользователем. Журнал обновлён.',
+    );
+    expect(operationErrorText(new ApiError(422, 'ARCHIVED_REFERENCE', 'Статья «Старая» в архиве — выберите другую'))).toBe('Статья «Старая» в архиве — выберите другую');
+    expect(operationErrorText(new Error('x'))).toBe('Ошибка сервера');
+  });
 });
 ```
 
@@ -1003,6 +1065,8 @@ describe('«Указать» (§7)', () => {
 
 ```ts
 test('«Указать»: список с поиском и клавиатурой, значение сохраняется сразу; конфликт версии — откат и сообщение', async ({ page }) => {
+  // высокое окно: под последней строкой таблицы хватает места, и список открывается вниз — за край обёртки таблицы
+  await page.setViewportSize({ width: 1280, height: 1000 });
   await login(page);
   const cid = await createCompany(page, `ТОО Указать ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
@@ -1013,10 +1077,10 @@ test('«Указать»: список с поиском и клавиатуро
   await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Барная стойка' }); // расходная — доходу не предлагается
   const club = (await apiPost(page, `${base}/projects`, { name: 'Клуб 1', templateKey: 'general' })).project.id;
   await apiPost(page, `${base}/counterparties`, { name: 'ИП Клиент', type: 'client' });
-  const income = (await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minutesAgo(3), accountId: kaspi, amount: 100, comment: 'операция A' })).operation;
+  const income = (await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(3), accountId: kaspi, amount: 100, comment: 'операция A' })).operation;
   await apiPost(page, `${base}/operations`, {
     type: 'expense',
-    paidAt: minutesAgo(2),
+    paidAt: todayAgo(2),
     accountId: kaspi,
     amount: 300,
     comment: 'операция B',
@@ -1025,7 +1089,7 @@ test('«Указать»: список с поиском и клавиатуро
       { amount: 200 },
     ],
   });
-  await apiPost(page, `${base}/operations`, { type: 'transfer', paidAt: minutesAgo(1), accountId: kaspi, toAccountId: cash, amount: 50, comment: 'операция C' });
+  await apiPost(page, `${base}/operations`, { type: 'transfer', paidAt: todayAgo(1), accountId: kaspi, toAccountId: cash, amount: 50, comment: 'операция C' });
   await page.reload();
   await expect.poll(() => letters(page)).toBe('CBA');
   const row = (letter: string) => bodyRows(page).filter({ hasText: `операция ${letter}` });
@@ -1042,12 +1106,26 @@ test('«Указать»: список с поиском и клавиатуро
   await expect(search).toBeFocused();
   const categoryOptions = page.getByRole('listbox', { name: 'Статьи' }).getByRole('option');
   await expect(categoryOptions).toHaveText(['Инвестиции', 'Возврат займа', 'Получение кредита', 'Бар', 'Игровое время']);
+  // список у последней строки не обрезан обёрткой таблицы (overflow-x: auto): он ниже её нижнего края и виден целиком
+  const listBox = (await page.getByRole('listbox', { name: 'Статьи' }).boundingBox())!;
+  const wrapperBox = (await table(page).locator('xpath=..').boundingBox())!;
+  expect(listBox.y + listBox.height).toBeGreaterThan(wrapperBox.y + wrapperBox.height);
+  await expect(categoryOptions.last()).toBeInViewport();
+  const lastOptionHit = await categoryOptions
+    .last()
+    .evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === el;
+    });
+  expect(lastOptionHit).toBe(true);
   await search.fill('БАР');
   await expect(categoryOptions).toHaveText(['Бар']);
   await search.press('ArrowDown');
   await search.press('Enter');
   await expect(row('A')).toContainText('Бар');
   await expect(row('A').getByRole('button', { name: 'Указать статью' })).toHaveCount(0);
+  // кнопки больше нет — фокус на строке операции, а не на body
+  await expect(row('A')).toBeFocused();
 
   // Esc закрывает список, фокус — на кнопке
   await row('A').getByRole('button', { name: 'Указать проект' }).click();
@@ -1057,8 +1135,11 @@ test('«Указать»: список с поиском и клавиатуро
 
   // проект переводу без строк — мышью
   await row('C').getByRole('button', { name: 'Указать проект' }).click();
+  // журнал перечитывается после сохранения — дождёмся его, чтобы правка «в другом окне» ниже пришла позже
+  const reloaded = page.waitForResponse((r) => r.url().includes(`/companies/${cid}/operations?`) && r.request().method() === 'GET');
   await page.getByRole('listbox', { name: 'Проекты' }).getByRole('option', { name: 'Клуб 1' }).click();
   await expect(row('C')).toContainText('Клуб 1');
+  await reloaded;
 
   // конфликт: операцию изменили в другом окне — значение откатывается, сообщение о конфликте, журнал обновлён
   const patched = await page.request.patch(`${base}/operations/${income.id}`, { data: { version: 2, comment: 'операция A изменена' }, headers: csrf(page) });
@@ -1175,11 +1256,14 @@ export async function invalidateOperations(companyId: number): Promise<void> {
   ]);
 }
 
-/** Текст ошибки записи для пользователя: на конфликт версии — что журнал обновлён и можно повторить. */
+/**
+ * Текст ошибки записи для пользователя. На конфликт версии (409) — что журнал обновлён: операцию изменили
+ * («…проверьте и повторите») или удалили (повторять нечего).
+ */
 export function operationErrorText(e: unknown): string {
   if (!(e instanceof ApiError)) return 'Ошибка сервера';
-  if (e.status === 409) return `${e.message}. Журнал обновлён — проверьте и повторите.`;
-  return e.message;
+  if (e.status !== 409) return e.message;
+  return e.message.startsWith('Операция удалена') ? 'Операция удалена другим пользователем. Журнал обновлён.' : `${e.message}. Журнал обновлён — проверьте и повторите.`;
 }
 
 type JournalData = InfiniteData<JournalPageData, string | null>;
@@ -1306,9 +1390,17 @@ export function SearchPicker(props: {
   onPick: (id: number) => void;
   buttonClassName?: string;
   align?: 'left' | 'right';
+  disabled?: boolean;
 }) {
   return (
-    <Popover label={props.label} ariaLabel={props.ariaLabel} buttonClassName={props.buttonClassName} align={props.align} panelClassName="w-72">
+    <Popover
+      label={props.label}
+      ariaLabel={props.ariaLabel}
+      buttonClassName={props.buttonClassName}
+      align={props.align}
+      disabled={props.disabled}
+      panelClassName="w-72"
+    >
       {(close) => (
         <PickerList
           label={props.listLabel}
@@ -1463,8 +1555,9 @@ export function JournalTable(props: JournalTableProps) {
   const shown = JOURNAL_COLUMNS.filter((c) => columns.includes(c.id));
 
   const onRowClick = (item: JournalItem) => (e: MouseEvent<HTMLTableRowElement>) => {
-    // клики по кнопкам, ссылкам и флажкам внутри строки — не открытие операции
-    if ((e.target as HTMLElement).closest('button, a, input, label, [tabindex]')) return;
+    // клики по настоящим элементам управления внутри строки — не открытие операции;
+    // «2 статьи» (подсказка с tabIndex) — открывает: по §7 клик по ним открывает форму
+    if ((e.target as HTMLElement).closest('button, a, input, label, select, [role="combobox"], [role="listbox"]')) return;
     props.onOpenOperation?.(item);
   };
 
@@ -1538,8 +1631,11 @@ export function JournalTable(props: JournalTableProps) {
             return (
               <tr
                 key={item.id}
+                // фокус сюда переводит «Указать» после выбора: кнопка в ячейке исчезает (план 5c)
+                tabIndex={-1}
+                data-operation-id={item.id}
                 onClick={props.onOpenOperation ? onRowClick(item) : undefined}
-                className={`border-b border-field last:border-0 ${props.onOpenOperation ? 'cursor-pointer hover:bg-field/60' : ''}`}
+                className={`border-b border-field outline-none last:border-0 focus:bg-field/60 ${props.onOpenOperation ? 'cursor-pointer hover:bg-field/60' : ''}`}
               >
                 {shown.map((c) => (
                   <td key={c.id} className={tdClass}>
@@ -1585,8 +1681,13 @@ import {
 } from '../lib/journal-filter';
 import { useAssign } from '../lib/journal-mutations';
 import { queryClient, useMeta } from '../lib/query';
-import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useSavedFilters, useTags, type CategoryTree } from '../lib/queries';
+import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useSavedFilters, useTags, type CategoryTree, type Company } from '../lib/queries';
 import type { CompanyOutletContext } from './CompanyLayout';
+
+/** Фокус на строку операции (у строки tabIndex=-1 и data-operation-id). */
+function focusRow(id: number): void {
+  requestAnimationFrame(() => document.querySelector<HTMLElement>(`tr[data-operation-id="${id}"]`)?.focus());
+}
 
 /** Статьи плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
 function categoryNames(tree: CategoryTree): Map<number, string> {
@@ -1598,9 +1699,17 @@ function categoryNames(tree: CategoryTree): Map<number, string> {
   return names;
 }
 
-/** Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка. */
+/**
+ * Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка.
+ * Маршрут не пересоздаёт страницу при смене компании, поэтому экран компании — с key: окно «Фильтр»,
+ * выделение и сообщения начинаются заново.
+ */
 export function JournalPage() {
   const { company } = useOutletContext<CompanyOutletContext>();
+  return <JournalScreen key={company.id} company={company} />;
+}
+
+function JournalScreen({ company }: { company: Company }) {
   const meta = useMeta();
   const prefs = usePreferences();
   const [params, setParams] = useSearchParams();
@@ -1720,16 +1829,25 @@ export function JournalPage() {
               onPick={(id) => {
                 setActionError(null);
                 assign.mutate({ item, field, id });
+                // кнопка «Указать» исчезает вместе с пустой ячейкой — фокус на строку операции
+                focusRow(item.id);
               }}
             />
           )}
         />
       )}
-      <LoadMore hasNext={journal.hasNextPage} loading={journal.isFetchingNextPage} onLoad={() => void journal.fetchNextPage()} />
+      <LoadMore
+        hasNext={journal.hasNextPage}
+        loading={journal.isFetchingNextPage}
+        failed={journal.isFetchNextPageError}
+        onLoad={() => void journal.fetchNextPage()}
+      />
     </section>
   );
 }
 ```
+
+В e2e правка «в другом окне» отправляется только после ответа на перечитывание журнала, вызванное предыдущим «Указать»: иначе поздний ответ мог бы принести новую версию раньше выбора, и конфликта не было бы. Проверка «не обрезан» сравнивает список с обёрткой таблицы и проверяет `elementFromPoint` у последнего варианта: `boundingBox` обрезку не видит, а точка в обрезанной части попадает в другой элемент.
 
 Почему так: снимок `getQueriesData` берётся до оптимистичной правки и возвращается при ошибке; `cancelQueries` не даёт идущему запросу журнала затереть оптимистичное значение. `onSettled` сбрасывает журнал, счета и компании и при успехе, и при ошибке — после 409 строка приходит с новой версией, и повтор проходит.
 
@@ -1762,10 +1880,11 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `invalidateOperations`, `operationErrorText` (задача 2); `SearchPicker`, `categoryPickerOptions`, `AssignData` (задача 2); `dayLabel`, `dayOf`, `timeLabel`, `signedMoney` (план 5b); `POST …/operations/bulk` (план 5a).
 - Produces:
-  - `journal-bulk.ts`: `BULK_MAX = 500`, `type BulkAction` (`{ action: 'setCategory'; categoryId } | { action: 'setProject'; projectId } | { action: 'setCounterparty'; counterpartyId } | { action: 'delete' } | { action: 'restore' }`), `interface BulkResult { changed: number[]; skipped: { id: number; reason: string }[] }`, `bulkSummary(action, result): { text: string; reasons: { reason: string; count: number }[] }`;
+  - `journal-bulk.ts`: `BULK_MAX = 500`, `type BulkAction` (`{ action: 'setCategory'; categoryId } | { action: 'setProject'; projectId } | { action: 'setCounterparty'; counterpartyId } | { action: 'delete' } | { action: 'restore' }`), `interface BulkResult { changed: number[]; skipped: { id: number; reason: string }[] }`, `interface BulkSummary { text: string; reasons: { reason: string; count: number }[] }`, `bulkSummary(action, result): BulkSummary`;
   - `journal-mutations.ts`: `runBulk(companyId, ids, action): Promise<BulkResult>`;
-  - `BulkBar({ count, data, pending, onRun, onClear })` — `role="region"` «Действия с выбранными»: «Выбрано: N», «Статья», «Проект», «Контрагент», «Удалить» (подтверждение «Да, удалить» / «Отмена»), «Снять выделение»;
+  - `BulkBar({ count, data, pending, onRun, onClear })` — `role="region"` «Действия с выбранными»: «Выбрано: N», «Статья», «Проект», «Контрагент», «Удалить» (подтверждение «Да, удалить» / «Отмена»), «Снять выделение»; пока `pending`, кнопки и списки недоступны;
   - `UndoToast({ toast, pending, onUndo, onClose, focusAfter })`, `UNDO_TOAST_MS = 10_000`;
+  - `JournalPage` держит тост (`interface UndoState { key; companyId; count; ids }`) и итог «Отмены удаления» с компанией; `JournalScreen` получает `onDeleted(ids)`, `undoSummary`, `onClearUndoSummary()`; заголовок — `<h1 id="journal-heading">`;
   - `JournalTable`: свойство `selection?: { selected: ReadonlySet<number>; onToggle: (id) => void; onToggleAll: (select: boolean) => void }` — колонка флажков «Выбрать все загруженные операции» и «Выбрать операцию: {дата} {время}, {сумма}».
 
 - [ ] **Step 1: Write the failing tests**
@@ -1821,13 +1940,15 @@ test('массовые действия: статья с итогом и при�
   const base = `/api/v1/companies/${cid}`;
   const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 100000 })).account.id;
   await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда' });
+  const otherName = `ТОО Соседняя ${Date.now()}`;
+  const other = (await apiPost(page, '/api/v1/companies', { name: otherName })).company.id;
   const club = (await apiPost(page, `${base}/projects`, { name: 'Клуб 1', templateKey: 'general' })).project.id;
   const club2 = (await apiPost(page, `${base}/projects`, { name: 'Клуб 2', templateKey: 'general' })).project.id;
-  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: minutesAgo(5), accountId: kaspi, amount: 1000, comment: 'операция A' });
-  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: minutesAgo(4), accountId: kaspi, amount: 2000, comment: 'операция B' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(5), accountId: kaspi, amount: 1000, comment: 'операция A' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(4), accountId: kaspi, amount: 2000, comment: 'операция B' });
   await apiPost(page, `${base}/operations`, {
     type: 'expense',
-    paidAt: minutesAgo(3),
+    paidAt: todayAgo(3),
     accountId: kaspi,
     amount: 3000,
     comment: 'операция C',
@@ -1836,7 +1957,7 @@ test('массовые действия: статья с итогом и при�
       { projectId: club2, amount: 2000 },
     ],
   });
-  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minutesAgo(2), accountId: kaspi, amount: 4000, comment: 'операция D' });
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(2), accountId: kaspi, amount: 4000, comment: 'операция D' });
   await page.reload();
   await expect.poll(() => letters(page)).toBe('DCBA');
   const row = (letter: string) => bodyRows(page).filter({ hasText: `операция ${letter}` });
@@ -1895,6 +2016,26 @@ test('массовые действия: статья с итогом и при�
   await expect(kaspiLink).toContainText(/980,00\s₸/);
   await expect(page.getByRole('button', { name: 'Отменить' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Журнал' })).toBeFocused();
+
+  // удалили и сразу перешли в другую компанию: тост остаётся, «Отменить» возвращает операции той компании, где удаляли
+  await row('B').getByRole('checkbox').check();
+  await bar.getByRole('button', { name: 'Удалить', exact: true }).click();
+  await bar.getByRole('button', { name: 'Да, удалить' }).click();
+  await expect(undo).toBeFocused();
+  await expect.poll(() => letters(page)).toBe('DCA');
+  await page.getByRole('button', { name: /Сменить компанию/ }).click();
+  await page.getByRole('menuitem', { name: otherName }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${other}/log$`));
+  await expect(page.getByText('Операций пока нет.')).toBeVisible();
+  await expect(bar).toHaveCount(0);
+  await undo.click();
+  await expect(undo).toHaveCount(0);
+  await page.getByRole('button', { name: /Сменить компанию/ }).click();
+  await page.getByRole('menuitem', { name: /^ТОО Массовые/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
+  await expect.poll(() => letters(page)).toBe('DCBA');
+  await expect(page.getByRole('status').filter({ hasText: 'Отмена удаления:' })).toContainText('Отмена удаления: изменено 1, пропущено 0');
+  await expect(kaspiLink).toContainText(/980,00\s₸/);
 });
 ```
 
@@ -1938,8 +2079,13 @@ const TITLES: Record<BulkAction['action'], string> = {
   restore: 'Отмена удаления',
 };
 
+export interface BulkSummary {
+  text: string;
+  reasons: { reason: string; count: number }[];
+}
+
 /** Итог массового действия (§7): «Статья: изменено 3, пропущено 2» и причины пропуска с числом операций. */
-export function bulkSummary(action: BulkAction['action'], r: BulkResult): { text: string; reasons: { reason: string; count: number }[] } {
+export function bulkSummary(action: BulkAction['action'], r: BulkResult): BulkSummary {
   const counts = new Map<string, number>();
   for (const s of r.skipped) counts.set(s.reason, (counts.get(s.reason) ?? 0) + 1);
   return {
@@ -2004,6 +2150,7 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
             options={categoryOptions}
             onPick={(categoryId) => props.onRun({ action: 'setCategory', categoryId })}
             buttonClassName={pickerClass}
+            disabled={disabled}
           />
           <SearchPicker
             label="Проект"
@@ -2011,6 +2158,7 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
             options={props.data.projects.filter((p) => !p.archivedAt).map((p) => ({ id: p.id, label: p.name }))}
             onPick={(projectId) => props.onRun({ action: 'setProject', projectId })}
             buttonClassName={pickerClass}
+            disabled={disabled}
           />
           <SearchPicker
             label="Контрагент"
@@ -2018,6 +2166,7 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
             options={props.data.counterparties.filter((c) => !c.archivedAt).map((c) => ({ id: c.id, label: c.name }))}
             onPick={(counterpartyId) => props.onRun({ action: 'setCounterparty', counterpartyId })}
             buttonClassName={pickerClass}
+            disabled={disabled}
           />
           {!confirm && (
             <button type="button" disabled={disabled} onClick={() => setConfirm(true)} className={`${btnSmall} text-expense`}>
@@ -2215,8 +2364,9 @@ export function JournalTable(props: JournalTableProps) {
   const allSelected = props.items.length > 0 && selectedCount === props.items.length;
 
   const onRowClick = (item: JournalItem) => (e: MouseEvent<HTMLTableRowElement>) => {
-    // клики по кнопкам, ссылкам и флажкам внутри строки — не открытие операции
-    if ((e.target as HTMLElement).closest('button, a, input, label, [tabindex]')) return;
+    // клики по настоящим элементам управления внутри строки — не открытие операции;
+    // «2 статьи» (подсказка с tabIndex) — открывает: по §7 клик по ним открывает форму
+    if ((e.target as HTMLElement).closest('button, a, input, label, select, [role="combobox"], [role="listbox"]')) return;
     props.onOpenOperation?.(item);
   };
 
@@ -2303,8 +2453,11 @@ export function JournalTable(props: JournalTableProps) {
             return (
               <tr
                 key={item.id}
+                // фокус сюда переводит «Указать» после выбора: кнопка в ячейке исчезает (план 5c)
+                tabIndex={-1}
+                data-operation-id={item.id}
                 onClick={props.onOpenOperation ? onRowClick(item) : undefined}
-                className={`border-b border-field last:border-0 ${props.onOpenOperation ? 'cursor-pointer hover:bg-field/60' : ''} ${selection?.selected.has(item.id) ? 'bg-income-soft/40' : ''}`}
+                className={`border-b border-field outline-none last:border-0 focus:bg-field/60 ${props.onOpenOperation ? 'cursor-pointer hover:bg-field/60' : ''} ${selection?.selected.has(item.id) ? 'bg-income-soft/40' : ''}`}
               >
                 {selection && (
                   <td className={tdClass}>
@@ -2334,7 +2487,7 @@ export function JournalTable(props: JournalTableProps) {
 `src/client/pages/JournalPage.tsx` — замените файл целиком:
 
 ```ts
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router';
 import { todayInTimezone } from '../../shared/dates';
 import { AssignPicker } from '../components/journal/AssignPicker';
@@ -2360,11 +2513,16 @@ import {
   stateFromSavedFilter,
   type JournalUrlState,
 } from '../lib/journal-filter';
-import { bulkSummary, type BulkAction } from '../lib/journal-bulk';
+import { bulkSummary, type BulkAction, type BulkSummary } from '../lib/journal-bulk';
 import { operationErrorText, runBulk, useAssign } from '../lib/journal-mutations';
 import { queryClient, useMeta } from '../lib/query';
-import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useSavedFilters, useTags, type CategoryTree } from '../lib/queries';
+import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useSavedFilters, useTags, type CategoryTree, type Company } from '../lib/queries';
 import type { CompanyOutletContext } from './CompanyLayout';
+
+/** Фокус на строку операции (у строки tabIndex=-1 и data-operation-id). */
+function focusRow(id: number): void {
+  requestAnimationFrame(() => document.querySelector<HTMLElement>(`tr[data-operation-id="${id}"]`)?.focus());
+}
 
 /** Статьи плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
 function categoryNames(tree: CategoryTree): Map<number, string> {
@@ -2376,9 +2534,67 @@ function categoryNames(tree: CategoryTree): Map<number, string> {
   return names;
 }
 
-/** Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка. */
+/** id заголовка «Журнал»: на него уходит фокус, когда закрывается тост. */
+const HEADING_ID = 'journal-heading';
+
+interface UndoState {
+  key: number;
+  /** Компания, где удалили: после смены компании «Отменить» восстанавливает операции именно в ней. */
+  companyId: number;
+  count: number;
+  ids: number[];
+}
+
+/**
+ * Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка.
+ * Маршрут не пересоздаёт страницу при смене компании, поэтому экран компании — с key: окно «Фильтр»,
+ * выделение и сообщения начинаются заново. Тост «Удалено N — Отменить» живёт выше — он помнит компанию.
+ */
 export function JournalPage() {
   const { company } = useOutletContext<CompanyOutletContext>();
+  const [toast, setToast] = useState<UndoState | null>(null);
+  const [undoPending, setUndoPending] = useState(false);
+  const [undoSummary, setUndoSummary] = useState<{ companyId: number; summary: BulkSummary } | null>(null);
+
+  const undo = async (t: UndoState) => {
+    setToast(null);
+    setUndoPending(true);
+    try {
+      setUndoSummary({ companyId: t.companyId, summary: bulkSummary('restore', await runBulk(t.companyId, t.ids, { action: 'restore' })) });
+    } catch (e) {
+      setUndoSummary({ companyId: t.companyId, summary: { text: operationErrorText(e), reasons: [] } });
+    } finally {
+      setUndoPending(false);
+    }
+  };
+
+  return (
+    <>
+      <JournalScreen
+        key={company.id}
+        company={company}
+        onDeleted={(ids) => setToast({ key: Date.now(), companyId: company.id, count: ids.length, ids })}
+        undoSummary={undoSummary?.companyId === company.id ? undoSummary.summary : null}
+        onClearUndoSummary={() => setUndoSummary(null)}
+      />
+      <UndoToast
+        toast={toast}
+        pending={undoPending}
+        onUndo={() => toast && void undo(toast)}
+        onClose={() => setToast(null)}
+        focusAfter={() => document.getElementById(HEADING_ID)}
+      />
+    </>
+  );
+}
+
+function JournalScreen(props: {
+  company: Company;
+  onDeleted: (ids: number[]) => void;
+  undoSummary: BulkSummary | null;
+  onClearUndoSummary: () => void;
+}) {
+  const { company } = props;
   const meta = useMeta();
   const prefs = usePreferences();
   const [params, setParams] = useSearchParams();
@@ -2400,13 +2616,11 @@ export function JournalPage() {
   const assign = useAssign(company.id, setActionError);
   // массовые действия: выделение (только загруженные строки), итог, тост отмены удаления
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
-  const [summary, setSummary] = useState<ReturnType<typeof bulkSummary> | null>(null);
-  const [toast, setToast] = useState<{ key: number; count: number; ids: number[] } | null>(null);
+  const [summary, setSummary] = useState<BulkSummary | null>(null);
   const [bulkPending, setBulkPending] = useState(false);
-  const headingRef = useRef<HTMLHeadingElement>(null);
   const filterKey = params.toString();
-  // другой фильтр или другая компания — выделение снимается
-  useEffect(() => setSelected(new Set()), [filterKey, company.id]);
+  // другой фильтр — выделение снимается (другая компания — новый экран, см. key выше)
+  useEffect(() => setSelected(new Set()), [filterKey]);
 
   const lookups = useMemo<JournalLookups | null>(() => {
     if (!accounts.data || !categories.data || !projects.data || !counterparties.data) return null;
@@ -2427,16 +2641,18 @@ export function JournalPage() {
   const columns = visibleColumns(prefs.data?.[JOURNAL_COLUMNS_PREF]);
   const conditions = filterConditionCount(state);
   const selectedIds = items.filter((i) => selected.has(i.id)).map((i) => i.id);
+  const shownSummary = props.undoSummary ?? summary;
   const run = async (action: BulkAction, ids: number[]) => {
     setBulkPending(true);
     setActionError(null);
     setSummary(null);
+    props.onClearUndoSummary();
     try {
       const result = await runBulk(company.id, ids, action);
       setSummary(bulkSummary(action.action, result));
       if (action.action === 'delete') {
         setSelected(new Set());
-        if (result.changed.length > 0) setToast({ key: Date.now(), count: result.changed.length, ids: result.changed });
+        if (result.changed.length > 0) props.onDeleted(result.changed);
       }
     } catch (e) {
       setActionError(operationErrorText(e));
@@ -2453,7 +2669,7 @@ export function JournalPage() {
   return (
     <section>
       <StaleNotice queries={queries} />
-      <h1 ref={headingRef} tabIndex={-1} className="mb-4 text-2xl font-bold outline-none">
+      <h1 id={HEADING_ID} tabIndex={-1} className="mb-4 text-2xl font-bold outline-none">
         Журнал
       </h1>
       <JournalToolbar
@@ -2495,17 +2711,24 @@ export function JournalPage() {
           </button>
         </p>
       )}
-      {summary && (
+      {shownSummary && (
         <div role="status" className="mb-4 rounded-xl bg-field px-4 py-2 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="font-semibold">{summary.text}</span>
-            <button type="button" onClick={() => setSummary(null)} className="font-semibold underline">
+            <span className="font-semibold">{shownSummary.text}</span>
+            <button
+              type="button"
+              onClick={() => {
+                setSummary(null);
+                props.onClearUndoSummary();
+              }}
+              className="font-semibold underline"
+            >
               Скрыть
             </button>
           </div>
-          {summary.reasons.length > 0 && (
+          {shownSummary.reasons.length > 0 && (
             <ul className="mt-1 list-disc pl-5 text-muted">
-              {summary.reasons.map((r) => (
+              {shownSummary.reasons.map((r) => (
                 <li key={r.reason}>
                   {r.reason} — {r.count}
                 </li>
@@ -2548,6 +2771,8 @@ export function JournalPage() {
               onPick={(id) => {
                 setActionError(null);
                 assign.mutate({ item, field, id });
+                // кнопка «Указать» исчезает вместе с пустой ячейкой — фокус на строку операции
+                focusRow(item.id);
               }}
             />
           )}
@@ -2564,17 +2789,11 @@ export function JournalPage() {
           }}
         />
       )}
-      <LoadMore hasNext={journal.hasNextPage} loading={journal.isFetchingNextPage} onLoad={() => void journal.fetchNextPage()} />
-      <UndoToast
-        toast={toast}
-        pending={bulkPending}
-        onUndo={() => {
-          const ids = toast?.ids ?? [];
-          setToast(null);
-          void run({ action: 'restore' }, ids);
-        }}
-        onClose={() => setToast(null)}
-        focusAfter={() => headingRef.current}
+      <LoadMore
+        hasNext={journal.hasNextPage}
+        loading={journal.isFetchingNextPage}
+        failed={journal.isFetchNextPageError}
+        onLoad={() => void journal.fetchNextPage()}
       />
     </section>
   );

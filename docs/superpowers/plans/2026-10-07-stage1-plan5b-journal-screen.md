@@ -17,7 +17,9 @@
 **Architecture:**
 - **Фильтр живёт в адресной строке.** Чистые функции `src/client/lib/journal-filter.ts` переводят `URLSearchParams` ↔ `JournalUrlState` ↔ параметры API плана 5a. Ключи адреса короткие и человеческие (`account`, `category`, `period=month`, `min`), ключи API — как в `journalQuerySchema` (`accountIds`, `from`/`to`, `amountMin`). Относительный период хранится ключом (`period=month`) и пересчитывается от «сегодня» в APP_TIMEZONE (`useMeta().timezone`) при каждом показе.
 - **Данные:** `useJournal(cid, params)` — `useInfiniteQuery` с ключом `['journal', cid, params]` и курсором `nextCursor`; при смене фильтра прежние строки остаются на экране до ответа (`placeholderData`), таблица помечается `aria-busy`. Названия справочников берутся из уже существующих запросов (`useAccounts`, `useCategories`, `useProjects`, `useCounterparties`, `useTags`).
-- **Компоненты** в `src/client/components/journal/`: `JournalTable` (настоящая `<table>` с подписью и заголовками, сортировка — кнопки в `<th aria-sort>`), `LoadMore` (наблюдатель + кнопка «Показать ещё»), `SplitHint` (подсказка по наведению и фокусу), `JournalToolbar`, `ColumnsPicker`, `FilterDialog`. Общие: `Popover` (панель у кнопки: Esc, клик мимо, возврат фокуса) и `Modal` (`<dialog>` с `showModal()`: фокус внутри, Esc, возврат фокуса).
+- **Компоненты** в `src/client/components/journal/`: `JournalTable` (настоящая `<table>` с подписью и заголовками, сортировка — кнопки в `<th aria-sort>`), `LoadMore` (наблюдатель + кнопка «Показать ещё»), `SplitHint` (подсказка по наведению и фокусу), `JournalToolbar`, `ColumnsPicker`, `FilterDialog`. Общие: `Popover` (панель у кнопки — немодальный `role="dialog"`: Esc, клик мимо, возврат фокуса) и `Modal` (`<dialog>` с `showModal()`: фокус внутри, Esc, возврат фокуса).
+- **Всплывающие элементы — поверх страницы.** Панели `Popover` и подсказки `SplitHint` рисуются порталом в `body` с `position: fixed`; место считает чистая функция `placeFloating`, хук `useFloating` пересчитывает его при прокрутке и изменении окна. Обёртка таблицы с `overflow-x: auto` (она обрезает и по вертикали) их не обрезает.
+- **Экран компании — с `key`.** Маршрут не пересоздаёт `JournalPage` при смене `:companyId`, поэтому страница рендерит `<JournalScreen key={company.id} />`: окно «Фильтр», выделение и сообщения одной компании не переходят в другую.
 - **Точка подключения шага 6:** свойство `onOpenOperation?: (item: JournalItem) => void` у `JournalTable`. Пока его не передают — клик по строке ничего не делает. Шаг 6 передаст обработчик, который открывает форму операции, и после сохранения вызовет `invalidateOperations(cid)` (появится в плане 5c).
 
 **Tech Stack:** как в планах 1–5a: React 19, react-router 8, TanStack Query 5, Tailwind 4, Playwright. TanStack Table и React Hook Form не установлены — новых пакетов нет, таблица и формы — обычный JSX.
@@ -36,9 +38,11 @@
 4. **Название измерения — «Статья»**, как в настройках, окне «Фильтр» и сообщениях сервера («Без статьи», «Статья расходов не подходит…»). «N категорий» спецификации — «2 статьи», «5 статей»; «N проектов» — «2 проекта». N — число разных значений в строках («не указано» тоже значение); если значение у всех строк одно, показывается оно. Подсказка перечисляет строки: «Аренда · Клуб 1 — 100,00 ₸».
 5. **«Доля проекта: X»** — только у разбитых операций (у неразбитой она равна сумме) и только при фильтре по проекту; X — сумма строк выбранных проектов в валюте счёта.
 6. **Сумма:** доход «+1 500,00 ₸» зелёным, расход «-1 500,00 ₸» коралловым, перевод «⇄ 1 500,00 ₸» серым, при разных валютах ниже «→ 1,00 $». Если валюта счёта не базовая, ниже — сумма в базовой валюте (`baseAmount`).
-7. **Поиск** уходит в адрес через 300 мс после последнего ввода (Enter — сразу). Сумма от/до применяется по Enter или уходу из поля; неверный ввод подсвечивается и не применяется.
+7. **Поиск** уходит в адрес через 300 мс после последнего ввода (Enter — сразу); «Сбросить фильтр» отменяет ещё не отправленный поиск. Сумма от/до и даты «Произвольно» применяются по Enter или уходу из поля (пока год набирают по цифре, промежуточные даты не уходят в адрес); неверный ввод подсвечивается и не применяется. Списки из адреса обрезаются до 200 значений — как у сервера (`JOURNAL_LIST_MAX`).
 8. **Выгрузка в Excel** — обычная ссылка `<a download>` на `…/operations/export.xlsx?<параметры API>`: GET без побочных эффектов, заголовок `X-Requested-With` не нужен (в отличие от `/backup/download`).
 9. **Окно «Фильтр»** показывает тип, счета, статьи (дерево, родительская включает дочерние), проекты, контрагентов (с поиском), теги и флажки «Без статьи / проекта / контрагента». Период, поиск и сумма — в тулбаре. Архивные элементы не предлагаются, кроме уже выбранных (их можно снять). Изменения — в черновике; «Готово» применяет, Esc и «Отмена» закрывают без изменений.
+10. **Всплывающие панели и подсказки — порталом поверх страницы** (`position: fixed`): под кнопкой, а если снизу тесно и сверху места больше — над ней, в пределах окна; длинная панель прокручивается внутри. Так обёртка таблицы не обрезает подсказку разбиения и список «Указать» (план 5c). Подсказка разбиения прячется по Esc и не исчезает, пока на неё наведён указатель (WCAG 1.4.13).
+11. **Клик по строке** (шаг 6) не срабатывает только на настоящих элементах управления (кнопки, ссылки, поля, списки); подпись «2 статьи» — не они: по §7 клик по ней открывает форму. У строки `tabIndex={-1}` и `data-operation-id` — на неё план 5c переводит фокус после «Указать».
 
 ## Global Constraints
 
@@ -47,7 +51,7 @@
 - **API журнала (план 5a):** `GET /api/v1/companies/:cid/operations?…` → `{ items, nextCursor }`; списки — повтором ключа (`types=income&types=transfer`), флаги — `true`, `amountMin`/`amountMax` — минимальные единицы базовой валюты, `from`/`to` — календарные даты, `sort` (`date` | `amount`), `order` (`asc` | `desc`), `cursor`, `limit` (по умолчанию 50, максимум 200). Элемент — операция со строками (`lines`), `tagIds`, `attachmentCount`, `balanceAfter`, `toBalanceAfter`. Выгрузка — `GET …/operations/export.xlsx` с теми же параметрами без `cursor`/`limit`.
 - **Время (§2):** все календарные понятия — «сегодня», «вчера», дата операции, периоды — в APP_TIMEZONE (`useMeta().timezone`), независимо от пояса устройства.
 - **Ключи запросов:** журнал — `['journal', cid, params]`; балансы — `['accounts', cid, 'balances']`; сводка — `['companies', 'summary']`; настройки — `['preferences']`.
-- **Доступность:** настоящая `<table>` с `<caption>` и `<th scope="col">`; у полей — подписи (`Field`); всплывающие панели и окно управляются с клавиатуры, Esc закрывает и возвращает фокус на кнопку; модальное окно — `<dialog>` через `showModal()`.
+- **Доступность:** настоящая `<table>` с `<caption>` и `<th scope="col">`; у полей — подписи (`Field`); всплывающие панели и окно управляются с клавиатуры, Esc закрывает и возвращает фокус на кнопку (у кнопки — `aria-haspopup`); подсказка показывается и по фокусу, Esc её прячет; модальное окно — `<dialog>` через `showModal()`.
 - **Ширина:** десктоп в приоритете; ниже 768 px ничего не ломается — таблица прокручивается по горизонтали внутри своей обёртки, тулбар переносится (мобильная версия — шаг 7).
 - **Без новых npm-пакетов.**
 - **E2E:** левая панель `<nav aria-label="Счета">` есть на каждой странице компании — локаторы ограничивайте таблицей (`getByRole('table', { name: 'Операции' })`) или окном; `name:` в Playwright ищет подстроку без учёта регистра (`'Фильтр'` найдёт и «Сбросить фильтр» — используйте `exact: true` или `/^Фильтр/`); данные создавайте через `page.request` с заголовками `origin` и `x-requested-with: fetch`; общую настройку пользователя `admin` возвращайте в `finally`; без фиксированных пауз.
@@ -60,7 +64,7 @@
 
 1. **Поиск, набранный прямо перед сменой другого условия** (печатает «аренда» и сразу выбирает период): отложенный поиск не должен затереть новый период старым состоянием фильтра — в адресе оба условия. Тест — задача 3 (e2e «тулбар…»).
 2. **Адрес, исправленный руками или устаревшая ссылка** (`?account=abc&type=bogus&from=2026-13-01&min=-5&sort=name`): журнал открывается со всеми операциями, без 400 и без «Фильтр · N». Тесты — задача 1 (разбор адреса) и задача 3 (e2e).
-3. **Операция около полуночи по Алматы при другом поясе устройства:** «сегодня»/«вчера», время и период считаются в APP_TIMEZONE (23:30 и 00:30 — разные дни). Тест — задача 1 (`dayOf`, `timeLabel`, `periodRange`).
+3. **Операция около полуночи по Алматы при другом поясе устройства:** «сегодня»/«вчера», время и период считаются в APP_TIMEZONE (23:30 и 00:30 — разные дни). Тест — задача 1 (`dayOf`, `timeLabel`, `periodRange`). E2E-тесты ставят операции «сегодня» и «вчера» по часам Алматы (`todayAgo`, `yesterdayNoon`) и не падают сразу после полуночи.
 4. **Валюта счёта не совпадает с базовой; перевод KZT → USD:** сумма в базовой валюте под суммой, у перевода — сумма зачисления, оба счёта и оба остатка, балансы в панели совпадают с остатками. Тесты — задача 2 (сценарий 3 §10) и задача 3.
 5. **Испорченная или чужая настройка колонок** (не массив, неизвестные id, пустой массив): видны все колонки или хотя бы дата и сумма; дату и сумму скрыть нельзя; сбой сохранения возвращает прежний выбор. Тесты — задача 1 (`visibleColumns`, `toggleColumn`) и задача 4 (e2e).
 
@@ -73,6 +77,8 @@ src/client/
   lib/journal-filter.ts               # (новый) адрес ↔ фильтр ↔ параметры API, периоды
   lib/journal-format.ts               # (новый) дата, время, знак суммы, «2 статьи», доля проекта
   lib/journal-columns.ts              # (новый) колонки и настройка journal.columns
+  lib/floating.ts                     # (новый) место всплывающей панели в окне
+  components/useFloating.ts           # (новый) position: fixed у кнопки, пересчёт при прокрутке
   lib/queries.ts                      # + JournalItem, useJournal
   components/Popover.tsx              # (новый) панель у кнопки
   components/Modal.tsx                # (новый) <dialog> с showModal()
@@ -83,7 +89,7 @@ src/client/
   components/journal/ColumnsPicker.tsx   # (новый) видимые колонки
   components/journal/FilterDialog.tsx    # (новый) окно «Фильтр»
   pages/JournalPage.tsx               # экран журнала вместо заглушки
-tests/client/journal.test.ts          # (новый)
+tests/client/{journal,floating}.test.ts   # (новые)
 e2e/journal.spec.ts                   # (новый)
 README.md
 ```
@@ -95,7 +101,7 @@ README.md
 - Create: `src/client/lib/journal-filter.ts`, `src/client/lib/journal-format.ts`, `src/client/lib/journal-columns.ts`, `tests/client/journal.test.ts`
 
 **Interfaces:**
-- Consumes: `addDays`, `isValidDate`, `formatDateRu`, `todayInTimezone` (`src/shared/dates.ts`); `formatAmount`, `formatMoney` (`src/shared/money.ts`).
+- Consumes: `addDays`, `isValidDate`, `formatDateRu`, `todayInTimezone` (`src/shared/dates.ts`); `formatAmount`, `formatMoney` (`src/shared/money.ts`); `JOURNAL_LIST_MAX` (`src/shared/schemas/journal.ts`, план 5a).
 - Produces:
   - `journal-filter.ts`: `PERIODS` (`{ key, label }[]`), `PeriodKey` (`'all' | 'today' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth' | 'year' | 'custom'`), `OperationType`, `OPERATION_TYPES`, `JournalSortKey`, `JournalSortOrder`, `interface JournalUrlState { period; from?; to?; q?; amountMin?; amountMax?; types; accountIds; categoryIds; projectIds; counterpartyIds; tagIds; withoutCategory; withoutProject; withoutCounterparty; sort; order }`, `EMPTY_JOURNAL_STATE`, `SEARCH_MAX = 200`, `sortedUnique(xs)`, `parseJournalSearch(params: URLSearchParams): JournalUrlState`, `journalSearch(state): URLSearchParams`, `periodRange(state: Pick<JournalUrlState, 'period' | 'from' | 'to'>, today: string): { from?: string; to?: string }`, `journalApiParams(state, today): URLSearchParams`, `filterConditionCount(state): number`, `isFiltered(state): boolean`, `clearFilter(state): JournalUrlState`;
   - `journal-format.ts`: `dayOf(iso, timeZone): string`, `dayLabel(day, today): string`, `timeLabel(iso, timeZone): string`, `pluralRu(n, one, few, many): string`, `splitLabel(count, 'category' | 'project'): string`, `LineLike`, `LineDimension`, `lineDimension(lines, 'categoryId' | 'projectId'): LineDimension`, `projectShare(lines, projectIds): number | null`, `signedMoney(type, minor, currency): string`, `amountInputText(minor, minorUnits): string`;
@@ -207,6 +213,9 @@ describe('адресная строка ↔ фильтр', () => {
     expect(parse('min=1.5&max=99999999999999999')).toEqual(EMPTY_JOURNAL_STATE);
     expect(parse(`q=${'я'.repeat(300)}`).q).toHaveLength(200);
     expect(parse('q=%20%20')).toEqual(EMPTY_JOURNAL_STATE);
+    // списков не больше, чем принимает сервер (JOURNAL_LIST_MAX) — иначе журнал получил бы 400
+    const many = new URLSearchParams(Array.from({ length: 250 }, (_, i) => ['account', String(i + 1)]));
+    expect(parseJournalSearch(many).accountIds).toEqual(Array.from({ length: 200 }, (_, i) => i + 1));
     // относительный период важнее дат: «текущий месяц» после перезагрузки остаётся текущим
     expect(parse('period=month&from=2020-01-01')).toEqual(state({ period: 'month' }));
   });
@@ -311,6 +320,7 @@ Expected: FAIL — модулей `journal-filter`, `journal-format`, `journal-c
 
 ```ts
 import { addDays, isValidDate } from '../../shared/dates';
+import { JOURNAL_LIST_MAX } from '../../shared/schemas/journal';
 
 /** Периоды тулбара журнала (§7). Относительные периоды считаются от «сегодня» в APP_TIMEZONE. */
 export const PERIODS = [
@@ -396,8 +406,9 @@ export const SEARCH_MAX = 200;
 /** Без повторов, по возрастанию. */
 export const sortedUnique = <T extends number | string>(xs: T[]): T[] => [...new Set(xs)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
+/** Идентификаторы из адреса: только положительные целые, без повторов, не больше, чем принимает сервер. */
 function ids(values: string[]): number[] {
-  return sortedUnique(values.filter((v) => /^\d{1,15}$/.test(v)).map(Number).filter((n) => n > 0 && Number.isSafeInteger(n)));
+  return sortedUnique(values.filter((v) => /^\d{1,15}$/.test(v)).map(Number).filter((n) => n > 0 && Number.isSafeInteger(n))).slice(0, JOURNAL_LIST_MAX);
 }
 
 function minor(value: string | null): number | undefined {
@@ -705,19 +716,53 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ### Task 2: Таблица журнала, бесконечная прокрутка и сортировка; фильтр по счёту из левой панели
 
 **Files:**
-- Create: `src/client/components/journal/JournalTable.tsx`, `src/client/components/journal/SplitHint.tsx`, `src/client/components/journal/LoadMore.tsx`, `e2e/journal.spec.ts`
+- Create: `src/client/lib/floating.ts`, `src/client/components/useFloating.ts`, `src/client/components/journal/JournalTable.tsx`, `src/client/components/journal/SplitHint.tsx`, `src/client/components/journal/LoadMore.tsx`, `tests/client/floating.test.ts`, `e2e/journal.spec.ts`
 - Modify: `src/client/lib/queries.ts`, `src/client/pages/JournalPage.tsx`
 
 **Interfaces:**
 - Consumes: всё из задачи 1; `useAccounts`, `useCategories`, `useProjects`, `useCounterparties`, `usePreferences`, типы `Account`, `CategoryTree` (`src/client/lib/queries.ts`); `useMeta` (`src/client/lib/query.ts`); `Pending`, `StaleNotice` (`components/QueryState.tsx`); `btnSecondary` (`components/ui.ts`); `CompanyOutletContext` (`pages/CompanyLayout.tsx`); API списка журнала плана 5a.
 - Produces:
   - `queries.ts`: `interface OperationLine`, `interface JournalItem` (поля операции + `lines`, `tagIds`, `attachmentCount`, `balanceAfter`, `toBalanceAfter`), `interface JournalPageData { items; nextCursor }`, `JOURNAL_PAGE_SIZE = 50`, `useJournal(companyId: number, params: string | null)` — ключ `['journal', companyId, params]`, `null` — запрос выключен;
-  - `SplitHint({ label, lines }: { label: string; lines: string[] })`;
-  - `LoadMore({ hasNext, loading, onLoad })` — кнопка «Показать ещё» и наблюдатель;
-  - `JournalTable(props: JournalTableProps)`, `interface JournalLookups { accounts: Map<number, Account>; categories, projects, counterparties: Map<number, string> }`; `JournalTableProps` — `items`, `columns`, `lookups`, `baseCurrency`, `timeZone`, `today`, `projectFilter`, `sort`, `order`, `onSort(sort, order)`, `busy`, `onOpenOperation?` (точка подключения шага 6). Таблица: `<table>` с подписью «Операции», сортируемые заголовки «Дата» и «Сумма» — кнопки в `<th aria-sort>`;
-  - `JournalPage` — экран журнала: фильтр из адреса, таблица, «Показать ещё», заголовок `<h1 tabIndex={-1}>Журнал</h1>`.
+  - `placeFloating(anchor: AnchorRect, size: { width; height }, viewport: { width; height }, align: 'left' | 'right' = 'left'): FloatingPosition` (`{ top; left; maxHeight }`), `FLOATING_GAP = 8` (`lib/floating.ts`);
+  - `useFloating(open: boolean, anchorRef, floatingRef, align?): CSSProperties` (`components/useFloating.ts`) — стиль `position: fixed` для элемента в портале; пока место не посчитано — `visibility: hidden`. План 5b задача 4 строит на нём `Popover`;
+  - `SplitHint({ label, lines }: { label: string; lines: string[] })` — подсказка порталом, Esc прячет;
+  - `LoadMore({ hasNext, loading, failed, onLoad })` — кнопка «Показать ещё» и наблюдатель; после ошибки загрузки (`failed`) наблюдатель отключён;
+  - `JournalTable(props: JournalTableProps)`, `interface JournalLookups { accounts: Map<number, Account>; categories, projects, counterparties: Map<number, string> }`; `JournalTableProps` — `items`, `columns`, `lookups`, `baseCurrency`, `timeZone`, `today`, `projectFilter`, `sort`, `order`, `onSort(sort, order)`, `busy`, `onOpenOperation?` (точка подключения шага 6). Таблица: `<table>` с подписью «Операции», сортируемые заголовки «Дата» и «Сумма» — кнопки в `<th aria-sort>`; у строки `tabIndex={-1}` и `data-operation-id`;
+  - `JournalPage` — `<JournalScreen key={company.id} company={company} />`; экран: фильтр из адреса, таблица, «Показать ещё», заголовок `<h1 tabIndex={-1}>Журнал</h1>`.
 
-- [ ] **Step 1: Write the failing e2e test**
+- [ ] **Step 1: Write the failing tests**
+
+`tests/client/floating.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { placeFloating } from '../../src/client/lib/floating';
+
+const viewport = { width: 1280, height: 720 };
+const anchor = (top: number, left: number, width = 80, height = 30) => ({ top, bottom: top + height, left, right: left + width });
+
+describe('placeFloating — место всплывающей панели в окне', () => {
+  it('под кнопкой, если снизу хватает места; высота — не больше свободного места', () => {
+    expect(placeFloating(anchor(100, 200), { width: 288, height: 250 }, viewport)).toEqual({ top: 138, left: 200, maxHeight: 574 });
+  });
+
+  it('над кнопкой, если снизу не хватает, а сверху места больше', () => {
+    // кнопка у нижнего края: снизу 720 - 690 - 16 = 14 px, сверху 660 - 16 = 644 px
+    expect(placeFloating(anchor(660, 200), { width: 288, height: 250 }, viewport)).toEqual({ top: 402, left: 200, maxHeight: 644 });
+  });
+
+  it('длинная панель — там, где места больше, высотой со свободное место (прокручивается внутри)', () => {
+    expect(placeFloating(anchor(300, 200), { width: 288, height: 900 }, viewport)).toEqual({ top: 338, left: 200, maxHeight: 374 });
+    expect(placeFloating(anchor(400, 200), { width: 288, height: 900 }, viewport)).toEqual({ top: 8, left: 200, maxHeight: 384 });
+  });
+
+  it('по правому краю кнопки и в пределах окна по горизонтали', () => {
+    expect(placeFloating(anchor(100, 1000), { width: 288, height: 100 }, viewport, 'right').left).toBe(792);
+    expect(placeFloating(anchor(100, 1200), { width: 288, height: 100 }, viewport).left).toBe(984);
+    expect(placeFloating(anchor(100, 0, 40), { width: 288, height: 100 }, viewport, 'right').left).toBe(8);
+  });
+});
+```
 
 `e2e/journal.spec.ts` (вспомогательные функции и два первых теста; следующие задачи дописывают тесты в конец файла):
 
@@ -749,8 +794,23 @@ async function apiPost(page: Page, url: string, data: unknown) {
   return res.json();
 }
 
-/** Момент n минут назад: операции не могут быть в будущем (инвариант 6). */
-const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
+/** Начало сегодняшнего дня по Алматы — APP_TIMEZONE e2e-сервера (с 01.03.2024 — UTC+5). */
+function startOfTodayAlmaty(): number {
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date());
+  return Date.parse(`${day}T00:00:00+05:00`);
+}
+
+/**
+ * Момент «сегодня по Алматы»: чем больше n (0 < n < 1000), тем раньше, но всегда сегодня и не в будущем
+ * (инвариант 6) — проверки «сегодня» и периода не падают сразу после полуночи.
+ */
+const todayAgo = (n: number) => {
+  const start = startOfTodayAlmaty();
+  return new Date(start + (Date.now() - start) * (1 - n / 1000)).toISOString();
+};
+
+/** Вчера в полдень по Алматы. */
+const yesterdayNoon = () => new Date(startOfTodayAlmaty() - 12 * 3600_000).toISOString();
 
 const table = (page: Page) => page.getByRole('table', { name: 'Операции' });
 const bodyRows = (page: Page) => table(page).locator('tbody tr');
@@ -771,14 +831,14 @@ test('сценарий 3 §10: доход, расход на два проект
 
   await apiPost(page, `${base}/operations`, {
     type: 'income',
-    paidAt: minutesAgo(3),
+    paidAt: todayAgo(3),
     accountId: cash,
     amount: 50000,
     lines: [{ categoryId: revenue, projectId: north, amount: 50000 }],
   });
   await apiPost(page, `${base}/operations`, {
     type: 'expense',
-    paidAt: minutesAgo(2),
+    paidAt: todayAgo(2),
     accountId: cash,
     amount: 30000,
     lines: [
@@ -786,7 +846,7 @@ test('сценарий 3 §10: доход, расход на два проект
       { categoryId: rent, projectId: south, amount: 20000 },
     ],
   });
-  await apiPost(page, `${base}/operations`, { type: 'transfer', paidAt: minutesAgo(1), accountId: cash, amount: 50000, toAccountId: usd, toAmount: 100 });
+  await apiPost(page, `${base}/operations`, { type: 'transfer', paidAt: todayAgo(1), accountId: cash, amount: 50000, toAccountId: usd, toAmount: 100 });
 
   await page.reload();
   // левая панель: 1000 + 500 - 300 - 500 = 700 ₸; $1 по курсу 500 — итог 1200 ₸
@@ -816,6 +876,11 @@ test('сценарий 3 §10: доход, расход на два проект
   await expect(page.getByRole('tooltip')).toContainText(/Аренда · Клуб Юг — 200,00\s₸/);
   await expense.getByText('2 проекта').focus();
   await expect(expense.getByText('2 проекта')).toHaveAccessibleDescription(/Аренда · Клуб Север — 100,00\s₸/);
+  await expect(page.getByRole('tooltip')).toBeVisible();
+  // Esc прячет подсказку, фокус остаётся (WCAG 1.4.13)
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await expect(expense.getByText('2 проекта')).toBeFocused();
 });
 
 test('клик по счёту в левой панели фильтрует журнал; бесконечная прокрутка; сортировка по сумме', async ({ page }) => {
@@ -825,9 +890,9 @@ test('клик по счёту в левой панели фильтрует ж�
   const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
   const cash = (await apiPost(page, `${base}/accounts`, { name: 'Наличные', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
   for (let i = 1; i <= 55; i++) {
-    await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minutesAgo(200 - i), accountId: kaspi, amount: i * 100 });
+    await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(200 - i), accountId: kaspi, amount: i * 100 });
   }
-  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: minutesAgo(1), accountId: cash, amount: 9900 });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: cash, amount: 9900 });
 
   await page.reload();
   // первая страница — 50 операций; прокрутка вниз догружает остальные
@@ -867,7 +932,10 @@ test('клик по счёту в левой панели фильтрует ж�
 Run: `node -e "for (const f of process.argv.slice(1)) if (/[\u00a0\u202f\u2212]/.test(require('fs').readFileSync(f, 'utf8'))) { console.error('невидимый символ вместо экранирования: ' + f); process.exit(1); }" e2e/journal.spec.ts`
 Expected: ничего не выводит.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `npx vitest run tests/client/floating.test.ts`
+Expected: FAIL — нет модуля `lib/floating`.
 
 Run: `npx playwright test e2e/journal.spec.ts`
 Expected: FAIL — на странице журнала нет таблицы «Операции».
@@ -945,34 +1013,176 @@ export function useJournal(companyId: number, params: string | null) {
 }
 ```
 
+`src/client/lib/floating.ts`:
+
+```ts
+export interface AnchorRect {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+export interface FloatingPosition {
+  top: number;
+  left: number;
+  /** Не выше свободного места: длинная панель прокручивается внутри себя. */
+  maxHeight: number;
+}
+
+/** Отступ от кнопки и от краёв окна, px. */
+export const FLOATING_GAP = 8;
+const MIN_HEIGHT = 120;
+
+/**
+ * Место всплывающей панели у кнопки в координатах окна (position: fixed): под кнопкой, а если снизу не хватает
+ * места и сверху его больше — над ней; по горизонтали — от левого или правого края кнопки, в пределах окна.
+ * Панель живёт вне контейнеров с прокруткой, поэтому её не обрезает, например, обёртка таблицы.
+ */
+export function placeFloating(
+  anchor: AnchorRect,
+  size: { width: number; height: number },
+  viewport: { width: number; height: number },
+  align: 'left' | 'right' = 'left',
+): FloatingPosition {
+  const below = viewport.height - anchor.bottom - FLOATING_GAP * 2;
+  const above = anchor.top - FLOATING_GAP * 2;
+  const up = size.height > below && above > below;
+  const maxHeight = Math.max(MIN_HEIGHT, up ? above : below);
+  const height = Math.min(size.height, maxHeight);
+  const top = up ? Math.max(FLOATING_GAP, anchor.top - FLOATING_GAP - height) : anchor.bottom + FLOATING_GAP;
+  const wanted = align === 'right' ? anchor.right - size.width : anchor.left;
+  const left = Math.max(FLOATING_GAP, Math.min(wanted, viewport.width - size.width - FLOATING_GAP));
+  return { top, left, maxHeight };
+}
+```
+
+`src/client/components/useFloating.ts`:
+
+```ts
+import { useLayoutEffect, useState, type CSSProperties, type RefObject } from 'react';
+import { placeFloating, type FloatingPosition } from '../lib/floating';
+
+/**
+ * Стиль всплывающего элемента (панели, подсказки), который рисуется порталом в body с position: fixed:
+ * место считается от кнопки до первой отрисовки и пересчитывается при прокрутке (любого контейнера),
+ * изменении окна и размера самого элемента. Пока места нет — элемент невидим.
+ */
+export function useFloating(
+  open: boolean,
+  anchorRef: RefObject<HTMLElement | null>,
+  floatingRef: RefObject<HTMLElement | null>,
+  align: 'left' | 'right' = 'left',
+): CSSProperties {
+  const [pos, setPos] = useState<FloatingPosition | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null);
+      return;
+    }
+    const place = () => {
+      const anchor = anchorRef.current;
+      const floating = floatingRef.current;
+      if (!anchor || !floating) return;
+      const next = placeFloating(
+        anchor.getBoundingClientRect(),
+        { width: floating.offsetWidth, height: floating.scrollHeight },
+        { width: window.innerWidth, height: window.innerHeight },
+        align,
+      );
+      setPos((prev) => (prev && prev.top === next.top && prev.left === next.left && prev.maxHeight === next.maxHeight ? prev : next));
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
+    if (floatingRef.current) observer?.observe(floatingRef.current);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+      observer?.disconnect();
+    };
+  }, [open, align, anchorRef, floatingRef]);
+
+  return pos ? { position: 'fixed', top: pos.top, left: pos.left, maxHeight: pos.maxHeight } : { position: 'fixed', top: 0, left: 0, visibility: 'hidden' };
+}
+```
+
 `src/client/components/journal/SplitHint.tsx`:
 
 ```ts
-import { useId } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useFloating } from '../useFloating';
 
 /**
- * Подпись разбитой операции («2 проекта») с подсказкой по строкам: видна при наведении и при фокусе
- * с клавиатуры, программа чтения с экрана получает её как описание (aria-describedby).
+ * Подпись разбитой операции («2 проекта») с подсказкой по строкам (WCAG 1.4.13): видна при наведении
+ * и при фокусе с клавиатуры, на неё можно навести указатель, Esc её прячет. Подсказка рисуется порталом
+ * (position: fixed) — обёртка таблицы с прокруткой её не обрезает. Программа чтения с экрана получает
+ * текст строк как описание (aria-describedby на скрытый элемент).
  */
 export function SplitHint({ label, lines }: { label: string; lines: string[] }) {
   const id = useId();
+  const [show, setShow] = useState(false);
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const tipRef = useRef<HTMLSpanElement>(null);
+  const hideTimer = useRef<number | undefined>(undefined);
+  const style = useFloating(show, anchorRef, tipRef);
+
+  const open = () => {
+    window.clearTimeout(hideTimer.current);
+    setShow(true);
+  };
+  // небольшая задержка: указатель успевает перейти с подписи на подсказку
+  const closeSoon = () => {
+    window.clearTimeout(hideTimer.current);
+    hideTimer.current = window.setTimeout(() => setShow(false), 150);
+  };
+  useEffect(() => () => window.clearTimeout(hideTimer.current), []);
+
   return (
-    <span className="group relative inline-block">
-      <span tabIndex={0} aria-describedby={id} className="cursor-help rounded underline decoration-dotted underline-offset-4 outline-none focus:ring-2 focus:ring-focus">
+    <>
+      <span
+        ref={anchorRef}
+        tabIndex={0}
+        aria-describedby={id}
+        onMouseEnter={open}
+        onMouseLeave={closeSoon}
+        onFocus={open}
+        onBlur={() => setShow(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && show) {
+            e.stopPropagation();
+            setShow(false);
+          }
+        }}
+        className="cursor-help rounded underline decoration-dotted underline-offset-4 outline-none focus:ring-2 focus:ring-focus"
+      >
         {label}
       </span>
-      <span
-        role="tooltip"
-        id={id}
-        className="invisible absolute left-0 top-full z-10 mt-1 w-max max-w-xs rounded-xl bg-ink px-3 py-2 text-xs text-white shadow-lg group-focus-within:visible group-hover:visible"
-      >
-        {lines.map((line, i) => (
-          <span key={i} className="block">
-            {line}
-          </span>
-        ))}
+      <span id={id} hidden>
+        {lines.join('; ')}
       </span>
-    </span>
+      {show &&
+        createPortal(
+          <span
+            ref={tipRef}
+            role="tooltip"
+            style={style}
+            onMouseEnter={open}
+            onMouseLeave={closeSoon}
+            className="z-40 w-max max-w-xs rounded-xl bg-ink px-3 py-2 text-xs text-white shadow-lg"
+          >
+            {lines.map((line, i) => (
+              <span key={i} className="block">
+                {line}
+              </span>
+            ))}
+          </span>,
+          document.body,
+        )}
+    </>
   );
 }
 ```
@@ -986,26 +1196,32 @@ import { btnSecondary } from '../ui';
 /**
  * Бесконечная прокрутка: когда низ списка подходит к экрану (запас 400 px), грузится следующая страница.
  * Наблюдатель пересоздаётся после каждой загрузки — если низ всё ещё виден, сразу грузится следующая.
- * Кнопка «Показать ещё» — для клавиатуры и на случай, если наблюдатель не сработал.
+ * После ошибки загрузки наблюдатель отключается (иначе запросы шли бы по кругу): продолжение — кнопкой.
+ * Кнопка «Показать ещё» — и для клавиатуры, и на случай, если наблюдатель не сработал.
  */
-export function LoadMore(props: { hasNext: boolean; loading: boolean; onLoad: () => void }) {
+export function LoadMore(props: { hasNext: boolean; loading: boolean; failed: boolean; onLoad: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const onLoad = useRef(props.onLoad);
   onLoad.current = props.onLoad;
 
   useEffect(() => {
     const el = ref.current;
-    if (!el || !props.hasNext || props.loading || typeof IntersectionObserver === 'undefined') return;
+    if (!el || !props.hasNext || props.loading || props.failed || typeof IntersectionObserver === 'undefined') return;
     const io = new IntersectionObserver((entries) => {
       if (entries.some((e) => e.isIntersecting)) onLoad.current();
     }, { rootMargin: '400px 0px' });
     io.observe(el);
     return () => io.disconnect();
-  }, [props.hasNext, props.loading]);
+  }, [props.hasNext, props.loading, props.failed]);
 
   if (!props.hasNext) return null;
   return (
-    <div ref={ref} className="mt-4 flex justify-center">
+    <div ref={ref} className="mt-4 flex flex-col items-center gap-2">
+      {props.failed && !props.loading && (
+        <p role="alert" className="text-sm text-expense">
+          Не удалось загрузить продолжение списка.
+        </p>
+      )}
       <button type="button" onClick={props.onLoad} disabled={props.loading} className={btnSecondary}>
         {props.loading ? 'Загрузка…' : 'Показать ещё'}
       </button>
@@ -1106,8 +1322,9 @@ export function JournalTable(props: JournalTableProps) {
   const shown = JOURNAL_COLUMNS.filter((c) => columns.includes(c.id));
 
   const onRowClick = (item: JournalItem) => (e: MouseEvent<HTMLTableRowElement>) => {
-    // клики по кнопкам, ссылкам и флажкам внутри строки — не открытие операции
-    if ((e.target as HTMLElement).closest('button, a, input, label, [tabindex]')) return;
+    // клики по настоящим элементам управления внутри строки — не открытие операции;
+    // «2 статьи» (подсказка с tabIndex) — открывает: по §7 клик по ним открывает форму
+    if ((e.target as HTMLElement).closest('button, a, input, label, select, [role="combobox"], [role="listbox"]')) return;
     props.onOpenOperation?.(item);
   };
 
@@ -1180,8 +1397,11 @@ export function JournalTable(props: JournalTableProps) {
             return (
               <tr
                 key={item.id}
+                // фокус сюда переводит «Указать» после выбора: кнопка в ячейке исчезает (план 5c)
+                tabIndex={-1}
+                data-operation-id={item.id}
                 onClick={props.onOpenOperation ? onRowClick(item) : undefined}
-                className={`border-b border-field last:border-0 ${props.onOpenOperation ? 'cursor-pointer hover:bg-field/60' : ''}`}
+                className={`border-b border-field outline-none last:border-0 focus:bg-field/60 ${props.onOpenOperation ? 'cursor-pointer hover:bg-field/60' : ''}`}
               >
                 {shown.map((c) => (
                   <td key={c.id} className={tdClass}>
@@ -1210,7 +1430,7 @@ import { Pending, StaleNotice } from '../components/QueryState';
 import { JOURNAL_COLUMNS_PREF, visibleColumns } from '../lib/journal-columns';
 import { isFiltered, journalApiParams, journalSearch, parseJournalSearch, type JournalUrlState } from '../lib/journal-filter';
 import { useMeta } from '../lib/query';
-import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, type CategoryTree } from '../lib/queries';
+import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, type CategoryTree, type Company } from '../lib/queries';
 import type { CompanyOutletContext } from './CompanyLayout';
 
 /** Статьи плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
@@ -1223,9 +1443,17 @@ function categoryNames(tree: CategoryTree): Map<number, string> {
   return names;
 }
 
-/** Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка. */
+/**
+ * Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка.
+ * Маршрут не пересоздаёт страницу при смене компании, поэтому экран компании — с key: окно «Фильтр»,
+ * выделение и сообщения начинаются заново.
+ */
 export function JournalPage() {
   const { company } = useOutletContext<CompanyOutletContext>();
+  return <JournalScreen key={company.id} company={company} />;
+}
+
+function JournalScreen({ company }: { company: Company }) {
   const meta = useMeta();
   const prefs = usePreferences();
   const [params, setParams] = useSearchParams();
@@ -1279,7 +1507,12 @@ export function JournalPage() {
           busy={journal.isPlaceholderData}
         />
       )}
-      <LoadMore hasNext={journal.hasNextPage} loading={journal.isFetchingNextPage} onLoad={() => void journal.fetchNextPage()} />
+      <LoadMore
+        hasNext={journal.hasNextPage}
+        loading={journal.isFetchingNextPage}
+        failed={journal.isFetchNextPageError}
+        onLoad={() => void journal.fetchNextPage()}
+      />
     </section>
   );
 }
@@ -1288,9 +1521,13 @@ export function JournalPage() {
 Заметки:
 - остатки после операции считает сервер по полной истории счёта (§4.7) — клиент только показывает `balanceAfter`/`toBalanceAfter`;
 - названия архивных счетов, статей и проектов тоже есть в справочниках (`useAccounts`, дерево статей) — старые операции показывают их имена;
-- `onOpenOperation` не передаётся: строка не реагирует на клик до шага 6.
+- `onOpenOperation` не передаётся: строка не реагирует на клик до шага 6;
+- описание для программ чтения с экрана — скрытый элемент рядом с подписью, видимая подсказка — в портале: `aria-describedby` работает и когда подсказка закрыта.
 
 - [ ] **Step 4: Run tests to verify they pass**
+
+Run: `npx vitest run tests/client/floating.test.ts`
+Expected: PASS.
 
 Run: `npx playwright test e2e/journal.spec.ts e2e/companies.spec.ts e2e/money.spec.ts`
 Expected: PASS (тест компаний ищет заголовок «Журнал», тест левой панели — переход по `?account=`).
@@ -1300,7 +1537,7 @@ Expected: PASS (тест компаний ищет заголовок «Журн
 Run: `npm test`, `npm run typecheck` и `npm run test:e2e` — зелёные.
 
 ```bash
-git add src/client/lib/queries.ts src/client/components/journal/JournalTable.tsx src/client/components/journal/SplitHint.tsx src/client/components/journal/LoadMore.tsx src/client/pages/JournalPage.tsx e2e/journal.spec.ts
+git add src/client/lib/queries.ts src/client/lib/floating.ts src/client/components/useFloating.ts tests/client/floating.test.ts src/client/components/journal/JournalTable.tsx src/client/components/journal/SplitHint.tsx src/client/components/journal/LoadMore.tsx src/client/pages/JournalPage.tsx e2e/journal.spec.ts
 git commit -m "feat: таблица журнала с остатками, разбиениями, бесконечной прокруткой и сортировкой; фильтр по счёту из левой панели
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
@@ -1331,9 +1568,9 @@ test('тулбар: поиск с паузой, период, сумма от/д
   const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
   const dollars = (await apiPost(page, `${base}/accounts`, { name: 'Доллары', currency: 'USD', openedAt: '2020-01-01' })).account.id;
   await apiPost(page, `${base}/fixed-rates`, { currency: 'USD', rate: '500', validFrom: '2020-01-01' });
-  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minutesAgo(5), accountId: kaspi, amount: 150000, comment: 'Ёлка в зале' });
-  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: minutesAgo(25 * 60), accountId: kaspi, amount: 30000, comment: 'Аренда за октябрь' });
-  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: minutesAgo(3), accountId: dollars, amount: 200 });
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(5), accountId: kaspi, amount: 150000, comment: 'Ёлка в зале' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: yesterdayNoon(), accountId: kaspi, amount: 30000, comment: 'Аренда за октябрь' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(3), accountId: dollars, amount: 200 });
 
   await page.reload();
   await expect(bodyRows(page)).toHaveCount(3);
@@ -1373,6 +1610,12 @@ test('тулбар: поиск с паузой, период, сумма от/д
   expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   await expect(page.getByLabel('По', { exact: true })).toHaveValue(from);
   await expect(bodyRows(page)).toHaveCount(2);
+  // дата границы применяется по Enter или уходу из поля, а не на каждую набранную цифру
+  const yesterday = yesterdayNoon().slice(0, 10);
+  await page.getByLabel('С', { exact: true }).fill(yesterday);
+  await page.getByLabel('С', { exact: true }).press('Enter');
+  await expect(page).toHaveURL(new RegExp(`from=${yesterday}&to=${from}$`));
+  await expect(bodyRows(page)).toHaveCount(3);
   await page.getByLabel('Период').selectOption({ label: 'Всё время' });
   await expect(bodyRows(page)).toHaveCount(3);
 
@@ -1426,6 +1669,7 @@ Expected: FAIL — нет поля «Поиск».
 ```ts
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { getCurrency } from '../../../shared/currencies';
+import { isValidDate } from '../../../shared/dates';
 import { parseAmount } from '../../../shared/money';
 import { clearFilter, isFiltered, journalApiParams, PERIODS, periodRange, SEARCH_MAX, type JournalUrlState, type PeriodKey } from '../../lib/journal-filter';
 import { amountInputText } from '../../lib/journal-format';
@@ -1544,6 +1788,39 @@ function AmountInput(props: { label: string; value: number | undefined; minorUni
   );
 }
 
+/**
+ * Граница периода. Дата применяется по уходу из поля или Enter, а не на каждое изменение: пока год набирают
+ * по цифре, промежуточные даты («0002-…») не уходят в адрес и не меняют границы местами.
+ */
+function DateInput(props: { label: string; value: string | undefined; onCommit: (value: string) => void }) {
+  const [text, setText] = useState(props.value ?? '');
+  useEffect(() => setText(props.value ?? ''), [props.value]);
+  const commit = () => {
+    if (text === (props.value ?? '')) return;
+    if (text === '' || isValidDate(text)) props.onCommit(text);
+  };
+  return (
+    <Field label={props.label} className="w-40">
+      {(c) => (
+        <input
+          {...c}
+          type="date"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              commit();
+            }
+          }}
+          className={compactInput}
+        />
+      )}
+    </Field>
+  );
+}
+
 function PeriodPicker({ state, today, onChange }: { state: JournalUrlState; today: string; onChange: (next: JournalUrlState) => void }) {
   const choose = (period: PeriodKey) => {
     // «Произвольно» начинается с границ выбранного сейчас периода — их удобно поправить
@@ -1568,12 +1845,8 @@ function PeriodPicker({ state, today, onChange }: { state: JournalUrlState; toda
       </Field>
       {state.period === 'custom' && (
         <>
-          <Field label="С" className="w-40">
-            {(c) => <input {...c} type="date" value={state.from ?? ''} onChange={(e) => setBound('from', e.target.value)} className={compactInput} />}
-          </Field>
-          <Field label="По" className="w-40">
-            {(c) => <input {...c} type="date" value={state.to ?? ''} onChange={(e) => setBound('to', e.target.value)} className={compactInput} />}
-          </Field>
+          <DateInput label="С" value={state.from} onCommit={(v) => setBound('from', v)} />
+          <DateInput label="По" value={state.to} onCommit={(v) => setBound('to', v)} />
         </>
       )}
     </>
@@ -1596,12 +1869,14 @@ export function JournalToolbar(props: {
   const currency = getCurrency(props.baseCurrency);
   const exportHref = `/api/v1/companies/${props.companyId}/operations/export.xlsx?${journalApiParams(state, props.today).toString()}`;
   const setAmount = (key: 'amountMin' | 'amountMax') => (v: number | undefined) => onChange(v === undefined ? omit(state, key) : { ...state, [key]: v });
+  // сброс пересоздаёт поле поиска: набранный, но ещё не отправленный запрос не вернёт фильтр после сброса
+  const [searchKey, setSearchKey] = useState(0);
 
   return (
     <div className="mb-4 flex flex-col gap-3">
       <div className="flex flex-wrap items-start gap-3">
         <PeriodPicker state={state} today={props.today} onChange={onChange} />
-        <SearchBox value={state.q ?? ''} onSearch={(q) => onChange(q ? { ...state, q } : omit(state, 'q'))} />
+        <SearchBox key={searchKey} value={state.q ?? ''} onSearch={(q) => onChange(q ? { ...state, q } : omit(state, 'q'))} />
         <AmountInput label={`Сумма от, ${currency.symbol}`} value={state.amountMin} minorUnits={currency.minorUnits} onCommit={setAmount('amountMin')} />
         <AmountInput label={`Сумма до, ${currency.symbol}`} value={state.amountMax} minorUnits={currency.minorUnits} onCommit={setAmount('amountMax')} />
       </div>
@@ -1611,7 +1886,14 @@ export function JournalToolbar(props: {
           Выгрузить в Excel
         </a>
         {isFiltered(state) && (
-          <button type="button" onClick={() => onChange(clearFilter(state))} className={btnSmall}>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchKey((k) => k + 1);
+              onChange(clearFilter(state));
+            }}
+            className={btnSmall}
+          >
             Сбросить фильтр
           </button>
         )}
@@ -1621,7 +1903,7 @@ export function JournalToolbar(props: {
 }
 ```
 
-Почему поиск устроен так: таймер паузы вызывает последнюю версию `onSearch` (через ref), поэтому условие, выбранное за эти 300 мс (период, счёт), не затирается старым состоянием фильтра (Review Focus 1). `sent` хранит последнее отправленное значение — смену поиска снаружи (сброс, сохранённый фильтр) поле отличает от своей.
+Почему поиск устроен так: таймер паузы вызывает последнюю версию `onSearch` (через ref), поэтому условие, выбранное за эти 300 мс (период, счёт), не затирается старым состоянием фильтра (Review Focus 1). `sent` хранит последнее отправленное значение — смену поиска снаружи (сброс, сохранённый фильтр) поле отличает от своей. «Сбросить фильтр» меняет `key` поля поиска: поле пересоздаётся, и набранный, но ещё не отправленный запрос не вернёт условие после сброса. Даты «Произвольно» (`DateInput`) применяются по Enter или уходу из поля, как сумма.
 
 `src/client/pages/JournalPage.tsx` — замените файл целиком:
 
@@ -1636,7 +1918,7 @@ import { Pending, StaleNotice } from '../components/QueryState';
 import { JOURNAL_COLUMNS_PREF, visibleColumns } from '../lib/journal-columns';
 import { isFiltered, journalApiParams, journalSearch, parseJournalSearch, type JournalUrlState } from '../lib/journal-filter';
 import { useMeta } from '../lib/query';
-import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, type CategoryTree } from '../lib/queries';
+import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, type CategoryTree, type Company } from '../lib/queries';
 import type { CompanyOutletContext } from './CompanyLayout';
 
 /** Статьи плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
@@ -1649,9 +1931,17 @@ function categoryNames(tree: CategoryTree): Map<number, string> {
   return names;
 }
 
-/** Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка. */
+/**
+ * Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка.
+ * Маршрут не пересоздаёт страницу при смене компании, поэтому экран компании — с key: окно «Фильтр»,
+ * выделение и сообщения начинаются заново.
+ */
 export function JournalPage() {
   const { company } = useOutletContext<CompanyOutletContext>();
+  return <JournalScreen key={company.id} company={company} />;
+}
+
+function JournalScreen({ company }: { company: Company }) {
   const meta = useMeta();
   const prefs = usePreferences();
   const [params, setParams] = useSearchParams();
@@ -1706,7 +1996,12 @@ export function JournalPage() {
           busy={journal.isPlaceholderData}
         />
       )}
-      <LoadMore hasNext={journal.hasNextPage} loading={journal.isFetchingNextPage} onLoad={() => void journal.fetchNextPage()} />
+      <LoadMore
+        hasNext={journal.hasNextPage}
+        loading={journal.isFetchingNextPage}
+        failed={journal.isFetchNextPageError}
+        onLoad={() => void journal.fetchNextPage()}
+      />
     </section>
   );
 }
@@ -1736,9 +2031,9 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Modify: `src/client/pages/JournalPage.tsx`, `e2e/journal.spec.ts`
 
 **Interfaces:**
-- Consumes: `JOURNAL_COLUMNS`, `JOURNAL_COLUMNS_PREF`, `toggleColumn`, `visibleColumns`, `JournalColumnId` (задача 1); `savePreference` (`queries.ts`); `queryClient` (`query.ts`); `btnSmall`; `JournalToolbar` (задача 3).
+- Consumes: `JOURNAL_COLUMNS`, `JOURNAL_COLUMNS_PREF`, `toggleColumn`, `visibleColumns`, `JournalColumnId` (задача 1); `useFloating` (задача 2); `api` (`lib/api.ts`); `queryClient` (`query.ts`); `btnSmall`; `JournalToolbar` (задача 3).
 - Produces:
-  - `Popover(props: { label: ReactNode; ariaLabel?: string; buttonClassName?: string; align?: 'left' | 'right'; panelClassName?: string; children: (close: (returnFocus?: boolean) => void) => ReactNode })` — кнопка с `aria-expanded`, при открытии фокус на первом элементе панели, Esc закрывает и возвращает фокус, клик мимо и уход фокуса закрывают. План 5c строит на нём сохранённые фильтры и списки «Указать»;
+  - `Popover(props: { label: ReactNode; ariaLabel?: string; buttonClassName?: string; align?: 'left' | 'right'; panelClassName?: string; disabled?: boolean; children: (close: (returnFocus?: boolean) => void) => ReactNode })` — кнопка с `aria-haspopup="dialog"` и `aria-expanded`; панель — немодальный `role="dialog"` с именем кнопки, рисуется порталом в `body` (`useFloating`, задача 2), поэтому контейнеры с прокруткой её не обрезают; при открытии фокус на первом элементе панели (после расчёта места — в невидимый элемент фокус не переходит), Esc закрывает и возвращает фокус, клик мимо и уход фокуса закрывают. План 5c строит на нём сохранённые фильтры и списки «Указать»;
   - `ColumnsPicker({ visible }: { visible: readonly JournalColumnId[] })` — кнопка «Колонки», флажки «Видимые колонки».
 
 - [ ] **Step 1: Write the failing e2e test**
@@ -1750,7 +2045,7 @@ test('колонки: выбор сохраняется в настройках 
   await login(page);
   const cid = await createCompany(page, `ТОО Колонки ${Date.now()}`);
   const kaspi = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
-  await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: minutesAgo(1), accountId: kaspi, amount: 100, comment: 'Видимый комментарий' });
+  await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: todayAgo(1), accountId: kaspi, amount: 100, comment: 'Видимый комментарий' });
   await page.reload();
   const header = (name: string) => table(page).getByRole('columnheader', { name, exact: true });
   await expect(header('Комментарий')).toBeVisible();
@@ -1795,22 +2090,27 @@ Expected: FAIL — нет кнопки «Колонки».
 
 ```ts
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { btnSmall } from './ui';
+import { useFloating } from './useFloating';
 
 /**
- * Выпадающая панель у кнопки (шаблон «раскрытие»): кнопка с aria-expanded; при открытии фокус — на первом
- * элементе панели; Esc закрывает и возвращает фокус на кнопку; клик мимо и уход фокуса из панели закрывают её.
+ * Всплывающая панель у кнопки: кнопка с aria-haspopup и aria-expanded, панель — немодальный role="dialog".
+ * Панель рисуется порталом в body (position: fixed), поэтому её не обрезают контейнеры с прокруткой
+ * (обёртка таблицы журнала). При открытии фокус — на первом элементе панели; Esc закрывает и возвращает
+ * фокус на кнопку; клик мимо и уход фокуса из кнопки и панели закрывают её.
  * children получает close(returnFocus) — закрыть панель после выбора.
  */
 export function Popover(props: {
   /** Видимая подпись кнопки. */
   label: ReactNode;
-  /** Доступное имя кнопки, если подпись — не текст. */
+  /** Доступное имя кнопки и панели, если подпись — не текст или нужна другая. */
   ariaLabel?: string;
   buttonClassName?: string;
   /** Выравнивание панели по кнопке. */
   align?: 'left' | 'right';
   panelClassName?: string;
+  disabled?: boolean;
   children: (close: (returnFocus?: boolean) => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -1818,6 +2118,13 @@ export function Popover(props: {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
+  const style = useFloating(open, buttonRef, panelRef, props.align);
+  // до расчёта места панель невидима, а в невидимый элемент фокус не переходит
+  const placed = open && style.visibility !== 'hidden';
+  const name = props.ariaLabel ?? (typeof props.label === 'string' ? props.label : undefined);
+
+  /** Узел — внутри кнопки или панели (панель не внутри rootRef: она в портале). */
+  const inside = (node: Node | null) => !!node && (!!rootRef.current?.contains(node) || !!panelRef.current?.contains(node));
 
   const close = (returnFocus = true) => {
     setOpen(false);
@@ -1825,10 +2132,13 @@ export function Popover(props: {
   };
 
   useEffect(() => {
+    if (placed) panelRef.current?.querySelector<HTMLElement>('input:not([disabled]), button:not([disabled]), [tabindex="0"], a[href], select')?.focus();
+  }, [placed]);
+
+  useEffect(() => {
     if (!open) return;
-    panelRef.current?.querySelector<HTMLElement>('input:not([disabled]), button:not([disabled]), [tabindex="0"], a[href], select')?.focus();
     const onDoc = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      if (!inside(e.target as Node)) setOpen(false);
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -1839,37 +2149,44 @@ export function Popover(props: {
       ref={rootRef}
       className="relative"
       onBlur={(e) => {
-        // фокус ушёл за пределы кнопки и панели (Tab) — панель закрывается
-        if (open && e.relatedTarget && !rootRef.current?.contains(e.relatedTarget as Node)) setOpen(false);
+        // события из портала всплывают по дереву React: фокус ушёл и из кнопки, и из панели — закрываем
+        if (open && e.relatedTarget && !inside(e.relatedTarget as Node)) setOpen(false);
       }}
     >
       <button
         ref={buttonRef}
         type="button"
+        aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         aria-label={props.ariaLabel}
+        disabled={props.disabled}
         onClick={() => setOpen((v) => !v)}
         className={props.buttonClassName ?? btnSmall}
       >
         {props.label}
       </button>
-      {open && (
-        <div
-          ref={panelRef}
-          id={panelId}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              e.preventDefault();
-              e.stopPropagation();
-              close(true);
-            }
-          }}
-          className={`absolute z-20 mt-2 rounded-2xl bg-card p-3 text-ink shadow-xl ring-1 ring-field ${props.align === 'right' ? 'right-0' : 'left-0'} ${props.panelClassName ?? 'w-64'}`}
-        >
-          {props.children(close)}
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div
+            ref={panelRef}
+            id={panelId}
+            role="dialog"
+            aria-label={name}
+            style={style}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                close(true);
+              }
+            }}
+            className={`z-40 overflow-y-auto rounded-2xl bg-card p-3 text-ink shadow-xl ring-1 ring-field ${props.panelClassName ?? 'w-64'}`}
+          >
+            {props.children(close)}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -1878,33 +2195,43 @@ export function Popover(props: {
 `src/client/components/journal/ColumnsPicker.tsx`:
 
 ```ts
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { api } from '../../lib/api';
 import { JOURNAL_COLUMNS, JOURNAL_COLUMNS_PREF, toggleColumn, type JournalColumnId } from '../../lib/journal-columns';
-import { savePreference } from '../../lib/queries';
 import { queryClient } from '../../lib/query';
 import { Popover } from '../Popover';
 
 /**
  * «Колонки»: флажки видимых колонок журнала. Выбор виден сразу и сохраняется в настройках пользователя
- * (`journal.columns`); при сбое сохранения прежний выбор возвращается и показывается ошибка.
+ * (`journal.columns`). Учитывается только ответ на последний выбор (быстрые щелчки подряд не путаются):
+ * после успеха выбор берётся из кэша настроек, после сбоя настройки перечитываются с сервера
+ * и показывается ошибка.
  */
 export function ColumnsPicker({ visible }: { visible: readonly JournalColumnId[] }) {
   const [error, setError] = useState<string | null>(null);
-  // флажок отражает выбор сразу; таблица получает его через кэш настроек
+  // флажок отражает выбор сразу: кэш TanStack Query оповещает подписчиков не синхронно
   const [override, setOverride] = useState<JournalColumnId[] | null>(null);
+  const seq = useRef(0);
   const current = override ?? visible;
 
   const toggle = (id: JournalColumnId) => {
     const next = toggleColumn(current, id);
+    const mine = ++seq.current;
     setOverride(next);
-    const prev = queryClient.getQueryData<Record<string, unknown>>(['preferences']);
-    queryClient.setQueryData<Record<string, unknown>>(['preferences'], (old) => ({ ...(old ?? {}), [JOURNAL_COLUMNS_PREF]: next }));
     setError(null);
-    savePreference(JOURNAL_COLUMNS_PREF, next).catch(() => {
-      setOverride(null);
-      queryClient.setQueryData(['preferences'], prev);
-      setError('Не удалось сохранить выбор колонок');
-    });
+    queryClient.setQueryData<Record<string, unknown>>(['preferences'], (old) => ({ ...(old ?? {}), [JOURNAL_COLUMNS_PREF]: next }));
+    api(`/preferences/${encodeURIComponent(JOURNAL_COLUMNS_PREF)}`, { method: 'PUT', body: { value: next } })
+      .then(() => {
+        if (mine !== seq.current) return;
+        queryClient.setQueryData<Record<string, unknown>>(['preferences'], (old) => ({ ...(old ?? {}), [JOURNAL_COLUMNS_PREF]: next }));
+        setOverride(null);
+      })
+      .catch(() => {
+        if (mine !== seq.current) return;
+        setOverride(null);
+        setError('Не удалось сохранить выбор колонок');
+        void queryClient.invalidateQueries({ queryKey: ['preferences'] });
+      });
   };
 
   return (
@@ -1931,7 +2258,7 @@ export function ColumnsPicker({ visible }: { visible: readonly JournalColumnId[]
 }
 ```
 
-Флажок держит выбор в своём состоянии (`override`): кэш TanStack Query оповещает подписчиков не синхронно, и без этого флажок на мгновение возвращался бы в прежнее положение (Playwright ловит это как «клик не изменил состояние»).
+Флажок держит выбор в своём состоянии (`override`): кэш TanStack Query оповещает подписчиков не синхронно, и без этого флажок на мгновение возвращался бы в прежнее положение (Playwright ловит это как «клик не изменил состояние»). После ответа на последний выбор (`seq`) `override` снимается: при успехе выбор берётся из кэша настроек, при сбое настройки перечитываются с сервера — не из устаревшего снимка.
 
 `src/client/pages/JournalPage.tsx` — замените файл целиком:
 
@@ -1947,7 +2274,7 @@ import { Pending, StaleNotice } from '../components/QueryState';
 import { JOURNAL_COLUMNS_PREF, visibleColumns } from '../lib/journal-columns';
 import { isFiltered, journalApiParams, journalSearch, parseJournalSearch, type JournalUrlState } from '../lib/journal-filter';
 import { useMeta } from '../lib/query';
-import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, type CategoryTree } from '../lib/queries';
+import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, type CategoryTree, type Company } from '../lib/queries';
 import type { CompanyOutletContext } from './CompanyLayout';
 
 /** Статьи плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
@@ -1960,9 +2287,17 @@ function categoryNames(tree: CategoryTree): Map<number, string> {
   return names;
 }
 
-/** Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка. */
+/**
+ * Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка.
+ * Маршрут не пересоздаёт страницу при смене компании, поэтому экран компании — с key: окно «Фильтр»,
+ * выделение и сообщения начинаются заново.
+ */
 export function JournalPage() {
   const { company } = useOutletContext<CompanyOutletContext>();
+  return <JournalScreen key={company.id} company={company} />;
+}
+
+function JournalScreen({ company }: { company: Company }) {
   const meta = useMeta();
   const prefs = usePreferences();
   const [params, setParams] = useSearchParams();
@@ -2024,7 +2359,12 @@ export function JournalPage() {
           busy={journal.isPlaceholderData}
         />
       )}
-      <LoadMore hasNext={journal.hasNextPage} loading={journal.isFetchingNextPage} onLoad={() => void journal.fetchNextPage()} />
+      <LoadMore
+        hasNext={journal.hasNextPage}
+        loading={journal.isFetchingNextPage}
+        failed={journal.isFetchNextPageError}
+        onLoad={() => void journal.fetchNextPage()}
+      />
     </section>
   );
 }
@@ -2079,22 +2419,22 @@ test('модалка «Фильтр»: все условия §6, «Готово
   const tag = (await apiPost(page, `${base}/tags`, { name: 'Смена' })).tag.id;
   await apiPost(page, `${base}/operations`, {
     type: 'expense',
-    paidAt: minutesAgo(4),
+    paidAt: todayAgo(4),
     accountId: kaspi,
     amount: 100,
     counterpartyId: supplier,
     comment: 'операция A',
     lines: [{ categoryId: utilities, projectId: club, amount: 100 }],
   });
-  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: minutesAgo(3), accountId: cash, amount: 200, comment: 'операция B' });
-  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minutesAgo(2), accountId: kaspi, amount: 300, tagIds: [tag], comment: 'операция C' });
-  await apiPost(page, `${base}/operations`, { type: 'transfer', paidAt: minutesAgo(1), accountId: kaspi, toAccountId: cash, amount: 400, comment: 'операция D' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(3), accountId: cash, amount: 200, comment: 'операция B' });
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(2), accountId: kaspi, amount: 300, tagIds: [tag], comment: 'операция C' });
+  await apiPost(page, `${base}/operations`, { type: 'transfer', paidAt: todayAgo(1), accountId: kaspi, toAccountId: cash, amount: 400, comment: 'операция D' });
   const comments = async () => (await table(page).locator('tbody tr').allInnerTexts()).map((t) => /операция ([A-D])/.exec(t)?.[1]).join('');
 
   await page.reload();
   await expect(bodyRows(page)).toHaveCount(4);
   const filterButton = page.getByRole('button', { name: /^Фильтр/ });
-  const dialog = page.getByRole('dialog', { name: 'Фильтр' });
+  const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
 
   // тип и родительская статья (включает дочернюю)
   await filterButton.click();
@@ -2430,7 +2770,7 @@ import { btnSmall } from '../components/ui';
 import { JOURNAL_COLUMNS_PREF, visibleColumns } from '../lib/journal-columns';
 import { filterConditionCount, isFiltered, journalApiParams, journalSearch, parseJournalSearch, type JournalUrlState } from '../lib/journal-filter';
 import { useMeta } from '../lib/query';
-import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useTags, type CategoryTree } from '../lib/queries';
+import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useTags, type CategoryTree, type Company } from '../lib/queries';
 import type { CompanyOutletContext } from './CompanyLayout';
 
 /** Статьи плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
@@ -2443,9 +2783,17 @@ function categoryNames(tree: CategoryTree): Map<number, string> {
   return names;
 }
 
-/** Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка. */
+/**
+ * Журнал операций (§7): фильтр — в адресной строке (`?account=5` из левой панели), бесконечная прокрутка.
+ * Маршрут не пересоздаёт страницу при смене компании, поэтому экран компании — с key: окно «Фильтр»,
+ * выделение и сообщения начинаются заново.
+ */
 export function JournalPage() {
   const { company } = useOutletContext<CompanyOutletContext>();
+  return <JournalScreen key={company.id} company={company} />;
+}
+
+function JournalScreen({ company }: { company: Company }) {
   const meta = useMeta();
   const prefs = usePreferences();
   const [params, setParams] = useSearchParams();
@@ -2524,7 +2872,12 @@ export function JournalPage() {
           busy={journal.isPlaceholderData}
         />
       )}
-      <LoadMore hasNext={journal.hasNextPage} loading={journal.isFetchingNextPage} onLoad={() => void journal.fetchNextPage()} />
+      <LoadMore
+        hasNext={journal.hasNextPage}
+        loading={journal.isFetchingNextPage}
+        failed={journal.isFetchNextPageError}
+        onLoad={() => void journal.fetchNextPage()}
+      />
     </section>
   );
 }
