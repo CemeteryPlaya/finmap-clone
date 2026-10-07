@@ -34,10 +34,10 @@
 2. **«Без статьи / проекта / контрагента» объединяются с выбранными элементами того же измерения через ИЛИ** («Аренда» или без статьи — так выглядит пункт «Без статьи» в выпадающем списке статей), разные измерения — через И.
 3. **Удалённые операции журнал не показывает.** Отмена массового удаления восстанавливает по id из ответа `bulk delete`, отдельный список удалённых не нужен.
 4. **Курсор непрозрачный** (base64url от JSON `{s, o, v, id}`); курсор другой сортировки или испорченный — 400 `VALIDATION` с полем `cursor`.
-5. **Массовые действия:** не больше 1000 id; «Категория», «Проект», «Контрагент» только назначают значение; операция, у которой значение уже такое, попадает в `changed`, но версия и история не меняются; выбранный элемент в архиве (`ARCHIVED_REFERENCE`) или из другой компании (`INVARIANT_5`) и архивная компания отклоняют весь запрос.
+5. **Массовые действия:** не больше 500 id (запрос синхронный и держит цикл событий; замер — в `bench:journal`); «Категория», «Проект», «Контрагент» только назначают значение; операция, у которой значение уже такое, попадает в `changed`, но версия и история не меняются; удаление уже удалённой («Операция уже удалена») и восстановление неудалённой («Операция не удалена») — пропуск, поэтому «Отменить» по `changed` не вернёт чужое удаление; операция другой компании — пропуск «Операция не найдена»; выбранный элемент в архиве (`ARCHIVED_REFERENCE`) или из другой компании (`INVARIANT_5`) и архивная компания отклоняют весь запрос.
 6. **Сохранённые фильтры личные и историю не пишут** (как `user_preferences`). Хранится JSON фильтра как есть; при выдаче сервер убирает ссылки на удалённые, архивные и чужие элементы и сообщает их число в `unavailable` — план 5b показывает по нему предупреждение (инвариант 10). Период хранится датами; относительные периоды («текущий месяц») — дело клиента.
-7. **Выгрузка:** одна строка на операцию; столбцы — колонки журнала §7 плюс тип, валюта, теги и дата сделки; разбиение — статьи и проекты через «; »; предел 50 000 операций (книга собирается в памяти), сверх него — 422 `EXPORT_LIMIT`.
-8. **Новые индексы не нужны.** Замер на демо-наборе §10 при планировании (компания с 6940 операциями, p95 на сервере через `app.inject`): первая страница 32 мс, фильтр по статье 40 мс, фильтр по сумме 36 мс, поиск 68 мс, поиск без совпадений 47 мс, выгрузка всей компании 454 мс, балансы 30 мс, сводка 24 мс. Существующий индекс `operations_company_paid_idx (company_id, paid_at, id)` покрывает первую страницу и курсор; остальное — полный перебор компании, который укладывается в бюджет (§6.1). Это закрывает замечание 6 итогов 4a и замечание 11 итогов 4b.
+7. **Выгрузка:** одна строка на операцию; столбцы — колонки журнала §7 плюс тип, валюта, теги и дата сделки; разбиение — статьи и проекты через «; »; предел 50 000 операций (книга собирается в памяти), сверх него — 422 `EXPORT_LIMIT`. Формул в книге нет: все строки — inline-текст, а текст, начинающийся с `=`, `+`, `-`, `@`, табуляции или CR, получает стиль `quotePrefix="1"`, чтобы Excel не превратил его в формулу при правке ячейки. В `workbook.xml` есть `<bookViews><workbookView/></bookViews>` — без него часть версий Excel считает файл повреждённым.
+8. **Новые индексы не нужны.** Замер на демо-наборе §10 при планировании (компания с 6940 операциями, p95 на сервере через `app.inject`): первая страница 32 мс, фильтр по статье 40 мс, фильтр по сумме 36 мс, поиск 68 мс, поиск без совпадений 47 мс, выгрузка всей компании 454 мс, балансы 30 мс, сводка 24 мс. Массовые действия на 500 операций (p50): «Контрагент» 2,2 с, удаление 1,4 с, восстановление 1,9 с — сервер на это время занят, поэтому предел 500, а не 1000. Существующий индекс `operations_company_paid_idx (company_id, paid_at, id)` покрывает первую страницу и курсор; остальное — полный перебор компании, который укладывается в бюджет (§6.1). Это закрывает замечание 6 итогов 4a и замечание 11 итогов 4b.
 9. **«Указать» (§7) новых маршрутов не требует:** клиент плана 5b шлёт существующий `PATCH /operations/:id` с `version` и одним полем (`counterpartyId` или `lines` из одной строки) и на конфликт получает 409.
 10. **Запросы журнала — сырой SQL через `sql` из drizzle-orm** (`db.all`): фильтр с подзапросами `EXISTS`, row value для курсора и оконная функция в построителе запросов выражаются хуже. Все значения уходят параметрами; `sql.raw` — только для фиксированных фрагментов (имена таблиц и столбцов, направление сортировки из перечисления).
 
@@ -65,7 +65,7 @@
 2. **Поиск с `%`, `_` и «ё»:** «100%» находит только комментарий с «100%», а не все с «100»; «за_» — только с подчёркиванием; «ЕЛКА» находит «Ёлка». Тест — задача 2.
 3. **Бесконечная прокрутка при сортировке по сумме с одинаковыми суммами:** страницы без пропусков и повторов; курсор от другой сортировки — понятная 400, а не мусор. Тест — задача 2.
 4. **Сбой посередине массового действия:** непредвиденная ошибка на второй операции откатывает и первую, и её историю — нет «наполовину применённого» действия. Тест — задача 4.
-5. **Выгрузка с «плохим» комментарием и точными суммами:** `<`, `&`, кавычки, управляющий символ и эмодзи в комментарии не ломают XML; суммы — точной записью («1500.50», а не «1500.4999…»). Тест — задача 6.
+5. **Выгрузка с «плохим» комментарием и точными суммами:** `<`, `&`, кавычки, управляющий символ и эмодзи в комментарии не ломают XML; комментарий «=HYPERLINK(…)» остаётся текстом (стиль `quotePrefix`, в книге нет `<f>`); суммы — точной записью («1500.50», а не «1500.4999…»). Тесты — задача 6.
 
 ---
 
@@ -1227,8 +1227,8 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `OperationsService` (`get`, `update`, `remove`, `restore` — план 4a), `requireCompany`, таблицы `categories`, `projects`, `counterparties`; `createJournal` (задача 3).
 - Produces:
-  - `operationBulkSchema` — `{ action: 'setCategory', ids, categoryId } | { action: 'setProject', ids, projectId } | { action: 'setCounterparty', ids, counterpartyId } | { action: 'delete', ids } | { action: 'restore', ids }`, `ids` — 1…1000 положительных целых;
-  - `BULK_MAX = 1000`, типы `OperationBulkInput`, `BulkSkip { id: number; reason: string }`, `BulkResult { changed: number[]; skipped: BulkSkip[] }` (`src/shared/schemas/operations.ts`);
+  - `operationBulkSchema` — `{ action: 'setCategory', ids, categoryId } | { action: 'setProject', ids, projectId } | { action: 'setCounterparty', ids, counterpartyId } | { action: 'delete', ids } | { action: 'restore', ids }`, `ids` — 1…500 положительных целых;
+  - `BULK_MAX = 500`, типы `OperationBulkInput`, `BulkSkip { id: number; reason: string }`, `BulkResult { changed: number[]; skipped: BulkSkip[] }` (`src/shared/schemas/operations.ts`);
   - `interface BulkService { run(companyId: number, input: OperationBulkInput, userId: number): BulkResult }`, `createBulkService(d: { db: Db; operations: OperationsService }): BulkService`;
   - `POST /api/v1/companies/:cid/operations/bulk` → 200 `{ changed, skipped }`;
   - `registerOperationsRoutes(app, { operations, journal, bulk })`.
@@ -1245,6 +1245,7 @@ import { createBulkService } from '../../src/server/modules/operations/bulk';
 import { createOperationsService, type OperationsService } from '../../src/server/modules/operations/service';
 import { createRatesService } from '../../src/server/modules/rates/service';
 import { opsWorld, type OpsWorld } from '../helpers/ops';
+import { loginAs, ORIGIN_HEADERS, seedUser } from '../helpers/test-app';
 
 let w: OpsWorld;
 afterEach(async () => w?.h.t.cleanup());
@@ -1321,7 +1322,7 @@ describe('массовые действия: POST /companies/:cid/operations/bul
     for (const id of [exp, inc, splitOp]) expect((await getOp(id)).counterpartyId).toBe(w.counterparty);
   });
 
-  it('«Удалить» пропускает операции на архивном счёте; «Отменить» (restore) возвращает; уже удалённая — без повторной записи', async () => {
+  it('«Удалить» пропускает операции на архивном счёте и уже удалённые; «Отменить» возвращает только удалённые этим действием', async () => {
     w = await opsWorld();
     const safe = (await w.post(accountsUrl(), { name: 'Сейф', currency: 'KZT', openedAt: '2026-10-01' })).account.id;
     const locked = await op({ type: 'income', accountId: safe, amount: 100 });
@@ -1333,16 +1334,50 @@ describe('массовые действия: POST /companies/:cid/operations/bul
 
     const del = await ok({ action: 'delete', ids: [a, b, locked] });
     expect(del).toEqual({
-      changed: [a, b],
-      skipped: [{ id: locked, reason: 'Операция затрагивает счёт «Сейф» в архиве — удалить её нельзя' }],
+      changed: [a],
+      skipped: [
+        { id: b, reason: 'Операция уже удалена' },
+        { id: locked, reason: 'Операция затрагивает счёт «Сейф» в архиве — удалить её нельзя' },
+      ],
     });
     expect((await getOp(a)).deletedAt).not.toBeNull();
     expect((await getOp(b)).version).toBe(2); // удалена раньше — версия не выросла второй раз
     expect(w.h.auditCount('operation', 'delete')).toBe(2);
 
-    const back = await ok({ action: 'restore', ids: [a, b] });
-    expect(back).toEqual({ changed: [a, b], skipped: [] });
+    // «Отменить» шлёт changed из ответа; неудалённая операция в списке пропускается
+    const back = await ok({ action: 'restore', ids: [...del.changed, locked] });
+    expect(back).toEqual({ changed: [a], skipped: [{ id: locked, reason: 'Операция не удалена' }] });
     expect(await getOp(a)).toMatchObject({ deletedAt: null, version: 3 });
+    expect((await getOp(b)).deletedAt).not.toBeNull();
+  });
+
+  it('«Отменить» после массового удаления не возвращает операцию, которую раньше удалил другой пользователь', async () => {
+    w = await opsWorld();
+    const x = await op({});
+    const y = await op({});
+    await seedUser(w.h.t, 'buh', 'buh-password-1');
+    const cookie = await loginAs(w.h.t, 'buh', 'buh-password-1');
+    expect((await w.h.t.app.inject({ method: 'DELETE', url: `${w.ops}/${x}`, headers: { ...ORIGIN_HEADERS, cookie } })).statusCode).toBe(200);
+
+    const del = await ok({ action: 'delete', ids: [x, y] });
+    expect(del).toEqual({ changed: [y], skipped: [{ id: x, reason: 'Операция уже удалена' }] });
+    expect(await ok({ action: 'restore', ids: del.changed })).toEqual({ changed: [y], skipped: [] });
+    expect((await getOp(x)).deletedAt).not.toBeNull();
+    expect((await getOp(y)).deletedAt).toBeNull();
+  });
+
+  it('операция другой компании в списке — пропуск «Операция не найдена», у себя она не меняется', async () => {
+    w = await opsWorld();
+    const mine = await op({});
+    const other = await w.h.company('Другая');
+    const acc = (await w.post(`/api/v1/companies/${other}/accounts`, { name: 'Чужая касса', currency: 'KZT', openedAt: '2026-10-01' })).account.id;
+    const foreignOp = (await w.post(`/api/v1/companies/${other}/operations`, { type: 'expense', paidAt: '2026-10-02T10:00:00Z', accountId: acc, amount: 100 }))
+      .operation.id as number;
+    for (const body of [{ action: 'setCounterparty', counterpartyId: w.counterparty }, { action: 'delete' }, { action: 'restore' }]) {
+      expect(await ok({ ...body, ids: [mine, foreignOp] })).toEqual({ changed: [mine], skipped: [{ id: foreignOp, reason: 'Операция не найдена' }] });
+    }
+    const theirs = (await w.h.req('GET', `/api/v1/companies/${other}/operations/${foreignOp}`)).json().operation;
+    expect(theirs).toMatchObject({ counterpartyId: null, deletedAt: null, version: 1 });
   });
 
   it('«Отменить» пропускает операцию на архивном счёте и нарушившую инвариант 6 после сдвига даты открытия', async () => {
@@ -1383,7 +1418,7 @@ describe('массовые действия: POST /companies/:cid/operations/bul
     fail(await w.h.req('POST', `/api/v1/companies/${other}/operations/bulk`, { action: 'delete', ids: [a] }), 422, 'ARCHIVED_REFERENCE');
     fail(await bulk({ action: 'delete', ids: [] }), 400, 'VALIDATION');
     fail(await bulk({ action: 'rename', ids: [a] }), 400, 'VALIDATION');
-    fail(await bulk({ action: 'delete', ids: Array.from({ length: 1001 }, (_, i) => i + 1) }), 400, 'VALIDATION');
+    fail(await bulk({ action: 'delete', ids: Array.from({ length: 501 }, (_, i) => i + 1) }), 400, 'VALIDATION');
   });
 
   it('непредвиденный сбой посередине откатывает весь запрос — и уже применённые операции, и историю (Review Focus 4)', async () => {
@@ -1422,8 +1457,11 @@ Expected: FAIL — нет модуля `operations/bulk`.
 
 ```ts
 
-/** Не больше операций в одном массовом действии. */
-export const BULK_MAX = 1000;
+/**
+ * Не больше операций в одном массовом действии: запрос синхронный (better-sqlite3) и держит цикл событий —
+ * 500 операций на демо-наборе обрабатываются за время, указанное в решениях плана 5a.
+ */
+export const BULK_MAX = 500;
 const bulkIds = z.array(id).min(1, 'Выберите операции').max(BULK_MAX, `Не больше ${BULK_MAX} операций за раз`);
 
 /** Массовые действия журнала (§7): без проверки версии, каждая изменённая операция получает новую версию и запись в истории. */
@@ -1444,7 +1482,11 @@ export interface BulkSkip {
 }
 
 export interface BulkResult {
-  /** Операции, к которым действие применено (в том числе те, где значение уже было таким). */
+  /**
+   * Операции, к которым действие применено. У «Категории», «Проекта», «Контрагента» — в том числе те, где значение
+   * уже было таким. Удаление уже удалённой и восстановление неудалённой — пропуск: «Отменить» по changed
+   * не вернёт операцию, которую удалили раньше и не этим действием.
+   */
   changed: number[];
   skipped: BulkSkip[];
 }
@@ -1536,14 +1578,18 @@ export function createBulkService(d: { db: Db; operations: OperationsService }):
         };
       }
       case 'delete':
-        // операция на архивном счёте не удаляется (инвариант 7): remove отвечает ARCHIVED_REFERENCE — это причина пропуска
+        // уже удалённая — пропуск, а не «изменено»: иначе «Отменить» по changed вернул бы операцию,
+        // удалённую раньше (возможно, другим пользователем). На архивном счёте remove отвечает
+        // ARCHIVED_REFERENCE (инвариант 7) — это причина пропуска
         return (id) => {
+          if (ops.get(companyId, id).deletedAt) return 'Операция уже удалена';
           ops.remove(companyId, id, userId);
           return null;
         };
       case 'restore':
         // восстановление перепроверяет инварианты 3–7 (инвариант 11); отказ — причина пропуска
         return (id) => {
+          if (!ops.get(companyId, id).deletedAt) return 'Операция не удалена';
           ops.restore(companyId, id, userId);
           return null;
         };
@@ -2053,7 +2099,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createLedgerBalances } from '../../src/server/modules/balances/service';
 import { createJournal } from '../../src/server/modules/operations/journal';
 import { excelDate, excelDateTime, minorToDecimal } from '../../src/server/modules/operations/journal-export';
-import { columnName, xmlText } from '../../src/server/http/xlsx';
+import { buildXlsx, columnName, xmlText } from '../../src/server/http/xlsx';
 import { opsWorld, type OpsWorld } from '../helpers/ops';
 
 let w: OpsWorld;
@@ -2143,6 +2189,34 @@ describe('журнал: выгрузка в Excel (§7)', () => {
     expect(xml).not.toContain('<c r="H4"'); // пустые ячейки не пишутся
   });
 
+  it('текст, похожий на формулу (=, +, -, @, табуляция, CR в начале), — строка со стилем quotePrefix; формул в книге нет (Review Focus 5)', async () => {
+    w = await opsWorld();
+    await op({ paidAt: '2026-10-02T10:00:00Z', comment: '=HYPERLINK("http://evil","x")' });
+    await op({ paidAt: '2026-10-03T10:00:00Z', comment: '+7 777 123' });
+    await op({ paidAt: '2026-10-04T10:00:00Z', comment: '@SUM(A1)' });
+    await op({ paidAt: '2026-10-05T10:00:00Z', comment: '-скидка' });
+    await op({ paidAt: '2026-10-05T11:00:00Z', comment: 'обычный' });
+    const zip = new AdmZip((await w.h.req('GET', exportUrl())).rawPayload);
+    const xml = zip.getEntry('xl/worksheets/sheet1.xml')!.getData().toString('utf8');
+    expect(xml).not.toContain('<f>');
+    expect(xml).toContain('<c r="O2" t="inlineStr"><is><t xml:space="preserve">обычный</t></is></c>');
+    expect(xml).toContain('<c r="O3" t="inlineStr" s="7"><is><t xml:space="preserve">-скидка</t></is></c>');
+    expect(xml).toContain('<c r="O4" t="inlineStr" s="7"><is><t xml:space="preserve">@SUM(A1)</t></is></c>');
+    expect(xml).toContain('<c r="O5" t="inlineStr" s="7"><is><t xml:space="preserve">+7 777 123</t></is></c>');
+    expect(xml).toContain('<c r="O6" t="inlineStr" s="7"><is><t xml:space="preserve">=HYPERLINK(&quot;http://evil&quot;,&quot;x&quot;)</t></is></c>');
+    // стиль 7 — quotePrefix; книга с bookViews (без неё старые версии Excel ругаются на файл)
+    expect(zip.getEntry('xl/styles.xml')!.getData().toString('utf8')).toContain('<cellXfs count="8">');
+    expect(zip.getEntry('xl/styles.xml')!.getData().toString('utf8')).toContain('<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" quotePrefix="1"/></cellXfs>');
+    expect(zip.getEntry('xl/workbook.xml')!.getData().toString('utf8')).toContain('<bookViews><workbookView/></bookViews><sheets>');
+
+    // табуляция и CR в начале (комментарий операции их обрезает — проверяем писатель напрямую)
+    const raw = buildXlsx({ name: 'Лист', columns: [{ header: 'A', width: 5 }], rows: [[{ kind: 'text', value: '\t=1' }], [{ kind: 'text', value: '\r=2' }], [{ kind: 'text', value: 'a=1' }]] });
+    const sheet = new AdmZip(raw).getEntry('xl/worksheets/sheet1.xml')!.getData().toString('utf8');
+    expect(sheet).toContain('<c r="A2" t="inlineStr" s="7">');
+    expect(sheet).toContain('<c r="A3" t="inlineStr" s="7">');
+    expect(sheet).toContain('<c r="A4" t="inlineStr"><is>');
+  });
+
   it('тот же фильтр, что у журнала, и сортировка; чужая компания — 404; ошибка фильтра — 400', async () => {
     w = await opsWorld();
     await op({ paidAt: '2026-10-02T10:00:00Z', amount: 300 });
@@ -2223,7 +2297,7 @@ export interface XlsxSheet {
 export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 /** Индексы стилей в cellXfs (styles.xml ниже). */
-const STYLE = { header: 1, datetime: 2, date: 3, int: 4, dec2: 5, dec3: 6 } as const;
+const STYLE = { header: 1, datetime: 2, date: 3, int: 4, dec2: 5, dec3: 6, quoted: 7 } as const;
 
 const HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 const NS_MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -2233,8 +2307,9 @@ const NS_PKG_REL = 'http://schemas.openxmlformats.org/package/2006/relationships
 const CONTENT_TYPES = `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
 const ROOT_RELS = `<Relationships xmlns="${NS_PKG_REL}"><Relationship Id="rId1" Type="${NS_REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
 const WORKBOOK_RELS = `<Relationships xmlns="${NS_PKG_REL}"><Relationship Id="rId1" Type="${NS_REL}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${NS_REL}/styles" Target="styles.xml"/></Relationships>`;
-// 164 — дата и время, 165 — дата, 166 — три знака после запятой; 3 и 4 — встроенные «# ##0» и «# ##0,00»
-const STYLES = `<styleSheet xmlns="${NS_MAIN}"><numFmts count="3"><numFmt numFmtId="164" formatCode="dd.mm.yyyy hh:mm"/><numFmt numFmtId="165" formatCode="dd.mm.yyyy"/><numFmt numFmtId="166" formatCode="#,##0.000"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="7"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+// 164 — дата и время, 165 — дата, 166 — три знака после запятой; 3 и 4 — встроенные «# ##0» и «# ##0,00»;
+// последний xf — quotePrefix: Excel показывает текст как есть и не превращает его в формулу при правке ячейки
+const STYLES = `<styleSheet xmlns="${NS_MAIN}"><numFmts count="3"><numFmt numFmtId="164" formatCode="dd.mm.yyyy hh:mm"/><numFmt numFmtId="165" formatCode="dd.mm.yyyy"/><numFmt numFmtId="166" formatCode="#,##0.000"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" quotePrefix="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
 
 /** Символы, недопустимые в XML 1.0: управляющие (кроме табуляции и переводов строки), одиночные суррогаты, U+FFFE и U+FFFF. */
 const INVALID_XML = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
@@ -2256,13 +2331,20 @@ export function columnName(index: number): string {
   return s;
 }
 
+/** Начало текста, которое Excel и LibreOffice при правке или импорте принимают за формулу. */
+const FORMULA_START = /^[=+\-@\t\r]/;
+
 const numberStyle = (decimals: number) => (decimals === 0 ? STYLE.int : decimals === 2 ? STYLE.dec2 : decimals === 3 ? STYLE.dec3 : 0);
 
 function cellXml(ref: string, cell: XlsxCell, style?: number): string {
   if (cell === null) return '';
   switch (cell.kind) {
-    case 'text':
-      return `<c r="${ref}" t="inlineStr"${style ? ` s="${style}"` : ''}><is><t xml:space="preserve">${xmlText(cell.value)}</t></is></c>`;
+    case 'text': {
+      // формул в листе нет (<f> не пишется); текст, похожий на формулу, — со стилем quotePrefix
+      const value = xmlText(cell.value);
+      const s = style ?? (FORMULA_START.test(value) ? STYLE.quoted : 0);
+      return `<c r="${ref}" t="inlineStr"${s ? ` s="${s}"` : ''}><is><t xml:space="preserve">${value}</t></is></c>`;
+    }
     case 'number':
       return `<c r="${ref}" s="${numberStyle(cell.decimals)}"><v>${cell.value}</v></c>`;
     case 'datetime':
@@ -2286,7 +2368,7 @@ export function buildXlsx(sheet: XlsxSheet): Buffer {
   const add = (name: string, xml: string) => zip.addFile(name, Buffer.from(HEAD + xml, 'utf8'));
   add('[Content_Types].xml', CONTENT_TYPES);
   add('_rels/.rels', ROOT_RELS);
-  add('xl/workbook.xml', `<workbook xmlns="${NS_MAIN}" xmlns:r="${NS_REL}"><sheets><sheet name="${xmlText(sheet.name)}" sheetId="1" r:id="rId1"/></sheets></workbook>`);
+  add('xl/workbook.xml', `<workbook xmlns="${NS_MAIN}" xmlns:r="${NS_REL}"><bookViews><workbookView/></bookViews><sheets><sheet name="${xmlText(sheet.name)}" sheetId="1" r:id="rId1"/></sheets></workbook>`);
   add('xl/_rels/workbook.xml.rels', WORKBOOK_RELS);
   add('xl/styles.xml', STYLES);
   add('xl/worksheets/sheet1.xml', sheetXml(sheet));
@@ -2826,12 +2908,27 @@ async function measure(name: string, url: string, runs: number, budget: boolean)
   for (let i = 0; i < 3; i++) await call(); // прогрев
   const times: number[] = [];
   for (let i = 0; i < runs; i++) times.push(await call());
-  times.sort((a, b) => a - b);
-  const at = (p: number) => times[Math.min(times.length - 1, Math.ceil(p * times.length) - 1)]!;
+  return summarize(name, times, budget);
+}
+
+function summarize(name: string, times: number[], budget: boolean): Result {
+  const sorted = [...times].sort((a, b) => a - b);
+  const at = (p: number) => sorted[Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)]!;
   return { name, p50: at(0.5), p95: at(0.95), budget };
 }
 
 const ops = `/api/v1/companies/${cid}/operations`;
+
+/** Массовое действие: время запроса; все переданные операции должны оказаться в changed. */
+async function bulk(cookie: string, body: object, expectChanged: number): Promise<number> {
+  const t = performance.now();
+  const res = await app.inject({ method: 'POST', url: `${ops}/bulk`, headers: { ...HEADERS, cookie }, payload: body });
+  const ms = performance.now() - t;
+  const changed = res.statusCode === 200 ? (res.json() as { changed: number[] }).changed.length : -1;
+  if (changed !== expectChanged) throw new Error(`Массовое действие: ${res.statusCode}, изменено ${changed} из ${expectChanged}: ${res.body.slice(0, 200)}`);
+  return ms;
+}
+
 const results = [
   await measure('Первая страница журнала', `${ops}?limit=50`, 50, true),
   await measure('Фильтр: «Помещение» с дочерними, расходы, 2026 год', `${ops}?categoryIds=${premises}&types=expense&from=2026-01-01&to=2026-12-31`, 50, true),
@@ -2842,6 +2939,31 @@ const results = [
   await measure('Балансы счетов', `/api/v1/companies/${cid}/balances`, 50, false),
   await measure('Сводка компаний', '/api/v1/companies/summary', 50, false),
 ];
+
+// Массовые действия на BULK_MAX = 500 операций — без бюджета §12, но запрос синхронный и держит сервер всё это время.
+// Замер меняет демо-копию: контрагент чередуется между двумя, каждое удаление сразу отменяется восстановлением.
+const bulkIds = (
+  sqlite
+    .prepare("SELECT id FROM operations WHERE company_id = ? AND deleted_at IS NULL AND type <> 'transfer' ORDER BY id DESC LIMIT 500")
+    .all(cid) as { id: number }[]
+).map((r) => r.id);
+const cps = (sqlite.prepare('SELECT id FROM counterparties WHERE company_id = ? AND archived_at IS NULL ORDER BY id LIMIT 2').all(cid) as { id: number }[]).map(
+  (r) => r.id,
+);
+const bulkCookie = await login();
+const setTimes: number[] = [];
+const deleteTimes: number[] = [];
+const restoreTimes: number[] = [];
+for (let i = 0; i < 6; i++) setTimes.push(await bulk(bulkCookie, { action: 'setCounterparty', counterpartyId: cps[i % 2], ids: bulkIds }, bulkIds.length));
+for (let i = 0; i < 3; i++) {
+  deleteTimes.push(await bulk(bulkCookie, { action: 'delete', ids: bulkIds }, bulkIds.length));
+  restoreTimes.push(await bulk(bulkCookie, { action: 'restore', ids: bulkIds }, bulkIds.length));
+}
+results.push(
+  summarize(`Массово: контрагент, ${bulkIds.length} операций`, setTimes, false),
+  summarize(`Массово: удалить ${bulkIds.length} операций`, deleteTimes, false),
+  summarize(`Массово: восстановить ${bulkIds.length} операций`, restoreTimes, false),
+);
 
 console.log(`\nДемо-набор: ${dir}; компания «${DEMO_COMPANY}», операций: ${opCount}. Бюджет §12 — ${BUDGET_MS} мс (p95).\n`);
 for (const r of results) {
@@ -2862,7 +2984,7 @@ if (results.some((r) => r.budget && r.p95 >= BUDGET_MS)) process.exitCode = 1;
 - [ ] **Step 4: Run the benchmark**
 
 Run: `npm run bench:journal`
-Expected: первый запуск заливает демо-набор во временную папку (около 45 с); затем таблица из 8 строк. У пяти строк с бюджетом — «OK» (при планировании p95: первая страница 32 мс, фильтры 36–40 мс, поиск 47–68 мс; выгрузка около 450 мс). Повторный запуск не заливает набор заново.
+Expected: первый запуск заливает демо-набор во временную папку (около 45 с); затем таблица из 11 строк. У пяти строк с бюджетом — «OK» (при планировании p95: первая страница 32 мс, фильтры 36–40 мс, поиск 47–68 мс; выгрузка около 450 мс; массовые действия на 500 операций, p50: «Контрагент» около 2,2 с, удаление около 1,4 с, восстановление около 1,9 с — без бюджета). Повторный запуск не заливает набор заново.
 
 Если какая-то строка с бюджетом — «ПРЕВЫШЕН», не подбирайте индексы наугад: остановитесь и сообщите контролёру результаты и `EXPLAIN QUERY PLAN` медленного запроса.
 
