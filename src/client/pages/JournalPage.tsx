@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router';
 import { todayInTimezone } from '../../shared/dates';
 import { AssignPicker } from '../components/journal/AssignPicker';
@@ -11,7 +11,7 @@ import { JournalTable, type JournalLookups } from '../components/journal/Journal
 import { JournalToolbar } from '../components/journal/JournalToolbar';
 import { LoadMore } from '../components/journal/LoadMore';
 import { Pending, StaleNotice } from '../components/QueryState';
-import { btnSecondary, btnSmall } from '../components/ui';
+import { btnSecondary, btnSmall, noticeClass } from '../components/ui';
 import { JOURNAL_COLUMNS_PREF, visibleColumns } from '../lib/journal-columns';
 import { api } from '../lib/api';
 import {
@@ -51,10 +51,18 @@ function categoryNames(tree: CategoryTree): Map<number, string> {
 /** id заголовка «Журнал»: на него уходит фокус, когда закрывается тост. */
 const HEADING_ID = 'journal-heading';
 
+/** Итог «Отменить» виден в любой компании; название нужно, когда она не та, где восстановили. */
+interface UndoSummary {
+  companyId: number;
+  companyName: string;
+  summary: BulkSummary;
+}
+
 interface UndoState {
   key: number;
   /** Компания, где удалили: после смены компании «Отменить» восстанавливает операции именно в ней. */
   companyId: number;
+  companyName: string;
   count: number;
   ids: number[];
 }
@@ -68,16 +76,21 @@ export function JournalPage() {
   const { company } = useOutletContext<CompanyOutletContext>();
   const [toast, setToast] = useState<UndoState | null>(null);
   const [undoPending, setUndoPending] = useState(false);
-  const [undoSummary, setUndoSummary] = useState<{ companyId: number; summary: BulkSummary } | null>(null);
+  const [undoSummary, setUndoSummary] = useState<UndoSummary | null>(null);
+  // не вышло: id и компания остаются здесь, «Повторить» работает и после тоста, и в другой компании
+  const [undoFailure, setUndoFailure] = useState<{ state: UndoState; message: string } | null>(null);
 
   const undo = async (t: UndoState) => {
-    setToast(null);
+    // тост остаётся, пока идёт запрос: при ошибке «Отменить» должно остаться возможным
     setUndoPending(true);
     try {
-      setUndoSummary({ companyId: t.companyId, summary: bulkSummary('restore', await runBulk(t.companyId, t.ids, { action: 'restore' })) });
+      const result = await runBulk(t.companyId, t.ids, { action: 'restore' });
+      setUndoFailure(null);
+      setUndoSummary({ companyId: t.companyId, companyName: t.companyName, summary: bulkSummary('restore', result) });
     } catch (e) {
-      setUndoSummary({ companyId: t.companyId, summary: { text: operationErrorText(e), reasons: [] } });
+      setUndoFailure({ state: t, message: operationErrorText(e) });
     } finally {
+      setToast((current) => (current && current.key === t.key ? null : current));
       setUndoPending(false);
     }
   };
@@ -87,9 +100,13 @@ export function JournalPage() {
       <JournalScreen
         key={company.id}
         company={company}
-        onDeleted={(ids) => setToast({ key: Date.now(), companyId: company.id, count: ids.length, ids })}
-        undoSummary={undoSummary?.companyId === company.id ? undoSummary.summary : null}
+        onDeleted={(ids) => setToast({ key: Date.now(), companyId: company.id, companyName: company.name, count: ids.length, ids })}
+        undoSummary={undoSummary}
         onClearUndoSummary={() => setUndoSummary(null)}
+        undoFailure={undoFailure}
+        undoPending={undoPending}
+        onRetryUndo={() => undoFailure && void undo(undoFailure.state)}
+        onDismissUndoFailure={() => setUndoFailure(null)}
       />
       <UndoToast
         toast={toast}
@@ -105,10 +122,16 @@ export function JournalPage() {
 function JournalScreen(props: {
   company: Company;
   onDeleted: (ids: number[]) => void;
-  undoSummary: BulkSummary | null;
+  undoSummary: UndoSummary | null;
   onClearUndoSummary: () => void;
+  undoFailure: { state: UndoState; message: string } | null;
+  undoPending: boolean;
+  onRetryUndo: () => void;
+  onDismissUndoFailure: () => void;
 }) {
   const { company } = props;
+  // архивная компания — только чтение: ни «Указать», ни выделения, ни сохранения фильтра
+  const readOnly = company.archivedAt !== null;
   const meta = useMeta();
   const prefs = usePreferences();
   const [params, setParams] = useSearchParams();
@@ -132,11 +155,27 @@ function JournalScreen(props: {
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const [summary, setSummary] = useState<BulkSummary | null>(null);
   const [bulkPending, setBulkPending] = useState(false);
+  // итог без тоста (ничего не удалено) получает фокус: полоса действий исчезла вместе с выделением
+  const summaryRef = useRef<HTMLDivElement>(null);
+  const [focusSummary, setFocusSummary] = useState(false);
+  useEffect(() => {
+    if (!focusSummary) return;
+    summaryRef.current?.focus();
+    setFocusSummary(false);
+  }, [focusSummary]);
+  // строка, которой только что назначили значение: если она ушла из фильтра, фокус не должен потеряться
+  const assigned = useRef<{ id: number; index: number } | null>(null);
   const filterKey = params.toString();
-  // другой фильтр — выделение снимается (другая компания — новый экран, см. key выше)
+  const prevFilterKey = useRef(filterKey);
+  // другой фильтр — выделение и итоги снимаются (другая компания — новый экран, см. выше: итог её отмены переживает смену)
   useEffect(() => {
     setSelected(new Set());
     setSummary(null);
+    assigned.current = null;
+    if (prevFilterKey.current !== filterKey) {
+      prevFilterKey.current = filterKey;
+      props.onClearUndoSummary();
+    }
   }, [filterKey]);
   // строка пропала из загруженных (удалена, ушла из фильтра) — выделение с неё снимается, а не возвращается вместе с ней
   const loadedIds = journal.data ? journal.data.pages.flatMap((p) => p.items.map((i) => i.id)).join(',') : null;
@@ -147,6 +186,18 @@ function JournalScreen(props: {
       const next = [...prev].filter((id) => loaded.has(id));
       return next.length === prev.size ? prev : new Set(next);
     });
+  }, [loadedIds]);
+  // назначенная строка ушла из выборки («Без статьи»), и фокус остался на <body>: на строку, занявшую её место, или на заголовок
+  useEffect(() => {
+    const a = assigned.current;
+    if (!a || loadedIds === null) return;
+    const ids = loadedIds === '' ? [] : loadedIds.split(',').map(Number);
+    if (ids.includes(a.id)) return;
+    assigned.current = null;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    const next = ids[a.index];
+    if (next !== undefined) focusRow(next);
+    else document.getElementById(HEADING_ID)?.focus();
   }, [loadedIds]);
 
   const lookups = useMemo<JournalLookups | null>(() => {
@@ -173,7 +224,11 @@ function JournalScreen(props: {
   const conditions = filterConditionCount(state);
   const assignData = { categories: categories.data!, projects: projects.data!, counterparties: counterparties.data! };
   const selectedIds = items.filter((i) => selected.has(i.id)).map((i) => i.id);
-  const shownSummary = props.undoSummary ?? summary;
+  const undoShown = props.undoSummary;
+  const otherCompany = (id: number) => id !== company.id;
+  const shownSummary: BulkSummary | null = undoShown
+    ? { ...undoShown.summary, text: otherCompany(undoShown.companyId) ? `Компания «${undoShown.companyName}»: ${undoShown.summary.text}` : undoShown.summary.text }
+    : summary;
   const run = async (action: BulkAction, ids: number[]) => {
     setBulkPending(true);
     setActionError(null);
@@ -181,10 +236,15 @@ function JournalScreen(props: {
     props.onClearUndoSummary();
     try {
       const result = await runBulk(company.id, ids, action);
-      setSummary(bulkSummary(action.action, result));
+      const done = bulkSummary(action.action, result);
       if (action.action === 'delete') {
         setSelected(new Set());
         if (result.changed.length > 0) props.onDeleted(result.changed);
+        // тост уже объявил удаление: итог нужен, только если что-то пропущено или тоста нет
+        if (result.changed.length === 0 || result.skipped.length > 0) setSummary(done);
+        if (result.changed.length === 0) setFocusSummary(true);
+      } else {
+        setSummary(done);
       }
     } catch (e) {
       setActionError(operationErrorText(e));
@@ -235,8 +295,30 @@ function JournalScreen(props: {
         // поля модалки — поверх текущего фильтра: поиск, дошедший до адреса при открытом окне, не теряется
         onApply={(draft) => update(applyDialogFields(state, draft))}
         onClose={() => setFilterOpen(false)}
-        onSave={saveFilter}
+        onSave={readOnly ? undefined : saveFilter}
       />
+      {readOnly && <p className={noticeClass}>Компания в архиве — изменения недоступны.</p>}
+      {props.undoFailure && (
+        <p role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
+          <span>
+            Не удалось отменить удаление{otherCompany(props.undoFailure.state.companyId) ? ` в компании «${props.undoFailure.state.companyName}»` : ''}: {props.undoFailure.message}
+          </span>
+          <span className="flex gap-3">
+            <button
+              type="button"
+              autoFocus
+              aria-disabled={props.undoPending}
+              onClick={() => !props.undoPending && props.onRetryUndo()}
+              className="font-semibold underline"
+            >
+              Повторить
+            </button>
+            <button type="button" onClick={props.onDismissUndoFailure} className="font-semibold underline">
+              Скрыть
+            </button>
+          </span>
+        </p>
+      )}
       {actionError && (
         <p role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
           <span>{actionError}</span>
@@ -246,7 +328,7 @@ function JournalScreen(props: {
         </p>
       )}
       {shownSummary && (
-        <div role="status" className="mb-4 rounded-xl bg-field px-4 py-2 text-sm">
+        <div ref={summaryRef} tabIndex={-1} role="status" className="mb-4 rounded-xl bg-field px-4 py-2 text-sm outline-none">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="font-semibold">{shownSummary.text}</span>
             <button
@@ -280,7 +362,7 @@ function JournalScreen(props: {
         </p>
       )}
       {selectedIds.length > 0 && (
-        <BulkBar count={selectedIds.length} data={assignData} pending={bulkPending} onRun={(action) => void run(action, selectedIds)} onClear={() => setSelected(new Set())} />
+        <BulkBar count={selectedIds.length} data={assignData} pending={bulkPending} onRun={(action) => run(action, selectedIds)} onClear={() => setSelected(new Set())} />
       )}
       {!journal.data && !journal.error ? (
         <p className="py-8 text-center text-muted">Загрузка…</p>
@@ -308,20 +390,25 @@ function JournalScreen(props: {
           order={state.order}
           onSort={(sort, order) => update({ ...state, sort, order })}
           busy={journal.isPlaceholderData}
-          renderAssign={(item, field) => (
-            <AssignPicker
-              item={item}
-              field={field}
-              data={assignData}
-              onPick={(id) => {
-                setActionError(null);
-                assign.mutate({ item, field, id });
-                // кнопка «Указать» исчезает вместе с пустой ячейкой — фокус на строку операции
-                focusRow(item.id);
-              }}
-            />
-          )}
-          selection={{
+          renderAssign={
+            readOnly
+              ? undefined
+              : (item, field) => (
+                  <AssignPicker
+                    item={item}
+                    field={field}
+                    data={assignData}
+                    onPick={(id) => {
+                      setActionError(null);
+                      assign.mutate({ item, field, id });
+                      // кнопка «Указать» исчезает вместе с пустой ячейкой — фокус на строку операции
+                      focusRow(item.id);
+                      assigned.current = { id: item.id, index: items.findIndex((i) => i.id === item.id) };
+                    }}
+                  />
+                )
+          }
+          selection={readOnly ? undefined : {
             selected,
             onToggle: (id) =>
               setSelected((prev) => {

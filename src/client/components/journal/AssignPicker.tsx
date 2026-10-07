@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { ASSIGN_LABELS, type AssignField } from '../../lib/journal-assign';
 import type { CategoryNode, CategoryTree, Counterparty, JournalItem, Project } from '../../lib/queries';
 import { SearchPicker, type PickerOption } from '../SearchPicker';
@@ -26,12 +27,15 @@ const LIST_LABELS: Record<AssignField, string> = { counterparty: 'Контраг
 
 /** «Указать» в пустой ячейке журнала: список с поиском, выбор сохраняется сразу. */
 export function AssignPicker(props: { item: JournalItem; field: AssignField; data: AssignData; onPick: (id: number) => void }) {
+  const { item, field, data } = props;
+  // списки строятся один раз, а не на каждую строку при каждой перерисовке журнала
+  const options = useMemo(() => optionsFor(item, field, data), [item.type, field, data]);
   return (
     <SearchPicker
       label="Указать"
       ariaLabel={ASSIGN_LABELS[props.field]}
       listLabel={LIST_LABELS[props.field]}
-      options={optionsFor(props.item, props.field, props.data)}
+      options={options}
       onPick={props.onPick}
       buttonClassName="rounded-lg px-2 py-1 text-sm font-medium text-income hover:bg-field"
     />

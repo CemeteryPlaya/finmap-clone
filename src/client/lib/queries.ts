@@ -385,6 +385,8 @@ export interface SavedFilter {
   filter: SavedJournalFilter;
   /** Сколько ссылок убрано: элемент удалён, в архиве или из другой компании (инвариант 10). */
   unavailable: number;
+  /** Сохранённый JSON не разобрался: условий нет, применять нечего (план 5a). */
+  invalid?: true;
   createdAt: string;
   updatedAt: string;
 }

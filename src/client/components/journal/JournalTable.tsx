@@ -201,7 +201,9 @@ export function JournalTable(props: JournalTableProps) {
                 className={`border-b border-field outline-none last:border-0 focus:bg-field/60 ${props.onOpenOperation ? 'cursor-pointer hover:bg-field/60' : ''} ${selection?.selected.has(item.id) ? 'bg-income-soft/40' : ''}`}
               >
                 {selection && (
-                  <td className={tdClass}>
+                  <td className="p-0 align-top">
+                    {/* label на всю ячейку: отступы вокруг флажка тоже его переключают, а не открывают операцию */}
+                    <label className="flex h-full min-h-9 cursor-pointer items-start px-3 py-2">
                     <input
                       type="checkbox"
                       aria-label={[
@@ -215,6 +217,7 @@ export function JournalTable(props: JournalTableProps) {
                       checked={selection.selected.has(item.id)}
                       onChange={() => selection.onToggle(item.id)}
                     />
+                    </label>
                   </td>
                 )}
                 {shown.map((c) => (

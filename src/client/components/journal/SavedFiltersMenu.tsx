@@ -71,7 +71,15 @@ function SavedFilterItem(props: { filter: SavedFilter; companyId: number; onAppl
             <button type="submit" disabled={pending} className={btnSmall}>
               Сохранить
             </button>
-            <button type="button" onClick={back} className={btnSmall}>
+            <button
+              type="button"
+              onClick={() => {
+                setName(filter.name);
+                setError(null);
+                back();
+              }}
+              className={btnSmall}
+            >
               Отмена
             </button>
           </div>
@@ -102,11 +110,14 @@ function SavedFilterItem(props: { filter: SavedFilter; companyId: number; onAppl
       <button
         ref={applyRef}
         type="button"
-        aria-label={`Применить фильтр «${filter.name}»${filter.unavailable > 0 ? `, ${unavailableText(filter.unavailable)}` : ''}`}
+        aria-label={`Применить фильтр «${filter.name}»${filter.invalid ? ', повреждён' : filter.unavailable > 0 ? `, ${unavailableText(filter.unavailable)}` : ''}`}
+        disabled={filter.invalid}
+        title={filter.invalid ? 'Фильтр повреждён: переименуйте или удалите его — условия не применяются' : undefined}
         onClick={props.onApply}
-        className="min-w-0 flex-1 truncate rounded-lg px-2 py-1.5 text-left text-sm hover:bg-field"
+        className="min-w-0 flex-1 truncate rounded-lg px-2 py-1.5 text-left text-sm hover:bg-field disabled:text-muted disabled:hover:bg-transparent"
       >
         {filter.name}
+        {filter.invalid && <span className="ml-1 text-xs text-expense">(повреждён)</span>}
         {filter.unavailable > 0 && <span className="ml-1 text-xs text-expense">({unavailableText(filter.unavailable)})</span>}
       </button>
       <button

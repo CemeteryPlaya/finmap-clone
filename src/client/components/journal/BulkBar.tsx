@@ -9,7 +9,7 @@ import { categoryPickerOptions, type AssignData } from './AssignPicker';
  * «Удалить» с подтверждением. Не больше BULK_MAX операций за раз. Пока действие выполняется, списки только помечены
  * недоступными (aria-disabled): после выбора фокус возвращается на кнопку списка и там остаётся.
  */
-export function BulkBar(props: { count: number; data: AssignData; pending: boolean; onRun: (action: BulkAction) => void; onClear: () => void }) {
+export function BulkBar(props: { count: number; data: AssignData; pending: boolean; onRun: (action: BulkAction) => Promise<void> | void; onClear: () => void }) {
   const [confirm, setConfirm] = useState(false);
   const deleteRef = useRef<HTMLButtonElement>(null);
   // «Отмена» убирает сфокусированную кнопку: фокус возвращается на «Удалить», как только она снова на месте
@@ -74,7 +74,8 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
             disabled={disabled}
             onClick={() => {
               setConfirm(false);
-              props.onRun({ action: 'delete' });
+              // ошибка: полоса остаётся — фокус возвращается на «Удалить»; при успехе полосы уже нет (ссылка пуста)
+              void Promise.resolve(props.onRun({ action: 'delete' })).then(() => requestAnimationFrame(() => deleteRef.current?.focus()));
             }}
             className={`${btnDanger} px-3 py-1.5 text-sm`}
           >

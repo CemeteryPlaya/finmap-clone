@@ -311,6 +311,12 @@ test('массовые действия: статья с итогом и при�
   await bar.getByRole('button', { name: 'Снять выделение' }).click();
   await expect(bar).toHaveCount(0);
 
+  // отступ ячейки с флажком — тоже флажок: клик по краю ячейки отмечает строку, а не открывает операцию
+  await row('B').locator('td').first().click({ position: { x: 2, y: 2 } });
+  await expect(row('B').getByRole('checkbox')).toBeChecked();
+  await row('B').locator('td').first().click({ position: { x: 2, y: 2 } });
+  await expect(row('B').getByRole('checkbox')).not.toBeChecked();
+
   // смена фильтра снимает выделение: действие не уйдёт на строки, которых уже не видно (Review Focus 4)
   await row('A').getByRole('checkbox').check();
   await expect(bar).toContainText('Выбрано: 1');
@@ -344,16 +350,40 @@ test('массовые действия: статья с итогом и при�
   const undo = page.getByRole('button', { name: 'Отменить' });
   await expect(page.getByRole('status').filter({ hasText: 'Удалено 2' })).toBeVisible();
   await expect(undo).toBeFocused();
+  // тост уже объявил удаление, и пропусков нет — итог «Удаление: изменено 2…» не повторяет его
+  await expect(page.getByRole('status').filter({ hasText: 'Удаление:' })).toHaveCount(0);
   await expect.poll(lettersTick).toBe('CB');
   await settled(() => expect(kaspiLink).toContainText(/950,00\s₸/));
 
-  // «Отменить» возвращает именно эти операции
+  // «Отменить»: первый запрос восстановления сервер отклоняет — ошибка с «Повторить» (операции не потеряны), повтор проходит
+  let restoreFailed = false;
+  const bulkUrl = `**${base}/operations/bulk`;
+  await page.route(bulkUrl, (route) => {
+    if (!restoreFailed && (route.request().postDataJSON() as { action: string }).action === 'restore') {
+      restoreFailed = true;
+      return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'INTERNAL', message: 'Сбой восстановления' } }) });
+    }
+    return route.fallback();
+  });
   await undo.click();
+  const failure = page.getByRole('alert').filter({ hasText: 'Сбой восстановления' });
+  await settled(() => expect(failure).toBeVisible());
+  await expect(failure).toContainText('Не удалось отменить удаление: Сбой восстановления');
+  await expect(undo).toHaveCount(0);
+  await expect(failure.getByRole('button', { name: 'Повторить' })).toBeFocused();
+  await failure.getByRole('button', { name: 'Повторить' }).click();
   await settled(() => expect(page.getByRole('status').filter({ hasText: 'Отмена удаления:' })).toContainText('Отмена удаления: изменено 2, пропущено 0'));
+  await expect(failure).toHaveCount(0);
+  await page.unroute(bulkUrl);
   await expect.poll(lettersTick).toBe('DCBA');
   await settled(() => expect(kaspiLink).toContainText(/980,00\s₸/));
   await expect(page.getByRole('button', { name: 'Отменить' })).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Журнал' })).toBeFocused();
+
+  // другой фильтр убирает и итог отмены удаления, как итог остальных действий
+  await page.getByLabel('Период').selectOption({ label: 'Вчера' });
+  await expect(page.getByRole('status').filter({ hasText: 'Отмена удаления:' })).toHaveCount(0);
+  await page.getByLabel('Период').selectOption({ label: 'Всё время' });
+  await expect.poll(lettersTick).toBe('DCBA');
 
   // удалили и сразу перешли в другую компанию: тост остаётся, «Отменить» возвращает операции той компании, где удаляли
   await row('B').getByRole('checkbox').check();
@@ -368,6 +398,10 @@ test('массовые действия: статья с итогом и при�
   await expect(bar).toHaveCount(0);
   await undo.click();
   await expect(undo).toHaveCount(0);
+  // результат виден и здесь, с названием компании, где операции восстановлены
+  await settled(() =>
+    expect(page.getByRole('status').filter({ hasText: 'Отмена удаления:' })).toContainText(`Компания «${name}»: Отмена удаления: изменено 1, пропущено 0`),
+  );
   await page.getByRole('button', { name: /Сменить компанию/ }).click();
   await page.getByRole('menuitem', { name }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
@@ -384,4 +418,172 @@ test('массовые действия: статья с итогом и при�
   await expect(undo).toBeVisible();
   await page.clock.runFor(2_000);
   await expect(undo).toHaveCount(0);
+});
+
+test('«Указать»: два выбора подряд в одной строке — без ложного конфликта версии; строка ушла из фильтра — фокус на соседней или на заголовке', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await login(page);
+  const cid = await createCompany(page, `ТОО Подряд ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда' });
+  await apiPost(page, `${base}/counterparties`, { name: 'ИП Клиент', type: 'client' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(3), accountId: kaspi, amount: 100, comment: 'операция A' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(2), accountId: kaspi, amount: 200, comment: 'операция B' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: kaspi, amount: 300, comment: 'операция C' });
+  await page.reload();
+  await expect.poll(() => letters(page)).toBe('CBA');
+  const row = (letter: string) => bodyRows(page).filter({ hasText: `операция ${letter}` });
+
+  // ответ PATCH задержан: второй выбор уходит, пока первый ещё в пути, — с версией из ответа первого, а не со старой
+  const patches: number[] = [];
+  const patchUrl = new RegExp(`/api/v1/companies/${cid}/operations/\\d+$`);
+  await page.route(patchUrl, async (route) => {
+    if (route.request().method() === 'PATCH') {
+      patches.push((route.request().postDataJSON() as { version: number }).version);
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+    await route.continue().catch(() => undefined);
+  });
+  await row('A').getByRole('button', { name: 'Указать контрагента' }).click();
+  await page.getByRole('listbox', { name: 'Контрагенты' }).getByRole('option', { name: 'ИП Клиент' }).click();
+  await row('A').getByRole('button', { name: 'Указать статью' }).click();
+  await page.getByRole('listbox', { name: 'Статьи' }).getByRole('option', { name: 'Аренда' }).click();
+  await expect(row('A')).toContainText('ИП Клиент');
+  await expect(row('A')).toContainText('Аренда');
+  await expect.poll(() => patches).toEqual([1, 2]);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.unroute(patchUrl);
+  await page.reload();
+  await expect(row('A')).toContainText('ИП Клиент');
+  await expect(row('A')).toContainText('Аренда');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+
+  // «Без статьи»: назначенная строка уходит из выборки — фокус на строку, занявшую её место, а когда её нет — на заголовок
+  await page.goto(`/c/${cid}/log?noCategory=1`);
+  await expect.poll(() => letters(page)).toBe('CB');
+  await row('C').getByRole('button', { name: 'Указать статью' }).click();
+  await page.getByRole('listbox', { name: 'Статьи' }).getByRole('option', { name: 'Аренда' }).click();
+  await expect.poll(() => letters(page)).toBe('B');
+  await expect(row('B')).toBeFocused();
+  await row('B').getByRole('button', { name: 'Указать статью' }).click();
+  await page.getByRole('listbox', { name: 'Статьи' }).getByRole('option', { name: 'Аренда' }).click();
+  await expect(page.getByText('По этому фильтру операций нет.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Журнал' })).toBeFocused();
+});
+
+test('архивная компания: журнал только для чтения — без «Указать», флажков и «Сохранить фильтр», одно уведомление', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Архивная ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: kaspi, amount: 100, comment: 'операция A' });
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(2), accountId: kaspi, amount: 100, comment: 'операция B' });
+  await apiPost(page, `${base}/accounts/${kaspi}/archive`, {});
+  await apiPost(page, `${base}/archive`, {});
+  await page.reload();
+  await expect.poll(() => letters(page)).toBe('AB');
+  await expect(page.getByText('Компания в архиве — изменения недоступны')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: /^Указать/ })).toHaveCount(0);
+  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  await page.getByRole('button', { name: /^Фильтр/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
+  await expect(dialog.getByRole('button', { name: 'Готово' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Сохранить фильтр' })).toHaveCount(0);
+});
+
+test('сохранённые фильтры: повреждённый не применяется, но переименовывается и удаляется; «Отмена» сбрасывает название; Enter не сохраняет дважды', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Повреждён ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' });
+  const listUrl = `**${base}/saved-filters`;
+  await page.route(listUrl, (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            savedFilters: [
+              { id: 901, companyId: cid, name: 'Старый', filter: {}, unavailable: 0, invalid: true, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+            ],
+          }),
+        })
+      : route.fallback(),
+  );
+  await page.reload();
+  const menuButton = page.getByRole('button', { name: 'Сохранённые фильтры' });
+  await menuButton.click();
+  const apply = page.getByRole('button', { name: /^Применить фильтр «Старый»/ });
+  await expect(apply).toBeDisabled();
+  await expect(apply).toContainText('(повреждён)');
+  await expect(apply).toHaveAttribute('title', 'Фильтр повреждён: переименуйте или удалите его — условия не применяются');
+  await expect(page.getByRole('button', { name: 'Переименовать фильтр «Старый»' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Удалить фильтр «Старый»' })).toBeEnabled();
+
+  // «Отмена» в переименовании не оставляет правку: при повторном открытии — прежнее название
+  await page.getByRole('button', { name: 'Переименовать фильтр «Старый»' }).click();
+  const rename = page.getByLabel('Новое название фильтра «Старый»');
+  await rename.fill('Что-то другое');
+  await page.getByRole('button', { name: 'Отмена' }).click();
+  await page.getByRole('button', { name: 'Переименовать фильтр «Старый»' }).click();
+  await expect(rename).toHaveValue('Старый');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.unroute(listUrl);
+
+  // Enter в поле названия, пока запрос в пути, не отправляет второй
+  let posts = 0;
+  await page.route(listUrl, async (route) => {
+    if (route.request().method() === 'POST') {
+      posts += 1;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    await route.fallback();
+  });
+  await page.getByRole('button', { name: /^Фильтр/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
+  await dialog.getByRole('checkbox', { name: 'Доход' }).check();
+  await dialog.getByRole('button', { name: 'Сохранить фильтр' }).click();
+  const name = dialog.getByLabel('Название фильтра');
+  await name.fill('Доходы');
+  await name.press('Enter');
+  await name.press('Enter');
+  await expect(dialog).toBeHidden();
+  expect(posts).toBe(1);
+});
+
+test('удаление без тоста «Отменить»: после ошибки фокус на «Удалить», после пустого итога — на итоге', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Без тоста ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  const op = (await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: kaspi, amount: 100, comment: 'операция A' })).operation;
+  await page.reload();
+  await expect.poll(() => letters(page)).toBe('A');
+  const bar = page.getByRole('region', { name: 'Действия с выбранными' });
+  const bulkUrl = `**${base}/operations/bulk`;
+  const answers = [
+    { status: 500, body: { error: { code: 'INTERNAL', message: 'Сбой удаления' } } },
+    { status: 200, body: { changed: [], skipped: [{ id: op.id, reason: 'Операция уже удалена' }] } },
+  ];
+  await page.route(bulkUrl, (route) => {
+    const answer = answers.shift();
+    return answer ? route.fulfill({ status: answer.status, contentType: 'application/json', body: JSON.stringify(answer.body) }) : route.fallback();
+  });
+  await bodyRows(page).first().getByRole('checkbox').check();
+
+  // ошибка: полоса остаётся, фокус возвращается на «Удалить»
+  await bar.getByRole('button', { name: 'Удалить', exact: true }).click();
+  await bar.getByRole('button', { name: 'Да, удалить' }).click();
+  await expect(page.getByRole('alert')).toContainText('Сбой удаления');
+  await expect(bar.getByRole('button', { name: 'Удалить', exact: true })).toBeFocused();
+
+  // ничего не удалено: полоса исчезла вместе с выделением, итог с причиной получает фокус
+  await bar.getByRole('button', { name: 'Удалить', exact: true }).click();
+  await bar.getByRole('button', { name: 'Да, удалить' }).click();
+  const summary = page.getByRole('status').filter({ hasText: 'Удаление:' });
+  await expect(summary).toContainText('Удаление: изменено 0, пропущено 1');
+  await expect(summary).toContainText('Операция уже удалена — 1');
+  await expect(bar).toHaveCount(0);
+  await expect(summary).toBeFocused();
 });

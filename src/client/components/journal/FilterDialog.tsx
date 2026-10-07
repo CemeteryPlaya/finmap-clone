@@ -81,7 +81,8 @@ function FilterForm(props: {
   data: FilterDialogData;
   onApply: (next: DialogFields) => void;
   onCancel: () => void;
-  onSave: (draft: DialogFields, name: string) => Promise<void>;
+  /** Не передан (архивная компания) — «Сохранить фильтр» не показывается. */
+  onSave?: (draft: DialogFields, name: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<DialogFields>(() => pickDialogFields(props.state));
   const [cpQuery, setCpQuery] = useState('');
@@ -119,7 +120,7 @@ function FilterForm(props: {
     setSaving(true);
     setSaveError(undefined);
     try {
-      await props.onSave(draft, name);
+      await props.onSave?.(draft, name);
       props.onApply(draft);
     } catch (e) {
       setSaveError(e instanceof ApiError ? (e.fields?.name ?? e.message) : 'Ошибка сервера');
@@ -192,9 +193,11 @@ function FilterForm(props: {
         <button type="submit" className={btnPrimary}>
           Готово
         </button>
-        <button type="button" aria-expanded={naming} onClick={() => setNaming((v) => !v)} className={btnSecondary}>
-          Сохранить фильтр
-        </button>
+        {props.onSave && (
+          <button type="button" aria-expanded={naming} onClick={() => setNaming((v) => !v)} className={btnSecondary}>
+            Сохранить фильтр
+          </button>
+        )}
         <button type="button" onClick={clear} className={btnSecondary}>
           Очистить
         </button>
@@ -202,7 +205,7 @@ function FilterForm(props: {
           Отмена
         </button>
       </div>
-      {naming && (
+      {naming && props.onSave && (
         <div className="mt-4 flex flex-wrap items-start gap-2 rounded-2xl bg-field/50 p-3">
           <Field label="Название фильтра" error={saveError} hint="Сохраняются условия окна, период, поиск и сумма; период — датами" className="min-w-56 flex-1">
             {(c) => (
@@ -216,7 +219,7 @@ function FilterForm(props: {
                   // Enter сохраняет фильтр, а не применяет окно
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    void save();
+                    if (!saving) void save();
                   }
                 }}
                 className={`${inputClass} py-2`}
@@ -243,7 +246,7 @@ export function FilterDialog(props: {
    * Сохраняет поля окна как именованный фильтр — тоже поверх текущего фильтра (applyDialogFields);
    * при успехе окно применяет черновик и закрывается.
    */
-  onSave: (draft: DialogFields, name: string) => Promise<void>;
+  onSave?: (draft: DialogFields, name: string) => Promise<void>;
 }) {
   return (
     <Modal open={props.open} title="Фильтр" onClose={props.onClose}>
