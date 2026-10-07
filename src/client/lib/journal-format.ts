@@ -83,3 +83,19 @@ export function amountInputText(minor: number, minorUnits: number): string {
     .replace(/(,\d*?)0+$/, '$1')
     .replace(/,$/, '');
 }
+
+/**
+ * Строки журнала из всех загруженных страниц без повторов по id (первое вхождение остаётся): страницы идут
+ * по курсору, и операцию, которую другой пользователь изменил во время прокрутки, можно получить дважды —
+ * ключи строк в таблице должны быть уникальными.
+ */
+export function uniqueById<T extends { id: number }>(items: readonly T[]): T[] {
+  const seen = new Set<number>();
+  const result: T[] = [];
+  for (const item of items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    result.push(item);
+  }
+  return result;
+}

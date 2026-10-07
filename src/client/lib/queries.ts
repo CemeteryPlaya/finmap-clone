@@ -308,3 +308,70 @@ export async function savePreference(key: string, value: unknown): Promise<void>
   await api(`/preferences/${encodeURIComponent(key)}`, { method: 'PUT', body: { value } });
   queryClient.setQueryData<Record<string, unknown>>(['preferences'], (old) => ({ ...(old ?? {}), [key]: value }));
 }
+
+export interface OperationLine {
+  id: number;
+  position: number;
+  categoryId: number | null;
+  projectId: number | null;
+  amount: number;
+  baseAmount: number;
+}
+
+/** Элемент журнала (`GET /companies/:cid/operations`, план 5a): операция со строками, тегами, вложениями и остатками. */
+export interface JournalItem {
+  id: number;
+  companyId: number;
+  type: 'income' | 'expense' | 'transfer';
+  status: 'actual' | 'planned';
+  paidAt: string;
+  accrualDate: string | null;
+  accountId: number;
+  amount: number;
+  toAccountId: number | null;
+  toAmount: number | null;
+  rate: string;
+  baseAmount: number;
+  counterpartyId: number | null;
+  comment: string | null;
+  createdBy: number;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  deletedAt: string | null;
+  lines: OperationLine[];
+  tagIds: number[];
+  attachmentCount: number;
+  /** Остаток счёта операции после неё (у перевода — счёта списания), по всей истории счёта. */
+  balanceAfter: number | null;
+  /** У перевода — остаток счёта зачисления после операции. */
+  toBalanceAfter: number | null;
+}
+
+export interface JournalPageData {
+  items: JournalItem[];
+  nextCursor: string | null;
+}
+
+export const JOURNAL_PAGE_SIZE = 50;
+
+/**
+ * Журнал с бесконечной прокруткой. params — строка запроса фильтра (journalApiParams) или null, пока она
+ * не готова (нет часового пояса). Ключ ['journal', cid, params]: сброс ['journal', cid] обновляет все фильтры.
+ */
+export function useJournal(companyId: number, params: string | null) {
+  return useInfiniteQuery<JournalPageData, ApiError, InfiniteData<JournalPageData, string | null>, readonly unknown[], string | null>({
+    queryKey: ['journal', companyId, params],
+    enabled: params !== null,
+    initialPageParam: null,
+    queryFn: ({ pageParam }) => {
+      const p = new URLSearchParams(params ?? '');
+      p.set('limit', String(JOURNAL_PAGE_SIZE));
+      if (pageParam !== null) p.set('cursor', pageParam);
+      return api<JournalPageData>(`/companies/${companyId}/operations?${p.toString()}`);
+    },
+    getNextPageParam: (last) => last.nextCursor,
+    // при смене фильтра старые строки остаются на экране до ответа; журнал другой компании не показывается
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === companyId ? prev : undefined),
+  });
+}
