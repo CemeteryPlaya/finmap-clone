@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router';
 import { todayInTimezone } from '../../shared/dates';
+import { AssignPicker } from '../components/journal/AssignPicker';
 import { ColumnsPicker } from '../components/journal/ColumnsPicker';
 import { FilterDialog } from '../components/journal/FilterDialog';
 import { SavedFiltersMenu, unavailableText } from '../components/journal/SavedFiltersMenu';
@@ -24,9 +25,15 @@ import {
   type JournalUrlState,
 } from '../lib/journal-filter';
 import { uniqueById } from '../lib/journal-format';
+import { useAssign } from '../lib/journal-mutations';
 import { queryClient, useMeta } from '../lib/query';
 import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useSavedFilters, useTags, type CategoryTree, type Company } from '../lib/queries';
 import type { CompanyOutletContext } from './CompanyLayout';
+
+/** Фокус на строку операции (у строки tabIndex=-1 и data-operation-id). */
+function focusRow(id: number): void {
+  requestAnimationFrame(() => document.querySelector<HTMLElement>(`tr[data-operation-id="${id}"]`)?.focus());
+}
 
 /** Статьи плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
 function categoryNames(tree: CategoryTree): Map<number, string> {
@@ -65,6 +72,9 @@ function JournalScreen({ company }: { company: Company }) {
   const savedFilters = useSavedFilters(company.id);
   // предупреждение после применения сохранённого фильтра с недоступными ссылками (инвариант 10)
   const [notice, setNotice] = useState<string | null>(null);
+  // ошибка «Указать» (конфликт версии, архив) — над таблицей, пока её не скроют или не начнут новое действие
+  const [actionError, setActionError] = useState<string | null>(null);
+  const assign = useAssign(company.id, setActionError);
 
   const lookups = useMemo<JournalLookups | null>(() => {
     if (!accounts.data || !categories.data || !projects.data || !counterparties.data) return null;
@@ -88,6 +98,7 @@ function JournalScreen({ company }: { company: Company }) {
   const items = uniqueById(journal.data?.pages.flatMap((p) => p.items) ?? []);
   const columns = visibleColumns(prefs.data?.[JOURNAL_COLUMNS_PREF]);
   const conditions = filterConditionCount(state);
+  const assignData = { categories: categories.data!, projects: projects.data!, counterparties: counterparties.data! };
   // сохраняются поля окна поверх ТЕКУЩЕГО фильтра — как у «Готово», без устаревшего поиска из снимка
   const saveFilter = async (draft: DialogFields, name: string) => {
     await api(`/companies/${company.id}/saved-filters`, { method: 'POST', body: { name, filter: savedFilterFromState(applyDialogFields(state, draft), today) } });
@@ -133,6 +144,14 @@ function JournalScreen({ company }: { company: Company }) {
         onClose={() => setFilterOpen(false)}
         onSave={saveFilter}
       />
+      {actionError && (
+        <p role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
+          <span>{actionError}</span>
+          <button type="button" onClick={() => setActionError(null)} className="font-semibold underline">
+            Скрыть
+          </button>
+        </p>
+      )}
       {notice && (
         <p role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
           <span>{notice}</span>
@@ -167,6 +186,19 @@ function JournalScreen({ company }: { company: Company }) {
           order={state.order}
           onSort={(sort, order) => update({ ...state, sort, order })}
           busy={journal.isPlaceholderData}
+          renderAssign={(item, field) => (
+            <AssignPicker
+              item={item}
+              field={field}
+              data={assignData}
+              onPick={(id) => {
+                setActionError(null);
+                assign.mutate({ item, field, id });
+                // кнопка «Указать» исчезает вместе с пустой ячейкой — фокус на строку операции
+                focusRow(item.id);
+              }}
+            />
+          )}
         />
       )}
       {/* пока новый фильтр или сортировка грузятся, старые страницы — лишь заглушка: «ещё» к ним не относится */}

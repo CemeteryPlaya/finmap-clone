@@ -1,5 +1,6 @@
 import type { MouseEvent, ReactNode } from 'react';
 import { formatMoney } from '../../../shared/money';
+import { canAssign, type AssignField } from '../../lib/journal-assign';
 import { JOURNAL_COLUMNS, type JournalColumnId } from '../../lib/journal-columns';
 import type { JournalSortKey, JournalSortOrder } from '../../lib/journal-filter';
 import { dayLabel, dayOf, lineDimension, projectShare, signedMoney, splitLabel, timeLabel } from '../../lib/journal-format';
@@ -32,6 +33,8 @@ export interface JournalTableProps {
    * строка не реагирует на клик.
    */
   onOpenOperation?: (item: JournalItem) => void;
+  /** «Указать» в пустой ячейке (§7): вызывается только там, где оно разрешено (canAssign). */
+  renderAssign?: (item: JournalItem, field: AssignField) => ReactNode;
 }
 
 const AMOUNT_CLASS: Record<JournalItem['type'], string> = {
@@ -64,11 +67,11 @@ function lineHint(item: JournalItem, lookups: JournalLookups, currency: string):
   });
 }
 
-/** Ячейка статьи или проекта: название, «N категорий» с подсказкой у разбитой операции или пусто. */
-function dimensionCell(item: JournalItem, key: 'categoryId' | 'projectId', names: Map<number, string>, hint: string[]): ReactNode {
+/** Ячейка статьи или проекта: название, «N категорий» с подсказкой у разбитой операции, «Указать» или пусто. */
+function dimensionCell(item: JournalItem, key: 'categoryId' | 'projectId', names: Map<number, string>, hint: string[], assign: ReactNode): ReactNode {
   const d = lineDimension(item.lines, key);
   if (d.kind === 'many') return <SplitHint label={splitLabel(d.count, key === 'categoryId' ? 'category' : 'project')} lines={hint} />;
-  return d.id === null ? null : (names.get(d.id) ?? '…');
+  return d.id === null ? assign : (names.get(d.id) ?? '…');
 }
 
 function AccountLine({ account, balance }: { account: Account | undefined; balance: number | null }) {
@@ -119,6 +122,7 @@ export function JournalTable(props: JournalTableProps) {
             const currency = account?.currency ?? props.baseCurrency;
             const hint = lineHint(item, lookups, currency);
             const share = projectShare(item.lines, props.projectFilter);
+            const assign = (field: AssignField) => (props.renderAssign && canAssign(item, field) ? props.renderAssign(item, field) : null);
             const cells: Record<JournalColumnId, ReactNode> = {
               date: (
                 <time dateTime={item.paidAt} className="whitespace-nowrap">
@@ -157,9 +161,9 @@ export function JournalTable(props: JournalTableProps) {
                   )}
                 </>
               ),
-              counterparty: item.counterpartyId === null ? null : (lookups.counterparties.get(item.counterpartyId) ?? '…'),
-              category: dimensionCell(item, 'categoryId', lookups.categories, hint),
-              project: dimensionCell(item, 'projectId', lookups.projects, hint),
+              counterparty: item.counterpartyId === null ? assign('counterparty') : (lookups.counterparties.get(item.counterpartyId) ?? '…'),
+              category: dimensionCell(item, 'categoryId', lookups.categories, hint, assign('category')),
+              project: dimensionCell(item, 'projectId', lookups.projects, hint, assign('project')),
               comment: item.comment && (
                 <span className="line-clamp-2 max-w-xs break-words" title={item.comment}>
                   {item.comment}
