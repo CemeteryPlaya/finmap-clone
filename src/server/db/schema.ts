@@ -316,3 +316,23 @@ export const attachments = sqliteTable(
   },
   (t) => [index('attachments_operation_idx').on(t.operationId), uniqueIndex('attachments_stored_uq').on(t.storedName)],
 );
+
+export const savedFilters = sqliteTable(
+  'saved_filters',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** Владелец: фильтр видит и меняет только он (§6). */
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id),
+    name: text('name').notNull(),
+    /** JSON фильтра журнала (journalFilterSchema); ссылки на справочники без внешних ключей (инвариант 10). */
+    filter: text('filter').notNull(),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [index('saved_filters_owner_idx').on(t.userId, t.companyId)],
+);

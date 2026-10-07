@@ -38,6 +38,8 @@ import { registerOperationsRoutes } from './modules/operations/routes';
 import { registerRatesRoutes } from './modules/rates/routes';
 import { createOperationsService } from './modules/operations/service';
 import { createRatesService } from './modules/rates/service';
+import { registerSavedFiltersRoutes } from './modules/saved-filters/routes';
+import { createSavedFiltersService } from './modules/saved-filters/service';
 import { registerSplitPresetsRoutes } from './modules/split-presets/routes';
 import { createSplitPresetsService } from './modules/split-presets/service';
 import { registerCompaniesRoutes } from './modules/companies/routes';
@@ -131,6 +133,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     journal: createJournal({ db, balances, timezone: config.timezone }),
     bulk: createBulkService({ db, operations }),
   });
+  registerSavedFiltersRoutes(app, { savedFilters: createSavedFiltersService({ db, now }) });
   registerAttachmentsRoutes(app, { attachments: createAttachmentsService({ db, audit, uploadsDir: config.uploadsDir, now }) });
   registerBalancesRoutes(app, { companies, ledger: balances, rates, timezone: config.timezone, now });
   const backup =
