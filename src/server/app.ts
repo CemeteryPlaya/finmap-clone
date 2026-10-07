@@ -125,7 +125,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const rates = createRatesService({ db, audit, now });
   registerRatesRoutes(app, { db, rates });
   const operations = createOperationsService({ db, audit, rates, timezone: config.timezone, now });
-  registerOperationsRoutes(app, { operations, journal: createJournal({ db, timezone: config.timezone }) });
+  registerOperationsRoutes(app, { operations, journal: createJournal({ db, balances, timezone: config.timezone }) });
   registerAttachmentsRoutes(app, { attachments: createAttachmentsService({ db, audit, uploadsDir: config.uploadsDir, now }) });
   registerBalancesRoutes(app, { companies, ledger: balances, rates, timezone: config.timezone, now });
   const backup =

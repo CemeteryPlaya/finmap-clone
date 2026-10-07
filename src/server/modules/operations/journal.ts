@@ -5,12 +5,17 @@ import { foldCase } from '../../../shared/search';
 import type { Db } from '../../db/client';
 import { attachments, operationLines, operations, operationTags } from '../../db/schema';
 import { AppError } from '../../errors';
+import type { LedgerBalances } from '../balances/service';
 import { requireCompany } from '../companies/guard';
 import type { OperationDto, OperationLineDto } from './service';
 
 export interface JournalItem extends OperationDto {
   /** Сколько у операции неудалённых вложений. */
   attachmentCount: number;
+  /** Остаток счёта операции после неё (у перевода — счёта списания), по полной истории счёта (§4.7). */
+  balanceAfter: number | null;
+  /** У перевода — остаток счёта зачисления после операции; у дохода и расхода null. */
+  toBalanceAfter: number | null;
 }
 
 export interface JournalPage {
@@ -122,11 +127,11 @@ function decodeCursor(raw: string, sort: JournalSort, order: JournalOrder): Curs
   return k as CursorKey;
 }
 
-export function createJournal(d: { db: Db; timezone: string }): JournalService {
-  const { db, timezone } = d;
+export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: string }): JournalService {
+  const { db, balances, timezone } = d;
 
-  /** Операции страницы в заданном порядке: со строками, тегами и числом вложений. */
-  function loadItems(ids: number[]): JournalItem[] {
+  /** Операции страницы в заданном порядке: со строками, тегами, числом вложений и остатками после операции. */
+  function loadItems(companyId: number, ids: number[]): JournalItem[] {
     if (ids.length === 0) return [];
     const rows = new Map(db.select().from(operations).where(inArray(operations.id, ids)).all().map((r) => [r.id, r]));
     const lines = new Map<number, OperationLineDto[]>();
@@ -153,7 +158,20 @@ export function createJournal(d: { db: Db; timezone: string }): JournalService {
         .all()
         .map((r) => [r.operationId, r.n]),
     );
-    return ids.map((id) => ({ ...rows.get(id)!, lines: lines.get(id) ?? [], tagIds: tags.get(id) ?? [], attachmentCount: files.get(id) ?? 0 }));
+    // окно — по полной истории счетов этой страницы (§4.7), фильтр журнала на него не влияет
+    const accountIds = [...new Set([...rows.values()].flatMap((r) => (r.toAccountId === null ? [r.accountId] : [r.accountId, r.toAccountId])))];
+    const after = balances.balancesAfter(companyId, { operationIds: ids, accountIds });
+    return ids.map((id) => {
+      const row = rows.get(id)!;
+      return {
+        ...row,
+        lines: lines.get(id) ?? [],
+        tagIds: tags.get(id) ?? [],
+        attachmentCount: files.get(id) ?? 0,
+        balanceAfter: after.get(`${id}:${row.accountId}`) ?? null,
+        toBalanceAfter: row.toAccountId === null ? null : (after.get(`${id}:${row.toAccountId}`) ?? null),
+      };
+    });
   }
 
   return {
@@ -173,7 +191,7 @@ export function createJournal(d: { db: Db; timezone: string }): JournalService {
       const rows = more ? found.slice(0, q.limit) : found;
       const last = rows.at(-1);
       return {
-        items: loadItems(rows.map((r) => r.id)),
+        items: loadItems(companyId, rows.map((r) => r.id)),
         nextCursor: more && last ? encodeCursor({ s: q.sort, o: q.order, v: q.sort === 'date' ? last.paidAt : last.baseAmount, id: last.id }) : null,
       };
     },
