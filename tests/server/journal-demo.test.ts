@@ -42,6 +42,10 @@ describe('журнал на демо-наборе (§10, §12)', () => {
       .prepare('SELECT id FROM operations WHERE company_id = ? AND deleted_at IS NULL ORDER BY paid_at DESC, id DESC')
       .all(cid) as { id: number }[];
     expect(expected.length).toBeGreaterThan(100);
+    // проверка не должна терять переводы и удалённые операции
+    const count = (where: string) => (s.prepare(`SELECT COUNT(*) n FROM operations WHERE company_id = ? AND ${where}`).get(cid) as { n: number }).n;
+    expect(count("type = 'transfer' AND deleted_at IS NULL")).toBeGreaterThan(0);
+    expect(count('deleted_at IS NOT NULL')).toBeGreaterThan(0);
     expect(seen.map((i) => i.id)).toEqual(expected.map((r) => r.id));
 
     // независимый пересчёт остатков: история каждого счёта по (paidAt, id) от стартового остатка
