@@ -156,3 +156,95 @@ test('клик по счёту в левой панели фильтрует ж�
   await expect(bodyRows(page).first()).toContainText(/\+1,00\s₸/);
   await expect(table(page).getByRole('columnheader', { name: /Дата/ })).not.toHaveAttribute('aria-sort', /.+/);
 });
+
+test('тулбар: поиск с паузой, период, сумма от/до в базовой валюте, выгрузка по фильтру, сброс; фильтр переживает перезагрузку', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Тулбар ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  const dollars = (await apiPost(page, `${base}/accounts`, { name: 'Доллары', currency: 'USD', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/fixed-rates`, { currency: 'USD', rate: '500', validFrom: '2020-01-01' });
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(5), accountId: kaspi, amount: 150000, comment: 'Ёлка в зале' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: yesterdayNoon(), accountId: kaspi, amount: 30000, comment: 'Аренда за октябрь' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(3), accountId: dollars, amount: 200 });
+
+  await page.reload();
+  await expect(bodyRows(page)).toHaveCount(3);
+  // валюта счёта не базовая — под суммой сумма в тенге: $2 × 500 = 1000 ₸
+  await expect(bodyRows(page).filter({ hasText: /\u22122,00\s\$/ })).toContainText(/1\s000,00\s₸/);
+
+  // поиск — без учёта регистра и «ё», запрос уходит после паузы и попадает в адрес
+  await page.getByLabel('Поиск').fill('ЕЛКА');
+  await expect(page).toHaveURL(/q=%D0%95%D0%9B%D0%9A%D0%90$/);
+  await expect(bodyRows(page)).toHaveCount(1);
+  await expect(bodyRows(page).first()).toContainText('Ёлка в зале');
+  await page.reload();
+  await expect(page.getByLabel('Поиск')).toHaveValue('ЕЛКА');
+  await expect(bodyRows(page)).toHaveCount(1);
+  await page.getByLabel('Поиск').fill('');
+  await expect(bodyRows(page)).toHaveCount(3);
+
+  // поиск, набранный прямо перед сменой периода, не затирает период (Review Focus 1)
+  await page.getByLabel('Поиск').fill('аренда');
+  await page.getByLabel('Период').selectOption({ label: 'Вчера' });
+  await expect(page).toHaveURL(/period=yesterday&q=%D0%B0%D1%80%D0%B5%D0%BD%D0%B4%D0%B0$/);
+  await expect(bodyRows(page)).toHaveCount(1);
+  await page.getByLabel('Поиск').fill('');
+  await expect(page).toHaveURL(/period=yesterday$/);
+
+  // период — по календарной дате в APP_TIMEZONE
+  await page.getByLabel('Период').selectOption({ label: 'Вчера' });
+  await expect(page).toHaveURL(/period=yesterday$/);
+  await expect(bodyRows(page)).toHaveCount(1);
+  await expect(bodyRows(page).first()).toContainText('Аренда за октябрь');
+  await expect(bodyRows(page).first().locator('time')).toContainText('вчера');
+  await page.getByLabel('Период').selectOption({ label: 'Сегодня' });
+  await expect(bodyRows(page)).toHaveCount(2);
+  // «Произвольно» начинается с границ выбранного периода
+  await page.getByLabel('Период').selectOption({ label: 'Произвольно' });
+  const from = await page.getByLabel('С', { exact: true }).inputValue();
+  expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  await expect(page.getByLabel('По', { exact: true })).toHaveValue(from);
+  await expect(bodyRows(page)).toHaveCount(2);
+  // дата границы применяется по Enter или уходу из поля, а не на каждую набранную цифру
+  const yesterday = yesterdayNoon().slice(0, 10);
+  await page.getByLabel('С', { exact: true }).fill(yesterday);
+  await page.getByLabel('С', { exact: true }).press('Enter');
+  await expect(page).toHaveURL(new RegExp(`from=${yesterday}&to=${from}$`));
+  await expect(bodyRows(page)).toHaveCount(3);
+  await page.getByLabel('Период').selectOption({ label: 'Всё время' });
+  await expect(bodyRows(page)).toHaveCount(3);
+
+  // сумма от/до — в базовой валюте компании (по сумме в тенге)
+  await page.getByLabel('Сумма от, ₸').fill('1 000');
+  await page.getByLabel('Сумма от, ₸').press('Enter');
+  await expect(bodyRows(page)).toHaveCount(2);
+  await expect(page.getByLabel('Сумма от, ₸')).toHaveValue('1000');
+  await page.getByLabel('Сумма до, ₸').fill('1200,5');
+  await page.getByLabel('Сумма до, ₸').blur();
+  await expect(bodyRows(page)).toHaveCount(1);
+  await expect(page).toHaveURL(/min=100000&max=120050$/);
+  await page.getByLabel('Сумма до, ₸').fill('abc');
+  await page.getByLabel('Сумма до, ₸').blur();
+  await expect(page.getByLabel('Сумма до, ₸')).toHaveAttribute('aria-invalid', 'true');
+  await expect(bodyRows(page)).toHaveCount(1);
+
+  // выгрузка — по текущему фильтру; ссылка отдаёт книгу Excel
+  const href = await page.getByRole('link', { name: 'Выгрузить в Excel' }).getAttribute('href');
+  expect(href).toContain(`/api/v1/companies/${cid}/operations/export.xlsx?`);
+  expect(href).toContain('amountMin=100000&amountMax=120050');
+  const xlsx = await page.request.get(href!);
+  expect(xlsx.status()).toBe(200);
+  expect(xlsx.headers()['content-type']).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+  await page.getByRole('button', { name: 'Сбросить фильтр' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
+  await expect(bodyRows(page)).toHaveCount(3);
+  await expect(page.getByLabel('Сумма от, ₸')).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Сбросить фильтр' })).toHaveCount(0);
+
+  // адрес, исправленный руками: мусор отбрасывается, журнал открывается (Review Focus 2)
+  await page.goto(`/c/${cid}/log?account=abc&type=bogus&from=2026-13-01&min=-5&sort=name`);
+  await expect(bodyRows(page)).toHaveCount(3);
+  await expect(page.getByRole('button', { name: 'Сбросить фильтр' })).toHaveCount(0);
+});
