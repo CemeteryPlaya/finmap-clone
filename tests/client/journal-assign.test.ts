@@ -63,3 +63,33 @@ describe('«Указать» (§7)', () => {
     expect(operationErrorText(new Error('x'))).toBe('Ошибка сервера');
   });
 });
+
+describe('«Указать»: кэш и мутации', () => {
+  const item = (version: number, comment: string) => ({ id: 7, version, comment, lines: [] });
+  const page = (...items: ReturnType<typeof item>[]) => ({ pages: [{ items, nextCursor: null }], pageParams: [null] });
+
+  it('cachedOperation берёт самую свежую версию среди всех кэшей журнала', async () => {
+    const { queryClient } = await import('../../src/client/lib/query');
+    const { cachedOperation } = await import('../../src/client/lib/journal-mutations');
+    queryClient.clear();
+    queryClient.setQueryData(['journal', 5, 'a'], page(item(3, 'свежая')));
+    queryClient.setQueryData(['journal', 5, 'b'], page(item(2, 'старая')));
+    expect(cachedOperation(5, 7)).toMatchObject({ version: 3 });
+    expect(cachedOperation(5, 8)).toBeUndefined();
+    queryClient.clear();
+  });
+
+  it('после завершения мутация не остаётся в кэше', async () => {
+    const { vi } = await import('vitest');
+    const { queryClient } = await import('../../src/client/lib/query');
+    const { runAssign } = await import('../../src/client/lib/journal-mutations');
+    queryClient.clear();
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ operation: { version: 2, updatedAt: 'x', counterpartyId: 1, lines: [] } }), { status: 200 }));
+    const vars = { item: { ...op({}), id: 7 } as never, field: 'counterparty' as const, id: 1 };
+    await runAssign(5, vars, () => undefined);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
+    vi.unstubAllGlobals();
+    queryClient.clear();
+  });
+});

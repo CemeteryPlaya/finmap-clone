@@ -163,6 +163,13 @@ function JournalScreen(props: {
     summaryRef.current?.focus();
     setFocusSummary(false);
   }, [focusSummary]);
+  // «Повторить» получает фокус, когда ошибка появилась, а не при каждой сборке экрана (смена компании)
+  const retryRef = useRef<HTMLButtonElement>(null);
+  const failureShown = useRef(props.undoFailure);
+  useEffect(() => {
+    if (props.undoFailure && props.undoFailure !== failureShown.current) retryRef.current?.focus();
+    failureShown.current = props.undoFailure;
+  }, [props.undoFailure]);
   // строка, которой только что назначили значение: если она ушла из фильтра, фокус не должен потеряться
   const assigned = useRef<{ id: number; index: number } | null>(null);
   const filterKey = params.toString();
@@ -210,6 +217,12 @@ function JournalScreen(props: {
     };
   }, [accounts.data, categories.data, projects.data, counterparties.data]);
 
+  // один объект между перерисовками: от него зависят списки «Указать» (AssignPicker)
+  const assignData = useMemo(
+    () => ({ categories: categories.data!, projects: projects.data!, counterparties: counterparties.data! }),
+    [categories.data, projects.data, counterparties.data],
+  );
+
   // справочники нужны всегда: без них журнал не показать. Ошибка самого журнала (например, после смены фильтра) — ниже, под тулбаром
   const lookupQueries = [meta, accounts, categories, projects, counterparties, tags];
   // без справочников журнал не показать; дальше тулбар на экране всегда — и пока грузится новый запрос журнала
@@ -222,7 +235,6 @@ function JournalScreen(props: {
   const items = uniqueById(journal.data?.pages.flatMap((p) => p.items) ?? []);
   const columns = visibleColumns(prefs.data?.[JOURNAL_COLUMNS_PREF]);
   const conditions = filterConditionCount(state);
-  const assignData = { categories: categories.data!, projects: projects.data!, counterparties: counterparties.data! };
   const selectedIds = items.filter((i) => selected.has(i.id)).map((i) => i.id);
   const undoShown = props.undoSummary;
   const otherCompany = (id: number) => id !== company.id;
@@ -305,8 +317,8 @@ function JournalScreen(props: {
           </span>
           <span className="flex gap-3">
             <button
+              ref={retryRef}
               type="button"
-              autoFocus
               aria-disabled={props.undoPending}
               onClick={() => !props.undoPending && props.onRetryUndo()}
               className="font-semibold underline"

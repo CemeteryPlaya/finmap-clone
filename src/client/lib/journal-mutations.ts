@@ -43,14 +43,16 @@ interface SavedOperation {
 }
 
 /** Операция в загруженных страницах журнала (любого фильтра) — свежее, чем строка, на которую нажали «Указать». */
-function cachedOperation(companyId: number, id: number): JournalItem | undefined {
+export function cachedOperation(companyId: number, id: number): JournalItem | undefined {
+  let best: JournalItem | undefined;
+  // в кэше могут лежать и неактивные страницы старых фильтров — берётся самая свежая версия, а не первая найденная
   for (const [, data] of queryClient.getQueriesData<JournalData>({ queryKey: ['journal', companyId] })) {
     for (const page of data?.pages ?? []) {
       const found = page.items.find((x) => x.id === id);
-      if (found) return found;
+      if (found && (!best || found.version > best.version)) best = found;
     }
   }
-  return undefined;
+  return best;
 }
 
 const operationScope = (id: number) => `operation-${id}`;
@@ -63,10 +65,13 @@ const operationScope = (id: number) => `operation-${id}`;
 export function useAssign(companyId: number, onError: (message: string) => void) {
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
-  return useMemo(
-    () => ({
-      mutate: (vars: AssignVars): Promise<unknown> =>
-        new MutationObserver<SavedOperation, unknown, AssignVars, { snapshot: [readonly unknown[], JournalData | undefined][] }>(queryClient, {
+  return useMemo(() => ({ mutate: (vars: AssignVars) => runAssign(companyId, vars, (m) => onErrorRef.current(m)) }), [companyId]);
+}
+
+/** Одно «Указать»: свой observer, который снимается по завершении, — иначе мутация (с переменными и снимком журнала) остаётся в кэше. */
+export function runAssign(companyId: number, vars: AssignVars, onError: (message: string) => void): Promise<unknown> {
+  const observer = new MutationObserver<SavedOperation, unknown, AssignVars, { snapshot: [readonly unknown[], JournalData | undefined][] }>(queryClient, {
+          gcTime: 0,
           scope: { id: operationScope(vars.item.id) },
           mutationFn: ({ item, field, id }) =>
             api<SavedOperation>(`/companies/${companyId}/operations/${item.id}`, {
@@ -104,15 +109,16 @@ export function useAssign(companyId: number, onError: (message: string) => void)
           },
           onError: (e, _vars, ctx) => {
             for (const [key, data] of ctx?.snapshot ?? []) queryClient.setQueryData(key, data);
-            onErrorRef.current(operationErrorText(e));
+            onError(operationErrorText(e));
           },
           onSettled: () => invalidateOperations(companyId),
-        })
-          .mutate(vars)
-          // ошибку показал onError; здесь она не должна уйти необработанной
-          .catch(() => undefined),
-    }),
-    [companyId],
+  });
+  return (
+    observer
+      .mutate(vars)
+      // ошибку показал onError; здесь она не должна уйти необработанной
+      .catch(() => undefined)
+      .finally(() => observer.reset())
   );
 }
 
