@@ -305,3 +305,95 @@ test('колонки: выбор сохраняется в настройках 
   await page.reload();
   await expect(header('Комментарий')).toBeVisible();
 });
+
+test('модалка «Фильтр»: все условия §6, «Готово» применяет, Esc закрывает без изменений; счёт из левой панели отмечен', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Фильтр ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Наличные', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  const room = (await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Помещение' })).category.id;
+  const utilities = (await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Коммуналка', parentId: room })).category.id;
+  const club = (await apiPost(page, `${base}/projects`, { name: 'Клуб 1', templateKey: 'general' })).project.id;
+  const supplier = (await apiPost(page, `${base}/counterparties`, { name: 'ИП Поставщик', type: 'supplier' })).counterparty.id;
+  await apiPost(page, `${base}/counterparties`, { name: 'ТОО Арендодатель', type: 'supplier' });
+  const tag = (await apiPost(page, `${base}/tags`, { name: 'Смена' })).tag.id;
+  await apiPost(page, `${base}/operations`, {
+    type: 'expense',
+    paidAt: todayAgo(4),
+    accountId: kaspi,
+    amount: 100,
+    counterpartyId: supplier,
+    comment: 'операция A',
+    lines: [{ categoryId: utilities, projectId: club, amount: 100 }],
+  });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(3), accountId: cash, amount: 200, comment: 'операция B' });
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(2), accountId: kaspi, amount: 300, tagIds: [tag], comment: 'операция C' });
+  await apiPost(page, `${base}/operations`, { type: 'transfer', paidAt: todayAgo(1), accountId: kaspi, toAccountId: cash, amount: 400, comment: 'операция D' });
+  const comments = async () => (await table(page).locator('tbody tr').allInnerTexts()).map((t) => /операция ([A-D])/.exec(t)?.[1]).join('');
+
+  await page.reload();
+  await expect(bodyRows(page)).toHaveCount(4);
+  const filterButton = page.getByRole('button', { name: /^Фильтр/ });
+  const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
+
+  // тип и родительская статья (включает дочернюю)
+  await filterButton.click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('checkbox', { name: 'Расход' }).check();
+  await dialog.getByRole('checkbox', { name: 'Помещение' }).check();
+  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(filterButton).toBeFocused();
+  await expect(page).toHaveURL(new RegExp(`type=expense&category=${room}$`));
+  await expect(filterButton).toHaveText('Фильтр · 2');
+  await expect.poll(comments).toBe('A');
+
+  // «Без статьи» — вместе с выбранной статьёй через ИЛИ
+  await filterButton.click();
+  await expect(dialog.getByRole('checkbox', { name: 'Расход' })).toBeChecked();
+  await dialog.getByRole('checkbox', { name: 'Без статьи' }).check();
+  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect.poll(comments).toBe('BA');
+
+  // Esc закрывает без изменений
+  await filterButton.click();
+  await dialog.getByRole('checkbox', { name: 'Перевод' }).check();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(filterButton).toBeFocused();
+  await expect(page).toHaveURL(new RegExp(`type=expense&category=${room}&noCategory=1$`));
+
+  // «Очистить», поиск контрагента, тег, «Без проекта»
+  await filterButton.click();
+  await dialog.getByRole('button', { name: 'Очистить' }).click();
+  await dialog.getByLabel('Найти контрагента').fill('постав');
+  await expect(dialog.getByRole('checkbox', { name: 'ТОО Арендодатель' })).toHaveCount(0);
+  await dialog.getByLabel('Найти контрагента').press('Enter'); // Enter в поиске не применяет фильтр
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('checkbox', { name: 'ИП Поставщик' }).check();
+  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect(page).toHaveURL(new RegExp(`counterparty=${supplier}$`));
+  await expect.poll(comments).toBe('A');
+  await filterButton.click();
+  await dialog.getByRole('button', { name: 'Очистить' }).click();
+  await dialog.getByRole('checkbox', { name: 'Смена' }).check();
+  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect.poll(comments).toBe('C');
+  await filterButton.click();
+  await dialog.getByRole('button', { name: 'Очистить' }).click();
+  await dialog.getByRole('checkbox', { name: 'Без проекта' }).check();
+  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect.poll(comments).toBe('DCB');
+
+  // счёт из левой панели — отмечен в модалке, его можно снять
+  await panel(page).getByRole('link', { name: /^Наличные/ }).click();
+  await expect.poll(comments).toBe('DB');
+  await expect(filterButton).toHaveText('Фильтр · 1');
+  await filterButton.click();
+  await expect(dialog.getByRole('checkbox', { name: 'Наличные' })).toBeChecked();
+  await dialog.getByRole('checkbox', { name: 'Наличные' }).uncheck();
+  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
+  await expect(bodyRows(page)).toHaveCount(4);
+});

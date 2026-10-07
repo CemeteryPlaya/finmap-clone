@@ -1,16 +1,18 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router';
 import { todayInTimezone } from '../../shared/dates';
 import { ColumnsPicker } from '../components/journal/ColumnsPicker';
+import { FilterDialog } from '../components/journal/FilterDialog';
 import { JournalTable, type JournalLookups } from '../components/journal/JournalTable';
 import { JournalToolbar } from '../components/journal/JournalToolbar';
 import { LoadMore } from '../components/journal/LoadMore';
 import { Pending, StaleNotice } from '../components/QueryState';
+import { btnSmall } from '../components/ui';
 import { JOURNAL_COLUMNS_PREF, visibleColumns } from '../lib/journal-columns';
-import { isFiltered, journalApiParams, journalSearch, parseJournalSearch, type JournalUrlState } from '../lib/journal-filter';
+import { filterConditionCount, isFiltered, journalApiParams, journalSearch, parseJournalSearch, type JournalUrlState } from '../lib/journal-filter';
 import { uniqueById } from '../lib/journal-format';
 import { useMeta } from '../lib/query';
-import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, type CategoryTree, type Company } from '../lib/queries';
+import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useTags, type CategoryTree, type Company } from '../lib/queries';
 import type { CompanyOutletContext } from './CompanyLayout';
 
 /** Статьи плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
@@ -45,6 +47,8 @@ function JournalScreen({ company }: { company: Company }) {
   const categories = useCategories(company.id);
   const projects = useProjects(company.id);
   const counterparties = useCounterparties(company.id);
+  const tags = useTags(company.id);
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const lookups = useMemo<JournalLookups | null>(() => {
     if (!accounts.data || !categories.data || !projects.data || !counterparties.data) return null;
@@ -56,14 +60,15 @@ function JournalScreen({ company }: { company: Company }) {
     };
   }, [accounts.data, categories.data, projects.data, counterparties.data]);
 
-  const queries = [meta, journal, accounts, categories, projects, counterparties];
-  if (!journal.data || !lookups || !timeZone || !today) return <Pending queries={queries} />;
+  const queries = [meta, journal, accounts, categories, projects, counterparties, tags];
+  if (!journal.data || !lookups || !tags.data || !timeZone || !today) return <Pending queries={queries} />;
 
   // фильтр меняет адрес без новой записи в истории браузера: «Назад» уводит со страницы, а не по шагам фильтра
   const update = (next: JournalUrlState) => setParams(journalSearch(next), { replace: true });
   // повторы по id (операция изменилась на другой странице во время прокрутки) — иначе ключи строк совпадут
   const items = uniqueById(journal.data.pages.flatMap((p) => p.items));
   const columns = visibleColumns(prefs.data?.[JOURNAL_COLUMNS_PREF]);
+  const conditions = filterConditionCount(state);
 
   return (
     <section>
@@ -77,7 +82,21 @@ function JournalScreen({ company }: { company: Company }) {
         companyId={company.id}
         baseCurrency={company.baseCurrency}
         today={today}
-        actions={<ColumnsPicker visible={columns} />}
+        actions={
+          <>
+            <button type="button" aria-haspopup="dialog" onClick={() => setFilterOpen(true)} className={btnSmall}>
+              Фильтр{conditions > 0 && ` · ${conditions}`}
+            </button>
+            <ColumnsPicker visible={columns} />
+          </>
+        }
+      />
+      <FilterDialog
+        open={filterOpen}
+        state={state}
+        data={{ accounts: accounts.data!, categories: categories.data!, projects: projects.data!, counterparties: counterparties.data!, tags: tags.data }}
+        onApply={update}
+        onClose={() => setFilterOpen(false)}
       />
       {items.length === 0 ? (
         <p className="py-8 text-center text-muted">{isFiltered(state) ? 'По этому фильтру операций нет.' : 'Операций пока нет.'}</p>

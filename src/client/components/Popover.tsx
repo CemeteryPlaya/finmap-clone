@@ -79,6 +79,13 @@ export function Popover(props: {
         disabled={props.disabled}
         onClick={() => setOpen((v) => !v)}
         onKeyDown={(e) => {
+          // фокус на кнопке при открытой панели (после Shift+Tab с первого элемента): Esc всё равно закрывает
+          if (e.key === 'Escape' && open) {
+            e.preventDefault();
+            e.stopPropagation();
+            close(true);
+            return;
+          }
           if (e.key !== 'Tab' || e.shiftKey || !placed) return;
           const first = focusable()[0];
           if (!first) return;
