@@ -96,6 +96,9 @@ function minor(value: string | null): number | undefined {
   return Number.isSafeInteger(n) ? n : undefined;
 }
 
+/** Как на сервере: год не выше 9998 (иначе API ответит 400). */
+const validDate = (v: string): boolean => isValidDate(v) && v < '9999';
+
 const isPeriod = (v: string | null): v is PeriodKey => PERIODS.some((p) => p.key === v);
 
 /**
@@ -106,8 +109,8 @@ export function parseJournalSearch(params: URLSearchParams): JournalUrlState {
   const state: JournalUrlState = { ...EMPTY_JOURNAL_STATE };
   let from = params.get('from') ?? undefined;
   let to = params.get('to') ?? undefined;
-  if (from !== undefined && !isValidDate(from)) from = undefined;
-  if (to !== undefined && !isValidDate(to)) to = undefined;
+  if (from !== undefined && !validDate(from)) from = undefined;
+  if (to !== undefined && !validDate(to)) to = undefined;
   if (from && to && from > to) [from, to] = [to, from];
   const period = params.get('period');
   if (isPeriod(period) && period !== 'custom') state.period = period;

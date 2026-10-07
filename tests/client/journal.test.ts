@@ -94,6 +94,9 @@ describe('адресная строка ↔ фильтр', () => {
       state({ accountIds: [12], types: ['expense'] }),
     );
     expect(parse('from=2026-02-31&to=2026-03-05')).toEqual(state({ period: 'custom', to: '2026-03-05' }));
+    // сервер не принимает даты с годом 9999 — из адреса они отбрасываются
+    expect(parse('from=9999-01-01&to=9999-12-31')).toEqual(EMPTY_JOURNAL_STATE);
+    expect(parse('from=9998-12-31&to=9999-12-31')).toEqual(state({ period: 'custom', from: '9998-12-31' }));
     expect(parse('from=2026-03-05&to=2026-03-01')).toEqual(state({ period: 'custom', from: '2026-03-01', to: '2026-03-05' }));
     expect(parse('min=500&max=100')).toMatchObject({ amountMin: 100, amountMax: 500 });
     expect(parse('min=1.5&max=99999999999999999')).toEqual(EMPTY_JOURNAL_STATE);
