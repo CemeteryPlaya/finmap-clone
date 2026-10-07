@@ -214,3 +214,11 @@ describe('журнал: GET /companies/:cid/operations', () => {
     expect(await ids()).toEqual([]);
   });
 });
+
+describe('журнал: граница дат (финальные правки 5a)', () => {
+  it('to=9999-12-31 и from=9999-12-31 — 400 с полем, а не 500', async () => {
+    w = await opsWorld();
+    expect(fail(await get('to=9999-12-31'), 400, 'VALIDATION').fields).toEqual({ to: 'Неверная дата' });
+    expect(fail(await get('from=9999-12-31'), 400, 'VALIDATION').fields).toEqual({ from: 'Неверная дата' });
+  });
+});

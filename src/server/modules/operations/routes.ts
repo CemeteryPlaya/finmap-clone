@@ -43,7 +43,7 @@ export function registerOperationsRoutes(
     return bulk.run(cid, body, req.user!.id);
   });
 
-  app.get<P>(`${BASE}/:id`,async (req) => ({ operation: operations.get(parseId(req.params.cid), parseId(req.params.id)) }));
+  app.get<P>(`${BASE}/:id`, async (req) => ({ operation: operations.get(parseId(req.params.cid), parseId(req.params.id)) }));
 
   app.patch<P>(`${BASE}/:id`, async (req) => {
     const cid = parseId(req.params.cid);

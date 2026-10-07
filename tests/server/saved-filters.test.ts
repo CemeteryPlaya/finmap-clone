@@ -91,3 +91,28 @@ describe('сохранённые фильтры журнала (§4.4, §6)', ()
     expect((await list())[0]).toMatchObject({ filter: { tagIds: [w.tag] }, unavailable: 2 });
   });
 });
+
+describe('сохранённые фильтры: граница дат и повреждённый JSON (финальные правки 5a)', () => {
+  it('год выше 9998 в сохраняемом фильтре — 400', async () => {
+    w = await opsWorld();
+    expect(fail(await w.h.req('POST', url(), { name: 'Край', filter: { to: '9999-12-31' } }), 400, 'VALIDATION').fields).toEqual({ 'filter.to': 'Неверная дата' });
+  });
+
+  it('повреждённый или не проходящий схему JSON в строке не ломает список: filter {} и invalid: true', async () => {
+    w = await opsWorld();
+    const ok = (await w.h.req('POST', url(), { name: 'Целый', filter: { types: ['expense'] } })).json().savedFilter;
+    const broken = (await w.h.req('POST', url(), { name: 'Битый', filter: {} })).json().savedFilter;
+    const wrong = (await w.h.req('POST', url(), { name: 'Не схема', filter: {} })).json().savedFilter;
+    const set = w.h.t.sqlite.prepare('UPDATE saved_filters SET filter = ? WHERE id = ?');
+    set.run('{не json', broken.id);
+    set.run(JSON.stringify({ to: 5 }), wrong.id);
+    const res = await w.h.req('GET', url());
+    expect(res.statusCode, res.body).toBe(200);
+    const rows = res.json().savedFilters as { id: number; filter: object; invalid?: boolean }[];
+    expect(rows.map((r) => [r.id, r.filter, r.invalid])).toEqual([
+      [ok.id, { types: ['expense'] }, undefined],
+      [broken.id, {}, true],
+      [wrong.id, {}, true],
+    ]);
+  });
+});

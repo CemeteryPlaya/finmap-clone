@@ -10,13 +10,17 @@ import { runMigrations } from '../src/server/db/migrate';
 import { seedCurrencies } from '../src/server/db/seed';
 import { createAuditService } from '../src/server/modules/audit/service';
 import { createUsersService } from '../src/server/modules/users/service';
+import { benchDirProblem } from './lib/bench-gate';
 import { seedDemo } from './lib/demo';
+
+if (fs.existsSync('.env')) process.loadEnvFile('.env');
 
 // Замер §12 на демо-наборе §10: p95 первой страницы журнала, фильтра и поиска (бюджет 300 мс на сервере),
 // выгрузки в Excel, балансов и сводки. Запросы идут через app.inject — сервер без сети.
 // npm run bench:journal [-- <папка данных>]; по умолчанию <tmpdir>/finmap-bench-journal — набор заливается
 // один раз (около 45 с) и переиспользуется следующими запусками. Пользователь bench создаётся только в свежей демо-копии.
-// Безопасность: скрипт пишет только в свою папку. Если в папке уже есть app.db, нужен файл-метка bench-demo.marker
+// Безопасность: скрипт пишет только в свою папку: не в папку данных приложения (DATA_DIR) и, для свежей копии, только в
+// несуществующую или пустую. Если в папке уже есть app.db, нужен файл-метка bench-demo.marker
 // (его пишет сам замер после заливки), а база, открытая только на чтение, должна содержать ровно три демо-компании.
 // Массовые действия идут на одноразовой копии базы во временной папке — демо-копия между запусками не меняется.
 
@@ -39,6 +43,8 @@ const dir = path.resolve(process.argv[2] ?? path.join(os.tmpdir(), 'finmap-bench
 const dbFile = path.join(dir, 'app.db');
 const markerFile = path.join(dir, MARKER);
 const fresh = !fs.existsSync(dbFile);
+const gate = benchDirProblem(dir, path.resolve(process.env.DATA_DIR ?? 'data'), !fresh);
+if (gate) fail(gate);
 
 // Проверка до любой записи: ни миграций, ни заливки, ни открытия на запись.
 if (!fresh) {
@@ -80,11 +86,21 @@ if (fresh) {
 // Весь замер идёт на одноразовой копии во временной папке: входы пишут в журнал аудита, массовые действия меняют операции,
 // а демо-копия между запусками не должна меняться.
 const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'finmap-bench-scratch-'));
-const source = new Database(dbFile, { readonly: true, fileMustExist: true });
-await source.backup(path.join(scratchDir, 'app.db'));
-source.close();
 const scratchConfig = loadConfig({ SESSION_SECRET: 'b'.repeat(40), DATA_DIR: scratchDir, RATES_SOURCE: 'fixtures' });
-const { sqlite, db } = openDb(scratchConfig.dbPath);
+let scratch: ReturnType<typeof openDb>;
+try {
+  const source = new Database(dbFile, { readonly: true, fileMustExist: true });
+  try {
+    await source.backup(scratchConfig.dbPath);
+  } finally {
+    source.close();
+  }
+  scratch = openDb(scratchConfig.dbPath);
+} catch (e) {
+  fs.rmSync(scratchDir, { recursive: true, force: true });
+  fail(`Не удалось подготовить одноразовую копию: ${(e as Error).message}`);
+}
+const { sqlite, db } = scratch;
 const cleanup = async () => {
   await app.close();
   sqlite.close();

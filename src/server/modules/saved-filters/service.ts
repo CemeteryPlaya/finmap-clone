@@ -14,6 +14,8 @@ export interface SavedFilterRow {
   filter: JournalFilter;
   /** Сколько ссылок отброшено: элемент удалён, в архиве или из другой компании (инвариант 10). */
   unavailable: number;
+  /** true — сохранённый JSON повреждён или не проходит схему журнала: фильтр пуст, применять нечего. Поле есть только у таких строк. */
+  invalid?: true;
   createdAt: string;
   updatedAt: string;
 }
@@ -51,17 +53,32 @@ export function createSavedFiltersService(d: { db: Db; now?: () => Date }): Save
 
   /** Хранимый JSON → фильтр без недоступных ссылок и их число. JSON читается той же схемой (устаревшие поля отбрасываются). */
   function toRow(r: typeof savedFilters.$inferSelect, avail: Available): SavedFilterRow {
-    const parsed = journalFilterSchema.safeParse(JSON.parse(r.filter));
-    const filter: JournalFilter = parsed.success ? { ...parsed.data } : {};
+    let parsed: ReturnType<typeof journalFilterSchema.safeParse> | null = null;
+    try {
+      parsed = journalFilterSchema.safeParse(JSON.parse(r.filter));
+    } catch {
+      // повреждённая строка не должна ронять весь список
+    }
+    const filter: JournalFilter = parsed?.success ? { ...parsed.data } : {};
     let unavailable = 0;
     for (const field of REF_FIELDS) {
       const ids = filter[field];
       if (!ids) continue;
       const kept = ids.filter((x) => avail[field].has(x));
       unavailable += ids.length - kept.length;
-      filter[field] = kept.length ? kept : undefined;
+      if (kept.length) filter[field] = kept;
+      else delete filter[field];
     }
-    return { id: r.id, companyId: r.companyId, name: r.name, filter, unavailable, createdAt: r.createdAt, updatedAt: r.updatedAt };
+    return {
+      id: r.id,
+      companyId: r.companyId,
+      name: r.name,
+      filter,
+      unavailable,
+      ...(parsed?.success ? {} : { invalid: true as const }),
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    };
   }
 
   function requireOwn(userId: number, companyId: number, id: number): typeof savedFilters.$inferSelect {

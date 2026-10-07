@@ -145,3 +145,19 @@ describe('журнал: выгрузка в Excel (§7)', () => {
     expect(sheetOf(journal.exportXlsx(w.cid, { ...q, q: 'нет такого' }).data).match(/<row /g)).toHaveLength(1);
   });
 });
+
+describe('выгрузка: граница дат (финальные правки 5a)', () => {
+  it('to=9999-12-31 — 400 с полем, а не 500', async () => {
+    w = await opsWorld();
+    const res = await w.h.req('GET', exportUrl('to=9999-12-31'));
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.json().error.fields).toEqual({ to: 'Неверная дата' });
+  });
+
+  it('xlsx: U+FFFE и U+FFFF вырезаются, CR внутри текста сохраняется как &#13;, неподдерживаемое число знаков — ошибка', () => {
+    expect(xmlText('a￾b￿c')).toBe('abc');
+    expect(xmlText('a\r\nb')).toBe('a&#13;\nb');
+    const sheet = { name: 'Л', columns: [{ header: 'A', width: 10 }], rows: [[{ kind: 'number' as const, value: '1.5', decimals: 5 }]] };
+    expect(() => buildXlsx(sheet)).toThrow(/знаков/);
+  });
+});

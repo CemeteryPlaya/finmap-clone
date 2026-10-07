@@ -35,7 +35,14 @@ const flag = z.preprocess(
   (v) => (v === true || v === 'true' || v === '1' ? true : v === false || v === 'false' || v === '0' || v === '' ? undefined : v),
   z.literal(true, { message: 'Ожидается true или false' }).optional(),
 );
-const date = z.preprocess(blank, z.string().refine(isValidDate, 'Неверная дата').optional());
+/** Год не выше 9998: addDays('9999-12-31', 1) выходит за диапазон дат и роняет запрос в 500. */
+const date = z.preprocess(
+  blank,
+  z
+    .string({ message: 'Неверная дата' })
+    .refine((v) => isValidDate(v) && v < '9999', 'Неверная дата')
+    .optional(),
+);
 /** Сумма в минимальных единицах базовой валюты компании (сравнивается с baseAmount). */
 const amount = z.preprocess(
   blank,
@@ -54,7 +61,7 @@ const filterShape = {
   q: z.preprocess(
     blank,
     z
-      .string()
+      .string({ message: 'Поиск — текст' })
       .trim()
       .max(200, 'Не длиннее 200 символов')
       .transform((v) => v || undefined)

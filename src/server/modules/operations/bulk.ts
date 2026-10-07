@@ -114,7 +114,8 @@ export function createBulkService(d: { db: Db; operations: OperationsService }):
             if (reason) skipped.push({ id, reason });
             else changed.push(id);
           } catch (e) {
-            if (!(e instanceof AppError)) throw e;
+            // отказ по самой операции (не найдена, версия, инвариант) — пропуск; прочие AppError откатывают весь запрос
+            if (!(e instanceof AppError) || ![404, 409, 422].includes(e.status)) throw e;
             skipped.push({ id, reason: e.message });
           }
         }

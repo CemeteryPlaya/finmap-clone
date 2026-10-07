@@ -38,11 +38,14 @@ const WORKBOOK_RELS = `<Relationships xmlns="${NS_PKG_REL}"><Relationship Id="rI
 const STYLES = `<styleSheet xmlns="${NS_MAIN}"><numFmts count="3"><numFmt numFmtId="164" formatCode="dd.mm.yyyy hh:mm"/><numFmt numFmtId="165" formatCode="dd.mm.yyyy"/><numFmt numFmtId="166" formatCode="#,##0.000"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" quotePrefix="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
 
 /** Символы, недопустимые в XML 1.0: управляющие (кроме табуляции и переводов строки), одиночные суррогаты, U+FFFE и U+FFFF. */
-const INVALID_XML = /[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+const INVALID_XML = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 
-/** Текст для XML: недопустимые символы удаляются, & < > " экранируются. */
+/** Текст без символов, недопустимых в XML. */
+const clean = (s: string) => s.replace(INVALID_XML, '');
+
+/** Текст для XML: недопустимые символы удаляются, & < > " экранируются, CR — ссылкой (иначе парсер превратит его в LF). */
 export function xmlText(s: string): string {
-  return s.replace(INVALID_XML, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return clean(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\r/g, '&#13;');
 }
 
 /** Номер столбца с нуля → буквы Excel: 0 → A, 25 → Z, 26 → AA. */
@@ -60,7 +63,12 @@ export function columnName(index: number): string {
 /** Начало текста, которое Excel и LibreOffice при правке или импорте принимают за формулу. */
 const FORMULA_START = /^[=+\-@\t\r]/;
 
-const numberStyle = (decimals: number) => (decimals === 0 ? STYLE.int : decimals === 2 ? STYLE.dec2 : decimals === 3 ? STYLE.dec3 : 0);
+function numberStyle(decimals: number): number {
+  if (decimals === 0) return STYLE.int;
+  if (decimals === 2) return STYLE.dec2;
+  if (decimals === 3) return STYLE.dec3;
+  throw new Error(`Неподдерживаемое число знаков после запятой: ${decimals}`);
+}
 
 function cellXml(ref: string, cell: XlsxCell, style?: number): string {
   if (cell === null) return '';
@@ -68,7 +76,7 @@ function cellXml(ref: string, cell: XlsxCell, style?: number): string {
     case 'text': {
       // формул в листе нет (<f> не пишется); текст, похожий на формулу, — со стилем quotePrefix
       const value = xmlText(cell.value);
-      const s = style ?? (FORMULA_START.test(value) ? STYLE.quoted : 0);
+      const s = style ?? (FORMULA_START.test(clean(cell.value)) ? STYLE.quoted : 0);
       return `<c r="${ref}" t="inlineStr"${s ? ` s="${s}"` : ''}><is><t xml:space="preserve">${value}</t></is></c>`;
     }
     case 'number':

@@ -57,3 +57,16 @@ describe('journalFilterSchema и journalExportSchema', () => {
     expect(journalExportSchema.parse({ types: 'expense', limit: '10', cursor: 'x' })).toEqual({ types: ['expense'], sort: 'date', order: 'desc' });
   });
 });
+
+describe('journalFilterSchema: даты и тексты из сохранённого JSON (финальные правки 5a)', () => {
+  it('год выше 9998 — «Неверная дата» (иначе addDays/startOfDayUtc дают NaN и 500)', () => {
+    expect(issues(journalQuerySchema.safeParse({ to: '9999-12-31' }))).toEqual({ to: 'Неверная дата' });
+    expect(issues(journalQuerySchema.safeParse({ from: '9999-01-01' }))).toEqual({ from: 'Неверная дата' });
+    expect(journalQuerySchema.parse({ to: '9998-12-31' }).to).toBe('9998-12-31');
+  });
+
+  it('не строка в date и q — русское сообщение, а не английское по умолчанию zod', () => {
+    expect(issues(journalFilterSchema.safeParse({ from: 20261001 }))).toEqual({ from: 'Неверная дата' });
+    expect(issues(journalFilterSchema.safeParse({ q: 5 }))).toEqual({ q: 'Поиск — текст' });
+  });
+});
