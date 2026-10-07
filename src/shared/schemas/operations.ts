@@ -56,3 +56,37 @@ export const operationUpdateSchema = z.object({
   lines: lines.optional(),
   tagIds: tagIds.optional(),
 });
+
+/**
+ * Не больше операций в одном массовом действии: запрос синхронный (better-sqlite3) и держит цикл событий —
+ * 500 операций на демо-наборе обрабатываются за время, указанное в решениях плана 5a.
+ */
+export const BULK_MAX = 500;
+const bulkIds = z.array(id).min(1, 'Выберите операции').max(BULK_MAX, `Не больше ${BULK_MAX} операций за раз`);
+
+/** Массовые действия журнала (§7): без проверки версии, каждая изменённая операция получает новую версию и запись в истории. */
+export const operationBulkSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('setCategory'), ids: bulkIds, categoryId: id }),
+  z.object({ action: z.literal('setProject'), ids: bulkIds, projectId: id }),
+  z.object({ action: z.literal('setCounterparty'), ids: bulkIds, counterpartyId: id }),
+  z.object({ action: z.literal('delete'), ids: bulkIds }),
+  z.object({ action: z.literal('restore'), ids: bulkIds }),
+]);
+
+export type OperationBulkInput = z.output<typeof operationBulkSchema>;
+
+export interface BulkSkip {
+  id: number;
+  /** Причина по-русски — показывается в итоге «изменено N, пропущено M». */
+  reason: string;
+}
+
+export interface BulkResult {
+  /**
+   * Операции, к которым действие применено. У «Категории», «Проекта», «Контрагента» — в том числе те, где значение
+   * уже было таким. Удаление уже удалённой и восстановление неудалённой — пропуск: «Отменить» по changed
+   * не вернёт операцию, которую удалили раньше и не этим действием.
+   */
+  changed: number[];
+  skipped: BulkSkip[];
+}
