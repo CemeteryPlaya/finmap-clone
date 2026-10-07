@@ -1,14 +1,19 @@
 import type { FastifyInstance } from 'fastify';
+import { journalQuerySchema } from '../../../shared/schemas/journal';
 import { operationCreateSchema, operationUpdateSchema } from '../../../shared/schemas/operations';
 import { parseId } from '../../http/params';
+import type { JournalService } from './journal';
 import type { OperationsService } from './service';
 
 type C = { Params: { cid: string } };
 type P = { Params: { cid: string; id: string } };
 const BASE = '/api/v1/companies/:cid/operations';
 
-export function registerOperationsRoutes(app: FastifyInstance, deps: { operations: OperationsService }): void {
-  const { operations } = deps;
+export function registerOperationsRoutes(app: FastifyInstance, deps: { operations: OperationsService; journal: JournalService }): void {
+  const { operations, journal } = deps;
+
+  // журнал: фильтр и курсор в строке запроса (§6)
+  app.get<C>(BASE, async (req) => journal.list(parseId(req.params.cid), journalQuerySchema.parse(req.query)));
 
   app.post<C>(BASE, async (req, reply) => {
     const cid = parseId(req.params.cid);
