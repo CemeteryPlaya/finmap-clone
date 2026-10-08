@@ -3,6 +3,7 @@ import { getCurrency } from '../../shared/currencies';
 import { isValidDate, startOfDayUtc, zoneOffsetMs } from '../../shared/dates';
 import { DEC_ONE, divDec, roundSignificant } from '../../shared/decimal';
 import type { OperationType } from './journal-filter';
+import { similarSplit, splitLines, splitResult, type SplitDraft } from './split';
 
 /**
  * Черновик формы операции (§7 «Форма операции»): то, что видит пользователь. Суммы — текст поля (в нём может
@@ -25,6 +26,8 @@ export interface OperationDraft {
   counterpartyId: number | null;
   tagIds: number[];
   comment: string;
+  /** «Разделить» (только доход и расход): строки вместо статьи и проекта. null — без разбиения. */
+  split: SplitDraft | null;
 }
 
 /** Тело POST /companies/:cid/operations (план 4a, `operationCreateSchema`). */
@@ -76,6 +79,7 @@ export function emptyDraft(type: OperationType, today: string, accountId: number
     counterpartyId: null,
     tagIds: [],
     comment: '',
+    split: null,
   };
 }
 
@@ -86,15 +90,16 @@ export function changeType(draft: OperationDraft, type: OperationType): Operatio
     ...draft,
     type,
     categoryId: null,
+    split: null,
     counterpartyId: type === 'transfer' ? null : draft.counterpartyId,
     toAccountId: type === 'transfer' ? draft.toAccountId : null,
     toAmount: type === 'transfer' ? draft.toAmount : '',
   };
 }
 
-/** «Сохранить и создать похожий» (§7): те же значения, кроме суммы, комментария и файлов. */
+/** «Сохранить и создать похожий» (§7): те же значения, кроме суммы, комментария и файлов (суммы строк разбиения — тоже). */
 export function similarDraft(draft: OperationDraft): OperationDraft {
-  return { ...draft, amount: '', toAmount: '', comment: '' };
+  return { ...draft, amount: '', toAmount: '', comment: '', split: draft.split && similarSplit(draft.split) };
 }
 
 const DAY_MS = 86_400_000;
@@ -132,6 +137,13 @@ export function buildBody(draft: OperationDraft, ctx: DraftContext): BuildResult
     const r = positiveAmount(draft.amount, getCurrency(account.currency).minorUnits);
     if (r.ok) amount = r.minor;
     else errors.amount = r.error;
+  }
+
+  // разбиение: сохранить можно, только когда остаток равен 0 (§7)
+  const split = draft.type !== 'transfer' && draft.split ? draft.split : null;
+  const result = split && account ? splitResult(split, errors.amount ? null : amount, getCurrency(account.currency).minorUnits) : null;
+  if (split && result && !errors.amount && !result.ok) {
+    errors.lines = result.left !== 0 ? 'Распределите всю сумму: остаток должен быть 0' : 'Проверьте строки разбиения';
   }
 
   let toAccountId: number | null = null;
@@ -175,12 +187,14 @@ export function buildBody(draft: OperationDraft, ctx: DraftContext): BuildResult
       toAmount,
       counterpartyId: transfer ? null : draft.counterpartyId,
       comment: comment || null,
-      // у перевода строка только с проектом (§4.5); у дохода и расхода — одна строка на всю сумму
+      // у перевода строка только с проектом (§4.5); у дохода и расхода — строки разбиения или одна на всю сумму
       lines: transfer
         ? draft.projectId === null
           ? []
           : [{ categoryId: null, projectId: draft.projectId, amount }]
-        : [{ categoryId: draft.categoryId, projectId: draft.projectId, amount }],
+        : split && result
+          ? splitLines(split, result)
+          : [{ categoryId: draft.categoryId, projectId: draft.projectId, amount }],
       tagIds: [...draft.tagIds],
     },
   };

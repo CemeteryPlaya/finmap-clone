@@ -9,6 +9,7 @@ import {
   type DraftContext,
   type OperationDraft,
 } from '../../src/client/lib/operation-form';
+import { newLine } from '../../src/client/lib/split';
 
 const TZ = 'Asia/Almaty';
 // 07.10.2026, 10:30:00.123 по Алматы (UTC+5)
@@ -119,6 +120,29 @@ describe('buildBody — черновик формы → тело POST /operation
   });
 });
 
+describe('buildBody — разбиение', () => {
+  const split = (mode: 'amount' | 'percent', ...values: string[]) => ({
+    mode,
+    lines: values.map((value, i) => newLine({ categoryId: 7 + i, projectId: i === 0 ? 8 : null, value })),
+  });
+
+  it('строки разбиения вместо статьи и проекта; проценты — наибольшим остатком', () => {
+    expect(body(draft({ amount: '1000', categoryId: 99, split: split('amount', '600', '400') })).lines).toEqual([
+      { categoryId: 7, projectId: 8, amount: 60000 },
+      { categoryId: 8, projectId: null, amount: 40000 },
+    ]);
+    expect(body(draft({ amount: '1', split: split('percent', '33,33', '33,33', '33,34') })).lines.map((l) => l.amount)).toEqual([33, 33, 34]);
+  });
+
+  it('сохранить можно, только когда остаток равен 0; у перевода разбиения нет', () => {
+    expect(errors(draft({ amount: '1000', split: split('amount', '600', '300') }))).toEqual({ lines: 'Распределите всю сумму: остаток должен быть 0' });
+    expect(errors(draft({ amount: '1000', split: split('amount', '600', '0', '400') }))).toEqual({ lines: 'Проверьте строки разбиения' });
+    expect(errors(draft({ amount: '', split: split('amount', '600', '400') }))).toEqual({ amount: 'Введите сумму' });
+    const t = draft({ type: 'transfer', toAccountId: 2, amount: '10', split: split('amount', '5', '5') });
+    expect(body(t).lines).toEqual([]);
+  });
+});
+
 describe('changeType, similarDraft, transferRateText', () => {
   it('смена типа сбрасывает статью; у перевода нет контрагента; из перевода — без счёта зачисления', () => {
     const d = draft({ amount: '5', categoryId: 7, counterpartyId: 9, projectId: 8, comment: 'к' });
@@ -132,6 +156,11 @@ describe('changeType, similarDraft, transferRateText', () => {
   it('«создать похожий» — без суммы и комментария, остальное как было', () => {
     const d = draft({ amount: '5', toAmount: '6', comment: 'к', categoryId: 7, tagIds: [1], paidDate: '2026-10-01' });
     expect(similarDraft(d)).toEqual({ ...d, amount: '', toAmount: '', comment: '' });
+    const percent = { mode: 'percent' as const, lines: [newLine({ categoryId: 7, value: '60' }), newLine({ categoryId: 8, value: '40' })] };
+    expect(similarDraft(draft({ split: percent })).split).toBe(percent);
+    const amounts = { mode: 'amount' as const, lines: [newLine({ categoryId: 7, value: '60' })] };
+    expect(similarDraft(draft({ split: amounts })).split!.lines[0]).toMatchObject({ categoryId: 7, value: '' });
+    expect(changeType(draft({ split: amounts }), 'income').split).toBeNull();
   });
 
   it('курс перевода — за единицу более дорогой валюты, 10 значащих цифр', () => {

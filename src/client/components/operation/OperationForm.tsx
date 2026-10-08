@@ -17,17 +17,20 @@ import {
 } from '../../lib/operation-form';
 import { accountOptions, categoryOptions, counterpartyOptions, preferredCounterpartyType, projectOptions, tagOptions } from '../../lib/operation-options';
 import { useMeta } from '../../lib/query';
+import { startSplit } from '../../lib/split';
 import {
   useAccounts,
   useCategories,
   useCounterparties,
   useProjects,
+  useSplitPresets,
   useTags,
   type Account,
   type CategoryTree,
   type Company,
   type Counterparty,
   type Project,
+  type SplitPreset,
   type Tag,
 } from '../../lib/queries';
 import { Field } from '../Field';
@@ -37,6 +40,7 @@ import { SearchPicker } from '../SearchPicker';
 import { alertClass, btnPrimary, btnSecondary, btnSmall, inputClass } from '../ui';
 import { AmountField } from './AmountField';
 import { ComboSelect } from './ComboSelect';
+import { SplitEditor } from './SplitEditor';
 import type { OperationFormRequest } from './OperationFormHost';
 
 export interface FormData {
@@ -45,6 +49,7 @@ export interface FormData {
   projects: Project[];
   counterparties: Counterparty[];
   tags: Tag[];
+  presets: SplitPreset[];
 }
 
 const TYPES: { type: OperationType; label: string }[] = [
@@ -76,10 +81,18 @@ export function OperationForm(props: { company: Company; request: OperationFormR
   const projects = useProjects(props.company.id);
   const counterparties = useCounterparties(props.company.id);
   const tags = useTags(props.company.id);
-  const queries = [meta, accounts, categories, projects, counterparties, tags];
+  const presets = useSplitPresets(props.company.id);
+  const queries = [meta, accounts, categories, projects, counterparties, tags, presets];
   const data: FormData | null =
-    accounts.data && categories.data && projects.data && counterparties.data && tags.data
-      ? { accounts: accounts.data, categories: categories.data, projects: projects.data, counterparties: counterparties.data, tags: tags.data }
+    accounts.data && categories.data && projects.data && counterparties.data && tags.data && presets.data
+      ? {
+          accounts: accounts.data,
+          categories: categories.data,
+          projects: projects.data,
+          counterparties: counterparties.data,
+          tags: tags.data,
+          presets: presets.data,
+        }
       : null;
 
   return (
@@ -149,6 +162,10 @@ function OperationEditor(p: {
   const crossCurrency = transfer && toCurrency !== null && toCurrency.code !== currency.code;
   const kind = draft.type === 'income' ? 'income' : 'expense';
   const activeAccounts = p.data.accounts.filter((a) => !a.archivedAt);
+  const amountParsed = positiveAmount(draft.amount, currency.minorUnits);
+  const amountMinor = amountParsed.ok ? amountParsed.minor : null;
+  // подходящий тип контрагента — по статье операции или первой строки разбиения
+  const mainCategory = draft.split ? (draft.split.lines[0]?.categoryId ?? null) : draft.categoryId;
 
   /** Изменение полей: сбрасывает их ошибки и сообщение «сохранено». */
   const set = (patch: Partial<OperationDraft>, ...errorKeys: string[]) => {
@@ -281,20 +298,46 @@ function OperationEditor(p: {
 
       {!transfer && (
         <div className="grid gap-4 md:grid-cols-2">
-          <ComboSelect
-            label="Статья"
-            listLabel="Статьи"
-            value={draft.categoryId}
-            options={categoryOptions(p.data.categories, kind, [draft.categoryId])}
-            emptyLabel="Без статьи"
-            onChange={(categoryId) => set({ categoryId }, 'lines')}
-            error={errors.lines}
-          />
+          {draft.split ? (
+            <SplitEditor
+              companyId={p.company.id}
+              kind={kind}
+              value={draft.split}
+              onChange={(split) => set({ split }, 'lines')}
+              onCancel={() => set({ split: null, categoryId: draft.split!.lines[0]?.categoryId ?? null, projectId: draft.split!.lines[0]?.projectId ?? null }, 'lines')}
+              total={amountMinor}
+              currency={currency.code}
+              minorUnits={currency.minorUnits}
+              categories={p.data.categories}
+              projects={p.data.projects}
+              presets={p.data.presets}
+              error={errors.lines}
+            />
+          ) : (
+            <div>
+              <ComboSelect
+                label="Статья"
+                listLabel="Статьи"
+                value={draft.categoryId}
+                options={categoryOptions(p.data.categories, kind, [draft.categoryId])}
+                emptyLabel="Без статьи"
+                onChange={(categoryId) => set({ categoryId }, 'lines')}
+                error={errors.lines}
+              />
+              <button
+                type="button"
+                onClick={() => set({ split: startSplit(draft.categoryId, draft.projectId, draft.amount) }, 'lines')}
+                className="mt-1 text-sm font-semibold text-income hover:underline"
+              >
+                Разделить
+              </button>
+            </div>
+          )}
           <ComboSelect
             label="Контрагент"
             listLabel="Контрагенты"
             value={draft.counterpartyId}
-            options={counterpartyOptions(p.data.counterparties, draft.counterpartyId, preferredCounterpartyType(p.data.categories, draft.categoryId))}
+            options={counterpartyOptions(p.data.counterparties, draft.counterpartyId, preferredCounterpartyType(p.data.categories, mainCategory))}
             emptyLabel="Без контрагента"
             onChange={(counterpartyId) => set({ counterpartyId }, 'counterpartyId')}
             error={errors.counterpartyId}
@@ -331,15 +374,17 @@ function OperationEditor(p: {
         </button>
         {more && (
           <div className="mt-3 grid gap-4 md:grid-cols-2">
-            <ComboSelect
-              label="Проект"
-              listLabel="Проекты"
-              value={draft.projectId}
-              options={projectOptions(p.data.projects, [draft.projectId])}
-              emptyLabel="Без проекта"
-              onChange={(projectId) => set({ projectId }, 'lines')}
-              error={transfer ? errors.lines : undefined}
-            />
+            {!draft.split && (
+              <ComboSelect
+                label="Проект"
+                listLabel="Проекты"
+                value={draft.projectId}
+                options={projectOptions(p.data.projects, [draft.projectId])}
+                emptyLabel="Без проекта"
+                onChange={(projectId) => set({ projectId }, 'lines')}
+                error={transfer ? errors.lines : undefined}
+              />
+            )}
             <TagsField tags={p.data.tags} value={draft.tagIds} onChange={(tagIds) => set({ tagIds }, 'tagIds')} error={errors.tagIds} />
             <Field label="Комментарий" error={errors.comment} className="md:col-span-2">
               {(c) => (
