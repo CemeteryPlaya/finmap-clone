@@ -5,6 +5,7 @@ import { todayInTimezone } from '../../../shared/dates';
 import { api, ApiError } from '../../lib/api';
 import type { OperationType } from '../../lib/journal-filter';
 import { invalidateOperations } from '../../lib/journal-mutations';
+import { createFromForm, type CreatableKind } from '../../lib/operation-create';
 import {
   buildBody,
   changeType,
@@ -168,6 +169,26 @@ function OperationEditor(p: {
   // подходящий тип контрагента — по статье операции или первой строки разбиения
   const mainCategory = draft.split ? (draft.split.lines[0]?.categoryId ?? null) : draft.categoryId;
 
+  /**
+   * «+ Создать „…“» (§7): создать элемент справочника и выбрать его. Контрагент получает тип, подходящий статье,
+   * иначе «Клиент» у дохода и «Поставщик» у расхода. apply — функцией от свежего черновика: создание идёт асинхронно.
+   */
+  const createItem = async (what: CreatableKind, name: string, apply: (d: OperationDraft, id: number) => OperationDraft) => {
+    setFormError(null);
+    try {
+      const counterpartyType = preferredCounterpartyType(p.data.categories, mainCategory) ?? (kind === 'income' ? 'client' : 'supplier');
+      const id = await createFromForm(p.company.id, what, name, { kind, counterpartyType });
+      setDraft((d) => apply(d, id));
+    } catch (e) {
+      const message = e instanceof ApiError ? (e.fields?.name ?? e.message) : 'Ошибка сервера';
+      setFormError(`Не удалось создать «${name}»: ${message}`);
+    }
+  };
+  const createLine = (field: 'categoryId' | 'projectId') => (name: string, key: number) =>
+    void createItem(field === 'categoryId' ? 'category' : 'project', name, (d, id) =>
+      d.split ? { ...d, split: { ...d.split, lines: d.split.lines.map((l) => (l.key === key ? { ...l, [field]: id } : l)) } } : d,
+    );
+
   /** Изменение полей: сбрасывает их ошибки и сообщение «сохранено». */
   const set = (patch: Partial<OperationDraft>, ...errorKeys: string[]) => {
     setDraft((d) => ({ ...d, ...patch }));
@@ -313,6 +334,8 @@ function OperationEditor(p: {
               projects={p.data.projects}
               presets={p.data.presets}
               error={errors.lines}
+              onCreateCategory={createLine('categoryId')}
+              onCreateProject={createLine('projectId')}
             />
           ) : (
             <div>
@@ -323,6 +346,7 @@ function OperationEditor(p: {
                 options={categoryOptions(p.data.categories, kind, [draft.categoryId])}
                 emptyLabel="Без статьи"
                 onChange={(categoryId) => set({ categoryId }, 'lines')}
+                onCreate={(name) => void createItem('category', name, (d, categoryId) => ({ ...d, categoryId }))}
                 error={errors.lines}
               />
               <button
@@ -341,6 +365,7 @@ function OperationEditor(p: {
             options={counterpartyOptions(p.data.counterparties, draft.counterpartyId, preferredCounterpartyType(p.data.categories, mainCategory))}
             emptyLabel="Без контрагента"
             onChange={(counterpartyId) => set({ counterpartyId }, 'counterpartyId')}
+            onCreate={(name) => void createItem('counterparty', name, (d, counterpartyId) => ({ ...d, counterpartyId }))}
             error={errors.counterpartyId}
           />
         </div>
@@ -383,10 +408,17 @@ function OperationEditor(p: {
                 options={projectOptions(p.data.projects, [draft.projectId])}
                 emptyLabel="Без проекта"
                 onChange={(projectId) => set({ projectId }, 'lines')}
+                onCreate={(name) => void createItem('project', name, (d, projectId) => ({ ...d, projectId }))}
                 error={transfer ? errors.lines : undefined}
               />
             )}
-            <TagsField tags={p.data.tags} value={draft.tagIds} onChange={(tagIds) => set({ tagIds }, 'tagIds')} error={errors.tagIds} />
+            <TagsField
+              tags={p.data.tags}
+              value={draft.tagIds}
+              onChange={(tagIds) => set({ tagIds }, 'tagIds')}
+              onCreate={(name) => void createItem('tag', name, (d, id) => ({ ...d, tagIds: [...d.tagIds, id] }))}
+              error={errors.tagIds}
+            />
             <Field label="Комментарий" error={errors.comment} className="md:col-span-2">
               {(c) => (
                 <textarea {...c} rows={2} maxLength={COMMENT_MAX} value={draft.comment} onChange={(e) => set({ comment: e.target.value }, 'comment')} className={inputClass} />
@@ -443,7 +475,7 @@ function rateHint(draft: OperationDraft, from: string, fromMinor: number, to: st
 }
 
 /** Теги операции: выбранные — с кнопкой «убрать», добавление — список с поиском. */
-function TagsField(props: { tags: Tag[]; value: number[]; onChange: (ids: number[]) => void; error?: string }) {
+function TagsField(props: { tags: Tag[]; value: number[]; onChange: (ids: number[]) => void; onCreate: (name: string) => void; error?: string }) {
   const names = new Map(props.tags.map((t) => [t.id, t.name]));
   const options = tagOptions(props.tags, props.value).filter((o) => !props.value.includes(o.id));
   return (
@@ -458,7 +490,15 @@ function TagsField(props: { tags: Tag[]; value: number[]; onChange: (ids: number
             </button>
           </span>
         ))}
-        <SearchPicker label="+ Тег" ariaLabel="Добавить тег" listLabel="Теги" options={options} onPick={(id) => props.onChange([...props.value, id])} buttonClassName={btnSmall} />
+        <SearchPicker
+          label="+ Тег"
+          ariaLabel="Добавить тег"
+          listLabel="Теги"
+          options={options}
+          onPick={(id) => props.onChange([...props.value, id])}
+          onCreate={props.onCreate}
+          buttonClassName={btnSmall}
+        />
       </div>
       {props.error && <span className="mt-1 block text-sm text-expense">{props.error}</span>}
     </div>

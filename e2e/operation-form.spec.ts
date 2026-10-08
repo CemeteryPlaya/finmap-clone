@@ -394,3 +394,63 @@ test('сценарий 3 §10 через форму: доход, расход н
   await expect(transfer).toContainText(/остаток 700,00\s₸/);
   await expect(transfer).toContainText(/остаток 1,00\s\$/);
 });
+
+test('«+ Создать „…“» прямо из формы: контрагент с типом под статью, статья, проект, тег; тег из архива — ошибка', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Создать ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  const old = (await apiPost(page, `${base}/tags`, { name: 'старый' })).tag.id;
+  await apiPost(page, `${base}/tags/${old}/archive`, {});
+  await page.reload();
+
+  const dialog = await openForm(page, 'Расход');
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('700');
+  // «Зарплата» — системная статья: новый контрагент создаётся сотрудником
+  await pick(page, 'Статья', 'Зарплата');
+  await dialog.getByRole('button', { name: /^Контрагент:/ }).click();
+  await dialog.getByRole('combobox', { name: 'Контрагенты: поиск' }).fill('Асель');
+  await dialog.getByRole('option', { name: '+ Создать „Асель“' }).click();
+  await expect(dialog.getByRole('button', { name: 'Контрагент: Асель' })).toBeVisible();
+
+  // статья: Enter на пункте «+ Создать» тоже создаёт
+  await dialog.getByRole('button', { name: /^Статья:/ }).click();
+  const search = dialog.getByRole('combobox', { name: 'Статьи: поиск' });
+  await search.fill('Интернет');
+  await search.press('ArrowDown');
+  // активный пункт — тот, на который указывает aria-activedescendant поля поиска
+  const createId = await dialog.getByRole('option', { name: '+ Создать „Интернет“' }).getAttribute('id');
+  await expect(search).toHaveAttribute('aria-activedescendant', createId!);
+  await search.press('Enter');
+  await expect(dialog.getByRole('button', { name: 'Статья: Интернет' })).toBeVisible();
+  // такое название уже есть (без учёта регистра) — «Создать» не предлагается
+  await dialog.getByRole('button', { name: /^Статья:/ }).click();
+  await search.fill('интернет');
+  await expect(dialog.getByRole('option', { name: /Создать/ })).toHaveCount(0);
+  await search.press('Escape');
+
+  await dialog.getByRole('button', { name: 'Проект, теги, комментарий' }).click();
+  await dialog.getByRole('button', { name: /^Проект:/ }).click();
+  await dialog.getByRole('combobox', { name: 'Проекты: поиск' }).fill('Клуб Центр');
+  await dialog.getByRole('option', { name: '+ Создать „Клуб Центр“' }).click();
+  await expect(dialog.getByRole('button', { name: 'Проект: Клуб Центр' })).toBeVisible();
+
+  await dialog.getByRole('button', { name: 'Добавить тег' }).click();
+  await dialog.getByRole('combobox', { name: 'Теги: поиск' }).fill('нал');
+  await dialog.getByRole('option', { name: '+ Создать „нал“' }).click();
+  await expect(dialog.getByRole('group', { name: 'Теги' })).toContainText('нал');
+  // архивный тег не предлагается, а создать такой же нельзя — сообщение сервера
+  await dialog.getByRole('button', { name: 'Добавить тег' }).click();
+  await dialog.getByRole('combobox', { name: 'Теги: поиск' }).fill('старый');
+  await dialog.getByRole('option', { name: '+ Создать „старый“' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Не удалось создать «старый»');
+
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const row = table(page).locator('tbody tr').first();
+  await expect(row).toContainText('Интернет');
+  await expect(row).toContainText('Асель');
+  await expect(row).toContainText('Клуб Центр');
+  const people = (await (await page.request.get(`${base}/counterparties`)).json()).counterparties as { name: string; type: string }[];
+  expect(people.find((c) => c.name === 'Асель')!.type).toBe('employee');
+});

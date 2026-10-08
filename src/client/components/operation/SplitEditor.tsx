@@ -47,6 +47,9 @@ export function SplitEditor(props: {
   projects: Project[];
   presets: SplitPreset[];
   error?: string;
+  /** «+ Создать „…“» в строке: создать статью или проект и выбрать его в строке с ключом key. */
+  onCreateCategory?: (name: string, key: number) => void;
+  onCreateProject?: (name: string, key: number) => void;
 }) {
   const modeName = useId();
   const [notice, setNotice] = useState<string | null>(null);
@@ -189,6 +192,7 @@ export function SplitEditor(props: {
             options={categoryOptions(props.categories, props.kind, [line.categoryId])}
             emptyLabel="Без статьи"
             onChange={(categoryId) => setLine(i, { categoryId })}
+            onCreate={props.onCreateCategory && ((name) => props.onCreateCategory!(name, line.key))}
           />
           <ComboSelect
             label="Проект"
@@ -197,6 +201,7 @@ export function SplitEditor(props: {
             options={projectOptions(props.projects, [line.projectId])}
             emptyLabel="Без проекта"
             onChange={(projectId) => setLine(i, { projectId })}
+            onCreate={props.onCreateProject && ((name) => props.onCreateProject!(name, line.key))}
           />
           {split.mode === 'amount' ? (
             <AmountField
