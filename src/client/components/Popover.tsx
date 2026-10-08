@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import type { FieldControlProps } from './Field';
 import { btnSmall } from './ui';
 import { useFloating } from './useFloating';
 
@@ -25,6 +26,10 @@ export function Popover(props: {
   align?: 'left' | 'right';
   panelClassName?: string;
   disabled?: boolean;
+  /** id и aria-атрибуты поля формы (`Field`): подпись `<label for>`, подсказка и ошибка связываются с кнопкой. */
+  control?: FieldControlProps;
+  /** Название панели, если оно не совпадает с именем кнопки. */
+  panelLabel?: string;
   /**
    * Кнопка недоступна, но остаётся в порядке фокуса (aria-disabled, щелчок не открывает панель): фокус,
    * вернувшийся на неё после выбора, не теряется, пока идёт начатое действие.
@@ -40,7 +45,7 @@ export function Popover(props: {
   const style = useFloating(open, buttonRef, panelRef, props.align);
   // до расчёта места панель невидима, а в невидимый элемент фокус не переходит
   const placed = open && style.visibility !== 'hidden';
-  const name = props.ariaLabel ?? (typeof props.label === 'string' ? props.label : undefined);
+  const name = props.panelLabel ?? props.ariaLabel ??(typeof props.label === 'string' ? props.label : undefined);
 
   /** Узел — внутри кнопки или панели (панель не внутри rootRef: она в портале). */
   const inside = (node: Node | null) => !!node && (!!rootRef.current?.contains(node) || !!panelRef.current?.contains(node));
@@ -75,6 +80,7 @@ export function Popover(props: {
   return (
     <div ref={rootRef} className="relative">
       <button
+        {...props.control}
         ref={buttonRef}
         type="button"
         aria-haspopup="dialog"
@@ -131,7 +137,8 @@ export function Popover(props: {
           >
             {props.children(close)}
           </div>,
-          document.body,
+          // внутри модального окна (<dialog> через showModal) всё вне окна недоступно — панель рисуется в самом окне
+          rootRef.current?.closest('dialog') ?? document.body,
         )}
     </div>
   );
