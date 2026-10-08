@@ -82,16 +82,17 @@ export function OperationForm(props: { company: Company; request: OperationFormR
   const counterparties = useCounterparties(props.company.id);
   const tags = useTags(props.company.id);
   const presets = useSplitPresets(props.company.id);
-  const queries = [meta, accounts, categories, projects, counterparties, tags, presets];
+  const queries = [meta, accounts, categories, projects, counterparties, tags];
   const data: FormData | null =
-    accounts.data && categories.data && projects.data && counterparties.data && tags.data && presets.data
+    accounts.data && categories.data && projects.data && counterparties.data && tags.data
       ? {
           accounts: accounts.data,
           categories: categories.data,
           projects: projects.data,
           counterparties: counterparties.data,
           tags: tags.data,
-          presets: presets.data,
+          // шаблоны разделения форму не блокируют: не загрузились — список пуст
+          presets: presets.data ?? [],
         }
       : null;
 

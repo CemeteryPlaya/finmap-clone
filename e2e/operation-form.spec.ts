@@ -252,7 +252,15 @@ test('«Разделить» в процентах на два проекта; �
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('1000');
   await dialog.getByRole('button', { name: 'Разделить', exact: true }).click();
   const split = dialog.getByRole('region', { name: 'Разбиение' });
-  await split.getByRole('radio', { name: 'В процентах' }).check();
+  // в первой строке уже стоит вся сумма: смена режима сбрасывает значения — сначала вопрос
+  await split.getByRole('radio', { name: 'В процентах' }).click();
+  await expect(split.getByRole('group', { name: 'Подтверждение' })).toContainText('Значения строк будут сброшены');
+  await split.getByRole('button', { name: 'Оставить как есть' }).click();
+  await expect(split.getByRole('radio', { name: 'Суммами' })).toBeChecked();
+  await expect(split.getByRole('group', { name: 'Строка 1' }).getByRole('textbox', { name: /^Сумма/ })).toHaveValue('1000');
+  await split.getByRole('radio', { name: 'В процентах' }).click();
+  await split.getByRole('button', { name: 'Сбросить значения' }).click();
+  await expect(split.getByRole('radio', { name: 'В процентах' })).toBeChecked();
   const line1 = split.getByRole('group', { name: 'Строка 1' });
   const line2 = split.getByRole('group', { name: 'Строка 2' });
   await pick(page, 'Статья', 'Аренда', line1);
@@ -262,8 +270,13 @@ test('«Разделить» в процентах на два проекта; �
   await pick(page, 'Проект', 'Юг', line2);
   await line2.getByLabel('Доля, %').fill('30');
   await expect(split.getByRole('status').first()).toHaveText('Не распределено: 10 %');
+  // фокус в списке строк: новая строка — на её «Статье», удаление — на «Убрать» предыдущей строки
+  await split.getByRole('button', { name: '+ Строка' }).click();
+  await expect(split.getByRole('group', { name: 'Строка 3' }).getByRole('button', { name: /^Статья:/ })).toBeFocused();
+  await split.getByRole('button', { name: 'Убрать строку 3' }).click();
+  await expect(split.getByRole('button', { name: 'Убрать строку 2' })).toBeFocused();
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
-  await expect(split).toContainText('Распределите всю сумму');
+  await expect(split.getByRole('alert')).toContainText('Распределите всю сумму');
   await expect(dialog).toBeVisible();
   await line2.getByLabel('Доля, %').fill('40');
   await expect(split.getByRole('status').first()).toHaveText('Распределено полностью');
@@ -282,6 +295,8 @@ test('«Разделить» в процентах на два проекта; �
   await dialog.getByRole('button', { name: 'Разделить', exact: true }).click();
   await split.getByRole('button', { name: 'Применить шаблон' }).click();
   await dialog.getByRole('option', { name: 'Север и Юг' }).click();
+  // в первой строке стоит сумма операции: шаблон заменит строки — сначала вопрос
+  await split.getByRole('button', { name: 'Сбросить значения' }).click();
   await expect(split).toContainText('Шаблон «Север и Юг»: 1 элемент недоступен');
   await expect(line1.getByRole('button', { name: 'Статья: Аренда' })).toBeVisible();
   await expect(line1.getByRole('button', { name: 'Проект: Север' })).toBeVisible();
@@ -338,6 +353,11 @@ test('сценарий 3 §10 через форму: доход, расход н
   const split = dialog.getByRole('region', { name: 'Разбиение' });
   const line1 = split.getByRole('group', { name: 'Строка 1' });
   const line2 = split.getByRole('group', { name: 'Строка 2' });
+  // удалили единственную возможную к удалению строку — фокус на «+ Строка»; добавили — на «Статье» новой строки
+  await split.getByRole('button', { name: 'Убрать строку 2' }).click();
+  await expect(split.getByRole('button', { name: '+ Строка' })).toBeFocused();
+  await split.getByRole('button', { name: '+ Строка' }).click();
+  await expect(line2.getByRole('button', { name: /^Статья:/ })).toBeFocused();
   await pick(page, 'Статья', 'Аренда', line1);
   await pick(page, 'Проект', 'Север', line1);
   await line1.getByRole('textbox', { name: /^Сумма/ }).fill('100');

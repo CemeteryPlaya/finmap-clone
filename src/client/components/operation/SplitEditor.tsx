@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { formatBp } from '../../../shared/percent';
 import { formatMoney } from '../../../shared/money';
 import { api, ApiError } from '../../lib/api';
@@ -51,14 +51,34 @@ export function SplitEditor(props: {
   const modeName = useId();
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState<{ name: string; error: string | null; pending: boolean } | null>(null);
+  const [confirm, setConfirm] = useState<{ kind: 'mode'; mode: SplitMode } | { kind: 'preset'; preset: SplitPreset } | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+  /** Куда перевести фокус после изменения списка строк (строки появляются и исчезают). */
+  const focusAfter = useRef<{ kind: 'add' } | { kind: 'remove'; index: number } | null>(null);
   const split = props.value;
+  const filled = split.lines.some((l) => l.value.trim() !== '');
   const result = splitResult(split, props.total, props.minorUnits);
+
+  useEffect(() => {
+    const target = focusAfter.current;
+    focusAfter.current = null;
+    const section = sectionRef.current;
+    if (!target || !section) return;
+    const rows = Array.from(section.querySelectorAll<HTMLElement>(':scope > [role="group"][aria-label^="Строка"]'));
+    if (target.kind === 'add') {
+      rows[rows.length - 1]?.querySelector<HTMLElement>('button')?.focus();
+      return;
+    }
+    const remove = rows[Math.max(target.index - 1, 0)]?.querySelector<HTMLButtonElement>('button[aria-label^="Убрать строку"]');
+    if (remove && !remove.disabled) remove.focus();
+    else section.querySelector<HTMLElement>('[data-add-line]')?.focus();
+  }, [split.lines.length]);
 
   const setLine = (index: number, patch: Partial<SplitLineDraft>) =>
     props.onChange({ ...split, lines: split.lines.map((l, i) => (i === index ? { ...l, ...patch } : l)) });
 
   const leftText =
-    result.left === null
+    result.left === null || props.total === null
       ? 'Введите сумму операции'
       : result.left === 0
         ? 'Распределено полностью'
@@ -70,7 +90,15 @@ export function SplitEditor(props: {
             ? `Не распределено: ${formatBp(result.left)} %`
             : `Распределено больше 100 % на ${formatBp(-result.left)} %`;
 
+  const switchMode = (mode: SplitMode) => {
+    setConfirm(null);
+    props.onChange({ mode, lines: split.lines.map((l) => ({ ...l, value: '' })) });
+  };
+
+  const pickPreset = (preset: SplitPreset) => (filled ? setConfirm({ kind: 'preset', preset }) : apply(preset));
+
   const apply = (preset: SplitPreset) => {
+    setConfirm(null);
     const r = applyPreset(preset.lines, presetContext(props.categories, props.projects, props.kind));
     if (r.split) props.onChange(r.split);
     setNotice(
@@ -91,7 +119,7 @@ export function SplitEditor(props: {
     }
     setSaving({ ...saving, pending: true, error: null });
     try {
-      await api(`/companies/${props.companyId}/split-presets`, { method: 'POST', body: { name: saving.name, lines: lines.lines } });
+      await api(`/companies/${props.companyId}/split-presets`, { method: 'POST', body: { name: saving.name.trim(), lines: lines.lines } });
       await queryClient.invalidateQueries({ queryKey: ['split-presets', props.companyId] });
       setSaving(null);
       setNotice(`Шаблон «${saving.name.trim()}» сохранён.`);
@@ -102,7 +130,7 @@ export function SplitEditor(props: {
   };
 
   return (
-    <section aria-label="Разбиение" className="grid gap-3 rounded-2xl bg-canvas p-4 md:col-span-2">
+    <section ref={sectionRef} aria-label="Разбиение" className="grid gap-3 rounded-2xl bg-canvas p-4 md:col-span-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <fieldset className="inline-flex gap-1 rounded-xl bg-field p-1">
           <legend className="sr-only">Как делить</legend>
@@ -115,7 +143,7 @@ export function SplitEditor(props: {
                 type="radio"
                 name={modeName}
                 checked={split.mode === m.mode}
-                onChange={() => props.onChange({ mode: m.mode, lines: split.lines.map((l) => ({ ...l, value: '' })) })}
+                onChange={() => (filled ? setConfirm({ kind: 'mode', mode: m.mode }) : switchMode(m.mode))}
                 className="absolute inset-0 cursor-pointer appearance-none rounded-lg opacity-0"
               />
               {m.label}
@@ -127,7 +155,7 @@ export function SplitEditor(props: {
             label="Применить шаблон"
             listLabel="Шаблоны разделения"
             options={props.presets.filter((p) => !p.archivedAt).map((p) => ({ id: p.id, label: p.name }))}
-            onPick={(id) => apply(props.presets.find((p) => p.id === id)!)}
+            onPick={(id) => pickPreset(props.presets.find((p) => p.id === id)!)}
             buttonClassName={btnSmall}
           />
           <button type="button" onClick={() => setSaving({ name: '', error: null, pending: false })} className={btnSmall}>
@@ -135,6 +163,22 @@ export function SplitEditor(props: {
           </button>
         </div>
       </div>
+      {confirm && (
+        <div role="group" aria-label="Подтверждение" className="flex flex-wrap items-center gap-2 rounded-xl bg-field px-3 py-2 text-sm">
+          <span>{confirm.kind === 'mode' ? 'Значения строк будут сброшены.' : 'Строки будут заменены шаблоном, значения сброшены.'}</span>
+          <button
+            type="button"
+            autoFocus
+            onClick={() => (confirm.kind === 'mode' ? switchMode(confirm.mode) : apply(confirm.preset))}
+            className={btnSmall}
+          >
+            Сбросить значения
+          </button>
+          <button type="button" onClick={() => setConfirm(null)} className={btnSmall}>
+            Оставить как есть
+          </button>
+        </div>
+      )}
 
       {split.lines.map((line, i) => (
         <div key={line.key} role="group" aria-label={`Строка ${i + 1}`} className="grid items-start gap-2 md:grid-cols-[1fr_1fr_10rem_auto]">
@@ -175,7 +219,10 @@ export function SplitEditor(props: {
             type="button"
             aria-label={`Убрать строку ${i + 1}`}
             disabled={split.lines.length <= 1}
-            onClick={() => props.onChange({ ...split, lines: split.lines.filter((_, j) => j !== i) })}
+            onClick={() => {
+              focusAfter.current = { kind: 'remove', index: i };
+              props.onChange({ ...split, lines: split.lines.filter((_, j) => j !== i) });
+            }}
             className={`${btnSmall} md:mt-7`}
           >
             ×
@@ -187,7 +234,11 @@ export function SplitEditor(props: {
         <button
           type="button"
           disabled={split.lines.length >= SPLIT_MAX_LINES}
-          onClick={() => props.onChange({ ...split, lines: [...split.lines, newLine()] })}
+          data-add-line=""
+          onClick={() => {
+            focusAfter.current = { kind: 'add' };
+            props.onChange({ ...split, lines: [...split.lines, newLine()] });
+          }}
           className={btnSmall}
         >
           + Строка
@@ -196,7 +247,7 @@ export function SplitEditor(props: {
           {leftText}
         </p>
       </div>
-      {props.error && <p className="text-sm text-expense">{props.error}</p>}
+      {props.error && <p role="alert" className="text-sm text-expense">{props.error}</p>}
       {/* область role="status" есть всегда — меняется только текст, так его объявляют программы чтения с экрана */}
       <div role="status" className={notice ? 'flex flex-wrap items-center justify-between gap-2 rounded-xl bg-field px-3 py-2 text-sm' : 'sr-only'}>
         {notice && (
