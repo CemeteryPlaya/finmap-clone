@@ -1,4 +1,4 @@
-# Этап 1, план 6b: форма операции — правка из журнала, конфликт версии, «Указать курс», файлы — план реализации
+# Этап 1, план 6b: форма операции — правка из журнала, конфликт версии, «Указать курс», файлы — план реализации (переписан от фактического кода 6a)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -11,7 +11,9 @@
 - файлы: выбранный до создания операции файл загружается сразу после неё; в правке — список, скачивание, мягкое удаление, ошибки сервера у поля;
 - после каждого изменения — сброс журнала, счетов и компаний; после изменения файлов — их списка и журнала.
 
-**Предусловие:** выполнен план 6a — форма новой операции (`OperationForm`, `OperationFormHost`, `useOpenOperationForm`), `operation-form.ts`, `split.ts`, `AmountField`, `ComboSelect`, `e2e/operation-form.spec.ts`; планы 5b и 5c — `JournalTable` со свойством `onOpenOperation`, `JournalPage`, `invalidateOperations`.
+**Предусловие:** выполнен план 6a (HEAD cb2358a) — форма новой операции (`OperationForm`, `OperationFormHost` с ключом формы из счётчика, `useOpenOperationForm`), `operation-form.ts`, `split.ts`, `AmountField` (свойства `autoFocus` — фокус кадр спустя, только если он «ничей», — и `refocusSignal`), `ComboSelect`, `e2e/operation-form.spec.ts`. В форме поля недоступны во время запроса (`<fieldset disabled={pending}>`), шаблоны разделения форму не блокируют (`presets.data ?? []`). Планы 5b и 5c — `JournalTable` со свойством `onOpenOperation`, `JournalPage` с `HEADING_ID`, `invalidateOperations`.
+
+**Как применять:** план меняет существующие файлы только правками «найдите → замените» по фактическому коду; каждый фрагмент «найдите» встречается в файле ровно один раз в момент применения. Новые файлы даны целиком. После каждой правки формы — проверка, что исправления плана 6a на месте.
 
 **Architecture:**
 - **Правка — тот же компонент формы.** `OperationFormRequest` получает вариант `{ kind: 'edit'; id }`; форма загружает операцию (`GET …/operations/:id`, без кэша — версия нужна свежая) и держит её в состоянии: «Дублировать» и «Сохранить и создать похожий» переводят форму к новой операции, «Загрузить актуальную» — к свежей версии. Заголовок окна — «Изменить операцию» или «Новая операция».
@@ -27,7 +29,7 @@
 
 ## Решения, принятые при планировании
 
-Записаны в спецификацию (§6.2 и §7, блоки «Решения планирования от 2026-10-07 (планы 6a и 6b)») тем же коммитом, что и план 6a.
+Записаны в спецификацию (§6.2 и §7, блоки «Решения планирования от 2026-10-07 (планы 6a и 6b)»); решение 8 добавлено туда тем же коммитом, что и эта редакция плана.
 
 1. **Открытие с клавиатуры.** В ячейке даты строки журнала — кнопка «Открыть операцию: <день> <время>, <сумма>» (видимый текст — дата и время). Клик по любому месту строки, кроме кнопок и полей, тоже открывает форму (план 5b). После закрытия фокус возвращается на кнопку строки.
 2. **PATCH — только изменённое:** дата оплаты — если сменился день (время суток остаётся прежним, но не позже «сейчас»); `toAccountId` и `toAmount` — только непустые и только у перевода; строки — если отличаются статья, проект или сумма хотя бы одной; теги — без учёта порядка. У перевода между валютами при смене суммы или счетов сумма зачисления уходит всегда: без неё сервер сбрасывает её и отвечает 400 «Укажите сумму зачисления». Ничего не изменилось — запроса нет, окно закрывается.
@@ -36,7 +38,12 @@
 5. **«Удалить»** — подтверждение в окне («Удалить операцию?», фокус на «Не удалять»). Esc при открытом подтверждении отменяет только его, фокус возвращается на «Удалить». После удаления строки, с которой открыли форму, больше нет — фокус уходит на заголовок «Журнал» (`focusAfterDelete` в запросе формы). Операцию на архивном счёте удалить нельзя: кнопка недоступна, рядом — «Удалить нельзя: счёт в архиве («…»)».
 6. **409:** изменили — «Операция изменена другим пользователем» и «Загрузить актуальную» (форма показывает свежую версию, свои изменения пользователь вносит заново); удалили — «Операция удалена другим пользователем» и «Закрыть». В обоих случаях журнал, счета и компании перечитываются.
 7. **`RATE_UNAVAILABLE` → `details: { currency, date }`** у ошибки (и у `GET /rates`). «Указать курс на ДД.ММ.ГГГГ» открывает поле «Курс X к тенге на ДД.ММ.ГГГГ» и создаёт ручной курс только на эту дату (`POST /rates/manual`); «Повторить» сохраняет операцию тем же способом, что и в первый раз («Сохранить» или «Сохранить и создать похожий»).
-8. **Файлы:** до 10 МБ проверяется в браузере (без отправки), тип — сервером по содержимому; ошибки — у поля, с именем файла. Выбранные до создания операции файлы загружаются сразу после неё; если какой-то файл сервер не принял, операция остаётся сохранённой, форма переходит к её правке с сообщением «Операция сохранена, но не загружено: «имя»: причина». Удаление — с подтверждением, мягкое (§4.5). Блок «Проект, теги, комментарий, файл».
+8. **Фокус и закрытие формы** (замечания финального ревью 6a):
+   - после «Отмена» → «Продолжить» фокус возвращается туда, где был; если это была исчезнувшая кнопка «Отмена» — в поле суммы;
+   - после ошибки сохранения (поля были недоступны, фокус потерян) фокус — на первое поле с ошибкой, иначе на действие в сообщении («Загрузить актуальную», «Указать курс на …»), иначе в поле суммы;
+   - пока запрос идёт, Esc и «Отмена» форму не закрывают: запрос всё равно сохранил бы операцию, а повторный ввод дал бы дубль.
+   При открытии правки фокус ставит в сумму `AmountField` плана 6a: окно открывается с «Загрузка…», поле суммы появляется позже, и фокус ещё «ничей».
+9. **Файлы:** до 10 МБ проверяется в браузере (без отправки), тип — сервером по содержимому; ошибки — у поля, с именем файла. Выбранные до создания операции файлы загружаются сразу после неё; если какой-то файл сервер не принял, операция остаётся сохранённой, форма переходит к её правке с сообщением «Операция сохранена, но не загружено: «имя»: причина». Удаление — с подтверждением, мягкое (§4.5). Блок «Проект, теги, комментарий, файл».
 
 ## Global Constraints
 
@@ -90,11 +97,12 @@ README.md
 
 **Files:**
 - Create: `src/client/lib/operation-edit.ts`, `tests/client/operation-edit.test.ts`, `e2e/operation-edit.spec.ts`
-- Modify: `src/client/components/operation/OperationForm.tsx` (замена файла целиком), `src/client/components/operation/OperationFormHost.tsx`, `src/client/components/journal/JournalTable.tsx`, `src/client/pages/JournalPage.tsx`
+- Modify: `src/client/components/operation/OperationForm.tsx`, `src/client/components/operation/OperationFormHost.tsx`, `src/client/components/journal/JournalTable.tsx`, `src/client/pages/JournalPage.tsx`
 
 **Interfaces:**
 - Consumes: план 6a — `OperationDraft`, `OperationBody`, `buildBody`, `DraftContext`, `emptyDraft`, `similarDraft`, `newLine`, `OperationForm`, `useOpenOperationForm`; `amountInputText`, `dayOf` (`journal-format.ts`); `JournalTable.onOpenOperation` (план 5b), `signedMoney`, `dayLabel`, `timeLabel`; `invalidateOperations`; `useQuery`.
 - Produces:
+  - фокус формы: `closeAsked` (возврат фокуса после вопроса), `errorFocus` (после ошибки сохранения), отказ закрыть форму по Esc и «Отмена» при `pending`;
   - `operation-edit.ts`: `interface OperationRecord { id; type; paidAt; accrualDate; accountId; amount; toAccountId; toAmount; counterpartyId; comment; version; deletedAt; lines: { categoryId; projectId; amount }[]; tagIds }`, `draftFromOperation(op, accounts, timeZone): OperationDraft`, `type OperationPatch`, `patchBody(op, body, timeZone): OperationPatch | null`, `interface Available { accounts; categories; projects; counterparties; tags: ReadonlySet<number> }`, `withoutArchived(draft, available)`, `duplicateDraft(draft, available, today)`, `archivedAccountOf(op, accounts)`;
   - `OperationFormRequest = { kind: 'create'; type } | { kind: 'edit'; id: number; focusAfterDelete?: () => HTMLElement | null }`; окно правки — «Изменить операцию»; кнопки «Дублировать», «Удалить» → «Да, удалить» / «Не удалять»; подсказка `LOCKED_HINT = 'счёт в архиве'`;
   - `JournalTable`: при `onOpenOperation` в ячейке даты — кнопка «Открыть операцию: …»; `JournalPage` передаёт `onOpenOperation` → `openForm({ kind: 'edit', id, focusAfterDelete: () => document.getElementById(HEADING_ID) })`.
@@ -450,6 +458,43 @@ test('перевод KZT → USD: новая сумма списания сох�
   await expect(row).toContainText(/100,00\s\$/);
   await expect(page.getByRole('navigation', { name: 'Счета' }).getByRole('link', { name: /^Касса/ })).toContainText(/9\s500,00\s₸/);
 });
+
+test('фокус и закрытие формы: после «Отмена» → «Продолжить» фокус в сумме; пока сохранение идёт, Esc и «Отмена» окно не закрывают', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Фокус ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+
+  await page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Новая операция' });
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  await expect(amount).toBeFocused();
+  await amount.fill('100');
+
+  // кнопка «Отмена», с которой спросили, исчезает вместе с вопросом — фокус возвращается в сумму
+  await dialog.getByRole('button', { name: 'Отмена', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Продолжить' }).click();
+  await expect(amount).toBeFocused();
+
+  // ответ сервера задержан: пока запрос идёт, окно не закрывается ни по Esc, ни по «Отмена»
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/api/v1/companies/*/operations', async (route) => {
+    if (route.request().method() === 'POST') await gate;
+    await route.continue();
+  });
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Сохранить', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await dialog.getByRole('button', { name: 'Отмена', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('group', { name: 'Несохранённые изменения' })).toHaveCount(0);
+  release();
+  await expect(dialog).toBeHidden();
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await expect(rows(page)).toHaveCount(1);
+});
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -631,84 +676,75 @@ export type OperationFormRequest =
  * «Перевод» в шапке и строкой журнала. Каждое
 ```
 
-`src/client/components/operation/OperationForm.tsx` — замените файл целиком (к форме плана 6a добавлены загрузка операции, режим правки, «Дублировать», «Удалить», блокировки; разбиение, «+ Создать „…“» и остальное — без изменений):
+`src/client/components/operation/OperationForm.tsx` — правки (к форме плана 6a добавляются загрузка операции, режим правки, «Дублировать», «Удалить», блокировки архивного счёта и три правки фокуса; автофокус суммы, недоступные во время запроса поля и шаблоны разделения без блокировки формы остаются как есть):
+
+1. Найдите:
+
+```tsx
+import { useEffect, useId, useRef, useState, type FormEvent, type MutableRefObject } from 'react';
+```
+
+   замените на:
 
 ```tsx
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState, type FormEvent, type MutableRefObject } from 'react';
-import { Link } from 'react-router';
-import { getCurrency } from '../../../shared/currencies';
-import { todayInTimezone } from '../../../shared/dates';
-import { api, ApiError } from '../../lib/api';
-import type { OperationType } from '../../lib/journal-filter';
-import { invalidateOperations } from '../../lib/journal-mutations';
+```
+
+2. Найдите:
+
+```tsx
+import { createFromForm, type CreatableKind } from '../../lib/operation-create';
+```
+
+   замените на:
+
+```tsx
 import { createFromForm, type CreatableKind } from '../../lib/operation-create';
 import { archivedAccountOf, draftFromOperation, duplicateDraft, patchBody, withoutArchived, type Available, type OperationRecord } from '../../lib/operation-edit';
-import { buildBody, changeType, emptyDraft, positiveAmount, similarDraft, transferRateText, COMMENT_MAX, type OperationDraft } from '../../lib/operation-form';
-import { accountOptions, categoryOptions, counterpartyOptions, preferredCounterpartyType, projectOptions, tagOptions } from '../../lib/operation-options';
-import { queryClient, useMeta } from '../../lib/query';
-import { startSplit } from '../../lib/split';
-import {
-  useAccounts,
-  useCategories,
-  useCounterparties,
-  useProjects,
-  useSplitPresets,
-  useTags,
-  type Account,
-  type CategoryTree,
-  type Company,
-  type Counterparty,
-  type Project,
-  type SplitPreset,
-  type Tag,
-} from '../../lib/queries';
-import { Field } from '../Field';
-import { Modal } from '../Modal';
-import { Pending } from '../QueryState';
-import { SearchPicker } from '../SearchPicker';
+```
+
+3. Найдите:
+
+```tsx
+import { alertClass, btnPrimary, btnSecondary, btnSmall, inputClass } from '../ui';
+```
+
+   замените на:
+
+```tsx
 import { alertClass, btnDanger, btnPrimary, btnSecondary, btnSmall, inputClass } from '../ui';
-import { AmountField } from './AmountField';
-import { ComboSelect } from './ComboSelect';
-import { SplitEditor } from './SplitEditor';
-import type { OperationFormRequest } from './OperationFormHost';
+```
 
-export interface FormData {
-  accounts: Account[];
-  categories: CategoryTree;
-  projects: Project[];
-  counterparties: Counterparty[];
-  tags: Tag[];
-  presets: SplitPreset[];
-}
+4. Найдите:
 
-const TYPES: { type: OperationType; label: string }[] = [
-  { type: 'income', label: 'Доход' },
-  { type: 'expense', label: 'Расход' },
-  { type: 'transfer', label: 'Перевод' },
-];
+```tsx
+/** Модалка на десктопе, на телефоне (меньше 768 px) — на весь экран (§7). */
+```
 
+   замените на:
+
+```tsx
 /** Подсказка у полей, которые нельзя менять: операция затрагивает архивный счёт (инвариант 7, §7). */
 const LOCKED_HINT = 'счёт в архиве';
 
 /** Модалка на десктопе, на телефоне (меньше 768 px) — на весь экран (§7). */
-const MODAL_CLASS = 'max-w-2xl max-md:m-0 max-md:h-dvh max-md:max-h-dvh max-md:w-full max-md:max-w-none max-md:rounded-none';
+```
 
-/** Ошибки полей из ответа сервера: `lines.0.amount` → `lines`, `tagIds.1` → `tagIds`. */
-export function serverFieldErrors(fields: Record<string, string> | undefined): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [key, message] of Object.entries(fields ?? {})) out[key.split('.')[0]!] ??= message;
-  return out;
-}
+5. Найдите:
 
-/**
- * Форма операции (§7): доход, расход, перевод. Окно открыто, пока форма смонтирована; закрытие — через
- * `<dialog>.close()`, чтобы фокус вернулся на кнопку, с которой форму открыли.
- */
+```tsx
 export function OperationForm(props: { company: Company; request: OperationFormRequest; onClose: () => void }) {
   const [open, setOpen] = useState(true);
-  const deleted = useRef(false);
+```
+
+   замените на:
+
+```tsx
+export function OperationForm(props: { company: Company; request: OperationFormRequest; onClose: () => void }) {
+  const [open, setOpen] = useState(true);
   const [editing, setEditing] = useState(props.request.kind === 'edit');
+  const deleted = useRef(false);
   const editId = props.request.kind === 'edit' ? props.request.id : null;
   // операция для правки — всегда свежая с сервера: версия нужна для PATCH
   const operation = useQuery<OperationRecord, ApiError>({
@@ -717,28 +753,36 @@ export function OperationForm(props: { company: Company; request: OperationFormR
     enabled: editId !== null,
     gcTime: 0,
   });
-  const cancel = useRef<() => void>(() => setOpen(false));
-  const meta = useMeta();
-  const accounts = useAccounts(props.company.id);
-  const categories = useCategories(props.company.id);
-  const projects = useProjects(props.company.id);
-  const counterparties = useCounterparties(props.company.id);
-  const tags = useTags(props.company.id);
-  const presets = useSplitPresets(props.company.id);
-  const queries = [meta, accounts, categories, projects, counterparties, tags, presets, ...(editId !== null ? [operation] : [])];
-  const data: FormData | null =
-    accounts.data && categories.data && projects.data && counterparties.data && tags.data && presets.data
-      ? {
-          accounts: accounts.data,
-          categories: categories.data,
-          projects: projects.data,
-          counterparties: counterparties.data,
-          tags: tags.data,
-          presets: presets.data,
-        }
-      : null;
+```
 
-  return (
+6. Найдите:
+
+```tsx
+  const queries = [meta, accounts, categories, projects, counterparties, tags];
+```
+
+   замените на:
+
+```tsx
+  const queries = [meta, accounts, categories, projects, counterparties, tags, ...(editId !== null ? [operation] : [])];
+```
+
+7. Найдите:
+
+```tsx
+    <Modal open={open} title="Новая операция" onClose={props.onClose} onCancel={() => cancel.current()} className={MODAL_CLASS}>
+      {data && meta.data ? (
+        <OperationEditor
+          company={props.company}
+          data={data}
+          timeZone={meta.data.timezone}
+          type={props.request.type}
+          close={() => setOpen(false)}
+```
+
+   замените на:
+
+```tsx
     <Modal
       open={open}
       title={editing ? 'Изменить операцию' : 'Новая операция'}
@@ -761,32 +805,41 @@ export function OperationForm(props: { company: Company; request: OperationFormR
           onEditingChange={setEditing}
           onDeleted={() => (deleted.current = true)}
           close={() => setOpen(false)}
-          cancelRef={cancel}
-        />
-      ) : (
-        <Pending queries={queries} />
-      )}
-    </Modal>
-  );
-}
+```
 
-function OperationEditor(p: {
-  company: Company;
-  data: FormData;
-  timeZone: string;
+8. Найдите:
+
+```tsx
+  type: OperationType;
+  close: () => void;
+  /** Что делать по Esc: форма решает сама (несохранённые изменения). */
+```
+
+   замените на:
+
+```tsx
   type: OperationType;
   /** Правка существующей операции; null — новая. */
   operation: OperationRecord | null;
-  /** Форма перешла от правки к новой операции («Дублировать», «Сохранить и создать похожий») или обратно. */
+  /** Форма перешла от правки к новой операции («Дублировать», «Сохранить и создать похожий»). */
   onEditingChange: (editing: boolean) => void;
   /** Операция удалена: окно закроется, фокус — не на исчезнувшую строку. */
   onDeleted: () => void;
   close: () => void;
   /** Что делать по Esc: форма решает сама (несохранённые изменения). */
-  cancelRef: MutableRefObject<() => void>;
-}) {
-  const today = todayInTimezone(p.timeZone);
-  const typeName = useId();
+```
+
+9. Найдите:
+
+```tsx
+  const firstAccount = p.data.accounts.find((a) => !a.archivedAt)?.id ?? null;
+  const [initial, setInitial] = useState(() => emptyDraft(p.type, today, firstAccount));
+  const [draft, setDraft] = useState(initial);
+```
+
+   замените на:
+
+```tsx
   const firstAccount = p.data.accounts.find((a) => !a.archivedAt)?.id ?? null;
   const accounts = new Map(p.data.accounts.map((a) => [a.id, a]));
   const [op, setOp] = useState(p.operation);
@@ -796,24 +849,31 @@ function OperationEditor(p: {
   /** После «Не удалять» (или Esc) фокус возвращается на «Удалить». */
   const deleteRef = useRef<HTMLButtonElement>(null);
   const deleteAsked = useRef(false);
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [formError, setFormError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-  const [confirmClose, setConfirmClose] = useState(false);
+```
+
+10. Найдите:
+
+```tsx
+  const [more, setMore] = useState(false);
+  const [refocusAmount, setRefocusAmount] = useState(0);
+```
+
+   замените на:
+
+```tsx
   // блок «Проект, теги, комментарий» раскрыт, если в нём уже что-то есть
   const [more, setMore] = useState(() => initial.projectId !== null || initial.tagIds.length > 0 || initial.comment !== '');
-  const [focusAmount, setFocusAmount] = useState(1);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
-  /** Вопрос о несохранённом: фокус на «Продолжить», после ответа — туда, где был. */
+  const [refocusAmount, setRefocusAmount] = useState(0);
+  /** Ошибка сохранения: фокус — на первое поле с ошибкой или действие в сообщении (поля были недоступны, фокус потерян). */
+  const formRef = useRef<HTMLFormElement>(null);
+  const [errorFocus, setErrorFocus] = useState(0);
+```
+
+11. Найдите:
+
+```tsx
   const continueRef = useRef<HTMLButtonElement>(null);
   const focusBefore = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (confirmDelete || !deleteAsked.current) return;
-    deleteAsked.current = false;
-    deleteRef.current?.focus();
-  }, [confirmDelete]);
 
   useEffect(() => {
     if (confirmClose) continueRef.current?.focus();
@@ -822,103 +882,121 @@ function OperationEditor(p: {
 
   // Esc: открыт вопрос — продолжить ввод; есть несохранённые изменения — спросить; иначе закрыть
   p.cancelRef.current = () => {
-    if (confirmDelete) setConfirmDelete(false);
-    else if (confirmClose) setConfirmClose(false);
+    if (confirmClose) setConfirmClose(false);
     else if (dirty) {
       focusBefore.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setConfirmClose(true);
     } else p.close();
   };
 
-  const account = draft.accountId === null ? undefined : accounts.get(draft.accountId);
-  const toAccount = draft.toAccountId === null ? undefined : accounts.get(draft.toAccountId);
-  const currency = getCurrency(account?.currency ?? p.company.baseCurrency);
-  const toCurrency = toAccount ? getCurrency(toAccount.currency) : null;
-  const transfer = draft.type === 'transfer';
-  const crossCurrency = transfer && toCurrency !== null && toCurrency.code !== currency.code;
-  const kind = draft.type === 'income' ? 'income' : 'expense';
-  const activeAccounts = p.data.accounts.filter((a) => !a.archivedAt);
-  const amountParsed = positiveAmount(draft.amount, currency.minorUnits);
-  const amountMinor = amountParsed.ok ? amountParsed.minor : null;
-  // подходящий тип контрагента — по статье операции или первой строки разбиения
+  const accounts = new Map(p.data.accounts.map((a) => [a.id, a]));
+  const account = draft.accountId
+```
+
+   замените на:
+
+```tsx
+  const continueRef = useRef<HTMLButtonElement>(null);
+  const focusBefore = useRef<HTMLElement | null>(null);
+  const closeAsked = useRef(false);
+
+  useEffect(() => {
+    if (confirmClose) {
+      continueRef.current?.focus();
+      return;
+    }
+    if (!closeAsked.current) return;
+    closeAsked.current = false;
+    // «Отмена», с которой спросили, уже исчезла вместе с кнопками — тогда фокус в поле суммы
+    if (focusBefore.current?.isConnected) focusBefore.current.focus();
+    else setRefocusAmount((n) => n + 1);
+  }, [confirmClose]);
+
+  useEffect(() => {
+    if (confirmDelete || !deleteAsked.current) return;
+    deleteAsked.current = false;
+    deleteRef.current?.focus();
+  }, [confirmDelete]);
+
+  useEffect(() => {
+    if (!errorFocus) return;
+    const form = formRef.current;
+    const target = form?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? form?.querySelector<HTMLElement>('[role="alert"] button');
+    if (target) target.focus();
+    else setRefocusAmount((n) => n + 1);
+  }, [errorFocus]);
+
+  // Esc: пока идёт запрос — ничего (окно закрылось бы, а операция всё равно сохранится); открыто подтверждение
+  // удаления или вопрос — закрыть их; есть несохранённые изменения — спросить; иначе закрыть
+  p.cancelRef.current = () => {
+    if (pending) return;
+    if (confirmDelete) setConfirmDelete(false);
+    else if (confirmClose) setConfirmClose(false);
+    else if (dirty) {
+      focusBefore.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      closeAsked.current = true;
+      setConfirmClose(true);
+    } else p.close();
+  };
+
+  const account = draft.accountId
+```
+
+12. Найдите:
+
+```tsx
+  const mainCategory = draft.split ? (draft.split.lines[0]?.categoryId ?? null) : draft.categoryId;
+```
+
+   замените на:
+
+```tsx
   const mainCategory = draft.split ? (draft.split.lines[0]?.categoryId ?? null) : draft.categoryId;
   // операция на архивном счёте: сумма, дата оплаты и счета заблокированы, удалить нельзя (инвариант 7)
   const locked = op ? archivedAccountOf(op, accounts) : null;
   const lockHint = locked ? LOCKED_HINT : undefined;
+```
 
-  /**
-   * «+ Создать „…“» (§7): создать элемент справочника и выбрать его. Контрагент получает тип, подходящий статье,
-   * иначе «Клиент» у дохода и «Поставщик» у расхода. apply — функцией от свежего черновика: создание идёт асинхронно.
-   */
-  const createItem = async (what: CreatableKind, name: string, apply: (d: OperationDraft, id: number) => OperationDraft) => {
-    setFormError(null);
-    try {
-      const counterpartyType = preferredCounterpartyType(p.data.categories, mainCategory) ?? (kind === 'income' ? 'client' : 'supplier');
-      const id = await createFromForm(p.company.id, what, name, {
-        kind,
-        counterpartyType,
-      });
-      setDraft((d) => apply(d, id));
-    } catch (e) {
-      const message = e instanceof ApiError ? (e.fields?.name ?? e.message) : 'Ошибка сервера';
-      setFormError(`Не удалось создать «${name}»: ${message}`);
-    }
-  };
-  const createLine = (field: 'categoryId' | 'projectId') => (name: string, key: number) =>
-    void createItem(field === 'categoryId' ? 'category' : 'project', name, (d, id) =>
-      d.split
-        ? {
-            ...d,
-            split: {
-              ...d.split,
-              lines: d.split.lines.map((l) => (l.key === key ? { ...l, [field]: id } : l)),
-            },
-          }
-        : d,
-    );
+13. Найдите:
 
-  /** Изменение полей: сбрасывает их ошибки и сообщение «сохранено». */
-  const set = (patch: Partial<OperationDraft>, ...errorKeys: string[]) => {
-    setDraft((d) => ({ ...d, ...patch }));
-    setStatus(null);
-    if (errorKeys.length) setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !errorKeys.includes(k))));
-  };
+```tsx
+    const now = new Date();
+    // buildBody вычисляет выражение в сумме само: Enter или «Сохранить» без ухода из поля сохраняют результат
+    const r = buildBody(draft, { accounts, today: todayInTimezone(p.timeZone, now), timeZone: p.timeZone, now, timeOfDayFrom: now });
+```
 
-  const submit = async (then: 'close' | 'similar') => {
-    if (pending) return;
+   замените на:
+
+```tsx
     const now = new Date();
     // у существующей операции при смене дня сохраняется прежнее время суток
     const timeOfDayFrom = op ? new Date(op.paidAt) : now;
-    const r = buildBody(draft, {
-      accounts,
-      today: todayInTimezone(p.timeZone, now),
-      timeZone: p.timeZone,
-      now,
-      timeOfDayFrom,
-    });
-    if (!r.ok) {
-      setErrors(r.errors);
-      setFormError('Проверьте заполнение полей');
-      return;
-    }
-    setPending(true);
-    setErrors({});
-    setFormError(null);
-    setStatus(null);
-    try {
+    // buildBody вычисляет выражение в сумме само: Enter или «Сохранить» без ухода из поля сохраняют результат
+    const r = buildBody(draft, { accounts, today: todayInTimezone(p.timeZone, now), timeZone: p.timeZone, now, timeOfDayFrom });
+```
+
+14. Найдите:
+
+```tsx
+      await api(`/companies/${p.company.id}/operations`, { method: 'POST', body: r.body });
+      void invalidateOperations(p.company.id);
+      if (then === 'close') {
+        p.close();
+        return;
+      }
+      const next = similarDraft(draft);
+      setDraft(next);
+```
+
+   замените на:
+
+```tsx
       if (op) {
         // в PATCH — только изменённые поля (итоги плана 4a, п. 1); без изменений запроса нет
         const patch = patchBody(op, r.body, p.timeZone);
-        if (patch)
-          await api(`/companies/${p.company.id}/operations/${op.id}`, {
-            method: 'PATCH',
-            body: patch,
-          });
+        if (patch) await api(`/companies/${p.company.id}/operations/${op.id}`, { method: 'PATCH', body: patch });
       } else {
-        await api(`/companies/${p.company.id}/operations`, {
-          method: 'POST',
-          body: r.body,
-        });
+        await api(`/companies/${p.company.id}/operations`, { method: 'POST', body: r.body });
       }
       void invalidateOperations(p.company.id);
       if (then === 'close') {
@@ -930,12 +1008,25 @@ function OperationEditor(p: {
       setOp(null);
       p.onEditingChange(false);
       setDraft(next);
-      setInitial(next);
-      setStatus('Операция сохранена — можно ввести похожую');
-      setFocusAmount((n) => n + 1);
-    } catch (e) {
-      setErrors(serverFieldErrors(e instanceof ApiError ? e.fields : undefined));
+```
+
+15. Найдите:
+
+```tsx
       setFormError(e instanceof ApiError ? e.message : 'Ошибка сервера');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const onSubmit = (e: FormEvent) => {
+```
+
+   замените на:
+
+```tsx
+      setFormError(e instanceof ApiError ? e.message : 'Ошибка сервера');
+      setErrorFocus((n) => n + 1);
     } finally {
       setPending(false);
     }
@@ -957,9 +1048,7 @@ function OperationEditor(p: {
     setPending(true);
     setFormError(null);
     try {
-      await api(`/companies/${p.company.id}/operations/${op.id}`, {
-        method: 'DELETE',
-      });
+      await api(`/companies/${p.company.id}/operations/${op.id}`, { method: 'DELETE' });
       void invalidateOperations(p.company.id);
       p.onDeleted();
       p.close();
@@ -981,182 +1070,124 @@ function OperationEditor(p: {
     setErrors({});
     setFormError(null);
     setStatus('Это копия — проверьте и сохраните');
-    setFocusAmount((n) => n + 1);
+    setRefocusAmount((n) => n + 1);
   };
 
   const onSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    void submit('close');
-  };
+```
 
+16. Найдите:
+
+```tsx
+  if (activeAccounts.length === 0) {
+```
+
+   замените на:
+
+```tsx
   if (!op && activeAccounts.length === 0) {
-    return (
-      <div>
-        <p className="mb-4 text-muted">В компании нет счетов — операцию не к чему привязать.</p>
-        <div className="flex gap-2">
-          <Link to={`/c/${p.company.id}/settings/accounts`} onClick={p.close} className={btnPrimary}>
-            Добавить счёт
-          </Link>
-          <button type="button" onClick={p.close} className={btnSecondary}>
-            Закрыть
-          </button>
-        </div>
-      </div>
-    );
-  }
+```
 
-  const accountField = (label: string, key: 'accountId' | 'toAccountId') => (
-    <ComboSelect
-      label={label}
-      listLabel="Счета"
-      value={draft[key]}
-      options={accountOptions(p.data.accounts, draft[key])}
-      emptyLabel={null}
-      placeholder="Выберите счёт"
+17. Найдите:
+
+```tsx
+      onChange={(id) => set({ [key]: id }, key)}
+      error={errors[key]}
+    />
+  );
+```
+
+   замените на:
+
+```tsx
       onChange={(id) => set({ [key]: id }, key)}
       error={errors[key]}
       disabled={!!locked}
       hint={lockHint}
     />
   );
+```
 
-  return (
+18. Найдите:
+
+```tsx
     <form onSubmit={onSubmit} noValidate aria-label="Операция" className="grid gap-4">
+      <fieldset disabled={pending}>
+        <legend className="sr-only">Тип операции</legend>
+```
+
+   замените на:
+
+```tsx
+    <form ref={formRef} onSubmit={onSubmit} noValidate aria-label="Операция" className="grid gap-4">
       {/* тип существующей операции не меняется (схема правки) */}
       {!op && (
-        <fieldset>
-          <legend className="sr-only">Тип операции</legend>
-          <div className="inline-flex flex-wrap gap-1 rounded-xl bg-field p-1">
-            {TYPES.map((t) => (
-              <label
-                key={t.type}
-                className="relative cursor-pointer rounded-lg px-4 py-2 text-sm font-semibold text-muted has-[:checked]:bg-card has-[:checked]:text-ink has-[:checked]:shadow has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-focus"
-              >
-                <input
-                  type="radio"
-                  name={typeName}
-                  value={t.type}
-                  checked={draft.type === t.type}
-                  onChange={() => {
-                    setDraft((d) => changeType(d, t.type));
-                    setErrors({});
-                  }}
-                  // поверх подписи и прозрачная: нажатие попадает в саму радиокнопку
-                  className="absolute inset-0 cursor-pointer appearance-none rounded-lg opacity-0"
-                />
-                {t.label}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      )}
+      <fieldset disabled={pending}>
+        <legend className="sr-only">Тип операции</legend>
+```
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {accountField(transfer ? 'Со счёта' : 'Счёт', 'accountId')}
-        {transfer && accountField('На счёт', 'toAccountId')}
-        <AmountField
-          label={`Сумма, ${currency.symbol}`}
-          value={draft.amount}
-          onChange={(amount) => set({ amount }, 'amount')}
-          minorUnits={currency.minorUnits}
-          error={errors.amount}
-          focusSignal={focusAmount}
+19. Найдите:
+
+```tsx
+          ))}
+        </div>
+      </fieldset>
+```
+
+   замените на:
+
+```tsx
+          ))}
+        </div>
+      </fieldset>
+      )}
+```
+
+20. Найдите:
+
+```tsx
+          autoFocus
+          refocusSignal={refocusAmount}
+        />
+```
+
+   замените на:
+
+```tsx
+          autoFocus
+          refocusSignal={refocusAmount}
           disabled={!!locked}
           hint={lockHint}
         />
-        {crossCurrency && toCurrency && (
-          <AmountField
-            label={`Сумма зачисления, ${toCurrency.symbol}`}
-            value={draft.toAmount}
-            onChange={(toAmount) => set({ toAmount }, 'toAmount')}
-            minorUnits={toCurrency.minorUnits}
+```
+
+21. Найдите:
+
+```tsx
+            error={errors.toAmount}
+            hint={rateHint(draft, currency.code, currency.minorUnits, toCurrency.code, toCurrency.minorUnits)}
+```
+
+   замените на:
+
+```tsx
             error={errors.toAmount}
             disabled={!!locked}
             hint={lockHint ?? rateHint(draft, currency.code, currency.minorUnits, toCurrency.code, toCurrency.minorUnits)}
-          />
-        )}
-      </div>
+```
 
-      {!transfer && (
-        <div className="grid gap-4 md:grid-cols-2">
-          {draft.split ? (
-            <SplitEditor
-              companyId={p.company.id}
-              kind={kind}
-              value={draft.split}
-              onChange={(split) => set({ split }, 'lines')}
-              onCancel={() =>
-                set(
-                  {
-                    split: null,
-                    categoryId: draft.split!.lines[0]?.categoryId ?? null,
-                    projectId: draft.split!.lines[0]?.projectId ?? null,
-                  },
-                  'lines',
-                )
-              }
-              total={amountMinor}
-              currency={currency.code}
-              minorUnits={currency.minorUnits}
-              categories={p.data.categories}
-              projects={p.data.projects}
-              presets={p.data.presets}
-              error={errors.lines}
-              onCreateCategory={createLine('categoryId')}
-              onCreateProject={createLine('projectId')}
-            />
-          ) : (
-            <div>
-              <ComboSelect
-                label="Статья"
-                listLabel="Статьи"
-                value={draft.categoryId}
-                options={categoryOptions(p.data.categories, kind, [draft.categoryId])}
-                emptyLabel="Без статьи"
-                onChange={(categoryId) => set({ categoryId }, 'lines')}
-                onCreate={(name) =>
-                  void createItem('category', name, (d, categoryId) => ({
-                    ...d,
-                    categoryId,
-                  }))
-                }
-                error={errors.lines}
-              />
-              <button
-                type="button"
-                onClick={() =>
-                  set(
-                    {
-                      split: startSplit(draft.categoryId, draft.projectId, draft.amount),
-                    },
-                    'lines',
-                  )
-                }
-                className="mt-1 text-sm font-semibold text-income hover:underline"
-              >
-                Разделить
-              </button>
-            </div>
+22. Найдите:
+
+```tsx
+        <Field label={transfer ? 'Дата' : 'Дата оплаты'} error={errors.paidAt}>
+          {(c) => (
+            <input {...c} type="date" max={today} value={draft.paidDate} onChange={(e) => set({ paidDate: e.target.value }, 'paidAt')} className={inputClass} />
           )}
-          <ComboSelect
-            label="Контрагент"
-            listLabel="Контрагенты"
-            value={draft.counterpartyId}
-            options={counterpartyOptions(p.data.counterparties, draft.counterpartyId, preferredCounterpartyType(p.data.categories, mainCategory))}
-            emptyLabel="Без контрагента"
-            onChange={(counterpartyId) => set({ counterpartyId }, 'counterpartyId')}
-            onCreate={(name) =>
-              void createItem('counterparty', name, (d, counterpartyId) => ({
-                ...d,
-                counterpartyId,
-              }))
-            }
-            error={errors.counterpartyId}
-          />
-        </div>
-      )}
+```
 
-      <div className="grid gap-4 md:grid-cols-2">
+   замените на:
+
+```tsx
         <Field label={transfer ? 'Дата' : 'Дата оплаты'} error={errors.paidAt} hint={lockHint}>
           {(c) => (
             <input
@@ -1169,91 +1200,17 @@ function OperationEditor(p: {
               className={inputClass}
             />
           )}
-        </Field>
-        {!transfer && (
-          <div className="grid gap-2">
-            <label className="flex items-center gap-2 text-sm md:pt-7">
-              <input type="checkbox" checked={draft.accrualOn} onChange={(e) => set({ accrualOn: e.target.checked }, 'accrualDate')} />
-              Дата сделки отличается
-            </label>
-            {draft.accrualOn && (
-              <Field label="Дата сделки" error={errors.accrualDate}>
-                {(c) => (
-                  <input
-                    {...c}
-                    type="date"
-                    value={draft.accrualDate}
-                    onChange={(e) => set({ accrualDate: e.target.value }, 'accrualDate')}
-                    className={inputClass}
-                  />
-                )}
-              </Field>
-            )}
-          </div>
-        )}
-      </div>
+```
 
-      <div>
-        <button type="button" aria-expanded={more} onClick={() => setMore((v) => !v)} className="text-sm font-semibold text-muted hover:text-ink">
-          <span aria-hidden="true">{more ? '▾' : '▸'}</span> Проект, теги, комментарий
-        </button>
-        {more && (
-          <div className="mt-3 grid gap-4 md:grid-cols-2">
-            {!draft.split && (
-              <ComboSelect
-                label="Проект"
-                listLabel="Проекты"
-                value={draft.projectId}
-                options={projectOptions(p.data.projects, [draft.projectId])}
-                emptyLabel="Без проекта"
-                onChange={(projectId) => set({ projectId }, 'lines')}
-                onCreate={(name) =>
-                  void createItem('project', name, (d, projectId) => ({
-                    ...d,
-                    projectId,
-                  }))
-                }
-                error={transfer ? errors.lines : undefined}
-              />
-            )}
-            <TagsField
-              tags={p.data.tags}
-              value={draft.tagIds}
-              onChange={(tagIds) => set({ tagIds }, 'tagIds')}
-              onCreate={(name) =>
-                void createItem('tag', name, (d, id) => ({
-                  ...d,
-                  tagIds: [...d.tagIds, id],
-                }))
-              }
-              error={errors.tagIds}
-            />
-            <Field label="Комментарий" error={errors.comment} className="md:col-span-2">
-              {(c) => (
-                <textarea
-                  {...c}
-                  rows={2}
-                  maxLength={COMMENT_MAX}
-                  value={draft.comment}
-                  onChange={(e) => set({ comment: e.target.value }, 'comment')}
-                  className={inputClass}
-                />
-              )}
-            </Field>
-          </div>
-        )}
-      </div>
+23. Найдите:
 
-      {formError && (
-        <p role="alert" className={`${alertClass} mb-0`}>
-          {formError}
-        </p>
-      )}
-      {/* область role="status" есть всегда — меняется только текст, так его объявляют программы чтения с экрана */}
-      <p role="status" className={status ? 'rounded-xl bg-income-soft px-4 py-3 text-sm text-income' : 'sr-only'}>
-        {status}
-      </p>
+```tsx
+      {confirmClose ? (
+```
 
+   замените на:
+
+```tsx
       {confirmDelete && op ? (
         <div role="group" aria-label="Удаление операции" className="flex flex-wrap items-center gap-2 text-sm">
           <span>Удалить операцию?</span>
@@ -1265,21 +1222,22 @@ function OperationEditor(p: {
           </button>
         </div>
       ) : confirmClose ? (
-        <div role="group" aria-label="Несохранённые изменения" className="flex flex-wrap items-center gap-2 text-sm">
-          <span>Есть несохранённые изменения. Закрыть без сохранения?</span>
-          <button type="button" onClick={p.close} className={btnSecondary}>
-            Закрыть без сохранения
+```
+
+24. Найдите:
+
+```tsx
+            Сохранить и создать похожий
           </button>
-          <button type="button" ref={continueRef} onClick={() => setConfirmClose(false)} className={btnPrimary}>
-            Продолжить
+          <button type="button" onClick={() => p.cancelRef.current()} className={btnSecondary}>
+            Отмена
           </button>
         </div>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          <button type="submit" disabled={pending} className={btnPrimary}>
-            Сохранить
-          </button>
-          <button type="button" disabled={pending} onClick={() => void submit('similar')} className={btnSecondary}>
+```
+
+   замените на:
+
+```tsx
             Сохранить и создать похожий
           </button>
           {op && (
@@ -1289,9 +1247,9 @@ function OperationEditor(p: {
               </button>
               <button
                 type="button"
+                ref={deleteRef}
                 disabled={pending || !!locked}
                 aria-describedby={locked ? 'operation-delete-locked' : undefined}
-                ref={deleteRef}
                 onClick={() => {
                   deleteAsked.current = true;
                   setConfirmDelete(true);
@@ -1302,6 +1260,7 @@ function OperationEditor(p: {
               </button>
             </>
           )}
+          {/* пока запрос идёт, «Отмена» и Esc окно не закрывают: операция всё равно сохранилась бы */}
           <button type="button" onClick={() => p.cancelRef.current()} className={btnSecondary}>
             Отмена
           </button>
@@ -1311,55 +1270,14 @@ function OperationEditor(p: {
             </span>
           )}
         </div>
-      )}
-    </form>
-  );
-}
-
-/** Подсказка у «Суммы зачисления»: курс из двух сумм, когда обе введены. */
-function rateHint(draft: OperationDraft, from: string, fromMinor: number, to: string, toMinor: number): string | undefined {
-  const a = positiveAmount(draft.amount, fromMinor);
-  const b = positiveAmount(draft.toAmount, toMinor);
-  const text = a.ok && b.ok ? transferRateText(a.minor, from, b.minor, to) : null;
-  return text ? `Курс: ${text}` : undefined;
-}
-
-/** Теги операции: выбранные — с кнопкой «убрать», добавление — список с поиском. */
-function TagsField(props: { tags: Tag[]; value: number[]; onChange: (ids: number[]) => void; onCreate: (name: string) => void; error?: string }) {
-  const names = new Map(props.tags.map((t) => [t.id, t.name]));
-  const options = tagOptions(props.tags, props.value).filter((o) => !props.value.includes(o.id));
-  return (
-    <div role="group" aria-label="Теги">
-      <span className="mb-1 block text-sm text-muted">Теги</span>
-      <div className="flex flex-wrap items-center gap-2">
-        {props.value.map((id) => (
-          <span key={id} className="inline-flex items-center gap-1 rounded-full bg-field px-3 py-1 text-sm">
-            {names.get(id) ?? '…'}
-            <button
-              type="button"
-              aria-label={`Убрать тег «${names.get(id) ?? ''}»`}
-              onClick={() => props.onChange(props.value.filter((x) => x !== id))}
-              className="text-muted hover:text-ink"
-            >
-              ×
-            </button>
-          </span>
-        ))}
-        <SearchPicker
-          label="+ Тег"
-          ariaLabel="Добавить тег"
-          listLabel="Теги"
-          options={options}
-          onPick={(id) => props.onChange([...props.value, id])}
-          onCreate={props.onCreate}
-          buttonClassName={btnSmall}
-        />
-      </div>
-      {props.error && <span className="mt-1 block text-sm text-expense">{props.error}</span>}
-    </div>
-  );
-}
 ```
+
+Проверка, что исправления плана 6a на месте (повторный автофокус суммы, поля недоступны во время запроса, шаблоны разделения не блокируют форму):
+
+```bash
+node -e "const s=require('fs').readFileSync('src/client/components/operation/OperationForm.tsx','utf8'); const need=['refocusSignal={refocusAmount}','<fieldset disabled={pending}','presets: presets.data ?? []']; const miss=need.filter((x)=>!s.includes(x)); if (miss.length) { console.error('пропали исправления плана 6a: '+miss.join(', ')); process.exit(1); }"
+```
+
 
 `src/client/components/journal/JournalTable.tsx` — правки (места — из плана 5b):
 
@@ -1518,10 +1436,13 @@ test('409: операцию изменили в другом окне — «За
   await amount.fill('150');
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('Операция изменена другим пользователем');
+  // поля были недоступны во время запроса — фокус переходит на действие в сообщении
+  await expect(dialog.getByRole('button', { name: 'Загрузить актуальную' })).toBeFocused();
   await dialog.getByRole('button', { name: 'Загрузить актуальную' }).click();
   await expect(dialog.getByRole('alert')).toHaveCount(0);
   await expect(dialog.getByLabel('Комментарий')).toHaveValue('чужая правка');
   await expect(amount).toHaveValue('100');
+  await expect(amount).toBeFocused();
   await amount.fill('150');
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog).toBeHidden();
@@ -1581,6 +1502,7 @@ Expected: FAIL — нет кнопки «Загрузить актуальную
       if (op && e instanceof ApiError && e.status === 409) {
         setConflict(e.message.startsWith('Операция удалена') ? 'deleted' : 'changed');
         void invalidateOperations(p.company.id);
+        setErrorFocus((n) => n + 1);
         return;
       }
       setErrors(serverFieldErrors(e instanceof ApiError ? e.fields : undefined));
@@ -1589,7 +1511,7 @@ Expected: FAIL — нет кнопки «Загрузить актуальную
 3. Найдите:
 
 ```tsx
-  const remove = async () => {
+  /** Неархивные элементы справочников: только их может выбрать новая операция (инвариант 7). */
 ```
 
    замените на:
@@ -1613,6 +1535,7 @@ Expected: FAIL — нет кнопки «Загрузить актуальную
       setErrors({});
       setFormError(null);
       setStatus('Загружена актуальная версия — внесите изменения заново');
+      setRefocusAmount((n) => n + 1);
     } catch (e) {
       setFormError(e instanceof ApiError ? e.message : 'Ошибка сервера');
     } finally {
@@ -1620,7 +1543,7 @@ Expected: FAIL — нет кнопки «Загрузить актуальную
     }
   };
 
-  const remove = async () => {
+  /** Неархивные элементы справочников: только их может выбрать новая операция (инвариант 7). */
 ```
 
 4. Найдите:
@@ -1649,10 +1572,17 @@ Expected: FAIL — нет кнопки «Загрузить актуальную
       {formError && (
 ```
 
+Проверка, что исправления плана 6a на месте (повторный автофокус суммы, поля недоступны во время запроса, шаблоны разделения не блокируют форму):
+
+```bash
+node -e "const s=require('fs').readFileSync('src/client/components/operation/OperationForm.tsx','utf8'); const need=['refocusSignal={refocusAmount}','<fieldset disabled={pending}','presets: presets.data ?? []']; const miss=need.filter((x)=>!s.includes(x)); if (miss.length) { console.error('пропали исправления плана 6a: '+miss.join(', ')); process.exit(1); }"
+```
+
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npx playwright test e2e/operation-edit.spec.ts`
-Expected: PASS (5 тестов).
+Expected: PASS (6 тестов).
 
 Run: `npx playwright test e2e/operation-edit.spec.ts -g "409" --repeat-each=30`
 Expected: PASS — тест не зависит от того, когда форма ставит фокус в сумму.
@@ -1742,6 +1672,7 @@ test('нет курса на дату: «Указать курс на {D}» со
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   const alert = dialog.getByRole('alert').filter({ hasText: 'Нет курса CHF на 15.06.2021' });
   await expect(alert).toBeVisible();
+  await expect(alert.getByRole('button', { name: 'Указать курс на 15.06.2021' })).toBeFocused();
   await alert.getByRole('button', { name: 'Указать курс на 15.06.2021' }).click();
   const rate = alert.getByLabel('Курс CHF к тенге на 15.06.2021');
   await expect(rate).toBeFocused();
@@ -2100,6 +2031,7 @@ import { SplitEditor } from './SplitEditor';
 ```tsx
       if (e instanceof ApiError && e.code === 'RATE_UNAVAILABLE' && e.details?.currency && e.details.date) {
         setMissingRate({ message: e.message, currency: e.details.currency, date: e.details.date });
+        setErrorFocus((x) => x + 1);
         return;
       }
       if (op && e instanceof ApiError && e.status === 409) {
@@ -2117,6 +2049,13 @@ import { SplitEditor } from './SplitEditor';
       {missingRate && <RateFix missing={missingRate} companyId={p.company.id} pending={pending} onRetry={() => void submit(lastThen.current)} />}
       {conflict && (
 ```
+
+Проверка, что исправления плана 6a на месте (повторный автофокус суммы, поля недоступны во время запроса, шаблоны разделения не блокируют форму):
+
+```bash
+node -e "const s=require('fs').readFileSync('src/client/components/operation/OperationForm.tsx','utf8'); const need=['refocusSignal={refocusAmount}','<fieldset disabled={pending}','presets: presets.data ?? []']; const miss=need.filter((x)=>!s.includes(x)); if (miss.length) { console.error('пропали исправления плана 6a: '+miss.join(', ')); process.exit(1); }"
+```
+
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -2550,29 +2489,35 @@ import { AttachmentsField } from './AttachmentsField';
 2. Найдите:
 
 ```tsx
-  const [focusAmount, setFocusAmount] = useState(1);
+  const [refocusAmount, setRefocusAmount] = useState(0);
+```
+
+   замените на:
+
+```tsx
+  const [refocusAmount, setRefocusAmount] = useState(0);
+  /** Файлы, выбранные до создания операции: загружаются сразу после него (§7). */
+  const [files, setFiles] = useState<File[]>([]);
+```
+
+3. Найдите:
+
+```tsx
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
 ```
 
    замените на:
 
 ```tsx
-  const [focusAmount, setFocusAmount] = useState(1);
-  /** Файлы, выбранные до создания операции: загружаются сразу после него (§7). */
-  const [files, setFiles] = useState<File[]>([]);
   const dirty = files.length > 0 || JSON.stringify(draft) !== JSON.stringify(initial);
 ```
 
-3. Найдите:
+4. Найдите:
 
 ```tsx
       } else {
-        await api(`/companies/${p.company.id}/operations`, {
-          method: 'POST',
-          body: r.body,
-        });
+        await api(`/companies/${p.company.id}/operations`, { method: 'POST', body: r.body });
       }
-      void invalidateOperations(p.company.id);
 ```
 
    замените на:
@@ -2599,13 +2544,13 @@ import { AttachmentsField } from './AttachmentsField';
           setInitial(saved);
           setMore(true);
           setFormError(`Операция сохранена, но не загружено: ${failed.join('; ')}`);
+          setErrorFocus((n) => n + 1);
           return;
         }
       }
-      void invalidateOperations(p.company.id);
 ```
 
-4. Найдите:
+5. Найдите:
 
 ```tsx
     setOp(null);
@@ -2622,24 +2567,22 @@ import { AttachmentsField } from './AttachmentsField';
     setDraft(copy);
 ```
 
-5. Найдите:
+6. Найдите:
 
 ```tsx
-          <span aria-hidden="true">{more ? '▾' : '▸'}</span> Проект, теги, комментарий
+<span aria-hidden="true">{more ? '▾' : '▸'}</span> Проект, теги, комментарий
 ```
 
    замените на:
 
 ```tsx
-          <span aria-hidden="true">{more ? '▾' : '▸'}</span> Проект, теги, комментарий, файл
+<span aria-hidden="true">{more ? '▾' : '▸'}</span> Проект, теги, комментарий, файл
 ```
 
-6. Найдите:
+7. Найдите:
 
 ```tsx
-                  onChange={(e) => set({ comment: e.target.value }, 'comment')}
-                  className={inputClass}
-                />
+                <textarea {...c} rows={2} maxLength={COMMENT_MAX} value={draft.comment} onChange={(e) => set({ comment: e.target.value }, 'comment')} className={inputClass} />
               )}
             </Field>
 ```
@@ -2647,13 +2590,18 @@ import { AttachmentsField } from './AttachmentsField';
    замените на:
 
 ```tsx
-                  onChange={(e) => set({ comment: e.target.value }, 'comment')}
-                  className={inputClass}
-                />
+                <textarea {...c} rows={2} maxLength={COMMENT_MAX} value={draft.comment} onChange={(e) => set({ comment: e.target.value }, 'comment')} className={inputClass} />
               )}
             </Field>
             <AttachmentsField companyId={p.company.id} operationId={op?.id ?? null} pending={files} onPendingChange={setFiles} />
 ```
+
+Проверка, что исправления плана 6a на месте (повторный автофокус суммы, поля недоступны во время запроса, шаблоны разделения не блокируют форму):
+
+```bash
+node -e "const s=require('fs').readFileSync('src/client/components/operation/OperationForm.tsx','utf8'); const need=['refocusSignal={refocusAmount}','<fieldset disabled={pending}','presets: presets.data ?? []']; const miss=need.filter((x)=>!s.includes(x)); if (miss.length) { console.error('пропали исправления плана 6a: '+miss.join(', ')); process.exit(1); }"
+```
+
 
 `README.md` — правки:
 
@@ -2706,7 +2654,7 @@ Run: `npx vitest run tests/client/attachments.test.ts`
 Expected: PASS.
 
 Run: `npx playwright test e2e/operation-edit.spec.ts e2e/operation-form.spec.ts`
-Expected: PASS (7 + 7 тестов).
+Expected: PASS (8 + 7 тестов).
 
 - [ ] **Step 5: Full check and commit**
 
