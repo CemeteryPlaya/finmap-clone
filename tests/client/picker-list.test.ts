@@ -19,7 +19,9 @@ const activeOption = (html: string) => {
   return new RegExp(`<li id="${id!.replace(/[:.]/g, '\\$&')}"[^>]*>([^<]*)</li>`).exec(html);
 };
 
-describe('PickerList: активный пункт при открытии', () => {
+// Проверяется только первая отрисовка (на сервере эффекты не выполняются). Повторное открытие списка
+// и StrictMode-эффект проверяет e2e/operation-form.spec.ts (aria-activedescendant после повторного открытия).
+describe('PickerList: активный пункт при первой отрисовке', () => {
   it('при открытии активен выбранный пункт и он отмечен aria-selected', () => {
     const li = activeOption(render(3));
     expect(li?.[1]).toBe('Депозит');

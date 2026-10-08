@@ -4,8 +4,16 @@ import { useEffect, useId, useRef, type ReactNode } from 'react';
  * Модальное окно на `<dialog>`: открывается через showModal() — браузер держит фокус внутри окна,
  * делает остальную страницу недоступной и закрывает окно по Esc. При закрытии фокус возвращается
  * на элемент, с которого окно открыли. Содержимое монтируется заново при каждом открытии.
+ * С `onCancel` окно по Esc само не закрывается: решает владелец (например, спрашивает про несохранённые изменения).
  */
-export function Modal(props: { open: boolean; title: string; onClose: () => void; children: ReactNode; className?: string }) {
+export function Modal(props: {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  onCancel?: () => void;
+  children: ReactNode;
+  className?: string;
+}) {
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLElement | null>(null);
   const titleId = useId();
@@ -25,6 +33,17 @@ export function Modal(props: { open: boolean; title: string; onClose: () => void
     <dialog
       ref={ref}
       aria-labelledby={titleId}
+      onKeyDown={(e) => {
+        // Esc, который не обработали внутри (список с поиском закрывается сам и отменяет событие)
+        if (e.key !== 'Escape' || !props.onCancel || e.defaultPrevented) return;
+        e.preventDefault();
+        props.onCancel();
+      }}
+      onCancel={(e) => {
+        if (!props.onCancel) return;
+        e.preventDefault();
+        props.onCancel();
+      }}
       onClose={() => {
         props.onClose();
         opener.current?.focus();
