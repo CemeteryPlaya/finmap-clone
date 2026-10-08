@@ -26,8 +26,10 @@ export function AmountField(props: {
   error?: string;
   hint?: string;
   disabled?: boolean;
-  /** Поставить фокус в поле: при появлении и при каждом изменении значения (после «Сохранить и создать похожий»). */
-  focusSignal?: number;
+  /** Поставить фокус в поле при появлении, если он ничей (страница, окно, радиокнопка); иначе не трогать. */
+  autoFocus?: boolean;
+  /** Поставить фокус в поле при каждом изменении значения (после «Сохранить и создать похожий»). */
+  refocusSignal?: number;
   className?: string;
 }) {
   const ref = useRef<HTMLInputElement>(null);
@@ -45,16 +47,32 @@ export function AmountField(props: {
 
   useEffect(() => {
     // кадр спустя: окно <dialog> к этому моменту уже открыто через showModal()
-    if (!props.focusSignal) return;
-    const frame = requestAnimationFrame(() => {
-      const input = ref.current;
+    if (!props.autoFocus) return;
+    const isRadio = (el: unknown) => el instanceof HTMLInputElement && el.type === 'radio';
+    let frame = 0;
+    const stop = () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener('focusin', onFocusIn);
+    };
+    // пользователь уже выбрал что-то другое в окне — фокус не перехватываем
+    const onFocusIn = (e: FocusEvent) => {
+      if (e.target !== ref.current && !isRadio(e.target)) stop();
+    };
+    document.addEventListener('focusin', onFocusIn);
+    frame = requestAnimationFrame(() => {
+      stop();
       const active = document.activeElement;
-      // пользователь уже набирает в другом поле окна — фокус не перехватываем
-      const typing = active instanceof HTMLElement && active !== input && active.matches('textarea, input:not([type="radio"]):not([type="checkbox"]):not([type="file"])');
-      if (input && !typing) input.focus();
+      // фокус «ничей»: на странице, на самом окне или на радиокнопке типа (туда его ставит showModal())
+      const free = active === document.body || active instanceof HTMLDialogElement || isRadio(active);
+      if (free) ref.current?.focus();
     });
-    return () => cancelAnimationFrame(frame);
-  }, [props.focusSignal]);
+    return stop;
+  }, [props.autoFocus]);
+
+  // явный возврат фокуса после «Сохранить и создать похожий»: один раз, когда новое состояние уже в DOM
+  useEffect(() => {
+    if (props.refocusSignal) ref.current?.focus();
+  }, [props.refocusSignal]);
 
   const evaluate = () => {
     if (props.value.trim() === '') return;

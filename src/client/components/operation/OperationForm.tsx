@@ -120,7 +120,7 @@ function OperationEditor(p: {
   const [pending, setPending] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [more, setMore] = useState(false);
-  const [focusAmount, setFocusAmount] = useState(1);
+  const [refocusAmount, setRefocusAmount] = useState(0);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
   /** Вопрос о несохранённом: фокус на «Продолжить», после ответа — туда, где был. */
   const continueRef = useRef<HTMLButtonElement>(null);
@@ -182,7 +182,7 @@ function OperationEditor(p: {
       setDraft(next);
       setInitial(next);
       setStatus('Операция сохранена — можно ввести похожую');
-      setFocusAmount((n) => n + 1);
+      setRefocusAmount((n) => n + 1);
     } catch (e) {
       setErrors(serverFieldErrors(e instanceof ApiError ? e.fields : undefined));
       setFormError(e instanceof ApiError ? e.message : 'Ошибка сервера');
@@ -227,7 +227,7 @@ function OperationEditor(p: {
 
   return (
     <form onSubmit={onSubmit} noValidate aria-label="Операция" className="grid gap-4">
-      <fieldset>
+      <fieldset disabled={pending}>
         <legend className="sr-only">Тип операции</legend>
         <div className="inline-flex flex-wrap gap-1 rounded-xl bg-field p-1">
           {TYPES.map((t) => (
@@ -253,6 +253,8 @@ function OperationEditor(p: {
         </div>
       </fieldset>
 
+      {/* пока запрос идёт, поля недоступны: «похожий» копирует ровно то, что ушло на сервер */}
+      <fieldset disabled={pending} className="contents">
       <div className="grid gap-4 md:grid-cols-2">
         {accountField(transfer ? 'Со счёта' : 'Счёт', 'accountId')}
         {transfer && accountField('На счёт', 'toAccountId')}
@@ -262,7 +264,8 @@ function OperationEditor(p: {
           onChange={(amount) => set({ amount }, 'amount')}
           minorUnits={currency.minorUnits}
           error={errors.amount}
-          focusSignal={focusAmount}
+          autoFocus
+          refocusSignal={refocusAmount}
         />
         {crossCurrency && toCurrency && (
           <AmountField
@@ -346,6 +349,7 @@ function OperationEditor(p: {
           </div>
         )}
       </div>
+      </fieldset>
 
       {formError && (
         <p role="alert" className={`${alertClass} mb-0`}>

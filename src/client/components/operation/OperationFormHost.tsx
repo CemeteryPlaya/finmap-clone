@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
 import type { OperationType } from '../../lib/journal-filter';
 import type { Company } from '../../lib/queries';
 import { OperationForm } from './OperationForm';
@@ -19,7 +19,8 @@ export function useOpenOperationForm(): (request: OperationFormRequest) => void 
  */
 export function OperationFormHost(props: { company: Company; children: ReactNode }) {
   const [current, setCurrent] = useState<{ key: number; request: OperationFormRequest } | null>(null);
-  const open = useCallback((request: OperationFormRequest) => setCurrent({ key: Date.now(), request }), []);
+  const counter = useRef(0);
+  const open = useCallback((request: OperationFormRequest) => setCurrent({ key: ++counter.current, request }), []);
   return (
     <OpenContext.Provider value={open}>
       {props.children}

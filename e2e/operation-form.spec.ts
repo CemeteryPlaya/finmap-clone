@@ -27,6 +27,9 @@ async function apiPost(page: Page, url: string, data: unknown) {
 
 const table = (page: Page) => page.getByRole('table', { name: 'Операции' });
 const panel = (page: Page) => page.getByRole('navigation', { name: 'Счета' });
+/** Тело следующего запроса создания операции. */
+const nextCreate = (page: Page) =>
+  page.waitForRequest((r) => r.method() === 'POST' && /\/operations$/.test(new URL(r.url()).pathname));
 const form = (page: Page) => page.getByRole('dialog', { name: 'Новая операция' });
 
 /** Открыть форму кнопкой шапки: «Доход», «Расход» или «Перевод». */
@@ -76,7 +79,10 @@ test('доход, расход и перевод KZT → USD через форм
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('100+200');
   await dialog.getByRole('button', { name: 'Проект, теги, комментарий' }).click();
   await dialog.getByLabel('Комментарий').fill('за октябрь');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  // click без ухода фокуса из поля (dispatchEvent): сумма уходит на сервер уже вычисленной
+  const rentRequest = nextCreate(page);
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).dispatchEvent('click');
+  expect((await rentRequest).postDataJSON().amount).toBe(30000);
   await expect(dialog).toBeHidden();
   const rent = table(page).locator('tbody tr').filter({ hasText: 'Аренда' });
   await expect(rent).toContainText('за октябрь');
@@ -172,7 +178,9 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   await expect(dialog.getByRole('button', { name: 'Контрагент: ТОО Ромашка' })).toBeVisible();
   // Enter в поле суммы с невычисленным выражением: сохраняется результат, а не текст
   await amount.fill('150+50');
+  const similarRequest = nextCreate(page);
   await amount.press('Enter');
+  expect((await similarRequest).postDataJSON().amount).toBe(20000);
   await expect(dialog).toBeHidden();
   const rows = table(page).locator('tbody tr').filter({ hasText: 'ТОО Ромашка' });
   await expect(rows).toHaveCount(2);
