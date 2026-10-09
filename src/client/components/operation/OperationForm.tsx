@@ -272,6 +272,8 @@ function OperationEditor(p: {
   const set = (patch: Partial<OperationDraft>, ...errorKeys: string[]) => {
     setDraft((d) => ({ ...d, ...patch }));
     setStatus(null);
+    // курс, которого не хватало, относился к прежней дате/счёту
+    if ('paidDate' in patch || 'accountId' in patch || 'toAccountId' in patch) setMissingRate(null);
     if (errorKeys.length) setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !errorKeys.includes(k))));
   };
 

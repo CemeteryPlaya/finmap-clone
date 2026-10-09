@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { formatDateRu } from '../../../shared/dates';
 import { api, ApiError } from '../../lib/api';
 import { queryClient } from '../../lib/query';
@@ -24,13 +24,25 @@ export function RateFix(props: { missing: MissingRate; companyId: number; pendin
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const retryRef = useRef<HTMLButtonElement>(null);
+  const openRef = useRef<HTMLButtonElement>(null);
+  /** Какую кнопку сфокусировать после закрытия мини-формы (её поля размонтируются вместе с фокусом). */
+  const focusAfterClose = useRef<'retry' | 'open' | null>(null);
+
+  useEffect(() => {
+    if (open || !focusAfterClose.current) return;
+    (focusAfterClose.current === 'retry' ? retryRef : openRef).current?.focus();
+    focusAfterClose.current = null;
+  }, [open]);
 
   const save = async () => {
+    if (saving) return;
     setSaving(true);
     setError(null);
     try {
       await api('/rates/manual', { method: 'POST', body: { date, currency, rate } });
       setSaved(true);
+      focusAfterClose.current = 'retry';
       setOpen(false);
       // ручной курс меняет итоги «Всего на счетах» и экран «Курсы»
       void queryClient.invalidateQueries({ queryKey: ['rates-manual'] });
@@ -75,18 +87,21 @@ export function RateFix(props: { missing: MissingRate; companyId: number; pendin
           <button type="button" disabled={saving} onClick={() => void save()} className={btnSmall}>
             Сохранить курс
           </button>
-          <button type="button" onClick={() => setOpen(false)} className={btnSmall}>
+          <button type="button" onClick={() => {
+              focusAfterClose.current = 'open';
+              setOpen(false);
+            }} className={btnSmall}>
             Не указывать
           </button>
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
           {!saved && (
-            <button type="button" onClick={() => setOpen(true)} className={btnSmall}>
+            <button ref={openRef} type="button" onClick={() => setOpen(true)} className={btnSmall}>
               Указать курс на {day}
             </button>
           )}
-          <button type="button" disabled={props.pending} onClick={props.onRetry} className={btnSmall}>
+          <button ref={retryRef} type="button" disabled={props.pending} onClick={props.onRetry} className={btnSmall}>
             Повторить
           </button>
         </div>
