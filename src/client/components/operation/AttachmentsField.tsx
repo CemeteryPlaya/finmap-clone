@@ -21,6 +21,8 @@ export function AttachmentsField(props: {
   operationId: number | null;
   pending: File[];
   onPendingChange: (files: File[]) => void;
+  /** Только просмотр (архивная компания): файлы можно скачать, но не добавить и не удалить. */
+  readOnly?: boolean;
 }) {
   const inputId = useId();
   const hintId = useId();
@@ -122,6 +124,7 @@ export function AttachmentsField(props: {
                   {a.originalName}
                 </a>
                 <span className="text-muted">{formatFileSize(a.size)}</span>
+                {!props.readOnly && (
                 <button
                   type="button"
                   ref={(el) => {
@@ -132,6 +135,7 @@ export function AttachmentsField(props: {
                   onClick={() => setConfirmId(a.id)} className="text-muted hover:text-expense">
                   ×
                 </button>
+                )}
               </>
             )}
           </li>
@@ -155,6 +159,8 @@ export function AttachmentsField(props: {
         ))}
       </ul>
       {/* поле выбора скрыто, видна подпись-кнопка; фокус с клавиатуры подсвечивает подпись */}
+      {!props.readOnly && (
+      <>
       <input
         id={inputId}
         type="file"
@@ -174,6 +180,8 @@ export function AttachmentsField(props: {
         {uploading ? 'Загрузка…' : '+ Файл'}
       </label>
       <span id={hintId} className="ml-2 text-xs text-muted">PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV до 10 МБ</span>
+      </>
+      )}
       {errors.length > 0 && (
         <ul role="alert" className="mt-1 text-sm text-expense">
           {errors.map((e, i) => (

@@ -44,7 +44,8 @@ export function CompanyLayout() {
               <CompanySwitcher current={company} companies={companies.data} />
             </>
           }
-          actions={<NewOperationButtons />}
+          // архивная компания — только чтение: новых операций нет ни в шапке, ни в нижней панели
+          actions={company.archivedAt ? undefined : <NewOperationButtons />}
           profileHref={`/c/${company.id}/settings/profile`}
         />
         <div className="flex items-start gap-4 md:mx-4">
@@ -64,7 +65,7 @@ export function CompanyLayout() {
             <Outlet context={{ company } satisfies CompanyOutletContext} />
           </main>
         </div>
-        <NewOperationButtons placement="bottom" />
+        {!company.archivedAt && <NewOperationButtons placement="bottom" />}
       </div>
     </OperationFormHost>
   );

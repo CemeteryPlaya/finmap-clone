@@ -453,3 +453,61 @@ test('форма «Новая операция» с «Расход»: Tab и Shi
     }
   }
 });
+
+test('архивная компания: форма операции только для просмотра, кнопок «Доход», «Расход», «Перевод» нет — на компьютере и на телефоне', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Архивная ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 30000 })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: new Date(Date.now() - 60_000).toISOString(), accountId: cash, amount: 30000, comment: 'до архива' });
+  // в архив компанию переводят после её счетов (баланс нулевой)
+  await apiPost(page, `${base}/accounts/${cash}/archive`, {});
+  await apiPost(page, `${base}/archive`, {});
+  await page.reload();
+
+  // компьютер: кнопок новых операций в шапке нет, операция открывается только для просмотра
+  await expect(page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true })).toHaveCount(0);
+  await page.getByRole('table', { name: 'Операции' }).getByRole('button', { name: /^Открыть операцию/ }).click();
+  const view = page.getByRole('dialog', { name: 'Изменить операцию' });
+  await expect(view).toContainText('Компания в архиве — изменения недоступны');
+  await expect(view.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('300');
+  await expect(view.getByRole('textbox', { name: /^Сумма,/ })).toBeDisabled();
+  await expect(view.getByLabel('Комментарий')).toHaveValue('до архива');
+  await expect(view.getByLabel('Комментарий')).toBeDisabled();
+  for (const name of ['Сохранить', 'Сохранить и создать похожий', 'Дублировать', 'Удалить']) {
+    await expect(view.getByRole('button', { name, exact: true })).toHaveCount(0);
+  }
+  await expect(view.getByLabel('Добавить файл')).toHaveCount(0);
+  // R3: поле суммы недоступно — фокус сразу на «Закрыть», а не на самом окне
+  await expect(view.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
+  // отправка формы ничего не меняет: окно остаётся, запросов на изменение нет
+  const writes: string[] = [];
+  page.on('request', (r) => {
+    if (r.method() !== 'GET') writes.push(`${r.method()} ${r.url()}`);
+  });
+  // Enter на «Закрыть» нажимает её саму, поэтому отправку формы (то, что делает Enter в поле) вызываем напрямую
+  await view.getByRole('form', { name: 'Операция' }).evaluate((f) => (f as HTMLFormElement).requestSubmit());
+  await page.waitForTimeout(300);
+  await expect(view).toBeVisible();
+  expect(writes).toEqual([]);
+  // R2: Tab и Shift+Tab по кругу — фокус не выходит из окна
+  for (const key of ['Tab', 'Shift+Tab']) {
+    for (let i = 0; i < 10; i++) {
+      await page.keyboard.press(key);
+      const inForm = await view.evaluate((d) => document.activeElement?.closest('dialog') === d);
+      expect(inForm, `${key} №${i + 1}`).toBe(true);
+    }
+  }
+  await view.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await expect(view).toBeHidden();
+
+  // телефон: нижней панели нет, карточка открывает ту же форму для просмотра; Esc закрывает без вопросов
+  await page.setViewportSize(PHONE);
+  await expect(bar(page)).toHaveCount(0);
+  await cards(page).getByRole('button').first().click();
+  await expect(view).toContainText('Компания в архиве — изменения недоступны');
+  await expect(view.getByRole('button', { name: 'Сохранить', exact: true })).toHaveCount(0);
+  await expect(view.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(view).toBeHidden();
+});

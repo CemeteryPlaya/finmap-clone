@@ -40,7 +40,7 @@ import { Field } from '../Field';
 import { Modal } from '../Modal';
 import { Pending } from '../QueryState';
 import { SearchPicker } from '../SearchPicker';
-import { alertClass, btnDanger, btnPrimary, btnSecondary, btnSmall, inputClass } from '../ui';
+import { alertClass, btnDanger, btnPrimary, btnSecondary, btnSmall, inputClass, noticeClass } from '../ui';
 import { uploadAttachment, uploadErrorText, useAttachments } from '../../lib/attachments';
 import { AmountField } from './AmountField';
 import { AttachmentsField } from './AttachmentsField';
@@ -167,6 +167,8 @@ function OperationEditor(p: {
   cancelRef: MutableRefObject<() => void>;
 }) {
   const today = todayInTimezone(p.timeZone);
+  // архивная компания — только просмотр: поля недоступны, кнопок сохранения, удаления и файлов нет
+  const readOnly = p.company.archivedAt !== null;
   const typeName = useId();
   const firstAccount = p.data.accounts.find((a) => !a.archivedAt)?.id ?? null;
   const accounts = new Map(p.data.accounts.map((a) => [a.id, a]));
@@ -188,7 +190,7 @@ function OperationEditor(p: {
   const [pending, setPending] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   // блок «Проект, теги, комментарий» раскрыт, если в нём уже что-то есть
-  const [more, setMore] = useState(() => initial.projectId !== null || initial.tagIds.length > 0 || initial.comment !== '');
+  const [more, setMore] = useState(() => readOnly || initial.projectId !== null || initial.tagIds.length > 0 || initial.comment !== '');
   const [refocusAmount, setRefocusAmount] = useState(0);
   // файлы операции раскрывают тот же блок; их список приходит отдельным запросом (его же использует AttachmentsField)
   const hasFiles = (useAttachments(p.company.id, op?.id ?? null).data?.length ?? 0) > 0;
@@ -205,6 +207,18 @@ function OperationEditor(p: {
   const continueRef = useRef<HTMLButtonElement>(null);
   const focusBefore = useRef<HTMLElement | null>(null);
   const closeAsked = useRef(false);
+  /** Только просмотр: поле суммы недоступно, начальный фокус — на «Закрыть». */
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!readOnly) return;
+    closeRef.current?.focus();
+    // окно ещё может открываться (данные были в кэше): showModal() переставил бы фокус на первый элемент
+    const frame = requestAnimationFrame(() => {
+      if (closeRef.current?.isConnected && document.activeElement !== closeRef.current) closeRef.current.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [readOnly]);
 
   useEffect(() => {
     if (confirmClose) {
@@ -448,6 +462,7 @@ function OperationEditor(p: {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (readOnly) return;
     void submit('close');
   };
 
@@ -484,6 +499,7 @@ function OperationEditor(p: {
 
   return (
     <form ref={formRef} onSubmit={onSubmit} noValidate aria-label="Операция" className="grid grid-cols-[minmax(0,1fr)] gap-4">
+      {readOnly && <p className={`${noticeClass} mb-0`}>Компания в архиве — изменения недоступны.</p>}
       {/* тип существующей операции не меняется (схема правки) */}
       {!op && (
       <fieldset disabled={pending}>
@@ -514,7 +530,7 @@ function OperationEditor(p: {
       )}
 
       {/* пока запрос идёт, поля недоступны: «похожий» копирует ровно то, что ушло на сервер */}
-      <fieldset disabled={pending} className="contents">
+      <fieldset disabled={pending || readOnly} className="contents">
       <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
         {accountField(transfer ? 'Со счёта' : 'Счёт', 'accountId')}
         {transfer && accountField('На счёт', 'toAccountId')}
@@ -656,7 +672,7 @@ function OperationEditor(p: {
                 <textarea {...c} rows={2} maxLength={COMMENT_MAX} value={draft.comment} onChange={(e) => set({ comment: e.target.value }, 'comment')} className={inputClass} />
               )}
             </Field>
-            <AttachmentsField companyId={p.company.id} operationId={op?.id ?? null} pending={files} onPendingChange={setFiles} />
+            <AttachmentsField companyId={p.company.id} operationId={op?.id ?? null} pending={files} onPendingChange={setFiles} readOnly={readOnly} />
           </div>
         )}
       </div>
@@ -705,6 +721,12 @@ function OperationEditor(p: {
           </button>
           <button type="button" ref={continueRef} onClick={() => setConfirmClose(false)} className={btnPrimary}>
             Продолжить
+          </button>
+        </div>
+      ) : readOnly ? (
+        <div className="flex flex-wrap gap-2">
+          <button type="button" ref={closeRef} onClick={p.close} className={btnSecondary}>
+            Закрыть
           </button>
         </div>
       ) : (
