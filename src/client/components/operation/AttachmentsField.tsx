@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   ATTACHMENT_ACCEPT,
   attachmentSizeError,
@@ -23,11 +23,29 @@ export function AttachmentsField(props: {
   onPendingChange: (files: File[]) => void;
 }) {
   const inputId = useId();
+  const hintId = useId();
   const attachments = useAttachments(props.companyId, props.operationId);
   const [errors, setErrors] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const [removing, setRemoving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const removeButtons = useRef(new Map<number, HTMLButtonElement>());
+  /** Куда вернуть фокус после действия с файлом: «×» строки по id или поле выбора файла. */
+  const refocus = useRef<{ id: number } | 'input' | null>(null);
+
+  useEffect(() => {
+    const target = refocus.current;
+    if (!target) return;
+    const el = target === 'input' ? inputRef.current : (removeButtons.current.get(target.id) ?? null);
+    if (el && !(el instanceof HTMLInputElement && el.disabled)) {
+      el.focus();
+      refocus.current = null;
+    }
+  });
+
+  // другая операция — прежние ошибки загрузки не относятся к ней
+  useEffect(() => setErrors([]), [props.operationId]);
 
   const choose = async (list: FileList | null) => {
     const files = [...(list ?? [])];
@@ -41,23 +59,36 @@ export function AttachmentsField(props: {
       props.onPendingChange([...props.pending, ...ok]);
     } else {
       setUploading(true);
-      for (const f of ok) {
-        try {
-          await uploadAttachment(props.companyId, props.operationId, f);
-        } catch (e) {
-          problems.push(`«${f.name}»: ${uploadErrorText(e)}`);
+      try {
+        for (const f of ok) {
+          try {
+            await uploadAttachment(props.companyId, props.operationId, f);
+          } catch (e) {
+            problems.push(`«${f.name}»: ${uploadErrorText(e)}`);
+          }
         }
+      } finally {
+        refocus.current = 'input';
+        setUploading(false);
       }
-      setUploading(false);
     }
     setErrors(problems);
+  };
+
+  const cancelConfirm = (id: number) => {
+    refocus.current = { id };
+    setConfirmId(null);
   };
 
   const remove = async (id: number) => {
     if (props.operationId === null) return;
     setRemoving(true);
+    const list = attachments.data ?? [];
+    const at = list.findIndex((a) => a.id === id);
+    const neighbour = list[at + 1] ?? list[at - 1];
     try {
       await removeAttachment(props.companyId, props.operationId, id);
+      refocus.current = neighbour ? { id: neighbour.id } : 'input';
       setConfirmId(null);
     } catch (e) {
       setErrors([uploadErrorText(e)]);
@@ -69,18 +100,36 @@ export function AttachmentsField(props: {
   return (
     <div role="group" aria-label="Файлы" className="md:col-span-2">
       <span className="mb-1 block text-sm text-muted">Файлы</span>
+      {attachments.isError && <p className="mb-1 text-sm text-expense">Не удалось загрузить список файлов</p>}
       <ul className="mb-2 grid gap-1 text-sm">
         {(attachments.data ?? []).map((a) => (
           <li key={a.id} className="flex flex-wrap items-center gap-2">
             {confirmId === a.id ? (
-              <ConfirmDelete what={`файл «${a.originalName}»`} pending={removing} onConfirm={() => void remove(a.id)} onCancel={() => setConfirmId(null)} />
+              // Esc отменяет только это подтверждение, а не всю форму
+              <div
+                onKeyDown={(e) => {
+                  if (e.key !== 'Escape') return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  cancelConfirm(a.id);
+                }}
+              >
+                <ConfirmDelete what={`файл «${a.originalName}»`} pending={removing} onConfirm={() => void remove(a.id)} onCancel={() => cancelConfirm(a.id)} />
+              </div>
             ) : (
               <>
                 <a href={attachmentUrl(props.companyId, a.id)} download className="font-medium text-income underline">
                   {a.originalName}
                 </a>
                 <span className="text-muted">{formatFileSize(a.size)}</span>
-                <button type="button" aria-label={`Удалить файл «${a.originalName}»`} onClick={() => setConfirmId(a.id)} className="text-muted hover:text-expense">
+                <button
+                  type="button"
+                  ref={(el) => {
+                    if (el) removeButtons.current.set(a.id, el);
+                    else removeButtons.current.delete(a.id);
+                  }}
+                  aria-label={`Удалить файл «${a.originalName}»`}
+                  onClick={() => setConfirmId(a.id)} className="text-muted hover:text-expense">
                   ×
                 </button>
               </>
@@ -94,7 +143,10 @@ export function AttachmentsField(props: {
             <button
               type="button"
               aria-label={`Убрать файл «${f.name}»`}
-              onClick={() => props.onPendingChange(props.pending.filter((_, j) => j !== i))}
+              onClick={() => {
+                setErrors([]);
+                props.onPendingChange(props.pending.filter((_, j) => j !== i));
+              }}
               className="text-muted hover:text-expense"
             >
               ×
@@ -108,7 +160,9 @@ export function AttachmentsField(props: {
         type="file"
         multiple
         accept={ATTACHMENT_ACCEPT}
+        ref={inputRef}
         aria-label="Добавить файл"
+        aria-describedby={hintId}
         disabled={uploading}
         onChange={(e) => {
           void choose(e.target.files);
@@ -119,11 +173,11 @@ export function AttachmentsField(props: {
       <label htmlFor={inputId} className="inline-block cursor-pointer rounded-lg bg-field px-3 py-1.5 text-sm font-medium peer-focus-visible:ring-2 peer-focus-visible:ring-focus">
         {uploading ? 'Загрузка…' : '+ Файл'}
       </label>
-      <span className="ml-2 text-xs text-muted">PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV до 10 МБ</span>
+      <span id={hintId} className="ml-2 text-xs text-muted">PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV до 10 МБ</span>
       {errors.length > 0 && (
         <ul role="alert" className="mt-1 text-sm text-expense">
-          {errors.map((e) => (
-            <li key={e}>{e}</li>
+          {errors.map((e, i) => (
+            <li key={`${i}-${e}`}>{e}</li>
           ))}
         </ul>
       )}

@@ -324,12 +324,28 @@ test('файлы: выбранный до сохранения загружае�
   // загрузка в существующую операцию — сразу
   await dialog.getByLabel('Добавить файл').setInputFiles({ name: 'выписка.csv', mimeType: 'text/csv', buffer: Buffer.from('a;b\n1;2\n') });
   await expect(dialog.getByRole('link', { name: 'выписка.csv' })).toBeVisible();
+  await expect(dialog.getByLabel('Добавить файл')).toBeFocused();
 
   // мягкое удаление с подтверждением
-  await dialog.getByRole('button', { name: 'Удалить файл «чек.png»' }).click();
+  const removeCheck = dialog.getByRole('button', { name: 'Удалить файл «чек.png»' });
+  const confirm = dialog.getByRole('group', { name: /^Удаление: файл/ });
+  // Esc отменяет только подтверждение: форма остаётся, фокус возвращается на «×»
+  await removeCheck.click();
+  await expect(confirm.getByRole('button', { name: 'Отмена' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Да, удалить' })).toHaveCount(0);
+  await expect(removeCheck).toBeFocused();
+  // «Отмена» тоже возвращает фокус на «×»
+  await removeCheck.click();
+  await confirm.getByRole('button', { name: 'Отмена' }).click();
+  await expect(removeCheck).toBeFocused();
+  await removeCheck.click();
   await dialog.getByRole('button', { name: 'Да, удалить' }).click();
   await expect(dialog.getByRole('link', { name: 'чек.png' })).toHaveCount(0);
   await expect(dialog.getByRole('link', { name: 'выписка.csv' })).toBeVisible();
+  // после удаления фокус на «×» соседней строки
+  await expect(dialog.getByRole('button', { name: 'Удалить файл «выписка.csv»' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
 });
