@@ -8,15 +8,16 @@
 - счета и «Всего на счетах» выезжают слева по кнопке «Счета» в шапке;
 - внизу закреплены кнопки «Доход», «Расход», «Перевод»; в шапке они остаются только на компьютере;
 - формы на весь экран с рядом операторов калькулятора — это уже сделали планы 6a и 6b, здесь только отступы под вырез экрана;
-- разделы настроек на ширине 390 px без прокрутки вбок;
+- разделы настроек, форма операции и окно «Фильтр» на ширине 390 px без прокрутки вбок; Tab не уходит из модальных окон;
+- архивная компания — только просмотр: форма операции открывается без возможности сохранить, кнопок новых операций нет;
 - PWA: манифест (`start_url: "/"`, название из `APP_NAME`, цвета из токенов), иконки PNG и SVG, `apple-touch-icon`, без service worker и офлайн-режима;
 - e2e на 390×844 по сценарию 4 §10: расход с выражением через кнопки-операторы, затем правка операции.
 
-**Предусловие:** выполнены планы 6a и 6b (форма операции в редакции плана, с решением контролёра по `PickerList`): `OperationFormHost` с `NewOperationButtons`, `OperationForm` (`MODAL_CLASS` — на весь экран ниже 768 px), `AmountField` с группой «Операторы: …», правка из журнала (`openForm({ kind: 'edit', … })`), `e2e/operation-form.spec.ts` и `e2e/operation-edit.spec.ts` с тестами «ширина 390 px: …»; план 5c — `JournalPage` с `readOnly`, `assignData` через `useMemo`, `BulkBar`, `UndoToast`; `Popover` рисует панель в ближайшем открытом `<dialog>` (план 6a).
+**Предусловие:** выполнены планы 6a и 6b (как они реализованы в ветке, с волнами финальных правок до 2bd49d8 включительно): `OperationFormHost` с `NewOperationButtons`, `OperationForm` (`MODAL_CLASS` — на весь экран ниже 768 px), `AmountField` с группой «Операторы: …», правка из журнала (`openForm({ kind: 'edit', … })`), `AttachmentsField`, `e2e/operation-form.spec.ts` и `e2e/operation-edit.spec.ts` с тестами «ширина 390 px: …»; план 5c — `JournalPage` с `readOnly`, `assignData` через `useMemo`, `BulkBar`, `UndoToast`; `Popover` рисует панель в ближайшем открытом `<dialog>` (план 6a).
 
 **Architecture:**
 - **Граница «телефон» одна — 768 px**, как у вариантов Tailwind `md:`/`max-md:`. Оформление — классами; там, где на телефоне другой компонент (карточки вместо таблицы, панель «Фильтры» вместо тулбара), — хук `useIsMobile()` (`src/client/lib/media.ts`, `matchMedia('(width < 48rem)')` через `useSyncExternalStore`).
-- **Выезжающие панели** — компонент `Drawer`: `<dialog>` + `showModal()` у левого или правого края. Страница под ним недоступна; Tab и Shift+Tab ходят по кругу внутри панели; Esc, «Закрыть» и касание затемнённого фона закрывают; фокус возвращается на кнопку, которой открыли. Выпадающие списки внутри (сохранённые фильтры) уже рисуются в открытом `<dialog>` (план 6a), окно «Фильтр» открывается поверх панели.
+- **Выезжающие панели** — компонент `Drawer`: `<dialog>` + `showModal()` у левого или правого края. Страница под ним недоступна; Tab и Shift+Tab ходят по кругу внутри панели (`cycleTab` из `focus-trap.ts`, его же получает `Modal`); Esc, «Закрыть» и касание затемнённого фона закрывают; фокус возвращается на кнопку, которой открыли. Выпадающие списки внутри (сохранённые фильтры) уже рисуются в открытом `<dialog>` (план 6a), окно «Фильтр» открывается поверх панели.
 - **Карточки журнала:** чистая функция `journalCardText` (`src/client/lib/journal-card.ts`, unit-тесты) и компонент `JournalCards`; `JournalPage` выбирает карточки или таблицу по `useIsMobile()`.
 - **PWA на сервере:** манифест зависит от `APP_NAME`, поэтому его отдаёт Fastify (`/pwa/manifest.webmanifest`), а не Vite. PNG-иконки рисуются в памяти при первом запросе собственным кодировщиком PNG на `node:zlib` (пакеты не нужны), SVG — из той же геометрии. Всё под `/pwa/` — маршруты вне `/api`, поэтому без входа и без CSRF; в разработке Vite проксирует `/pwa` на сервер.
 
@@ -40,7 +41,11 @@
 8. **PWA:** `GET /pwa/manifest.webmanifest` (`application/manifest+json`, `no-cache`) — `name` и `short_name` = `APP_NAME`, `start_url` и `scope` = «/», `display: standalone`, `theme_color` и `background_color` — графитовый токен шапки; иконки `/pwa/icon-192.png`, `/pwa/icon-512.png` (`any`), `/pwa/icon-maskable-512.png` (`maskable`), `/pwa/icon.svg`; `/pwa/apple-touch-icon.png` 180×180 — без прозрачности. Рисунок — графитовый фон и три растущих столбика в зелёных цветах бренда. Без входа, кэш иконок — сутки. Service worker не регистрируется, офлайн-режима нет. Цвета для сервера — `src/shared/brand.ts`; тест сверяет их с токенами в `styles.css` и `<meta name="theme-color">`.
 9. **Вырез экрана (safe-area):** `viewport-fit=cover` уже стоит; строка состояния iOS в PWA — `black-translucent`; отступы `env(safe-area-inset-*)` у шапки, нижней панели, выезжающих панелей и формы на весь экран.
 10. **Ширина 390 px:** в содержимом страницы на телефоне длинные слова без пробелов переносятся (`overflow-wrap: anywhere` у `<main>`); строки шаблона разделения в настройках — карточкой (статья во всю ширину, под ней проект, доля и «×»). Остальные разделы настроек проверены на 390 px — прокрутки вбок нет.
-11. **E2E сценария 4 §10** — в `e2e/mobile.spec.ts` (создание с нижней панели и правка из карточки в одном тесте); тесты «ширина 390 px: …» планов 6a и 6b им заменяются — они искали строку таблицы, которой на телефоне больше нет.
+11. **Сетки на телефоне — `grid-cols-[minmax(0,1fr)]`.** Колонка сетки без шаблона растёт по самому широкому элементу: название счёта без пробелов растягивало форму операции до 670 px (кнопки «Отмена» и «÷» уходили за экран), «Перенести в…» — раздел «Статьи», статьи — окно «Фильтр». Поэтому у сеток формы, разбиения, окна «Фильтр» и раздела «Статьи» — `grid-cols-[minmax(0,1fr)]` (`md:grid-cols-2` остаётся), выпадающие списки в содержимом страницы не шире своего блока, подписи статей в окне «Фильтр» переносятся. Проверка ширины в e2e смотрит и на страницу, и на каждое открытое окно (`dialog[open]` в верхнем слое ширину страницы не меняет).
+12. **Tab в модальных окнах** (форма операции, «Фильтр», выезжающие панели) ходит по кругу внутри окна — общий `cycleTab`.
+13. **Архивная компания — только просмотр** (журнал уже такой, план 5c): операция открывается в форме, поля недоступны, блок «Проект, теги, комментарий, файл» раскрыт, вместо кнопок — «Закрыть» и сообщение «Компания в архиве — изменения недоступны.»; файлы можно скачать, но не добавить и не удалить. Кнопок «Доход», «Расход», «Перевод» нет ни в шапке, ни внизу.
+14. **На странице без компании** (новая компания) название продукта в шапке телефона остаётся — скрывается, только когда рядом «Счета» и переключатель компаний. У манифеста есть `id: "/"` — смена названия не создаёт «другое» установленное приложение.
+15. **E2E сценария 4 §10** — в `e2e/mobile.spec.ts` (создание с нижней панели и правка из карточки в одном тесте); тесты «ширина 390 px: …» планов 6a и 6b им заменяются — они искали строку таблицы, которой на телефоне больше нет.
 
 ## Global Constraints
 
@@ -58,11 +63,12 @@
 
 ## Review Focus
 
-1. **Длинные названия без пробелов на телефоне** (компания, счёт, значение «Было/Стало» в истории): страница не прокручивается вбок, название в шапке обрезается многоточием. Тест — задача 6 (e2e по всем разделам настроек, журналу, истории с подробностями и форме).
+1. **Длинные названия без пробелов на телефоне** (компания, счёт, статья, значение «Было/Стало» в истории): ни страница, ни открытое окно (форма операции, «Фильтр») не прокручиваются вбок, «Отмена» и кнопки операторов на экране. Тест — задача 6 (e2e по журналу, всем разделам настроек, истории с подробностями, форме и окну «Фильтр»).
 2. **Фокус в выезжающей панели:** Tab не уходит на страницу под панелью и в адресную строку; касание внутри панели не закрывает её, касание фона закрывает; после Esc, «Закрыть» и касания фона фокус — на кнопке «Счета». Тест — задача 3.
 3. **Выделение, сделанное на компьютере, после поворота к телефону:** массовых действий не видно, выделение снято — после возврата к широкому окну флажок пуст и полосы действий нет. Тест — задача 4.
 4. **Окно стало шире при открытой панели «Фильтры»:** панель закрывается, тулбар и таблица на месте; при возврате к телефону панель не открывается сама. Тест — задача 5.
-5. **Браузер запрашивает манифест и иконки без куки сессии:** 200 и верные типы (`application/manifest+json`, `image/png`, `image/svg+xml`), размеры PNG соответствуют манифесту, CSP страницы не запрещает манифест. Тесты — задача 1 (unit и e2e).
+5. **Архивная компания:** форма открывается только для просмотра — ни сохранить, ни удалить, ни добавить файл; новых операций не начать ни на компьютере, ни на телефоне. Тест — задача 7.
+6. **Браузер запрашивает манифест и иконки без куки сессии:** 200 и верные типы (`application/manifest+json`, `image/png`, `image/svg+xml`), размеры PNG соответствуют манифесту, CSP страницы не запрещает манифест. Тесты — задача 1 (unit и e2e).
 
 ---
 
@@ -78,18 +84,24 @@ src/client/index.html                        # theme-color, манифест, и
 vite.config.ts                               # прокси /pwa в разработке
 src/client/lib/media.ts                      # (новый) useIsMobile()
 src/client/components/Drawer.tsx             # (новый) выезжающая панель
+src/client/components/focus-trap.ts          # (новый) cycleTab — Tab по кругу в модальном окне
+src/client/components/Modal.tsx              # Tab по кругу
 src/client/components/AccountsPanel.tsx      # содержимое панели отдельно, AccountsDrawerButton
 src/client/components/AppHeader.tsx          # safe-area, шапка телефона
 src/client/components/CompanySwitcher.tsx    # длинное название — многоточие
 src/client/components/operation/OperationFormHost.tsx  # NewOperationButtons: шапка и нижняя панель
-src/client/components/operation/OperationForm.tsx      # safe-area у формы на весь экран
+src/client/components/operation/OperationForm.tsx      # safe-area, сетки minmax(0,1fr), только просмотр в архивной компании
+src/client/components/operation/SplitEditor.tsx        # сетки minmax(0,1fr)
+src/client/components/operation/AttachmentsField.tsx   # readOnly: без добавления и удаления
+src/client/components/journal/FilterDialog.tsx         # сетка и подписи статей без растягивания
+src/client/pages/settings/CategoriesSettings.tsx       # сетка и «Перенести в…» без растягивания
 src/client/components/journal/UndoToast.tsx  # тост над нижней панелью
 src/client/lib/journal-card.ts               # (новый) текст карточки операции
 src/client/components/journal/JournalCards.tsx         # (новый) журнал карточками
 src/client/lib/journal-filter.ts             # panelConditionCount, SORT_CHOICES
 src/client/components/journal/JournalToolbar.tsx       # вид телефона: поиск + панель «Фильтры»
 src/client/pages/JournalPage.tsx             # карточки, без выделения и колонок на телефоне
-src/client/pages/CompanyLayout.tsx           # кнопка «Счета», нижняя панель, отступы, перенос слов
+src/client/pages/CompanyLayout.tsx           # кнопка «Счета», нижняя панель, отступы, перенос слов; архив — без кнопок операций
 src/client/pages/settings/SplitPresetsSettings.tsx     # строки шаблона карточкой на телефоне
 tests/server/pwa.test.ts, tests/shared/brand.test.ts   # (новые)
 tests/client/journal-card.test.ts, tests/client/journal-panel.test.ts   # (новые)
@@ -112,7 +124,7 @@ README.md
   - `BRAND_COLORS: { chrome: '#16181d'; income: '#0f9d6b'; incomeSoft: '#dff5ec' }` (`src/shared/brand.ts`);
   - `encodePng(width, height, rgba: Uint8Array): Buffer` (`src/server/pwa/png.ts`);
   - `type IconVariant = 'any' | 'full'`, `iconShapes(variant)`, `renderIcon(size, variant): Uint8Array`, `iconPng(size, variant): Buffer`, `iconSvg(): string` (`src/server/pwa/icons.ts`);
-  - `PWA_PREFIX = '/pwa/'`, `PWA_PNG_ICONS`, `buildManifest(appName): WebManifest`, `registerPwaRoutes(app, { appName })` (`src/server/pwa/routes.ts`);
+  - `PWA_PREFIX = '/pwa/'`, `PWA_PNG_ICONS`, `buildManifest(appName): WebManifest` (с `id: '/'`), `registerPwaRoutes(app, { appName })` (`src/server/pwa/routes.ts`);
   - маршруты `GET /pwa/manifest.webmanifest`, `/pwa/icon.svg`, `/pwa/icon-192.png`, `/pwa/icon-512.png`, `/pwa/icon-maskable-512.png`, `/pwa/apple-touch-icon.png`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -212,6 +224,7 @@ describe('манифест PWA', () => {
   it('название из APP_NAME, относительный start_url, цвета бренда, иконки 192, 512 и maskable', () => {
     const m = buildManifest('Клубный учёт');
     expect(m).toMatchObject({
+      id: '/',
       name: 'Клубный учёт',
       short_name: 'Клубный учёт',
       start_url: '/',
@@ -326,7 +339,7 @@ test('PWA: страница ссылается на манифест и икон
   expect(manifestRes.status()).toBe(200);
   expect(manifestRes.headers()['content-type']).toBe('application/manifest+json; charset=utf-8');
   const manifest = await manifestRes.json();
-  expect(manifest).toMatchObject({ name: 'Учёт', start_url: '/', display: 'standalone', theme_color: '#16181d' });
+  expect(manifest).toMatchObject({ id: '/', name: 'Учёт', start_url: '/', display: 'standalone', theme_color: '#16181d' });
   expect(manifest.icons.map((i: { sizes: string }) => i.sizes)).toEqual(['192x192', '512x512', '512x512', 'any']);
 
   for (const icon of manifest.icons as { src: string; sizes: string; type: string }[]) {
@@ -549,6 +562,7 @@ export const PWA_PNG_ICONS: readonly { file: string; size: number; variant: Icon
 ];
 
 export interface WebManifest {
+  id: string;
   name: string;
   short_name: string;
   lang: string;
@@ -566,6 +580,8 @@ export interface WebManifest {
  */
 export function buildManifest(appName: string): WebManifest {
   return {
+    // постоянный идентификатор приложения: смена названия или start_url не создаёт «другое» установленное приложение
+    id: '/',
     name: appName,
     short_name: appName,
     lang: 'ru',
@@ -941,13 +957,14 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ### Task 3: Выезжающая панель; счета и «Всего на счетах» слева; шапка телефона
 
 **Files:**
-- Create: `src/client/lib/media.ts`, `src/client/components/Drawer.tsx`
+- Create: `src/client/lib/media.ts`, `src/client/components/focus-trap.ts`, `src/client/components/Drawer.tsx`
 - Modify: `src/client/components/AccountsPanel.tsx` (замена файла целиком), `src/client/components/AppHeader.tsx`, `src/client/components/CompanySwitcher.tsx`, `src/client/pages/CompanyLayout.tsx`, `e2e/mobile.spec.ts`
 
 **Interfaces:**
 - Consumes: задача 2 (`e2e/mobile.spec.ts`: `login`, `createCompany`, `apiPost`, `PHONE`); `groupAccounts`, `useAccounts`, `useBalances`, `useProjects`, `usePreferences`, `savePreference`; `btnIcon`, `btnSmall`.
 - Produces:
   - `MOBILE_QUERY = '(width < 48rem)'`, `useIsMobile(): boolean` (`src/client/lib/media.ts`);
+  - `cycleTab(e: KeyboardEvent<HTMLElement>, root: HTMLElement | null): void` (`src/client/components/focus-trap.ts`) — Tab по кругу внутри окна; задача 6 подключает его к `Modal`;
   - `Drawer({ open, title, side: 'left' | 'right', onClose, children })` — `<dialog>` с названием `title`, кнопка «Закрыть»;
   - `AccountsPanel({ company })` (компьютер, как раньше) и `AccountsDrawerButton({ company })` — кнопка «Счета» (только ниже 768 px) и панель «Счета» слева; внутреннее `AccountsSummary({ company, onNavigate? })`.
 
@@ -1005,6 +1022,11 @@ test('счета на телефоне выезжают слева: итог и 
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?account=${kaspi}$`));
   await expect(drawer).toBeHidden();
 
+  // страница без компании (новая компания): в шапке телефона — название продукта, а не одна «Выйти»
+  await page.goto('/companies/new');
+  await expect(page.getByRole('banner')).toContainText('Учёт');
+  await page.goto(`/c/${cid}/log`);
+
   // компьютер: кнопки нет, на месте левая панель
   await page.setViewportSize({ width: 1280, height: 720 });
   await expect(open).toBeHidden();
@@ -1049,13 +1071,36 @@ export function useIsMobile(): boolean {
 }
 ```
 
+`src/client/components/focus-trap.ts`:
+
+```ts
+import type { KeyboardEvent } from 'react';
+
+const FOCUSABLE = 'input:not([disabled]), button:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"], a[href]';
+
+/**
+ * Tab по кругу внутри модального окна (`<dialog>` после showModal() делает страницу недоступной, но Tab
+ * с последнего элемента уводит фокус в адресную строку браузера): Tab с последнего видимого элемента —
+ * на первый, Shift+Tab с первого — на последний. Вложенные панели (списки с поиском, сохранённые фильтры),
+ * которые обработали Tab сами, отменяют событие — его не трогаем. Другие клавиши не обрабатываются.
+ */
+export function cycleTab(e: KeyboardEvent<HTMLElement>, root: HTMLElement | null): void {
+  if (e.key !== 'Tab' || e.defaultPrevented || !root) return;
+  const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.getClientRects().length > 0);
+  if (items.length === 0) return;
+  const edge = e.shiftKey ? items[0] : items[items.length - 1];
+  if (document.activeElement !== edge) return;
+  e.preventDefault();
+  (e.shiftKey ? items[items.length - 1] : items[0])!.focus();
+}
+```
+
 `src/client/components/Drawer.tsx`:
 
 ```tsx
 import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { cycleTab } from './focus-trap';
 import { btnIcon } from './ui';
-
-const FOCUSABLE = 'input:not([disabled]), button:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"], a[href]';
 
 /**
  * Выезжающая панель (§7 «Мобильная версия»): модальное окно `<dialog>` у левого или правого края экрана.
@@ -1092,17 +1137,7 @@ export function Drawer(props: { open: boolean; title: string; side: 'left' | 'ri
     <dialog
       ref={ref}
       aria-labelledby={titleId}
-      onKeyDown={(e) => {
-        // Tab с последнего элемента — на первый, Shift+Tab с первого — на последний; панели внутри
-        // (список сохранённых фильтров) обрабатывают свой Tab сами и отменяют событие
-        if (e.key !== 'Tab' || e.defaultPrevented) return;
-        const items = Array.from(ref.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter((el) => el.getClientRects().length > 0);
-        if (items.length === 0) return;
-        const edge = e.shiftKey ? items[0] : items[items.length - 1];
-        if (document.activeElement !== edge) return;
-        e.preventDefault();
-        (e.shiftKey ? items[items.length - 1] : items[0])!.focus();
-      }}
+      onKeyDown={(e) => cycleTab(e, ref.current)}
       onPointerDown={(e) => {
         pressedOnBackdrop.current = e.target === e.currentTarget;
       }}
@@ -1299,10 +1334,11 @@ export function AccountsDrawerButton({ company }: { company: Company }) {
 
 ```tsx
     // в PWA на iPhone строка состояния прозрачная (black-translucent): шапка начинается ниже выреза экрана.
-    // На телефоне — одна строка: «Счета», компания, «Выйти»; название и имя пользователя — только на компьютере
+    // На телефоне — одна строка: «Счета», компания, «Выйти»; название продукта (если слева есть что-то ещё)
+    // и имя пользователя — только на компьютере
     <header className="flex items-center justify-between gap-x-4 gap-y-2 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white md:flex-wrap md:px-6 md:pb-4 md:pt-[max(1rem,env(safe-area-inset-top))]">
       <div className="flex min-w-0 items-center gap-2 md:gap-4">
-        <span className="hidden shrink-0 text-lg font-bold md:inline">{meta.data?.appName}</span>
+        <span className={`shrink-0 text-lg font-bold ${left ? 'hidden md:inline' : ''}`}>{meta.data?.appName}</span>
 ```
 
 2. Найдите:
@@ -1629,6 +1665,29 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   await expect(card.getByRole('button')).toBeFocused();
 });
 
+test('журнал карточками догружается при прокрутке; последняя карточка не прячется под нижней панелью', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Прокрутка ${Date.now()}`);
+  const cash = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  for (let i = 1; i <= 55; i++) {
+    await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: new Date(Date.now() - i * 60_000).toISOString(), accountId: cash, amount: i * 100, comment: `№${i}` });
+  }
+  await page.setViewportSize(PHONE);
+  await page.reload();
+
+  const list = cards(page).getByRole('listitem');
+  await expect(list).toHaveCount(50);
+  await page.getByRole('button', { name: 'Показать ещё' }).scrollIntoViewIfNeeded();
+  await expect(list).toHaveCount(55);
+  await expect(page.getByRole('button', { name: 'Показать ещё' })).toHaveCount(0);
+  await expect(list.last()).toContainText('№55');
+  // в самом низу страницы последняя карточка — над закреплённой панелью
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const last = (await list.last().boundingBox())!;
+  const panelTop = (await bar(page).boundingBox())!.y;
+  expect(last.y + last.height).toBeLessThanOrEqual(panelTop);
+});
+
 test('выделение из широкого окна на телефоне снимается: невидимые строки не удалить массовым действием', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Выделение ${Date.now()}`);
@@ -1742,7 +1801,7 @@ test('ширина 390 px: правка операции — форма на в�
 Run: `npx vitest run tests/client/journal-card.test.ts`
 Expected: FAIL — нет модуля `journal-card`.
 
-Run: `npx playwright test e2e/mobile.spec.ts -g "сценарий 4|выделение"`
+Run: `npx playwright test e2e/mobile.spec.ts -g "сценарий 4|догружается|выделение"`
 Expected: FAIL — на телефоне нет списка «Операции».
 
 - [ ] **Step 3: Implement**
@@ -2481,24 +2540,33 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 6: Настройки и формы на ширине 390 px; README
+### Task 6: Настройки, форма и окно «Фильтр» на ширине 390 px; Tab в модальных окнах; README
 
 **Files:**
-- Modify: `src/client/pages/CompanyLayout.tsx`, `src/client/pages/settings/SplitPresetsSettings.tsx`, `e2e/mobile.spec.ts`, `README.md`
+- Modify: `src/client/pages/CompanyLayout.tsx`, `src/client/pages/settings/SplitPresetsSettings.tsx`, `src/client/pages/settings/CategoriesSettings.tsx`, `src/client/components/operation/OperationForm.tsx`, `src/client/components/operation/SplitEditor.tsx`, `src/client/components/journal/FilterDialog.tsx`, `src/client/components/Modal.tsx`, `e2e/mobile.spec.ts`, `README.md`
 
 **Interfaces:**
-- Consumes: задачи 2–5 (`bar`, `newForm`, `cards`, `todayAgo`, `csrf`, `PHONE`).
-- Produces: `MobileLabel` (внутренний, `SplitPresetsSettings.tsx`) — подпись поля строки шаблона на телефоне.
+- Consumes: задачи 2–5 (`bar`, `newForm`, `cards`, `todayAgo`, `csrf`, `PHONE`); `cycleTab` (задача 3).
+- Produces: `MobileLabel` (внутренний, `SplitPresetsSettings.tsx`) — подпись поля строки шаблона на телефоне; `Modal` — Tab по кругу внутри окна.
 
 - [ ] **Step 1: Write the failing test**
 
 `e2e/mobile.spec.ts` — в конец файла:
 
 ```ts
-/** Страница не шире окна: ничего не прокручивается вбок. */
+/**
+ * Ни страница, ни открытые окна (`dialog[open]` — форма, «Фильтр», выезжающие панели лежат в верхнем слое,
+ * ширину страницы они не меняют) не шире своей видимой области: ничего не прокручивается вбок.
+ */
 async function expectNoSideScroll(page: Page, where: string) {
-  const { scroll, client } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
-  expect(scroll, `${where}: ширина страницы ${scroll} px при окне ${client} px`).toBeLessThanOrEqual(client);
+  const boxes = await page.evaluate(() =>
+    [document.documentElement, ...Array.from(document.querySelectorAll<HTMLElement>('dialog[open]'))].map((el) => ({
+      what: el === document.documentElement ? 'страница' : `окно «${el.querySelector('h2')?.textContent ?? ''}»`,
+      scroll: el.scrollWidth,
+      client: el.clientWidth,
+    })),
+  );
+  for (const b of boxes) expect(b.scroll, `${where}, ${b.what}: ширина содержимого ${b.scroll} px при ${b.client} px`).toBeLessThanOrEqual(b.client);
 }
 
 const SETTINGS = ['projects', 'accounts', 'categories', 'counterparties', 'tags', 'split-presets', 'rates', 'companies', 'users', 'profile', 'audit', 'backup'];
@@ -2510,6 +2578,7 @@ test('ширина 390 px: журнал, все разделы настроек,
   const base = `/api/v1/companies/${cid}`;
   const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса основная наличные', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 12345678 })).account.id;
   const rent = (await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда помещения под компьютерный клуб' })).category.id;
+  await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Оборудование_для_компьютерного_клуба_без_пробелов' });
   await apiPost(page, `${base}/counterparties`, { type: 'supplier', name: 'ТОО Очень длинное название поставщика оборудования' });
   await apiPost(page, `${base}/tags`, { name: 'длинный-тег-для-проверки-ширины' });
   await apiPost(page, `${base}/split-presets`, { name: 'Аренда целиком', lines: [{ categoryId: rent, projectId: null, bp: 10000 }] });
@@ -2560,14 +2629,36 @@ test('ширина 390 px: журнал, все разделы настроек,
   await bar(page).getByRole('button', { name: 'Расход', exact: true }).click();
   await newForm(page).getByRole('button', { name: 'Проект, теги, комментарий' }).click();
   await expect(newForm(page).getByLabel('Комментарий')).toBeVisible();
+  // счёт по умолчанию — «Касса_без_пробелов_…»: кнопка списка не растягивает форму
+  await expect(newForm(page).getByRole('button', { name: /^Счёт: Касса_без_пробелов/ })).toBeVisible();
   await expectNoSideScroll(page, 'форма операции');
+  const cancel = newForm(page).getByRole('button', { name: 'Отмена', exact: true });
+  expect((await cancel.boundingBox())!.x + (await cancel.boundingBox())!.width).toBeLessThanOrEqual(PHONE.width);
+  await page.keyboard.press('Escape');
+  await expect(newForm(page)).toBeHidden();
+
+  // окно «Фильтр» поверх панели: длинное название статьи переносится, разделы не шире экрана
+  await page.getByRole('button', { name: /^Фильтры/ }).click();
+  await page.getByRole('dialog', { name: 'Фильтры' }).getByRole('button', { name: 'Фильтр', exact: true }).click();
+  const filter = page.getByRole('dialog', { name: 'Фильтр', exact: true });
+  await expect(filter.getByRole('checkbox', { name: 'Оборудование_для_компьютерного_клуба_без_пробелов' })).toBeVisible();
+  await expectNoSideScroll(page, 'окно «Фильтр»');
+  const rights = await filter.locator('fieldset').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().right));
+  expect(Math.max(...rights)).toBeLessThanOrEqual(PHONE.width);
+  // Tab и Shift+Tab ходят по кругу внутри окна: фокус не уходит на панель под ним и в адресную строку
+  for (const key of ['Tab', 'Shift+Tab']) {
+    for (let i = 0; i < 40; i++) {
+      await page.keyboard.press(key);
+      expect(await filter.evaluate((d) => d.contains(document.activeElement)), `${key} №${i + 1}`).toBe(true);
+    }
+  }
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npx playwright test e2e/mobile.spec.ts -g "не прокручиваются"`
-Expected: FAIL — «accounts: ширина страницы … px при окне 390 px» (название счёта без пробелов растягивает страницу).
+Expected: FAIL — «accounts, страница: ширина содержимого … px при 390 px» (название счёта без пробелов растягивает страницу); после исправления страниц — «форма операции, окно «Новая операция»: ширина содержимого … px при 390 px».
 
 - [ ] **Step 3: Implement**
 
@@ -2584,8 +2675,40 @@ Expected: FAIL — «accounts: ширина страницы … px при ок�
 
 ```tsx
           {/* на телефоне снизу — место под закреплённую панель «Доход», «Расход», «Перевод»; длинные слова
-              без пробелов (названия, значения в истории) переносятся, а не растягивают страницу вбок */}
-          <main className="min-h-[calc(100dvh-5rem)] min-w-0 flex-1 rounded-t-3xl bg-card p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] max-md:[overflow-wrap:anywhere] md:p-8">
+              без пробелов (названия, значения в истории) переносятся, а выпадающие списки не шире своего блока —
+              страница не растягивается вбок */}
+          <main className="min-h-[calc(100dvh-5rem)] min-w-0 flex-1 rounded-t-3xl bg-card p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] max-md:[overflow-wrap:anywhere] max-md:[&_select]:max-w-full md:p-8">
+```
+
+`src/client/pages/settings/CategoriesSettings.tsx` — правки:
+
+1. Найдите:
+
+```tsx
+                  <span className="flex flex-wrap items-center gap-2">
+                    <ReorderButtons label={n.name}
+```
+
+   замените на:
+
+```tsx
+                  <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+                    <ReorderButtons label={n.name}
+```
+
+2. Найдите:
+
+```tsx
+      <div className="grid gap-6 lg:grid-cols-2">
+        {(['income', 'expense'] as const).map((kind) => (
+```
+
+   замените на:
+
+```tsx
+      {/* колонка не шире экрана: длинное название в «Перенести в…» не растягивает страницу телефона */}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
+        {(['income', 'expense'] as const).map((kind) => (
 ```
 
 `src/client/pages/settings/SplitPresetsSettings.tsx` — правки:
@@ -2593,6 +2716,7 @@ Expected: FAIL — «accounts: ширина страницы … px при ок�
 1. Найдите:
 
 ```tsx
+/** Выпадающий список: архивные не предлагаются, но уже выбранный архивный элемент виден с пометкой. */
 function OptionSelect(
 ```
 
@@ -2608,6 +2732,7 @@ function MobileLabel({ children }: { children: string }) {
   );
 }
 
+/** Выпадающий список: архивные не предлагаются, но уже выбранный архивный элемент виден с пометкой. */
 function OptionSelect(
 ```
 
@@ -2679,6 +2804,170 @@ function OptionSelect(
                   aria-label={`Доля %, строка ${i + 1}`}
 ```
 
+`src/client/components/operation/OperationForm.tsx` — правки (колонка сетки без шаблона растёт по самому широкому элементу — длинное название счёта растягивало форму; `minmax(0,1fr)` держит её в ширине окна, `md:grid-cols-2` остаётся):
+
+1. Найдите:
+
+```tsx
+noValidate aria-label="Операция" className="grid gap-4">
+```
+
+   замените на:
+
+```tsx
+noValidate aria-label="Операция" className="grid grid-cols-[minmax(0,1fr)] gap-4">
+```
+
+2. Найдите:
+
+```tsx
+      <fieldset disabled={pending} className="contents">
+      <div className="grid gap-4 md:grid-cols-2">
+```
+
+   замените на:
+
+```tsx
+      <fieldset disabled={pending} className="contents">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
+```
+
+3. Найдите:
+
+```tsx
+      {!transfer && (
+        <div className="grid gap-4 md:grid-cols-2">
+```
+
+   замените на:
+
+```tsx
+      {!transfer && (
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
+```
+
+4. Найдите:
+
+```tsx
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label={transfer ? 'Дата' : 'Дата оплаты'}
+```
+
+   замените на:
+
+```tsx
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
+        <Field label={transfer ? 'Дата' : 'Дата оплаты'}
+```
+
+5. Найдите:
+
+```tsx
+          <div className="mt-3 grid gap-4 md:grid-cols-2">
+```
+
+   замените на:
+
+```tsx
+          <div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
+```
+
+`src/client/components/operation/SplitEditor.tsx` — правки:
+
+1. Найдите:
+
+```tsx
+aria-label="Разбиение" className="grid gap-3 rounded-2xl bg-canvas p-4 md:col-span-2">
+```
+
+   замените на:
+
+```tsx
+aria-label="Разбиение" className="grid grid-cols-[minmax(0,1fr)] gap-3 rounded-2xl bg-canvas p-4 md:col-span-2">
+```
+
+2. Найдите:
+
+```tsx
+className="grid items-start gap-2 md:grid-cols-[1fr_1fr_10rem_auto]">
+```
+
+   замените на:
+
+```tsx
+className="grid grid-cols-[minmax(0,1fr)] items-start gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_10rem_auto]">
+```
+
+`src/client/components/journal/FilterDialog.tsx` — правки:
+
+1. Найдите:
+
+```tsx
+const checkClass = 'flex items-center gap-2 py-0.5 text-sm';
+```
+
+   замените на:
+
+```tsx
+// длинное название без пробелов переносится, а не растягивает окно (на телефоне — шириной в экран)
+const checkClass = 'flex min-w-0 items-center gap-2 py-0.5 text-sm';
+```
+
+2. Найдите:
+
+```tsx
+          <span className="truncate">{o.label}</span>
+```
+
+   замените на:
+
+```tsx
+          <span className="min-w-0 [overflow-wrap:anywhere]">{o.label}</span>
+```
+
+3. Найдите:
+
+```tsx
+      <div className="grid max-h-[60dvh] gap-3 overflow-y-auto md:grid-cols-2">
+```
+
+   замените на:
+
+```tsx
+      <div className="grid max-h-[60dvh] grid-cols-[minmax(0,1fr)] gap-3 overflow-y-auto md:grid-cols-2">
+```
+
+`src/client/components/Modal.tsx` — правки (Tab по кругу внутри окна, как у выезжающих панелей):
+
+1. Найдите:
+
+```tsx
+import { useEffect, useId, useRef, type ReactNode } from 'react';
+```
+
+   замените на:
+
+```tsx
+import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { cycleTab } from './focus-trap';
+```
+
+2. Найдите:
+
+```tsx
+      onKeyDown={(e) => {
+        // Esc, который не обработали внутри (список с поиском закрывается сам и отменяет событие)
+```
+
+   замените на:
+
+```tsx
+      onKeyDown={(e) => {
+        // Tab по кругу внутри окна: фокус не уходит в адресную строку браузера
+        cycleTab(e, ref.current);
+        // Esc, который не обработали внутри (список с поиском закрывается сам и отменяет событие)
+```
+
 `README.md` — правки:
 
 1. Найдите:
@@ -2731,16 +3020,323 @@ function OptionSelect(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npx playwright test e2e/mobile.spec.ts e2e/dictionaries.spec.ts`
-Expected: PASS (шаблоны разделения на компьютере — прежние).
+Run: `npx playwright test e2e/mobile.spec.ts e2e/dictionaries.spec.ts e2e/operation-form.spec.ts e2e/journal.spec.ts`
+Expected: PASS (на компьютере шаблоны разделения, статьи, форма и окно «Фильтр» — прежние).
+
+- [ ] **Step 5: Full check and commit**
+
+Run: `npm test`, `npm run typecheck` и `npm run test:e2e` — зелёные.
+
+```bash
+git add src/client/pages/CompanyLayout.tsx src/client/pages/settings/SplitPresetsSettings.tsx src/client/pages/settings/CategoriesSettings.tsx src/client/components/operation/OperationForm.tsx src/client/components/operation/SplitEditor.tsx src/client/components/journal/FilterDialog.tsx src/client/components/Modal.tsx e2e/mobile.spec.ts README.md
+git commit -m "feat: настройки, форма операции и окно «Фильтр» на ширине 390 px без прокрутки вбок; Tab по кругу в модальных окнах; README — телефон и PWA
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 7: Архивная компания — форма операции только для просмотра
+
+**Files:**
+- Modify: `src/client/components/operation/OperationForm.tsx`, `src/client/components/operation/AttachmentsField.tsx`, `src/client/pages/CompanyLayout.tsx`, `e2e/mobile.spec.ts`
+
+**Interfaces:**
+- Consumes: задачи 2–6 (`NewOperationButtons({ placement })`, `bar`, `cards`, `PHONE`); `noticeClass` (`ui.ts`); `Company.archivedAt`.
+- Produces:
+  - `OperationEditor`: `readOnly = p.company.archivedAt !== null` — поля недоступны, блок «Проект, теги, комментарий, файл» раскрыт, вместо кнопок — «Закрыть», сверху — «Компания в архиве — изменения недоступны.»;
+  - `AttachmentsField({ …, readOnly?: boolean })` — без «+ Файл» и «Удалить файл …»;
+  - `CompanyLayout`: в архивной компании нет `NewOperationButtons` ни в шапке, ни внизу.
+
+- [ ] **Step 1: Write the failing test**
+
+`e2e/mobile.spec.ts` — в конец файла:
+
+```ts
+test('архивная компания: форма операции только для просмотра, кнопок «Доход», «Расход», «Перевод» нет — на компьютере и на телефоне', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Архивная ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 30000 })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: new Date(Date.now() - 60_000).toISOString(), accountId: cash, amount: 30000, comment: 'до архива' });
+  // в архив компанию переводят после её счетов (баланс нулевой)
+  await apiPost(page, `${base}/accounts/${cash}/archive`, {});
+  await apiPost(page, `${base}/archive`, {});
+  await page.reload();
+
+  // компьютер: кнопок новых операций в шапке нет, операция открывается только для просмотра
+  await expect(page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true })).toHaveCount(0);
+  await page.getByRole('table', { name: 'Операции' }).getByRole('button', { name: /^Открыть операцию/ }).click();
+  const view = page.getByRole('dialog', { name: 'Изменить операцию' });
+  await expect(view).toContainText('Компания в архиве — изменения недоступны');
+  await expect(view.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('300');
+  await expect(view.getByRole('textbox', { name: /^Сумма,/ })).toBeDisabled();
+  await expect(view.getByLabel('Комментарий')).toHaveValue('до архива');
+  await expect(view.getByLabel('Комментарий')).toBeDisabled();
+  for (const name of ['Сохранить', 'Сохранить и создать похожий', 'Дублировать', 'Удалить']) {
+    await expect(view.getByRole('button', { name, exact: true })).toHaveCount(0);
+  }
+  await expect(view.getByLabel('Добавить файл')).toHaveCount(0);
+  await view.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await expect(view).toBeHidden();
+
+  // телефон: нижней панели нет, карточка открывает ту же форму для просмотра; Esc закрывает без вопросов
+  await page.setViewportSize(PHONE);
+  await expect(bar(page)).toHaveCount(0);
+  await cards(page).getByRole('button').first().click();
+  await expect(view).toContainText('Компания в архиве — изменения недоступны');
+  await expect(view.getByRole('button', { name: 'Сохранить', exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(view).toBeHidden();
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npx playwright test e2e/mobile.spec.ts -g "архивная компания"`
+Expected: FAIL — в шапке архивной компании есть кнопка «Расход».
+
+- [ ] **Step 3: Implement**
+
+`src/client/components/operation/OperationForm.tsx` — правки:
+
+1. Найдите:
+
+```tsx
+import { alertClass, btnDanger, btnPrimary, btnSecondary, btnSmall, inputClass } from '../ui';
+```
+
+   замените на:
+
+```tsx
+import { alertClass, btnDanger, btnPrimary, btnSecondary, btnSmall, inputClass, noticeClass } from '../ui';
+```
+
+2. Найдите:
+
+```tsx
+  const today = todayInTimezone(p.timeZone);
+  const typeName = useId();
+```
+
+   замените на:
+
+```tsx
+  const today = todayInTimezone(p.timeZone);
+  // архивная компания — только просмотр: поля недоступны, кнопок сохранения, удаления и файлов нет
+  const readOnly = p.company.archivedAt !== null;
+  const typeName = useId();
+```
+
+3. Найдите:
+
+```tsx
+  const [more, setMore] = useState(() => initial.projectId !== null || initial.tagIds.length > 0 || initial.comment !== '');
+```
+
+   замените на:
+
+```tsx
+  const [more, setMore] = useState(() => readOnly || initial.projectId !== null || initial.tagIds.length > 0 || initial.comment !== '');
+```
+
+4. Найдите:
+
+```tsx
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    void submit('close');
+```
+
+   замените на:
+
+```tsx
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (readOnly) return;
+    void submit('close');
+```
+
+5. Найдите:
+
+```tsx
+noValidate aria-label="Операция" className="grid grid-cols-[minmax(0,1fr)] gap-4">
+```
+
+   замените на:
+
+```tsx
+noValidate aria-label="Операция" className="grid grid-cols-[minmax(0,1fr)] gap-4">
+      {readOnly && <p className={`${noticeClass} mb-0`}>Компания в архиве — изменения недоступны.</p>}
+```
+
+6. Найдите:
+
+```tsx
+      <fieldset disabled={pending} className="contents">
+```
+
+   замените на:
+
+```tsx
+      <fieldset disabled={pending || readOnly} className="contents">
+```
+
+7. Найдите:
+
+```tsx
+            <AttachmentsField companyId={p.company.id} operationId={op?.id ?? null} pending={files} onPendingChange={setFiles} />
+```
+
+   замените на:
+
+```tsx
+            <AttachmentsField companyId={p.company.id} operationId={op?.id ?? null} pending={files} onPendingChange={setFiles} readOnly={readOnly} />
+```
+
+8. Найдите:
+
+```tsx
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <button type="submit" disabled={pending} className={btnPrimary}>
+```
+
+   замените на:
+
+```tsx
+      ) : readOnly ? (
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={p.close} className={btnSecondary}>
+            Закрыть
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <button type="submit" disabled={pending} className={btnPrimary}>
+```
+
+`src/client/components/operation/AttachmentsField.tsx` — правки:
+
+1. Найдите:
+
+```tsx
+  pending: File[];
+  onPendingChange: (files: File[]) => void;
+}) {
+```
+
+   замените на:
+
+```tsx
+  pending: File[];
+  onPendingChange: (files: File[]) => void;
+  /** Только просмотр (архивная компания): файлы можно скачать, но не добавить и не удалить. */
+  readOnly?: boolean;
+}) {
+```
+
+2. Найдите:
+
+```tsx
+                <span className="text-muted">{formatFileSize(a.size)}</span>
+                <button
+```
+
+   замените на:
+
+```tsx
+                <span className="text-muted">{formatFileSize(a.size)}</span>
+                {!props.readOnly && (
+                <button
+```
+
+3. Найдите:
+
+```tsx
+                  onClick={() => setConfirmId(a.id)} className="text-muted hover:text-expense">
+                  ×
+                </button>
+```
+
+   замените на:
+
+```tsx
+                  onClick={() => setConfirmId(a.id)} className="text-muted hover:text-expense">
+                  ×
+                </button>
+                )}
+```
+
+4. Найдите:
+
+```tsx
+      {/* поле выбора скрыто, видна подпись-кнопка; фокус с клавиатуры подсвечивает подпись */}
+      <input
+```
+
+   замените на:
+
+```tsx
+      {/* поле выбора скрыто, видна подпись-кнопка; фокус с клавиатуры подсвечивает подпись */}
+      {!props.readOnly && (
+      <>
+      <input
+```
+
+5. Найдите:
+
+```tsx
+      <span id={hintId} className="ml-2 text-xs text-muted">PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV до 10 МБ</span>
+```
+
+   замените на:
+
+```tsx
+      <span id={hintId} className="ml-2 text-xs text-muted">PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV до 10 МБ</span>
+      </>
+      )}
+```
+
+`src/client/pages/CompanyLayout.tsx` — правки:
+
+1. Найдите:
+
+```tsx
+          actions={<NewOperationButtons />}
+```
+
+   замените на:
+
+```tsx
+          // архивная компания — только чтение: новых операций нет ни в шапке, ни в нижней панели
+          actions={company.archivedAt ? undefined : <NewOperationButtons />}
+```
+
+2. Найдите:
+
+```tsx
+        <NewOperationButtons placement="bottom" />
+```
+
+   замените на:
+
+```tsx
+        {!company.archivedAt && <NewOperationButtons placement="bottom" />}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `npx playwright test e2e/mobile.spec.ts e2e/operation-edit.spec.ts e2e/journal-actions.spec.ts`
+Expected: PASS.
 
 - [ ] **Step 5: Full check and commit**
 
 Run: `npm test`, `npm run typecheck` и `npm run test:e2e` — зелёные (два прогона e2e подряд).
 
 ```bash
-git add src/client/pages/CompanyLayout.tsx src/client/pages/settings/SplitPresetsSettings.tsx e2e/mobile.spec.ts README.md
-git commit -m "feat: настройки и формы на ширине 390 px без прокрутки вбок; README — телефон и PWA
+git add src/client/components/operation/OperationForm.tsx src/client/components/operation/AttachmentsField.tsx src/client/pages/CompanyLayout.tsx e2e/mobile.spec.ts
+git commit -m "feat: архивная компания — форма операции только для просмотра, без кнопок новых операций
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
