@@ -207,7 +207,10 @@ test('ширина 390 px: форма на весь экран, сумма че�
   await expect(dialog).toBeHidden();
 
   await page.setViewportSize({ width: 390, height: 844 });
-  dialog = await openForm(page, 'Расход');
+  // на телефоне кнопки шапки скрыты — форма открывается с нижней панели
+  await expect(page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true })).toBeHidden();
+  await page.getByRole('group', { name: 'Добавить операцию' }).getByRole('button', { name: 'Расход', exact: true }).click();
+  dialog = form(page);
   const box = (await dialog.boundingBox())!;
   expect(box.width).toBeGreaterThanOrEqual(389);
   expect(box.height).toBeGreaterThanOrEqual(843);

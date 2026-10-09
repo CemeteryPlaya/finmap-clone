@@ -42,9 +42,10 @@ export function CompanyLayout() {
           actions={<NewOperationButtons />}
           profileHref={`/c/${company.id}/settings/profile`}
         />
-        <div className="mx-4 flex items-start gap-4">
+        <div className="flex items-start gap-4 md:mx-4">
           <AccountsPanel company={company} />
-          <main className="min-h-[calc(100dvh-5rem)] min-w-0 flex-1 rounded-t-3xl bg-card p-6 md:p-8">
+          {/* на телефоне снизу — место под закреплённую панель «Доход», «Расход», «Перевод» */}
+          <main className="min-h-[calc(100dvh-5rem)] min-w-0 flex-1 rounded-t-3xl bg-card p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] md:p-8">
             <nav className="mb-6 flex gap-2">
               <NavLink to={`/c/${company.id}/log`} className={tab}>
                 Журнал
@@ -56,6 +57,7 @@ export function CompanyLayout() {
             <Outlet context={{ company } satisfies CompanyOutletContext} />
           </main>
         </div>
+        <NewOperationButtons placement="bottom" />
       </div>
     </OperationFormHost>
   );

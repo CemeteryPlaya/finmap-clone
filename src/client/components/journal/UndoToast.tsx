@@ -37,7 +37,7 @@ export function UndoToast(props: {
   }, [key]);
 
   return (
-    <div ref={rootRef} role="status" className="pointer-events-none fixed inset-x-0 bottom-6 z-30 flex justify-center px-4">
+    <div ref={rootRef} role="status" className="pointer-events-none fixed inset-x-0 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-30 flex justify-center px-4 md:bottom-6">
       {props.toast && (
         <div className="pointer-events-auto flex items-center gap-4 rounded-2xl bg-ink px-5 py-3 text-sm text-white shadow-2xl">
           <span>Удалено {props.toast.count}</span>

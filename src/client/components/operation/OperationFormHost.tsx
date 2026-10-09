@@ -42,22 +42,32 @@ const BUTTONS: { type: OperationType; symbol: string; label: string; className: 
   { type: 'transfer', symbol: '⇄', label: 'Перевод', className: 'bg-chrome-2 text-white' },
 ];
 
-/** Кнопки шапки «+ Доход», «- Расход», «⇄ Перевод» (§7 «Каркас»; у минуса — знак U+2212). */
-export function NewOperationButtons() {
+/**
+ * Кнопки «+ Доход», «- Расход», «⇄ Перевод» (§7; у минуса — знак U+2212). `header` — в шапке, только на компьютере;
+ * `bottom` — на телефоне (меньше 768 px) панель, закреплённая у нижнего края экрана (§7 «Мобильная версия»).
+ */
+export function NewOperationButtons({ placement = 'header' }: { placement?: 'header' | 'bottom' }) {
   const open = useOpenOperationForm();
+  const buttons = BUTTONS.map((b) => (
+    <button
+      key={b.type}
+      type="button"
+      aria-haspopup="dialog"
+      onClick={() => open({ kind: 'create', type: b.type })}
+      className={`rounded-xl font-semibold hover:brightness-110 ${placement === 'header' ? 'px-3 py-2 text-sm' : 'px-2 py-3 text-base'} ${b.className}`}
+    >
+      <span aria-hidden="true">{b.symbol}</span> {b.label}
+    </button>
+  ));
+  if (placement === 'header') return <div className="hidden gap-2 md:flex">{buttons}</div>;
   return (
-    <div className="flex gap-2">
-      {BUTTONS.map((b) => (
-        <button
-          key={b.type}
-          type="button"
-          aria-haspopup="dialog"
-          onClick={() => open({ kind: 'create', type: b.type })}
-          className={`rounded-xl px-3 py-2 text-sm font-semibold hover:brightness-110 ${b.className}`}
-        >
-          <span aria-hidden="true">{b.symbol}</span> {b.label}
-        </button>
-      ))}
+    <div
+      role="group"
+      aria-label="Добавить операцию"
+      // над «домашней» полосой iPhone и с учётом выреза в горизонтальном положении
+      className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-3 gap-2 bg-chrome pt-2 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] shadow-[0_-4px_16px_rgb(0_0_0/0.15)] md:hidden"
+    >
+      {buttons}
     </div>
   );
 }
