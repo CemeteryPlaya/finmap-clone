@@ -115,3 +115,118 @@ test('счета на телефоне выезжают слева: итог и 
   await expect(open).toBeHidden();
   await expect(page.getByRole('navigation', { name: 'Счета' })).toBeVisible();
 });
+
+const cards = (page: Page) => page.getByRole('list', { name: 'Операции' });
+
+test('сценарий 4 §10, ширина 390 px: расход с выражением через кнопки-операторы, журнал карточками, правка операции', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Телефон ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 1000000 });
+  await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда' });
+  await page.reload();
+
+  // на компьютере ряда операторов нет
+  await page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true }).click();
+  const dialog = newForm(page);
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  await expect(dialog.getByRole('group', { name: /^Операторы/ })).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+
+  await page.setViewportSize(PHONE);
+  await bar(page).getByRole('button', { name: 'Расход', exact: true }).click();
+  // форма — на весь экран
+  const box = (await dialog.boundingBox())!;
+  expect(box.width).toBeGreaterThanOrEqual(PHONE.width - 1);
+  expect(box.height).toBeGreaterThanOrEqual(PHONE.height - 1);
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  await expect(amount).toBeFocused();
+  await expect(amount).toHaveAttribute('inputmode', 'decimal');
+  await dialog.getByRole('button', { name: /^Статья:/ }).click();
+  await dialog.getByRole('option', { name: 'Аренда', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Статья: Аренда' })).toBeVisible();
+  // выражение набирается цифрами, операторы — кнопками под полем; фокус остаётся в поле
+  await amount.click();
+  await page.keyboard.type('1000');
+  await dialog.getByRole('button', { name: 'Оператор умножение' }).click();
+  await expect(amount).toBeFocused();
+  await page.keyboard.type('3');
+  await dialog.getByRole('button', { name: 'Оператор минус' }).click();
+  await page.keyboard.type('500');
+  await expect(amount).toHaveValue('1000×3\u2212500');
+  await amount.blur();
+  await expect(amount).toHaveValue('2500');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).toBeHidden();
+
+  // журнал — карточки: сумма, статья, счёт, дата; таблицы и флажков выделения нет
+  await expect(page.getByRole('table', { name: 'Операции' })).toHaveCount(0);
+  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  const card = cards(page).getByRole('listitem').first();
+  await expect(card).toContainText(/\u22122\s500,00\s₸/);
+  await expect(card).toContainText('Аренда');
+  await expect(card).toContainText('Касса');
+  await expect(card).toContainText(/сегодня \d\d:\d\d/);
+
+  // правка: карточка открывает операцию на весь экран; оператор дописывается в конец суммы
+  await card.getByRole('button').click();
+  const edit = page.getByRole('dialog', { name: 'Изменить операцию' });
+  const editAmount = edit.getByRole('textbox', { name: /^Сумма,/ });
+  await expect(editAmount).toBeFocused();
+  await expect(editAmount).toHaveValue('2500');
+  expect((await edit.boundingBox())!.width).toBeGreaterThanOrEqual(PHONE.width - 1);
+  await editAmount.click();
+  await page.keyboard.press('End');
+  await edit.getByRole('button', { name: 'Оператор деление' }).click();
+  await page.keyboard.type('2');
+  await editAmount.blur();
+  await expect(editAmount).toHaveValue('1250');
+  await edit.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(edit).toBeHidden();
+  await expect(cards(page).getByRole('listitem')).toHaveCount(1);
+  await expect(card).toContainText(/\u22121\s250,00\s₸/);
+  // фокус вернулся на карточку, с которой открыли форму
+  await expect(card.getByRole('button')).toBeFocused();
+});
+
+test('журнал карточками догружается при прокрутке; последняя карточка не прячется под нижней панелью', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Прокрутка ${Date.now()}`);
+  const cash = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  for (let i = 1; i <= 55; i++) {
+    await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: new Date(Date.now() - i * 60_000).toISOString(), accountId: cash, amount: i * 100, comment: `№${i}` });
+  }
+  await page.setViewportSize(PHONE);
+  await page.reload();
+
+  const list = cards(page).getByRole('listitem');
+  await expect(list).toHaveCount(50);
+  await page.getByRole('button', { name: 'Показать ещё' }).scrollIntoViewIfNeeded();
+  await expect(list).toHaveCount(55);
+  await expect(page.getByRole('button', { name: 'Показать ещё' })).toHaveCount(0);
+  await expect(list.last()).toContainText('№55');
+  // в самом низу страницы последняя карточка — над закреплённой панелью
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const last = (await list.last().boundingBox())!;
+  const panelTop = (await bar(page).boundingBox())!.y;
+  expect(last.y + last.height).toBeLessThanOrEqual(panelTop);
+});
+
+test('выделение из широкого окна на телефоне снимается: невидимые строки не удалить массовым действием', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Выделение ${Date.now()}`);
+  const cash = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: new Date(Date.now() - 60_000).toISOString(), accountId: cash, amount: 10000 });
+  await page.reload();
+
+  await page.getByRole('checkbox', { name: 'Выбрать все загруженные операции' }).check();
+  const bulk = page.getByRole('region', { name: 'Действия с выбранными' });
+  await expect(bulk).toContainText('Выбрано: 1');
+  await page.setViewportSize(PHONE);
+  await expect(cards(page).getByRole('listitem')).toHaveCount(1);
+  await expect(bulk).toHaveCount(0);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(page.getByRole('checkbox', { name: 'Выбрать все загруженные операции' })).not.toBeChecked();
+  await expect(bulk).toHaveCount(0);
+});

@@ -4,6 +4,7 @@ import { todayInTimezone } from '../../shared/dates';
 import { AssignPicker } from '../components/journal/AssignPicker';
 import { BulkBar } from '../components/journal/BulkBar';
 import { ColumnsPicker } from '../components/journal/ColumnsPicker';
+import { JournalCards } from '../components/journal/JournalCards';
 import { FilterDialog } from '../components/journal/FilterDialog';
 import { SavedFiltersMenu, unavailableText } from '../components/journal/SavedFiltersMenu';
 import { UndoToast } from '../components/journal/UndoToast';
@@ -30,6 +31,7 @@ import {
 import { uniqueById } from '../lib/journal-format';
 import { bulkSummary, type BulkAction, type BulkSummary } from '../lib/journal-bulk';
 import { operationErrorText, runBulk, useAssign } from '../lib/journal-mutations';
+import { useIsMobile } from '../lib/media';
 import { queryClient, useMeta } from '../lib/query';
 import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useSavedFilters, useTags, type CategoryTree, type Company } from '../lib/queries';
 import type { CompanyOutletContext } from './CompanyLayout';
@@ -133,6 +135,8 @@ function JournalScreen(props: {
   const { company } = props;
   // архивная компания — только чтение: ни «Указать», ни выделения, ни сохранения фильтра
   const readOnly = company.archivedAt !== null;
+  // телефон (§7 «Мобильная версия»): карточки вместо таблицы, без выделения и «Указать»
+  const mobile = useIsMobile();
   const meta = useMeta();
   const prefs = usePreferences();
   const [params, setParams] = useSearchParams();
@@ -148,6 +152,7 @@ function JournalScreen(props: {
   const [filterOpen, setFilterOpen] = useState(false);
   const openForm = useOpenOperationForm();
   const savedFilters = useSavedFilters(company.id);
+  const openOperation = (item: { id: number }) => openForm({ kind: 'edit', id: item.id, focusAfterDelete: () => document.getElementById(HEADING_ID) });
   // предупреждение после применения сохранённого фильтра с недоступными ссылками (инвариант 10)
   const [notice, setNotice] = useState<string | null>(null);
   // ошибка «Указать» (конфликт версии, архив) — над таблицей, пока её не скроют или не начнут новое действие
@@ -174,6 +179,10 @@ function JournalScreen(props: {
   }, [props.undoFailure]);
   // строка, которой только что назначили значение: если она ушла из фильтра, фокус не должен потеряться
   const assigned = useRef<{ id: number; index: number } | null>(null);
+  // на телефоне массовых действий нет: выделение, сделанное в широком окне, снимается — невидимое не удалить по ошибке
+  useEffect(() => {
+    if (mobile) setSelected(new Set());
+  }, [mobile]);
   const filterKey = params.toString();
   const prevFilterKey = useRef(filterKey);
   // другой фильтр — выделение и итоги снимаются (другая компания — новый экран, см. выше: итог её отмены переживает смену)
@@ -375,7 +384,7 @@ function JournalScreen(props: {
           </button>
         </p>
       )}
-      {selectedIds.length > 0 && (
+      {!mobile && selectedIds.length > 0 && (
         <BulkBar count={selectedIds.length} data={assignData} pending={bulkPending} onRun={(action) => run(action, selectedIds)} onClear={() => setSelected(new Set())} />
       )}
       {!journal.data && !journal.error ? (
@@ -391,6 +400,16 @@ function JournalScreen(props: {
         </div>
       ) : items.length === 0 ? (
         <p className="py-8 text-center text-muted">{isFiltered(state) ? 'По этому фильтру операций нет.' : 'Операций пока нет.'}</p>
+      ) : mobile ? (
+        <JournalCards
+          items={items}
+          lookups={lookups}
+          baseCurrency={company.baseCurrency}
+          timeZone={timeZone}
+          today={today}
+          busy={journal.isPlaceholderData}
+          onOpenOperation={openOperation}
+        />
       ) : (
         <JournalTable
           items={items}
@@ -404,7 +423,7 @@ function JournalScreen(props: {
           order={state.order}
           onSort={(sort, order) => update({ ...state, sort, order })}
           busy={journal.isPlaceholderData}
-          onOpenOperation={(item) => openForm({ kind: 'edit', id: item.id, focusAfterDelete: () => document.getElementById(HEADING_ID) })}
+          onOpenOperation={openOperation}
           renderAssign={
             readOnly
               ? undefined

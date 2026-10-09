@@ -145,31 +145,7 @@ test('операция на архивном счёте: сумма, дата и
   await expect(rows(page).filter({ hasText: 'приход из кассы' })).toHaveCount(1);
 });
 
-test('ширина 390 px: правка операции — форма на весь экран, сумма через кнопки-операторы (§10, сценарий 4)', async ({ page }) => {
-  await login(page);
-  const cid = await createCompany(page, `ТОО Телефон правка ${Date.now()}`);
-  const base = `/api/v1/companies/${cid}`;
-  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
-  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: cash, amount: 10000 });
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.reload();
-
-  await table(page).getByRole('button', { name: /^Открыть операцию/ }).click();
-  const dialog = editForm(page);
-  const box = (await dialog.boundingBox())!;
-  expect(box.width).toBeGreaterThanOrEqual(389);
-  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
-  await expect(amount).toBeFocused();
-  await amount.click();
-  await page.keyboard.press('End');
-  await dialog.getByRole('button', { name: 'Оператор умножение' }).click();
-  await page.keyboard.type('2');
-  await amount.blur();
-  await expect(amount).toHaveValue('200');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
-  await expect(dialog).toBeHidden();
-  await expect(rows(page).first()).toContainText(/200,00\s₸/);
-});
+// Правка операции на ширине 390 px (сценарий 4 §10) — в e2e/mobile.spec.ts (план 7).
 
 test('перевод KZT → USD: новая сумма списания сохраняется вместе с прежней суммой зачисления', async ({ page }) => {
   await login(page);

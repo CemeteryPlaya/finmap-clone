@@ -194,42 +194,7 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   await expect(page.getByRole('banner').getByRole('button', { name: 'Доход', exact: true })).toBeFocused();
 });
 
-test('ширина 390 px: форма на весь экран, сумма через кнопки-операторы (§10, сценарий 4)', async ({ page }) => {
-  await login(page);
-  const cid = await createCompany(page, `ТОО Телефон ${Date.now()}`);
-  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
-  await page.reload();
-
-  // на десктопе ряда операторов нет
-  let dialog = await openForm(page, 'Расход');
-  await expect(dialog.getByRole('group', { name: /^Операторы/ })).toBeHidden();
-  await page.keyboard.press('Escape');
-  await expect(dialog).toBeHidden();
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  // на телефоне кнопки шапки скрыты — форма открывается с нижней панели
-  await expect(page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true })).toBeHidden();
-  await page.getByRole('group', { name: 'Добавить операцию' }).getByRole('button', { name: 'Расход', exact: true }).click();
-  dialog = form(page);
-  const box = (await dialog.boundingBox())!;
-  expect(box.width).toBeGreaterThanOrEqual(389);
-  expect(box.height).toBeGreaterThanOrEqual(843);
-  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
-  await expect(amount).toHaveAttribute('inputmode', 'decimal');
-  await amount.click();
-  await page.keyboard.type('1000');
-  await dialog.getByRole('button', { name: 'Оператор умножение' }).click();
-  await expect(amount).toBeFocused();
-  await page.keyboard.type('3');
-  await dialog.getByRole('button', { name: 'Оператор минус' }).click();
-  await page.keyboard.type('500');
-  await expect(amount).toHaveValue('1000×3\u2212500');
-  await amount.blur();
-  await expect(amount).toHaveValue('2500');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
-  await expect(dialog).toBeHidden();
-  await expect(table(page).locator('tbody tr').first()).toContainText(/2\s500,00\s₸/);
-});
+// Сценарий 4 §10 на ширине 390 px (создание с нижней панели и правка из карточки) — в e2e/mobile.spec.ts (план 7).
 
 test('«Разделить» в процентах на два проекта; шаблон разделения: применить с недоступной статьёй, сохранить текущее', async ({ page }) => {
   await login(page);
