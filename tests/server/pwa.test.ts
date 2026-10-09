@@ -1,10 +1,14 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import zlib from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
+import { buildApp } from '../../src/server/app';
+import { createTestDb } from '../helpers/test-db';
 import { BRAND_COLORS } from '../../src/shared/brand';
 import { iconShapes, iconSvg, renderIcon } from '../../src/server/pwa/icons';
 import { encodePng } from '../../src/server/pwa/png';
 import { buildManifest, PWA_PNG_ICONS } from '../../src/server/pwa/routes';
-import { createTestApp, type TestApp } from '../helpers/test-app';
+import { createTestApp, testConfig, type TestApp } from '../helpers/test-app';
 
 /** Разбор PNG для проверок: подпись, блоки и их CRC, заголовок, пиксели RGBA (у строк — фильтр 0). */
 function decodePng(png: Buffer) {
@@ -150,5 +154,23 @@ describe('маршруты PWA', () => {
     t = await createTestApp();
     const res = await t.app.inject({ method: 'POST', url: '/pwa/manifest.webmanifest' });
     expect(res.statusCode).toBe(404);
+  });
+
+  it('неизвестный путь /pwa/... — 404, а не страница приложения (даже когда клиент собран)', async () => {
+    const db = createTestDb();
+    const clientDir = path.join(db.dir, 'client');
+    fs.mkdirSync(clientDir, { recursive: true });
+    fs.writeFileSync(path.join(clientDir, 'index.html'), '<!doctype html><title>SPA</title>');
+    const app = await buildApp({ config: testConfig(db.dir), db: db.db, sqlite: db.sqlite, clientDir });
+    try {
+      const typo = await app.inject({ method: 'GET', url: '/pwa/typo.png' });
+      expect(typo.statusCode).toBe(404);
+      expect(typo.body).not.toContain('<title>SPA</title>');
+      const spa = await app.inject({ method: 'GET', url: '/c/1/log' });
+      expect(spa.statusCode).toBe(200);
+    } finally {
+      await app.close();
+      db.cleanup();
+    }
   });
 });

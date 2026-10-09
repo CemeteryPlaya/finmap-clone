@@ -341,6 +341,11 @@ test('фильтры на телефоне — в панели справа: п�
  * Ни страница, ни открытые окна (`dialog[open]` — форма, «Фильтр», выезжающие панели лежат в верхнем слое,
  * ширину страницы они не меняют) не шире своей видимой области: ничего не прокручивается вбок.
  */
+/** Намеренная отрицательная проверка: за 300 мс не должно уйти ни одного изменяющего запроса (ожидание обязано истечь). */
+async function expectNoWriteRequest(page: Page) {
+  await expect(page.waitForRequest((r) => r.method() !== 'GET', { timeout: 300 })).rejects.toThrow();
+}
+
 async function expectNoSideScroll(page: Page, where: string) {
   const boxes = await page.evaluate(() =>
     [document.documentElement, ...Array.from(document.querySelectorAll<HTMLElement>('dialog[open]'))].map((el) => ({
@@ -487,7 +492,7 @@ test('архивная компания: форма операции тольк�
   });
   // Enter на «Закрыть» нажимает её саму, поэтому отправку формы (то, что делает Enter в поле) вызываем напрямую
   await view.getByRole('form', { name: 'Операция' }).evaluate((f) => (f as HTMLFormElement).requestSubmit());
-  await page.waitForTimeout(300);
+  await expectNoWriteRequest(page);
   await expect(view).toBeVisible();
   expect(writes).toEqual([]);
   // R2: Tab и Shift+Tab по кругу — фокус не выходит из окна

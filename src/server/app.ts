@@ -152,7 +152,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   if (fs.existsSync(path.join(clientDir, 'index.html'))) {
     await app.register(fastifyStatic, { root: clientDir, prefix: '/', wildcard: false });
     app.setNotFoundHandler((req, reply) => {
-      if (req.url.startsWith('/api/') || req.method !== 'GET') {
+      if (req.url.startsWith('/api/') || req.url.startsWith('/pwa/') || req.method !== 'GET') {
         return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Не найдено' } });
       }
       return reply.type('text/html').sendFile('index.html');

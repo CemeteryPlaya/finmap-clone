@@ -32,7 +32,7 @@ export function JournalCards(props: {
               type="button"
               data-operation-id={item.id}
               onClick={() => props.onOpenOperation(item)}
-              className="flex w-full items-start justify-between gap-3 rounded-lg py-3 text-left outline-none focus-visible:bg-field/60"
+              className="flex w-full items-start justify-between gap-3 rounded-lg py-3 text-left outline-none focus-visible:bg-field/60 focus-visible:ring-2 focus-visible:ring-focus"
             >
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{c.title}</span>

@@ -17,7 +17,7 @@ describe('цвета бренда для PWA', () => {
 
   it('index.html: цвет темы, манифест, иконки вкладки и iOS', () => {
     expect(html).toContain(`<meta name="theme-color" content="${BRAND_COLORS.chrome}" />`);
-    expect(html).toContain('<link rel="manifest" href="/pwa/manifest.webmanifest" />');
+    expect(html).toContain('<link rel="manifest" href="/pwa/manifest.webmanifest" crossorigin="use-credentials" />');
     expect(html).toContain('<link rel="icon" href="/pwa/icon.svg" type="image/svg+xml" />');
     expect(html).toContain('<link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png" />');
     // офлайн-режима нет (§7): service worker не регистрируется
