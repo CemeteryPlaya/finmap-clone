@@ -21,7 +21,8 @@ export function AppHeader({ left, actions, profileHref }: { left?: ReactNode; ac
   }, [meta.data]);
 
   return (
-    <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-6 py-4 text-white">
+    // в PWA на iPhone строка состояния прозрачная (black-translucent): шапка начинается ниже выреза экрана
+    <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-6 pb-4 pt-[max(1rem,env(safe-area-inset-top))] text-white">
       <div className="flex min-w-0 items-center gap-4">
         <span className="shrink-0 text-lg font-bold">{meta.data?.appName}</span>
         {left}

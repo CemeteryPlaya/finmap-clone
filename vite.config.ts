@@ -14,6 +14,8 @@ export default defineConfig({
         changeOrigin: true,
         headers: { origin: 'http://localhost:3000' },
       },
+      // манифест и иконки PWA отдаёт сервер (название — из APP_NAME)
+      '/pwa': { target: 'http://127.0.0.1:3000', changeOrigin: true },
     },
   },
 });
