@@ -43,6 +43,7 @@ import { SearchPicker } from '../SearchPicker';
 import { alertClass, btnDanger, btnPrimary, btnSecondary, btnSmall, inputClass } from '../ui';
 import { AmountField } from './AmountField';
 import { ComboSelect } from './ComboSelect';
+import { RateFix, type MissingRate } from './RateFix';
 import { SplitEditor } from './SplitEditor';
 import type { OperationFormRequest } from './OperationFormHost';
 
@@ -172,6 +173,9 @@ function OperationEditor(p: {
   const deleteAsked = useRef(false);
   /** 409 при сохранении правки: операцию изменили или удалили после того, как форму открыли. */
   const [conflict, setConflict] = useState<'changed' | 'deleted' | null>(null);
+  /** RATE_UNAVAILABLE: какого курса нет; «Повторить» сохраняет тем же способом (lastThen). */
+  const [missingRate, setMissingRate] = useState<MissingRate | null>(null);
+  const lastThen = useRef<'close' | 'similar'>('close');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -273,6 +277,8 @@ function OperationEditor(p: {
 
   const submit = async (then: 'close' | 'similar') => {
     if (pending) return;
+    lastThen.current = then;
+    setMissingRate(null);
     const now = new Date();
     // у существующей операции при смене дня сохраняется прежнее время суток
     const timeOfDayFrom = op ? new Date(op.paidAt) : now;
@@ -309,6 +315,11 @@ function OperationEditor(p: {
       setStatus('Операция сохранена — можно ввести похожую');
       setRefocusAmount((n) => n + 1);
     } catch (e) {
+      if (e instanceof ApiError && e.code === 'RATE_UNAVAILABLE' && e.details?.currency && e.details.date) {
+        setMissingRate({ message: e.message, currency: e.details.currency, date: e.details.date });
+        setErrorFocus((x) => x + 1);
+        return;
+      }
       if (op && e instanceof ApiError && e.status === 409) {
         setConflict(e.message.startsWith('Операция удалена') ? 'deleted' : 'changed');
         void invalidateOperations(p.company.id);
@@ -605,6 +616,7 @@ function OperationEditor(p: {
       </div>
       </fieldset>
 
+      {missingRate && <RateFix missing={missingRate} companyId={p.company.id} pending={pending} onRetry={() => void submit(lastThen.current)} />}
       {conflict && (
         <div role="alert" className={`${alertClass} mb-0 flex flex-wrap items-center justify-between gap-2`}>
           <span>{conflict === 'changed' ? 'Операция изменена другим пользователем' : 'Операция удалена другим пользователем'}</span>

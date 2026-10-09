@@ -7,6 +7,8 @@ export class AppError extends Error {
     public readonly code: string,
     message: string,
     public readonly fields?: Record<string, string>,
+    /** Данные для действия в интерфейсе (у RATE_UNAVAILABLE — валюта и дата для «Указать курс на {D}»). */
+    public readonly details?: Record<string, string>,
   ) {
     super(message);
     this.name = 'AppError';
@@ -26,7 +28,7 @@ export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((err: FastifyError | Error, req, reply) => {
     if (err instanceof AppError) {
       return reply.status(err.status).send({
-        error: { code: err.code, message: err.message, ...(err.fields ? { fields: err.fields } : {}) },
+        error: { code: err.code, message: err.message, ...(err.fields ? { fields: err.fields } : {}), ...(err.details ? { details: err.details } : {}) },
       });
     }
     if (err instanceof ZodError) {

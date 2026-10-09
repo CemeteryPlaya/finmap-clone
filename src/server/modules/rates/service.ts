@@ -37,7 +37,9 @@ export interface RatesService {
 const FALLBACK_DAYS = 7;
 
 const invalid = (fields: Record<string, string>) => new AppError(400, 'VALIDATION', 'Проверьте заполнение полей', fields);
-const unavailable = (currency: string, date: string) => new AppError(422, 'RATE_UNAVAILABLE', `Нет курса ${currency} на ${formatDateRu(date)}`);
+/** Нет курса: details — какой валюте и на какую дату нужен курс, форма операции предлагает «Указать курс на {D}» (§4.3 п. 6). */
+export const rateUnavailable = (currency: string, date: string) =>
+  new AppError(422, 'RATE_UNAVAILABLE', `Нет курса ${currency} на ${formatDateRu(date)}`, undefined, { currency, date });
 /** Каноническая запись курса: «475,1200» → «475.12». */
 const canonical = (rate: string) => decToString(parseDecimal(rate)!);
 
@@ -108,9 +110,9 @@ export function createRatesService(d: { db: Db; audit: AuditService; now?: () =>
         return { rate, display: roundSignificant(rate) };
       }
       const rx = svc.kztRate(currency, date);
-      if (!rx) throw unavailable(currency, date);
+      if (!rx) throw rateUnavailable(currency, date);
       const rb = svc.kztRate(baseCurrency, date);
-      if (!rb) throw unavailable(baseCurrency, date);
+      if (!rb) throw rateUnavailable(baseCurrency, date);
       const rate = divDec(rx.rate, rb.rate);
       return { rate, display: roundSignificant(rate) };
     },

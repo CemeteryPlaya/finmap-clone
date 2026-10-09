@@ -1,6 +1,5 @@
 import { asc } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { formatDateRu } from '../../../shared/dates';
 import { decToString } from '../../../shared/decimal';
 import {
   fixedRateCreateSchema,
@@ -11,9 +10,8 @@ import {
 } from '../../../shared/schemas/rates';
 import type { Db } from '../../db/client';
 import { currencies } from '../../db/schema';
-import { AppError } from '../../errors';
 import { parseId } from '../../http/params';
-import type { RatesService } from './service';
+import { rateUnavailable, type RatesService } from './service';
 
 type P = { Params: { id: string } };
 type CP = { Params: { cid: string; id: string } };
@@ -26,7 +24,7 @@ export function registerRatesRoutes(app: FastifyInstance, deps: { db: Db; rates:
   app.get('/api/v1/rates', async (req) => {
     const q = rateQuerySchema.parse(req.query);
     const found = rates.kztRate(q.currency, q.date);
-    if (!found) throw new AppError(422, 'RATE_UNAVAILABLE', `Нет курса ${q.currency} на ${formatDateRu(q.date)}`);
+    if (!found) throw rateUnavailable(q.currency, q.date);
     return { rate: { currency: q.currency, date: q.date, rateToKzt: decToString(found.rate), effectiveDate: found.date, source: found.source } };
   });
 

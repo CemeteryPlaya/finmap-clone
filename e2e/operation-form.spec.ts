@@ -454,3 +454,33 @@ test('«+ Создать „…“» прямо из формы: контраг�
   const people = (await (await page.request.get(`${base}/counterparties`)).json()).counterparties as { name: string; type: string }[];
   expect(people.find((c) => c.name === 'Асель')!.type).toBe('employee');
 });
+
+test('нет курса на дату: «Указать курс на {D}» создаёт ручной курс прямо в форме, «Повторить» сохраняет операцию', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Курс ${Date.now()}`);
+  // CHF и 2021 год — только в этом тесте: ручной курс общий для всех компаний
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Франки', currency: 'CHF', openedAt: '2020-01-01' });
+  await page.reload();
+
+  const dialog = await openForm(page, 'Расход');
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('10');
+  await dialog.getByLabel('Дата оплаты').fill('2021-06-15');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  const alert = dialog.getByRole('alert').filter({ hasText: 'Нет курса CHF на 15.06.2021' });
+  await expect(alert).toBeVisible();
+  await expect(alert.getByRole('button', { name: 'Указать курс на 15.06.2021' })).toBeFocused();
+  await alert.getByRole('button', { name: 'Указать курс на 15.06.2021' }).click();
+  const rate = alert.getByLabel('Курс CHF к тенге на 15.06.2021');
+  await expect(rate).toBeFocused();
+  await rate.fill('abc');
+  await alert.getByRole('button', { name: 'Сохранить курс' }).click();
+  await expect(rate).toHaveAttribute('aria-invalid', 'true');
+  await rate.fill('560,5');
+  await rate.press('Enter');
+  await expect(alert).toContainText('Курс CHF на 15.06.2021 сохранён');
+  await expect(dialog).toBeVisible();
+  await alert.getByRole('button', { name: 'Повторить' }).click();
+  await expect(dialog).toBeHidden();
+  const row = table(page).locator('tbody tr').filter({ hasText: '15.06.2021' });
+  await expect(row).toContainText(/5\s605,00\s₸/);
+});
