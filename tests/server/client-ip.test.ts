@@ -11,7 +11,7 @@ afterEach(async () => {
 const MODE_ENV = {
   cloudflare: { DEPLOY_MODE: 'cloudflare', CF_TUNNEL_TOKEN: 't' },
   ngrok: { DEPLOY_MODE: 'ngrok', NGROK_AUTHTOKEN: 'a', NGROK_DOMAIN: 'x.ngrok-free.app' },
-  vps: { DEPLOY_MODE: 'vps' },
+  vps: { DEPLOY_MODE: 'vps', PUBLIC_URL: 'https://fin.example.kz' },
 } as const;
 
 async function ipOf(mode: keyof typeof MODE_ENV, headers: Record<string, string>, remoteAddress = '127.0.0.1') {
@@ -31,6 +31,15 @@ describe('resolveClientIp', () => {
   it('в режиме vps подделка начала X-Forwarded-For не меняет IP', async () => {
     expect(await ipOf('vps', { 'x-forwarded-for': '1.1.1.1, 9.9.9.9' })).toBe('9.9.9.9');
     expect(await ipOf('vps', { 'x-forwarded-for': '2.2.2.2, 9.9.9.9' })).toBe('9.9.9.9');
+  });
+
+  it('в режиме vps Caddy с loopback передаёт IP клиента в X-Forwarded-For; CF-Connecting-IP игнорируется', async () => {
+    expect(await ipOf('vps', { 'x-forwarded-for': '9.9.9.9' })).toBe('9.9.9.9');
+    expect(await ipOf('vps', { 'x-forwarded-for': '9.9.9.9', 'cf-connecting-ip': '6.6.6.6' })).toBe('9.9.9.9');
+  });
+
+  it('в режиме vps прямое подключение не с loopback: X-Forwarded-For не учитывается', async () => {
+    expect(await ipOf('vps', { 'x-forwarded-for': '9.9.9.9' }, '192.168.1.20')).toBe('192.168.1.20');
   });
 
   it('в режиме cloudflare с loopback учитывает CF-Connecting-IP', async () => {

@@ -1,0 +1,6 @@
+# Caddy для https://fin.example.kz: HTTPS и проксирование в приложение.
+# Сертификат Caddy получает сам; порты 80 и 443 должны быть открыты.
+fin.example.kz {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3000
+}

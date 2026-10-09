@@ -90,6 +90,16 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...base, DEPLOY_MODE: 'ngrok', NGROK_AUTHTOKEN: 't' })).toThrow(/NGROK_DOMAIN/);
   });
 
+  it('режим vps требует PUBLIC_URL с https и настоящим доменом', () => {
+    expect(() => loadConfig({ ...base, DEPLOY_MODE: 'vps' })).toThrow(/vps PUBLIC_URL обязателен/);
+    expect(() => loadConfig({ ...base, DEPLOY_MODE: 'vps', PUBLIC_URL: 'http://fin.example.kz' })).toThrow(/https/);
+    expect(() => loadConfig({ ...base, DEPLOY_MODE: 'vps', PUBLIC_URL: 'https://localhost' })).toThrow(/vps/);
+    expect(() => loadConfig({ ...base, DEPLOY_MODE: 'vps', PUBLIC_URL: 'не адрес' })).toThrow(/vps/);
+    const c = loadConfig({ ...base, DEPLOY_MODE: 'vps', PUBLIC_URL: 'https://fin.example.kz/' });
+    expect(c.deployMode).toBe('vps');
+    expect(c.publicUrl).toBe('https://fin.example.kz');
+  });
+
   it('учитывает DATA_DIR для всех путей данных', () => {
     const c = loadConfig({ ...base, DATA_DIR: 'tmp/x' });
     expect(c.dbPath).toBe(path.resolve('tmp/x', 'app.db'));

@@ -62,6 +62,17 @@ const envSchema = z.object({
   DATA_DIR: z.string().default('data'),
 });
 
+/** https-адрес с настоящим доменом: для него Caddy получает сертификат (§8.1, режим vps). */
+function isPublicHttps(url: string | null): boolean {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
 function toOrigin(url: string): string {
   return new URL(url).origin;
 }
@@ -92,6 +103,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   }
   if (e.DEPLOY_MODE === 'ngrok' && (!e.NGROK_AUTHTOKEN || !e.NGROK_DOMAIN)) {
     throw new Error('Ошибка конфигурации .env — NGROK_AUTHTOKEN и NGROK_DOMAIN обязательны в режиме ngrok');
+  }
+
+  if (e.DEPLOY_MODE === 'vps' && !isPublicHttps(e.PUBLIC_URL)) {
+    throw new Error('Ошибка конфигурации .env — в режиме vps PUBLIC_URL обязателен: https://ваш-домен (например https://fin.example.kz)');
   }
 
   const publicUrl = (e.PUBLIC_URL ?? `http://localhost:${e.PORT}`).replace(/\/+$/, '');

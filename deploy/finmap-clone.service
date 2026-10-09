@@ -1,0 +1,26 @@
+[Unit]
+Description=Учёт (finmap-clone)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=finmap
+WorkingDirectory=/opt/finmap-clone
+Environment=npm_config_cache=/opt/finmap-clone/data/npm-cache
+Environment=npm_config_update_notifier=false
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/finmap-clone
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
