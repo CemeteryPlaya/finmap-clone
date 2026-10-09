@@ -41,7 +41,9 @@ import { Modal } from '../Modal';
 import { Pending } from '../QueryState';
 import { SearchPicker } from '../SearchPicker';
 import { alertClass, btnDanger, btnPrimary, btnSecondary, btnSmall, inputClass } from '../ui';
+import { uploadAttachment, uploadErrorText } from '../../lib/attachments';
 import { AmountField } from './AmountField';
+import { AttachmentsField } from './AttachmentsField';
 import { ComboSelect } from './ComboSelect';
 import { RateFix, type MissingRate } from './RateFix';
 import { SplitEditor } from './SplitEditor';
@@ -184,10 +186,12 @@ function OperationEditor(p: {
   // блок «Проект, теги, комментарий» раскрыт, если в нём уже что-то есть
   const [more, setMore] = useState(() => initial.projectId !== null || initial.tagIds.length > 0 || initial.comment !== '');
   const [refocusAmount, setRefocusAmount] = useState(0);
+  /** Файлы, выбранные до создания операции: загружаются сразу после него (§7). */
+  const [files, setFiles] = useState<File[]>([]);
   /** Ошибка сохранения: фокус — на первое поле с ошибкой или действие в сообщении (поля были недоступны, фокус потерян). */
   const formRef = useRef<HTMLFormElement>(null);
   const [errorFocus, setErrorFocus] = useState(0);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
+  const dirty = files.length > 0 || JSON.stringify(draft) !== JSON.stringify(initial);
   /** Вопрос о несохранённом: фокус на «Продолжить», после ответа — туда, где был. */
   const continueRef = useRef<HTMLButtonElement>(null);
   const focusBefore = useRef<HTMLElement | null>(null);
@@ -301,7 +305,29 @@ function OperationEditor(p: {
         const patch = patchBody(op, r.body, p.timeZone);
         if (patch) await api(`/companies/${p.company.id}/operations/${op.id}`, { method: 'PATCH', body: patch });
       } else {
-        await api(`/companies/${p.company.id}/operations`, { method: 'POST', body: r.body });
+        const created = (await api<{ operation: OperationRecord }>(`/companies/${p.company.id}/operations`, { method: 'POST', body: r.body })).operation;
+        const failed: string[] = [];
+        for (const f of files) {
+          try {
+            await uploadAttachment(p.company.id, created.id, f);
+          } catch (e) {
+            failed.push(`«${f.name}»: ${uploadErrorText(e)}`);
+          }
+        }
+        setFiles([]);
+        if (failed.length > 0) {
+          // операция уже есть: форма переходит к её правке, чтобы файл можно было выбрать заново
+          void invalidateOperations(p.company.id);
+          const saved = draftFromOperation(created, accounts, p.timeZone);
+          setOp(created);
+          p.onEditingChange(true);
+          setDraft(saved);
+          setInitial(saved);
+          setMore(true);
+          setFormError(`Операция сохранена, но не загружено: ${failed.join('; ')}`);
+          setErrorFocus((n) => n + 1);
+          return;
+        }
       }
       void invalidateOperations(p.company.id);
       if (then === 'close') {
@@ -395,6 +421,7 @@ function OperationEditor(p: {
     const copy = duplicateDraft(draft, available(), today);
     setOp(null);
     p.onEditingChange(false);
+    setFiles([]);
     setDraft(copy);
     setInitial(emptyDraft(copy.type, today, firstAccount));
     setErrors({});
@@ -585,7 +612,7 @@ function OperationEditor(p: {
 
       <div>
         <button type="button" aria-expanded={more} onClick={() => setMore((v) => !v)} className="text-sm font-semibold text-muted hover:text-ink">
-          <span aria-hidden="true">{more ? '▾' : '▸'}</span> Проект, теги, комментарий
+          <span aria-hidden="true">{more ? '▾' : '▸'}</span> Проект, теги, комментарий, файл
         </button>
         {more && (
           <div className="mt-3 grid gap-4 md:grid-cols-2">
@@ -613,6 +640,7 @@ function OperationEditor(p: {
                 <textarea {...c} rows={2} maxLength={COMMENT_MAX} value={draft.comment} onChange={(e) => set({ comment: e.target.value }, 'comment')} className={inputClass} />
               )}
             </Field>
+            <AttachmentsField companyId={p.company.id} operationId={op?.id ?? null} pending={files} onPendingChange={setFiles} />
           </div>
         )}
       </div>

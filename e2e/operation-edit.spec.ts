@@ -283,3 +283,71 @@ test('409: операцию изменили в другом окне — «За
   await expect(dialog).toBeHidden();
   await expect(rows(page).filter({ hasText: 'вторая' })).toHaveCount(0);
 });
+
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+const HTML = Buffer.from('<html><script>alert(1)</script></html>');
+
+test('файлы: выбранный до сохранения загружается после создания; скачивание, ошибки типа и размера, удаление', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Файлы ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+
+  // новая операция: файл ждёт сохранения
+  await page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true }).click();
+  let dialog = page.getByRole('dialog', { name: 'Новая операция' });
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('100');
+  await dialog.getByRole('button', { name: 'Проект, теги, комментарий, файл' }).click();
+  await dialog.getByLabel('Комментарий').fill('с чеком');
+  await dialog.getByLabel('Добавить файл').setInputFiles({ name: 'чек.png', mimeType: 'image/png', buffer: PNG });
+  const files = dialog.getByRole('group', { name: 'Файлы' });
+  await expect(files).toContainText('чек.png');
+  await expect(files).toContainText('загрузится после сохранения');
+  // больше 10 МБ — отказ до отправки
+  await dialog.getByLabel('Добавить файл').setInputFiles({ name: 'большой.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(10 * 1024 * 1024 + 1) });
+  await expect(files.getByRole('alert')).toContainText('«большой.pdf»: Файл больше 10 МБ');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).toBeHidden();
+
+  // в правке: блок раскрыт (есть комментарий), файл в списке и скачивается как файл
+  await rows(page).filter({ hasText: 'с чеком' }).getByText('с чеком').click();
+  dialog = editForm(page);
+  const link = dialog.getByRole('link', { name: 'чек.png' });
+  await expect(link).toBeVisible();
+  const download = page.waitForEvent('download');
+  await link.click();
+  expect((await download).suggestedFilename()).toBe('чек.png');
+
+  // HTML под видом картинки сервер не принимает — ошибка у поля
+  await dialog.getByLabel('Добавить файл').setInputFiles({ name: 'вирус.png', mimeType: 'image/png', buffer: HTML });
+  await expect(dialog.getByRole('group', { name: 'Файлы' }).getByRole('alert')).toContainText('«вирус.png»: Допустимые файлы: PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV');
+  // загрузка в существующую операцию — сразу
+  await dialog.getByLabel('Добавить файл').setInputFiles({ name: 'выписка.csv', mimeType: 'text/csv', buffer: Buffer.from('a;b\n1;2\n') });
+  await expect(dialog.getByRole('link', { name: 'выписка.csv' })).toBeVisible();
+
+  // мягкое удаление с подтверждением
+  await dialog.getByRole('button', { name: 'Удалить файл «чек.png»' }).click();
+  await dialog.getByRole('button', { name: 'Да, удалить' }).click();
+  await expect(dialog.getByRole('link', { name: 'чек.png' })).toHaveCount(0);
+  await expect(dialog.getByRole('link', { name: 'выписка.csv' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+});
+
+test('файл, который сервер не принял после создания: операция сохранена, форма переходит к её правке', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Файл после ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+
+  await page.getByRole('banner').getByRole('button', { name: 'Доход', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Новая операция' });
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('50');
+  await dialog.getByRole('button', { name: 'Проект, теги, комментарий, файл' }).click();
+  await dialog.getByLabel('Добавить файл').setInputFiles({ name: 'плохой.png', mimeType: 'image/png', buffer: HTML });
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  const edit = editForm(page);
+  await expect(edit).toBeVisible();
+  await expect(edit.getByRole('alert')).toContainText('Операция сохранена, но не загружено: «плохой.png»: Допустимые файлы');
+  await expect(rows(page)).toHaveCount(1);
+});

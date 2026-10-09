@@ -14,7 +14,12 @@ export class ApiError extends Error {
 
 export async function api<T>(
   path: string,
-  opts: { method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'; body?: unknown } = {},
+  opts: {
+    method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
+    body?: unknown;
+    /** Файл вместо JSON: байты телом `application/octet-stream`, имя — в `X-File-Name` (вложения, план 4b). */
+    file?: { data: Blob; name: string };
+  } = {},
 ): Promise<T> {
   let res: Response;
   try {
@@ -23,9 +28,13 @@ export async function api<T>(
       credentials: 'same-origin',
       headers: {
         'X-Requested-With': 'fetch',
-        ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(opts.file
+          ? { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(opts.file.name) }
+          : opts.body !== undefined
+            ? { 'Content-Type': 'application/json' }
+            : {}),
       },
-      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      body: opts.file ? opts.file.data : opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     });
   } catch {
     throw new ApiError(0, 'NETWORK', 'Нет связи с сервером');
