@@ -235,3 +235,51 @@ test('фокус и закрытие формы: после «Отмена» →
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await expect(rows(page)).toHaveCount(1);
 });
+
+test('409: операцию изменили в другом окне — «Загрузить актуальную» и повтор; удалили — «Закрыть»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Конфликт ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  const id = (await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(2), accountId: cash, amount: 10000, comment: 'первая' })).operation.id;
+  const other = (await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: cash, amount: 5000, comment: 'вторая' })).operation.id;
+  await page.reload();
+
+  await rows(page).filter({ hasText: 'первая' }).getByText('первая').click();
+  let dialog = editForm(page);
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  await expect(amount).toHaveValue('100');
+  await expect(amount).toBeFocused();
+  // другой пользователь меняет комментарий (версия 1 → 2)
+  const res = await page.request.patch(`${base}/operations/${id}`, { data: { version: 1, comment: 'чужая правка' }, headers: csrf(page) });
+  expect(res.status()).toBe(200);
+  await amount.fill('150');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Операция изменена другим пользователем');
+  // поля были недоступны во время запроса — фокус переходит на действие в сообщении
+  await expect(dialog.getByRole('button', { name: 'Загрузить актуальную' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Загрузить актуальную' }).click();
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
+  await expect(dialog.getByLabel('Комментарий')).toHaveValue('чужая правка');
+  await expect(amount).toHaveValue('100');
+  await expect(amount).toBeFocused();
+  await amount.fill('150');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const edited = rows(page).filter({ hasText: 'чужая правка' });
+  await expect(edited).toContainText(/150,00\s₸/);
+
+  // операцию удалили, пока форма открыта
+  await rows(page).filter({ hasText: 'вторая' }).getByText('вторая').click();
+  dialog = editForm(page);
+  // форма ставит фокус в сумму кадр спустя — дождаться, прежде чем заполнять комментарий
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  expect((await page.request.delete(`${base}/operations/${other}`, { headers: csrf(page) })).status()).toBe(200);
+  await dialog.getByLabel('Комментарий').fill('поздно');
+  await expect(dialog.getByLabel('Комментарий')).toHaveValue('поздно');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Операция удалена другим пользователем');
+  await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(rows(page).filter({ hasText: 'вторая' })).toHaveCount(0);
+});

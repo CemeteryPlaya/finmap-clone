@@ -170,6 +170,8 @@ function OperationEditor(p: {
   /** После «Не удалять» (или Esc) фокус возвращается на «Удалить». */
   const deleteRef = useRef<HTMLButtonElement>(null);
   const deleteAsked = useRef(false);
+  /** 409 при сохранении правки: операцию изменили или удалили после того, как форму открыли. */
+  const [conflict, setConflict] = useState<'changed' | 'deleted' | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -307,9 +309,41 @@ function OperationEditor(p: {
       setStatus('Операция сохранена — можно ввести похожую');
       setRefocusAmount((n) => n + 1);
     } catch (e) {
+      if (op && e instanceof ApiError && e.status === 409) {
+        setConflict(e.message.startsWith('Операция удалена') ? 'deleted' : 'changed');
+        void invalidateOperations(p.company.id);
+        setErrorFocus((n) => n + 1);
+        return;
+      }
       setErrors(serverFieldErrors(e instanceof ApiError ? e.fields : undefined));
       setFormError(e instanceof ApiError ? e.message : 'Ошибка сервера');
       setErrorFocus((n) => n + 1);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  /** «Загрузить актуальную» (§7): форма показывает свежую версию, свои изменения пользователь вносит заново. */
+  const reload = async () => {
+    if (!op) return;
+    setPending(true);
+    try {
+      const fresh = (await api<{ operation: OperationRecord }>(`/companies/${p.company.id}/operations/${op.id}`)).operation;
+      if (fresh.deletedAt) {
+        setConflict('deleted');
+        return;
+      }
+      const next = draftFromOperation(fresh, accounts, p.timeZone);
+      setOp(fresh);
+      setDraft(next);
+      setInitial(next);
+      setConflict(null);
+      setErrors({});
+      setFormError(null);
+      setStatus('Загружена актуальная версия — внесите изменения заново');
+      setRefocusAmount((n) => n + 1);
+    } catch (e) {
+      setFormError(e instanceof ApiError ? e.message : 'Ошибка сервера');
     } finally {
       setPending(false);
     }
@@ -571,6 +605,20 @@ function OperationEditor(p: {
       </div>
       </fieldset>
 
+      {conflict && (
+        <div role="alert" className={`${alertClass} mb-0 flex flex-wrap items-center justify-between gap-2`}>
+          <span>{conflict === 'changed' ? 'Операция изменена другим пользователем' : 'Операция удалена другим пользователем'}</span>
+          {conflict === 'changed' ? (
+            <button type="button" disabled={pending} onClick={() => void reload()} className="font-semibold underline">
+              Загрузить актуальную
+            </button>
+          ) : (
+            <button type="button" onClick={p.close} className="font-semibold underline">
+              Закрыть
+            </button>
+          )}
+        </div>
+      )}
       {formError && (
         <p role="alert" className={`${alertClass} mb-0`}>
           {formError}
