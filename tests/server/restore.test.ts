@@ -56,6 +56,12 @@ describe('restore', () => {
     await expect(restoreBackup({ archivePath: archive, config })).rejects.toThrow(/остановите приложение/i);
   });
 
+  it('отказывается, если работает супервизор (data/supervisor.lock с живым PID)', async () => {
+    const { config, archive } = prepare();
+    fs.writeFileSync(path.join(config.dataDir, 'supervisor.lock'), JSON.stringify({ pid: process.ppid, bootTime: currentBootTime() }));
+    await expect(restoreBackup({ archivePath: archive, config })).rejects.toThrow(/остановите приложение/i);
+  });
+
   it('держит lock на время восстановления и снимает его после (и после ошибки)', async () => {
     const { config, archive } = prepare();
     const seen: Array<string | null> = [];

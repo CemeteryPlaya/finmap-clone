@@ -1,4 +1,7 @@
+import { spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 
 /** Допуск при сравнении времени загрузки системы (uptime и часы дают погрешность). */
@@ -28,6 +31,45 @@ export function isPidAlive(pid: number): boolean {
     return true;
   } catch (e) {
     return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/** Разбор вывода `tasklist /FO CSV /NH`: первая строка с кавычки, первое поле — имя образа. */
+export function imageIsNodeFromTasklist(csv: string): boolean {
+  const line = csv.split(/\r?\n/).find((l) => l.startsWith('"'));
+  if (!line) return false;
+  const image = /^"([^"]*)"/.exec(line)?.[1] ?? '';
+  return image.toLowerCase() === 'node.exe';
+}
+
+/** Проверка образа процесса: true/false — проверено; null — проверить не удалось. */
+export type IsNodeProcess = (pid: number) => boolean | null;
+
+/**
+ * Это процесс node? true/false — проверено; null — проверить не удалось.
+ * Windows: tasklist /FI "PID eq N" /FO CSV /NH (первое поле — имя образа, node.exe);
+ * Linux: /proc/N/comm («node»). Другие системы — null. Не бросает исключений.
+ */
+export function processImageIsNode(pid: number): boolean | null {
+  try {
+    if (process.platform === 'win32') {
+      const r = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
+        encoding: 'utf8',
+        windowsHide: true,
+      });
+      if (r.error || r.status !== 0 || typeof r.stdout !== 'string') return null;
+      return imageIsNodeFromTasklist(r.stdout);
+    }
+    if (process.platform === 'linux') {
+      try {
+        return fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim() === 'node';
+      } catch (e) {
+        return (e as NodeJS.ErrnoException).code === 'ENOENT' ? false : null;
+      }
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -77,6 +119,124 @@ function isStale(info: LockInfo): boolean {
 
 function heldByOther(info: LockInfo | null): info is LockInfo {
   return info !== null && info.pid !== process.pid && !isStale(info);
+}
+
+/** Блокировка супервизора в папке данных (npm start, npm run stop, restore). */
+export const SUPERVISOR_LOCK_FILE = 'supervisor.lock';
+
+/**
+ * Состояние lock: free — нет или процесс мёртв (или это мы); held — жив и из этой загрузки системы;
+ * suspect — PID жив, но bootTime другой. Это либо перезагрузка (PID достался чужому процессу),
+ * либо скачок системных часов больше чем на минуту при работающем приложении — различить можно
+ * только по занятому порту приложения и образу процесса (node).
+ */
+export type LockState = { kind: 'free' } | { kind: 'held'; pid: number } | { kind: 'suspect'; pid: number };
+
+function stateOf(info: LockInfo | null, ownIsFree: boolean): LockState {
+  if (info === null || !isPidAlive(info.pid)) return { kind: 'free' };
+  if (info.pid === process.pid && ownIsFree) return { kind: 'free' };
+  return isStale(info) ? { kind: 'suspect', pid: info.pid } : { kind: 'held', pid: info.pid };
+}
+
+export function lockState(lockPath: string): LockState {
+  return stateOf(readLock(lockPath), true);
+}
+
+/** Порт свободен: удалось начать и закончить прослушивание. */
+export function isPortFree(host: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once('error', () => resolve(false));
+    srv.once('listening', () => srv.close(() => resolve(true)));
+    srv.listen(port, host);
+  });
+}
+
+/**
+ * Процесс lock работает: held, либо suspect при занятом порте приложения (скачок часов) и образе,
+ * который не опровергнут как «не node» (PID мог достаться чужому процессу после перезагрузки).
+ */
+export async function lockRunningPid(
+  lockPath: string,
+  portBusy: () => Promise<boolean>,
+  isNode: IsNodeProcess = processImageIsNode,
+): Promise<number | null> {
+  const s = lockState(lockPath);
+  if (s.kind === 'held') return s.pid;
+  if (s.kind === 'suspect' && (await portBusy()) && isNode(s.pid) !== false) return s.pid;
+  return null;
+}
+
+function writeExclusive(lockPath: string, token: string): boolean {
+  try {
+    fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, bootTime: currentBootTime(), token }), { flag: 'wx' });
+    return true;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw e;
+  }
+}
+
+function readRaw(p: string): string | null {
+  try {
+    return fs.readFileSync(p, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Атомарная блокировка (супервизор): файл создаётся только если его нет (flag 'wx').
+ * Занятый файл перехватывается, только если он устарел: процесс мёртв, либо bootTime другой и
+ * (порт приложения свободен или процесс точно не node). Перехват проверяется: файл уносится в сторону
+ * переименованием, и если унесли не то, что оценивали (его успел заменить другой процесс), он
+ * возвращается. Снятие удаляет файл, только если в нём наш token.
+ */
+export async function acquireExclusiveLock(
+  lockPath: string,
+  o: { portBusy: () => Promise<boolean>; token?: string; isNode?: IsNodeProcess },
+): Promise<() => void> {
+  const token = o.token ?? crypto.randomUUID();
+  const isNode = o.isNode ?? processImageIsNode;
+  const release = () => {
+    try {
+      const data = JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { token?: unknown };
+      if (data.token === token) fs.rmSync(lockPath, { force: true });
+    } catch {
+      /* файла нет или он чужой и битый — не трогаем */
+    }
+  };
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (writeExclusive(lockPath, token)) return release;
+    const raw = readRaw(lockPath);
+    if (raw === null) continue; // исчез между попытками
+    // Свой PID с чужим token — второй захват в этом же процессе: занято.
+    const state = stateOf(readLock(lockPath), false);
+    if (
+      state.kind === 'held' ||
+      (state.kind === 'suspect' && (await o.portBusy()) && isNode(state.pid) !== false)
+    ) {
+      throw new LockHeldError(state.pid, lockPath);
+    }
+    const aside = `${lockPath}.${token}.stale`;
+    try {
+      fs.renameSync(lockPath, aside);
+    } catch {
+      continue;
+    }
+    if (readRaw(aside) !== raw) {
+      // Унесли свежую блокировку другого процесса — возвращаем её на место (если место ещё свободно).
+      try {
+        fs.copyFileSync(aside, lockPath, fs.constants.COPYFILE_EXCL);
+      } catch {
+        /* место уже занято — тот процесс сам разберётся */
+      }
+      fs.rmSync(aside, { force: true });
+      throw new LockHeldError(readLockPid(lockPath) ?? 0, lockPath);
+    }
+    fs.rmSync(aside, { force: true });
+  }
+  throw new LockHeldError(readLockPid(lockPath) ?? 0, lockPath);
 }
 
 export function isLockHeld(lockPath: string): boolean {

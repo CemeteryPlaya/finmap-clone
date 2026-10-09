@@ -1,20 +1,10 @@
 import fs from 'node:fs';
-import net from 'node:net';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
 import type { Config } from '../../config';
 import { openDb } from '../../db/client';
 import { appliedMigrationsCount, codeMigrationsCount, runMigrations } from '../../db/migrate';
-import { acquireLock, isLockHeld } from '../../lock';
-
-function isPortFree(host: string, port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const srv = net.createServer();
-    srv.once('error', () => resolve(false));
-    srv.once('listening', () => srv.close(() => resolve(true)));
-    srv.listen(port, host);
-  });
-}
+import { acquireLock, isLockHeld, isPortFree, SUPERVISOR_LOCK_FILE } from '../../lock';
 
 async function bestEffortRm(p: string, warn: (msg: string) => void): Promise<void> {
   try {
@@ -38,7 +28,8 @@ export async function restoreBackup(i: {
   const now = i.now ?? (() => new Date());
   const warn = i.warn ?? ((m: string) => console.warn(m));
 
-  if (isLockHeld(config.lockPath) || !(await isPortFree(config.host, config.port))) {
+  const supervisorLock = path.join(config.dataDir, SUPERVISOR_LOCK_FILE);
+  if (isLockHeld(config.lockPath) || isLockHeld(supervisorLock) || !(await isPortFree(config.host, config.port))) {
     throw new Error('Приложение запущено. Остановите приложение (и задачу автозапуска) и повторите восстановление.');
   }
   // Держим lock на всё время восстановления: приложение не стартует посреди подмены данных.
