@@ -62,3 +62,8 @@ export async function ensureCloudflared(o: {
   fs.writeFileSync(target, buf, { mode: 0o755 });
   return target;
 }
+
+/** Аргументы запуска туннеля: журнал cloudflared — в data/logs (при автозапуске окна нет). */
+export function cloudflaredArgs(logsDir: string): string[] {
+  return ['tunnel', '--no-autoupdate', '--logfile', path.join(logsDir, 'cloudflared.log'), 'run'];
+}

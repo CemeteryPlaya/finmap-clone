@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { checkCloudflaredPath, cloudflaredTarget, ensureCloudflared, platformKey } from '../../scripts/lib/cloudflared';
+import { checkCloudflaredPath, cloudflaredArgs, cloudflaredTarget, ensureCloudflared, platformKey } from '../../scripts/lib/cloudflared';
 
 const body = Buffer.from('fake-binary');
 const sha = crypto.createHash('sha256').update(body).digest('hex');
@@ -70,5 +70,17 @@ describe('checkCloudflaredPath', () => {
     const missing = checkCloudflaredPath(path.join(dir, 'nope.exe'));
     expect(missing.ok).toBe(false);
     expect(!missing.ok && missing.message).toMatch(/не найден/);
+  });
+});
+
+describe('cloudflaredArgs', () => {
+  it('именованный туннель без автообновления, журнал — в data/logs/cloudflared.log', () => {
+    expect(cloudflaredArgs(path.join('D:', 'club', 'data', 'logs'))).toEqual([
+      'tunnel',
+      '--no-autoupdate',
+      '--logfile',
+      path.join('D:', 'club', 'data', 'logs', 'cloudflared.log'),
+      'run',
+    ]);
   });
 });
