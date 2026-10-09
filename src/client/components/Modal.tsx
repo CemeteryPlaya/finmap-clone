@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { cycleTab } from './focus-trap';
 
 /**
  * Модальное окно на `<dialog>`: открывается через showModal() — браузер держит фокус внутри окна,
@@ -34,6 +35,8 @@ export function Modal(props: {
       ref={ref}
       aria-labelledby={titleId}
       onKeyDown={(e) => {
+        // Tab по кругу внутри окна: фокус не уходит в адресную строку браузера
+        cycleTab(e, ref.current);
         // Esc, который не обработали внутри (список с поиском закрывается сам и отменяет событие)
         if (e.key !== 'Escape' || !props.onCancel || e.defaultPrevented) return;
         e.preventDefault();

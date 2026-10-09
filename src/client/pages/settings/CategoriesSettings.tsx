@@ -123,7 +123,7 @@ function TreeSection(props: {
                     onCancel={() => setDeletingId(null)}
                   />
                 ) : (
-                  <span className="flex flex-wrap items-center gap-2">
+                  <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
                     <ReorderButtons label={n.name} disabled={props.pending} onUp={up ? () => move(up) : null} onDown={down ? () => move(down) : null} />
                     {canChooseParent && (
                       <select
@@ -257,7 +257,8 @@ export function CategoriesSettings() {
           {error}
         </p>
       )}
-      <div className="grid gap-6 lg:grid-cols-2">
+      {/* колонка не шире экрана: длинное название в «Перенести в…» не растягивает страницу телефона */}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
         {(['income', 'expense'] as const).map((kind) => (
           <TreeSection
             key={kind}

@@ -47,7 +47,8 @@ function categoryOptions(nodes: CategoryNode[], selected: readonly number[]): Op
 
 const sectionClass = 'min-w-0 rounded-2xl bg-field/50 p-3';
 const legendClass = 'px-1 text-sm font-semibold';
-const checkClass = 'flex items-center gap-2 py-0.5 text-sm';
+// длинное название без пробелов переносится, а не растягивает окно (на телефоне — шириной в экран)
+const checkClass = 'flex min-w-0 items-center gap-2 py-0.5 text-sm';
 
 function CheckList(props: { items: Option[]; selected: readonly number[]; onToggle: (id: number) => void; empty: string }) {
   if (props.items.length === 0) return <p className="py-1 text-sm text-muted">{props.empty}</p>;
@@ -56,7 +57,7 @@ function CheckList(props: { items: Option[]; selected: readonly number[]; onTogg
       {props.items.map((o) => (
         <label key={o.id} className={`${checkClass} ${o.nested ? 'pl-5' : ''}`}>
           <input type="checkbox" checked={props.selected.includes(o.id)} onChange={() => props.onToggle(o.id)} />
-          <span className="truncate">{o.label}</span>
+          <span className="min-w-0 [overflow-wrap:anywhere]">{o.label}</span>
         </label>
       ))}
     </div>
@@ -140,7 +141,7 @@ function FilterForm(props: {
         props.onApply(draft);
       }}
     >
-      <div className="grid max-h-[60dvh] gap-3 overflow-y-auto md:grid-cols-2">
+      <div className="grid max-h-[60dvh] grid-cols-[minmax(0,1fr)] gap-3 overflow-y-auto md:grid-cols-2">
         <Section legend="Тип операции">
           {(['income', 'expense', 'transfer'] as const).map((t) => (
             <label key={t} className={checkClass}>

@@ -11,14 +11,16 @@ export interface TabCandidate {
   /** Для радиокнопки — ключ группы (форма и имя); у остальных элементов не задан. */
   radioGroup?: string;
   checked?: boolean;
+  /** `tabIndex` элемента: меньше нуля (например, `tabindex="-1"`) — Tab на него не попадает. */
+  tabIndex?: number;
 }
 
 /**
- * Элементы, на которые Tab реально попадает, в порядке обхода: без недоступных и скрытых; из группы
+ * Элементы, на которые Tab реально попадает, в порядке обхода: без недоступных, скрытых и с `tabindex` меньше нуля; из группы
  * радиокнопок — только отмеченная, а если отмеченной нет, то первая.
  */
 export function tabbable<T extends TabCandidate>(candidates: T[]): T[] {
-  const live = candidates.filter((c) => !c.disabled && !c.hidden);
+  const live = candidates.filter((c) => !c.disabled && !c.hidden && !(c.tabIndex !== undefined && c.tabIndex < 0));
   const chosen = new Map<string, T>();
   for (const c of live) {
     if (c.radioGroup === undefined) continue;
@@ -36,6 +38,7 @@ function describe(el: HTMLElement): TabCandidate & { el: HTMLElement } {
     hidden: el.getClientRects().length === 0 || !!el.closest('[inert], [hidden]'),
     radioGroup: radio && radio.name ? `${radio.form ? [...document.forms].indexOf(radio.form) : -1}:${radio.name}` : undefined,
     checked: radio?.checked,
+    tabIndex: el.tabIndex,
   };
 }
 

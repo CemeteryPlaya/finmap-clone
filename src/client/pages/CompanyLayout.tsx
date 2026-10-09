@@ -49,8 +49,10 @@ export function CompanyLayout() {
         />
         <div className="flex items-start gap-4 md:mx-4">
           <AccountsPanel company={company} />
-          {/* на телефоне снизу — место под закреплённую панель «Доход», «Расход», «Перевод» */}
-          <main className="min-h-[calc(100dvh-5rem)] min-w-0 flex-1 rounded-t-3xl bg-card p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] md:p-8">
+          {/* на телефоне снизу — место под закреплённую панель «Доход», «Расход», «Перевод»; длинные слова
+              без пробелов (названия, значения в истории) переносятся, а выпадающие списки не шире своего блока —
+              страница не растягивается вбок */}
+          <main className="min-h-[calc(100dvh-5rem)] min-w-0 flex-1 rounded-t-3xl bg-card p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] max-md:[overflow-wrap:anywhere] max-md:[&_select]:max-w-full md:p-8">
             <nav className="mb-6 flex gap-2">
               <NavLink to={`/c/${company.id}/log`} className={tab}>
                 Журнал

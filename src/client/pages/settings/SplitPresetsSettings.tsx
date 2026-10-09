@@ -61,6 +61,15 @@ function toDraft(p: SplitPreset, tree: CategoryTree): Draft {
   };
 }
 
+/** Подпись поля строки на телефоне, где заголовков таблицы нет; у полей есть свои aria-label. */
+function MobileLabel({ children }: { children: string }) {
+  return (
+    <span aria-hidden="true" className="mb-1 block text-xs text-muted md:hidden">
+      {children}
+    </span>
+  );
+}
+
 /** Выпадающий список: архивные не предлагаются, но уже выбранный архивный элемент виден с пометкой. */
 function OptionSelect(props: { label: string; value: string; options: Option[]; onChange: (value: string) => void }) {
   const selected = props.options.find((o) => String(o.id) === props.value);
@@ -141,8 +150,9 @@ function PresetForm(props: {
           )}
         </Field>
       </div>
-      <table className="w-full text-sm">
-        <thead>
+      {/* на телефоне строка — карточкой: статья во всю ширину, под ней проект, доля и «×» */}
+      <table className="w-full text-sm max-md:block">
+        <thead className="max-md:hidden">
           <tr className="text-left text-muted">
             <th className="pb-1 font-normal">Статья</th>
             <th className="pb-1 font-normal">Проект</th>
@@ -152,16 +162,19 @@ function PresetForm(props: {
             </th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="max-md:block">
           {draft.lines.map((l, i) => (
-            <tr key={i}>
-              <td className="pb-2 pr-2">
+            <tr key={i} className="max-md:mb-3 max-md:grid max-md:grid-cols-[minmax(0,1fr)_6rem_auto] max-md:items-end max-md:gap-x-2">
+              <td className="pb-2 pr-2 max-md:col-span-3 max-md:pr-0">
+                <MobileLabel>Статья</MobileLabel>
                 <OptionSelect label={`Статья, строка ${i + 1}`} value={l.categoryId} options={categoryOptions} onChange={(v) => setLine(i, { categoryId: v })} />
               </td>
-              <td className="pb-2 pr-2">
+              <td className="pb-2 pr-2 max-md:pr-0">
+                <MobileLabel>Проект</MobileLabel>
                 <OptionSelect label={`Проект, строка ${i + 1}`} value={l.projectId} options={projectOptions} onChange={(v) => setLine(i, { projectId: v })} />
               </td>
-              <td className="pb-2 pr-2">
+              <td className="pb-2 pr-2 max-md:pr-0">
+                <MobileLabel>Доля, %</MobileLabel>
                 <input
                   aria-label={`Доля %, строка ${i + 1}`}
                   aria-invalid={l.percent !== '' && parsed[i] === null ? true : undefined}

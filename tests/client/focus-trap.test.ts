@@ -33,4 +33,9 @@ describe('tabbable: куда попадает Tab в модальном окне
     ];
     expect(ids(tabbable(list))).toEqual(['a2', 'b2']);
   });
+
+  it('пропускает элементы с tabindex меньше нуля (например, кнопка с tabindex="-1")', () => {
+    const list = [el('a'), el('b', { tabIndex: -1 }), el('c', { tabIndex: 0 }), el('d')];
+    expect(ids(tabbable(list))).toEqual(['a', 'c', 'd']);
+  });
 });

@@ -336,3 +336,120 @@ test('фильтры на телефоне — в панели справа: п�
   await page.setViewportSize(PHONE);
   await expect(panel).toBeHidden();
 });
+
+/**
+ * Ни страница, ни открытые окна (`dialog[open]` — форма, «Фильтр», выезжающие панели лежат в верхнем слое,
+ * ширину страницы они не меняют) не шире своей видимой области: ничего не прокручивается вбок.
+ */
+async function expectNoSideScroll(page: Page, where: string) {
+  const boxes = await page.evaluate(() =>
+    [document.documentElement, ...Array.from(document.querySelectorAll<HTMLElement>('dialog[open]'))].map((el) => ({
+      what: el === document.documentElement ? 'страница' : `окно «${el.querySelector('h2')?.textContent ?? ''}»`,
+      scroll: el.scrollWidth,
+      client: el.clientWidth,
+    })),
+  );
+  for (const b of boxes) expect(b.scroll, `${where}, ${b.what}: ширина содержимого ${b.scroll} px при ${b.client} px`).toBeLessThanOrEqual(b.client);
+}
+
+const SETTINGS = ['projects', 'accounts', 'categories', 'counterparties', 'tags', 'split-presets', 'rates', 'companies', 'users', 'profile', 'audit', 'backup'];
+
+test('ширина 390 px: журнал, все разделы настроек, история с подробностями и форма не прокручиваются вбок', async ({ page }) => {
+  await page.setViewportSize(PHONE);
+  await login(page);
+  const cid = await createCompany(page, `ТОО Очень длинное название компании для проверки ширины ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса основная наличные', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 12345678 })).account.id;
+  const rent = (await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда помещения под компьютерный клуб' })).category.id;
+  await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Оборудование_для_компьютерного_клуба_без_пробелов' });
+  await apiPost(page, `${base}/counterparties`, { type: 'supplier', name: 'ТОО Очень длинное название поставщика оборудования' });
+  await apiPost(page, `${base}/tags`, { name: 'длинный-тег-для-проверки-ширины' });
+  await apiPost(page, `${base}/split-presets`, { name: 'Аренда целиком', lines: [{ categoryId: rent, projectId: null, bp: 10000 }] });
+  await apiPost(page, `${base}/operations`, {
+    type: 'expense',
+    paidAt: todayAgo(2),
+    accountId: cash,
+    amount: 1234567,
+    comment: 'Очень длинный комментарий к операции, чтобы проверить перенос строк в карточке журнала',
+    lines: [{ categoryId: rent, projectId: null, amount: 1234567 }],
+  });
+  // в истории — значение без пробелов: «Было / Стало» не должны растягивать экран
+  const renamed = await page.request.patch(`${base}/accounts/${cash}`, {
+    data: { name: 'Касса_без_пробелов_с_очень_длинным_названием_для_проверки_ширины' },
+    headers: csrf(page),
+  });
+  expect(renamed.status()).toBe(200);
+
+  await page.goto(`/c/${cid}/log`);
+  await expect(cards(page).getByRole('listitem')).toHaveCount(1);
+  await expectNoSideScroll(page, 'журнал');
+
+  for (const section of SETTINGS) {
+    await page.goto(`/c/${cid}/settings/${section}`);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.getByRole('main').getByText('Загрузка…')).toHaveCount(0);
+    await expectNoSideScroll(page, section);
+  }
+
+  // история: подробности изменения с длинным значением
+  await page.goto(`/c/${cid}/settings/audit`);
+  const details = page.getByText('Подробности');
+  await expect(details.first()).toBeVisible();
+  for (const summary of await details.all()) await summary.click();
+  await expect(page.getByRole('main')).toContainText('Касса_без_пробелов');
+  await expectNoSideScroll(page, 'история с подробностями');
+
+  // шаблон разделения в правке: строка — карточкой, у статьи вся ширина
+  await page.goto(`/c/${cid}/settings/split-presets`);
+  await page.getByRole('button', { name: 'Изменить', exact: true }).click();
+  const category = page.getByRole('combobox', { name: 'Статья, строка 1' });
+  await expect(category).toBeVisible();
+  expect((await category.boundingBox())!.width).toBeGreaterThan(250);
+  await expectNoSideScroll(page, 'шаблон разделения');
+
+  // форма операции на весь экран с раскрытым блоком «Проект, теги, комментарий»
+  await page.goto(`/c/${cid}/log`);
+  await bar(page).getByRole('button', { name: 'Расход', exact: true }).click();
+  await newForm(page).getByRole('button', { name: 'Проект, теги, комментарий' }).click();
+  await expect(newForm(page).getByLabel('Комментарий')).toBeVisible();
+  // счёт по умолчанию — «Касса_без_пробелов_…»: кнопка списка не растягивает форму
+  await expect(newForm(page).getByRole('button', { name: /^Счёт: Касса_без_пробелов/ })).toBeVisible();
+  await expectNoSideScroll(page, 'форма операции');
+  const cancel = newForm(page).getByRole('button', { name: 'Отмена', exact: true });
+  expect((await cancel.boundingBox())!.x + (await cancel.boundingBox())!.width).toBeLessThanOrEqual(PHONE.width);
+  await page.keyboard.press('Escape');
+  await expect(newForm(page)).toBeHidden();
+
+  // окно «Фильтр» поверх панели: длинное название статьи переносится, разделы не шире экрана
+  await page.getByRole('button', { name: /^Фильтры/ }).click();
+  await page.getByRole('dialog', { name: 'Фильтры' }).getByRole('button', { name: 'Фильтр', exact: true }).click();
+  const filter = page.getByRole('dialog', { name: 'Фильтр', exact: true });
+  await expect(filter.getByRole('checkbox', { name: 'Оборудование_для_компьютерного_клуба_без_пробелов' })).toBeVisible();
+  await expectNoSideScroll(page, 'окно «Фильтр»');
+  const rights = await filter.locator('fieldset').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().right));
+  expect(Math.max(...rights)).toBeLessThanOrEqual(PHONE.width);
+  // Tab и Shift+Tab ходят по кругу внутри окна: фокус не уходит на панель под ним и в адресную строку
+  for (const key of ['Tab', 'Shift+Tab']) {
+    for (let i = 0; i < 40; i++) {
+      await page.keyboard.press(key);
+      expect(await filter.evaluate((d) => d.contains(document.activeElement)), `${key} №${i + 1}`).toBe(true);
+    }
+  }
+});
+
+test('форма «Новая операция» с «Расход»: Tab и Shift+Tab ходят по кругу, фокус не покидает окно', async ({ page }) => {
+  await page.setViewportSize(PHONE);
+  await login(page);
+  const cid = await createCompany(page, `ТОО Tab ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.goto(`/c/${cid}/log`);
+  await bar(page).getByRole('button', { name: 'Расход', exact: true }).click();
+  await expect(newForm(page).getByRole('radio', { name: 'Расход' })).toBeChecked();
+  for (const key of ['Tab', 'Shift+Tab']) {
+    for (let i = 0; i < 15; i++) {
+      await page.keyboard.press(key);
+      const inForm = await newForm(page).evaluate((d) => document.activeElement?.closest('dialog') === d);
+      expect(inForm, `${key} №${i + 1}`).toBe(true);
+    }
+  }
+});

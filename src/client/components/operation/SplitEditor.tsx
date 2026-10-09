@@ -133,7 +133,7 @@ export function SplitEditor(props: {
   };
 
   return (
-    <section ref={sectionRef} aria-label="Разбиение" className="grid gap-3 rounded-2xl bg-canvas p-4 md:col-span-2">
+    <section ref={sectionRef} aria-label="Разбиение" className="grid grid-cols-[minmax(0,1fr)] gap-3 rounded-2xl bg-canvas p-4 md:col-span-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <fieldset className="inline-flex gap-1 rounded-xl bg-field p-1">
           <legend className="sr-only">Как делить</legend>
@@ -184,7 +184,7 @@ export function SplitEditor(props: {
       )}
 
       {split.lines.map((line, i) => (
-        <div key={line.key} role="group" aria-label={`Строка ${i + 1}`} className="grid items-start gap-2 md:grid-cols-[1fr_1fr_10rem_auto]">
+        <div key={line.key} role="group" aria-label={`Строка ${i + 1}`} className="grid grid-cols-[minmax(0,1fr)] items-start gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_10rem_auto]">
           <ComboSelect
             label="Статья"
             listLabel="Статьи"

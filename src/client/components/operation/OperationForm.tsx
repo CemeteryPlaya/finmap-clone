@@ -483,7 +483,7 @@ function OperationEditor(p: {
   );
 
   return (
-    <form ref={formRef} onSubmit={onSubmit} noValidate aria-label="Операция" className="grid gap-4">
+    <form ref={formRef} onSubmit={onSubmit} noValidate aria-label="Операция" className="grid grid-cols-[minmax(0,1fr)] gap-4">
       {/* тип существующей операции не меняется (схема правки) */}
       {!op && (
       <fieldset disabled={pending}>
@@ -515,7 +515,7 @@ function OperationEditor(p: {
 
       {/* пока запрос идёт, поля недоступны: «похожий» копирует ровно то, что ушло на сервер */}
       <fieldset disabled={pending} className="contents">
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
         {accountField(transfer ? 'Со счёта' : 'Счёт', 'accountId')}
         {transfer && accountField('На счёт', 'toAccountId')}
         <AmountField
@@ -543,7 +543,7 @@ function OperationEditor(p: {
       </div>
 
       {!transfer && (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
           {draft.split ? (
             <SplitEditor
               companyId={p.company.id}
@@ -595,7 +595,7 @@ function OperationEditor(p: {
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
         <Field label={transfer ? 'Дата' : 'Дата оплаты'} error={errors.paidAt} hint={lockHint}>
           {(c) => (
             <input
@@ -631,7 +631,7 @@ function OperationEditor(p: {
           <span aria-hidden="true">{more ? '▾' : '▸'}</span> Проект, теги, комментарий, файл
         </button>
         {more && (
-          <div className="mt-3 grid gap-4 md:grid-cols-2">
+          <div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
             {!draft.split && (
               <ComboSelect
                 label="Проект"
