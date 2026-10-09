@@ -294,6 +294,7 @@ function JournalScreen(props: {
         companyId={company.id}
         baseCurrency={company.baseCurrency}
         today={today}
+        mobile={mobile}
         actions={
           <>
             <button type="button" aria-haspopup="dialog" onClick={() => setFilterOpen(true)} className={btnSmall}>
@@ -307,7 +308,8 @@ function JournalScreen(props: {
                 setNotice(f.unavailable > 0 ? `Фильтр «${f.name}»: ${unavailableText(f.unavailable)} (удалены или в архиве) — они не применены.` : null);
               }}
             />
-            <ColumnsPicker visible={columns} />
+            {/* у карточек на телефоне колонок нет */}
+            {!mobile && <ColumnsPicker visible={columns} />}
           </>
         }
       />

@@ -230,3 +230,109 @@ test('выделение из широкого окна на телефоне с
   await expect(page.getByRole('checkbox', { name: 'Выбрать все загруженные операции' })).not.toBeChecked();
   await expect(bulk).toHaveCount(0);
 });
+
+/** Начало сегодняшнего дня по Алматы — APP_TIMEZONE e2e-сервера (с 01.03.2024 — UTC+5). */
+function startOfTodayAlmaty(): number {
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date());
+  return Date.parse(`${day}T00:00:00+05:00`);
+}
+
+/** Момент «сегодня по Алматы»: чем больше n (0 < n < 1000), тем раньше, но всегда сегодня и не в будущем. */
+const todayAgo = (n: number) => {
+  const start = startOfTodayAlmaty();
+  return new Date(start + (Date.now() - start) * (1 - n / 1000)).toISOString();
+};
+
+/** Вчера в полдень по Алматы. */
+const yesterdayNoon = () => new Date(startOfTodayAlmaty() - 12 * 3600_000).toISOString();
+
+test('фильтры на телефоне — в панели справа: период, сумма, сортировка, окно «Фильтр» поверх панели, сброс; поиск на виду', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Фильтры ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 1000000 })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(3), accountId: cash, amount: 50000, comment: 'выручка' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(2), accountId: cash, amount: 30000, comment: 'аренда' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: yesterdayNoon(), accountId: cash, amount: 10000, comment: 'вчерашний' });
+  await page.setViewportSize(PHONE);
+  await page.reload();
+
+  const list = cards(page).getByRole('listitem');
+  await expect(list).toHaveCount(3);
+  // на виду — поиск и «Фильтры»; период, суммы и колонки спрятаны
+  await expect(page.getByRole('searchbox', { name: 'Поиск' })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Период' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Колонки' })).toHaveCount(0);
+  const open = page.getByRole('button', { name: /^Фильтры/ });
+  await expect(open).toHaveText('Фильтры');
+
+  await open.click();
+  const panel = page.getByRole('dialog', { name: 'Фильтры' });
+  // выезжает справа
+  await expect.poll(async () => { const b = (await panel.boundingBox())!; return Math.round(b.x + b.width); }).toBe(PHONE.width);
+  await expect(panel.getByRole('button', { name: 'Колонки' })).toHaveCount(0);
+  await panel.getByLabel('Период').selectOption('yesterday');
+  await expect(list).toHaveCount(1);
+  await expect(list.first()).toContainText('вчерашний');
+  await panel.getByLabel('Период').selectOption('all');
+  await expect(list).toHaveCount(3);
+
+  // сортировка: сначала крупные
+  await panel.getByLabel('Сортировка').selectOption({ label: 'Сначала крупные' });
+  await expect(page).toHaveURL(/sort=amount/);
+  await expect(list.first()).toContainText('выручка');
+
+  // сумма от 200 ₸ — по Enter
+  await panel.getByLabel('Сумма от, ₸').fill('200');
+  await panel.getByLabel('Сумма от, ₸').press('Enter');
+  await expect(list).toHaveCount(2);
+
+  // окно «Фильтр» открывается поверх панели; «Готово» возвращает в панель
+  await panel.getByRole('button', { name: 'Фильтр', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
+  await dialog.getByRole('checkbox', { name: 'Расход', exact: true }).check();
+  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Фильтр · 1' })).toBeFocused();
+  await expect(list).toHaveCount(1);
+  await expect(list.first()).toContainText('аренда');
+
+  // список сохранённых фильтров открывается внутри панели; Esc закрывает только его
+  await panel.getByRole('button', { name: 'Сохранённые фильтры' }).click();
+  const saved = page.getByRole('dialog', { name: 'Сохранённые фильтры' });
+  await expect(saved).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(saved).toBeHidden();
+  await expect(panel).toBeVisible();
+
+  // Esc закрывает панель; на кнопке — число спрятанных условий (сумма от и тип)
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await expect(open).toBeFocused();
+  await expect(open).toHaveText('Фильтры · 2');
+
+  // касание фона слева от панели закрывает её; «Сбросить фильтр» в панели снимает всё
+  await open.click();
+  await page.mouse.click(10, PHONE.height / 2);
+  await expect(panel).toBeHidden();
+  await open.click();
+  await panel.getByRole('button', { name: 'Сбросить фильтр' }).click();
+  await expect(list).toHaveCount(3);
+  await page.keyboard.press('Escape');
+  await expect(open).toHaveText('Фильтры');
+
+  // поиск — без панели
+  await page.getByRole('searchbox', { name: 'Поиск' }).fill('вчерашн');
+  await expect(list).toHaveCount(1);
+
+  // телефон повернули или окно стало шире при открытой панели: панель закрывается, тулбар и таблица — на месте
+  await open.click();
+  await expect(panel).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(panel).toBeHidden();
+  await expect(page.getByRole('combobox', { name: 'Период' })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Операции' }).locator('tbody tr')).toHaveCount(1);
+  await page.setViewportSize(PHONE);
+  await expect(panel).toBeHidden();
+});

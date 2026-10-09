@@ -231,6 +231,22 @@ export function filterConditionCount(state: JournalUrlState): number {
   ].filter(Boolean).length;
 }
 
+/**
+ * Число условий на кнопке «Фильтры» на телефоне (§7 «Мобильная версия»): всё, что спрятано в выезжающей
+ * панели, — период, сумма от и до (каждая) и условия окна «Фильтр». Поиск на виду, сортировка не в счёт.
+ */
+export function panelConditionCount(state: JournalUrlState): number {
+  return (state.period !== 'all' ? 1 : 0) + (state.amountMin !== undefined ? 1 : 0) + (state.amountMax !== undefined ? 1 : 0) + filterConditionCount(state);
+}
+
+/** Сортировка на телефоне — списком: у карточек нет заголовков колонок. */
+export const SORT_CHOICES: readonly { sort: JournalSortKey; order: JournalSortOrder; label: string }[] = [
+  { sort: 'date', order: 'desc', label: 'Сначала новые' },
+  { sort: 'date', order: 'asc', label: 'Сначала старые' },
+  { sort: 'amount', order: 'desc', label: 'Сначала крупные' },
+  { sort: 'amount', order: 'asc', label: 'Сначала мелкие' },
+];
+
 /** Задано хоть одно условие (включая период, поиск и сумму) — сортировка не в счёт. */
 export function isFiltered(state: JournalUrlState): boolean {
   return state.period !== 'all' || !!state.q || state.amountMin !== undefined || state.amountMax !== undefined || filterConditionCount(state) > 0;
