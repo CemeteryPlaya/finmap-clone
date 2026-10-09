@@ -3,8 +3,15 @@ import type { OperationType } from '../../lib/journal-filter';
 import type { Company } from '../../lib/queries';
 import { OperationForm } from './OperationForm';
 
-/** Что открыть в форме операции: новую операцию заданного типа. */
-export type OperationFormRequest = { kind: 'create'; type: OperationType };
+/** Что открыть в форме операции: новую операцию заданного типа или существующую по id. */
+export type OperationFormRequest =
+  | { kind: 'create'; type: OperationType }
+  | {
+      kind: 'edit';
+      id: number;
+      /** Куда поставить фокус, если операцию удалили (строки, с которой открыли форму, больше нет). */
+      focusAfterDelete?: () => HTMLElement | null;
+    };
 
 const OpenContext = createContext<(request: OperationFormRequest) => void>(() => undefined);
 
@@ -15,7 +22,7 @@ export function useOpenOperationForm(): (request: OperationFormRequest) => void 
 
 /**
  * Форма операции на странице компании: одна на всю страницу, открывается кнопками «Доход», «Расход»,
- * «Перевод» в шапке. Каждое открытие — новая форма (key), закрытие возвращает фокус туда, откуда открыли.
+ * «Перевод» в шапке и строкой журнала. Каждое открытие — новая форма (key), закрытие возвращает фокус туда, откуда открыли.
  */
 export function OperationFormHost(props: { company: Company; children: ReactNode }) {
   const [current, setCurrent] = useState<{ key: number; request: OperationFormRequest } | null>(null);

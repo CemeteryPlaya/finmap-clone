@@ -29,8 +29,8 @@ export interface JournalTableProps {
   onSort: (sort: JournalSortKey, order: JournalSortOrder) => void;
   busy: boolean;
   /**
-   * Точка подключения формы операции (шаг 6): клик по строке открывает операцию. Пока не передаётся —
-   * строка не реагирует на клик.
+   * Открыть операцию в форме (шаг 6): клик по строке или кнопка в ячейке даты (с клавиатуры).
+   * Не передан — строка не реагирует на клик.
    */
   onOpenOperation?: (item: JournalItem) => void;
   /** «Указать» в пустой ячейке (§7): вызывается только там, где оно разрешено (canAssign). */
@@ -145,7 +145,20 @@ export function JournalTable(props: JournalTableProps) {
             const share = projectShare(item.lines, props.projectFilter);
             const assign = (field: AssignField) => (props.renderAssign && canAssign(item, field) ? props.renderAssign(item, field) : null);
             const cells: Record<JournalColumnId, ReactNode> = {
-              date: (
+              date: props.onOpenOperation ? (
+                // с клавиатуры операция открывается кнопкой в ячейке даты (Tab, затем Enter)
+                <button
+                  type="button"
+                  onClick={() => props.onOpenOperation!(item)}
+                  aria-label={`Открыть операцию: ${dayLabel(dayOf(item.paidAt, props.timeZone), props.today)} ${timeLabel(item.paidAt, props.timeZone)}, ${signedMoney(item.type, item.amount, currency)}`}
+                  className="rounded text-left hover:underline focus-visible:outline-2 focus-visible:outline-focus"
+                >
+                  <time dateTime={item.paidAt} className="whitespace-nowrap">
+                    {dayLabel(dayOf(item.paidAt, props.timeZone), props.today)}
+                    <span className="ml-1 text-xs text-muted">{timeLabel(item.paidAt, props.timeZone)}</span>
+                  </time>
+                </button>
+              ) : (
                 <time dateTime={item.paidAt} className="whitespace-nowrap">
                   {dayLabel(dayOf(item.paidAt, props.timeZone), props.today)}
                   <span className="ml-1 text-xs text-muted">{timeLabel(item.paidAt, props.timeZone)}</span>

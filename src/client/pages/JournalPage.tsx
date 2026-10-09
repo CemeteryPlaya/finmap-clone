@@ -10,6 +10,7 @@ import { UndoToast } from '../components/journal/UndoToast';
 import { JournalTable, type JournalLookups } from '../components/journal/JournalTable';
 import { JournalToolbar } from '../components/journal/JournalToolbar';
 import { LoadMore } from '../components/journal/LoadMore';
+import { useOpenOperationForm } from '../components/operation/OperationFormHost';
 import { Pending, StaleNotice } from '../components/QueryState';
 import { btnSecondary, btnSmall, noticeClass } from '../components/ui';
 import { JOURNAL_COLUMNS_PREF, visibleColumns } from '../lib/journal-columns';
@@ -145,6 +146,7 @@ function JournalScreen(props: {
   const counterparties = useCounterparties(company.id);
   const tags = useTags(company.id);
   const [filterOpen, setFilterOpen] = useState(false);
+  const openForm = useOpenOperationForm();
   const savedFilters = useSavedFilters(company.id);
   // предупреждение после применения сохранённого фильтра с недоступными ссылками (инвариант 10)
   const [notice, setNotice] = useState<string | null>(null);
@@ -402,6 +404,7 @@ function JournalScreen(props: {
           order={state.order}
           onSort={(sort, order) => update({ ...state, sort, order })}
           busy={journal.isPlaceholderData}
+          onOpenOperation={(item) => openForm({ kind: 'edit', id: item.id, focusAfterDelete: () => document.getElementById(HEADING_ID) })}
           renderAssign={
             readOnly
               ? undefined

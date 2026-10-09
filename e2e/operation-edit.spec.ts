@@ -1,0 +1,237 @@
+import { expect, test, type Page } from '@playwright/test';
+
+async function login(page: Page) {
+  await page.goto('/login');
+  await page.getByPlaceholder('Логин').fill('admin');
+  await page.getByPlaceholder('Пароль').fill('e2e-password-1');
+  await page.getByRole('button', { name: 'Войти' }).click();
+  await expect(page.getByRole('button', { name: 'Выйти' })).toBeVisible();
+}
+
+async function createCompany(page: Page, name: string): Promise<number> {
+  await page.goto('/companies/new');
+  await page.getByLabel('Название компании').fill(name);
+  await page.getByRole('button', { name: 'Создать компанию' }).click();
+  await expect(page).toHaveURL(/\/c\/\d+\/log$/);
+  return Number(page.url().match(/\/c\/(\d+)\//)![1]);
+}
+
+const csrf = (page: Page) => ({ origin: new URL(page.url()).origin, 'x-requested-with': 'fetch' });
+
+/** Запрос к API от имени вошедшего пользователя: кука сессии браузера и заголовки защиты от подделки. */
+async function apiPost(page: Page, url: string, data: unknown) {
+  const res = await page.request.post(url, { data, headers: csrf(page) });
+  expect(res.status(), await res.text()).toBeLessThan(300);
+  return res.json();
+}
+
+/** Начало сегодняшнего дня по Алматы — APP_TIMEZONE e2e-сервера (с 01.03.2024 — UTC+5). */
+function startOfTodayAlmaty(): number {
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date());
+  return Date.parse(`${day}T00:00:00+05:00`);
+}
+
+/**
+ * Момент «сегодня по Алматы»: чем больше n (0 < n < 1000), тем раньше, но всегда сегодня и не в будущем
+ * (инвариант 6) — проверка «сегодня» не падает сразу после полуночи.
+ */
+const todayAgo = (n: number) => {
+  const start = startOfTodayAlmaty();
+  return new Date(start + (Date.now() - start) * (1 - n / 1000)).toISOString();
+};
+const table = (page: Page) => page.getByRole('table', { name: 'Операции' });
+const rows = (page: Page) => table(page).locator('tbody tr');
+const editForm = (page: Page) => page.getByRole('dialog', { name: 'Изменить операцию' });
+
+test('правка из журнала: клик по строке и с клавиатуры, в PATCH — только изменённое; «Дублировать», «Удалить»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Правка ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  const rent = (await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда' })).category.id;
+  await apiPost(page, `${base}/operations`, {
+    type: 'expense',
+    paidAt: todayAgo(1),
+    accountId: cash,
+    amount: 30000,
+    comment: 'старый',
+    lines: [{ categoryId: rent, projectId: null, amount: 30000 }],
+  });
+  await page.reload();
+
+  // клик по строке (по комментарию) открывает форму; блок с комментарием раскрыт
+  await rows(page).first().getByText('старый').click();
+  let dialog = editForm(page);
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('radio')).toHaveCount(0); // тип не меняется
+  await expect(dialog.getByRole('button', { name: 'Счёт: Касса (KZT)' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Статья: Аренда' })).toBeVisible();
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('300');
+  // форма ставит фокус в сумму кадр спустя — дождаться, прежде чем заполнять другие поля
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  await dialog.getByLabel('Комментарий').fill('новый');
+  const patch = page.waitForRequest((r) => r.method() === 'PATCH');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  expect((await patch).postDataJSON()).toEqual({ version: 1, comment: 'новый' });
+  await expect(dialog).toBeHidden();
+  await expect(rows(page).first()).toContainText('новый');
+
+  // с клавиатуры: кнопка в ячейке даты, Enter
+  const open = table(page).getByRole('button', { name: /^Открыть операцию: сегодня/ });
+  await open.focus();
+  await page.keyboard.press('Enter');
+  dialog = editForm(page);
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  await expect(amount).toBeFocused();
+  await amount.fill('300+50');
+  await amount.press('Enter');
+  await expect(dialog).toBeHidden();
+  await expect(rows(page).first()).toContainText(/350,00\s₸/);
+  await expect(open).toBeFocused();
+
+  // «Дублировать»: новая операция с теми же значениями; закрыть без сохранения — с вопросом
+  await open.click();
+  await editForm(page).getByRole('button', { name: 'Дублировать' }).click();
+  dialog = page.getByRole('dialog', { name: 'Новая операция' });
+  await expect(dialog.getByRole('status')).toHaveText('Это копия — проверьте и сохраните');
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('350');
+  await expect(dialog.getByRole('button', { name: 'Статья: Аренда' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(rows(page)).toHaveCount(2);
+
+  // «Удалить» с подтверждением; Esc отменяет только подтверждение
+  await rows(page).first().getByText('новый').click();
+  dialog = editForm(page);
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  const remove = dialog.getByRole('button', { name: 'Удалить', exact: true });
+  await remove.click();
+  await expect(dialog.getByRole('button', { name: 'Не удалять' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog.getByRole('button', { name: 'Да, удалить' })).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await expect(remove).toBeFocused();
+  await remove.click();
+  await dialog.getByRole('button', { name: 'Да, удалить' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(rows(page)).toHaveCount(1);
+  // строки, с которой открыли форму, больше нет — фокус на заголовке журнала
+  await expect(page.getByRole('heading', { name: 'Журнал' })).toBeFocused();
+});
+
+test('операция на архивном счёте: сумма, дата и счёт заблокированы с подсказкой, «Удалить» недоступна, комментарий меняется', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Архив ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const old = (await apiPost(page, `${base}/accounts`, { name: 'Старый', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(2), accountId: old, amount: 10000, comment: 'приход' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: old, amount: 10000, comment: 'расход' });
+  await apiPost(page, `${base}/accounts/${old}/archive`, {});
+  await page.reload();
+
+  await rows(page).filter({ hasText: 'приход' }).getByText('приход').click();
+  const dialog = editForm(page);
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  await expect(amount).toBeDisabled();
+  await expect(amount).toHaveAccessibleDescription('счёт в архиве');
+  await expect(dialog.getByRole('button', { name: 'Счёт: Старый (KZT) (в архиве)' })).toBeDisabled();
+  await expect(dialog.getByLabel('Дата оплаты')).toBeDisabled();
+  const remove = dialog.getByRole('button', { name: 'Удалить', exact: true });
+  await expect(remove).toBeDisabled();
+  await expect(remove).toHaveAccessibleDescription('Удалить нельзя: счёт в архиве («Старый»)');
+  await dialog.getByLabel('Комментарий').fill('приход из кассы');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(rows(page).filter({ hasText: 'приход из кассы' })).toHaveCount(1);
+});
+
+test('ширина 390 px: правка операции — форма на весь экран, сумма через кнопки-операторы (§10, сценарий 4)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Телефон правка ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: cash, amount: 10000 });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+
+  await table(page).getByRole('button', { name: /^Открыть операцию/ }).click();
+  const dialog = editForm(page);
+  const box = (await dialog.boundingBox())!;
+  expect(box.width).toBeGreaterThanOrEqual(389);
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  await expect(amount).toBeFocused();
+  await amount.click();
+  await page.keyboard.press('End');
+  await dialog.getByRole('button', { name: 'Оператор умножение' }).click();
+  await page.keyboard.type('2');
+  await amount.blur();
+  await expect(amount).toHaveValue('200');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(rows(page).first()).toContainText(/200,00\s₸/);
+});
+
+test('перевод KZT → USD: новая сумма списания сохраняется вместе с прежней суммой зачисления', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Перевод правка ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 1000000 })).account.id;
+  const usd = (await apiPost(page, `${base}/accounts`, { name: 'Валютный', currency: 'USD', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/fixed-rates`, { currency: 'USD', rate: '500', validFrom: '2020-01-01' });
+  await apiPost(page, `${base}/operations`, { type: 'transfer', paidAt: todayAgo(1), accountId: cash, amount: 5000000, toAccountId: usd, toAmount: 10000 });
+  await page.reload();
+
+  await table(page).getByRole('button', { name: /^Открыть операцию/ }).click();
+  const dialog = editForm(page);
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  await expect(amount).toBeFocused();
+  await expect(amount).toHaveValue('50000');
+  await expect(dialog.getByRole('textbox', { name: /^Сумма зачисления/ })).toHaveValue('100');
+  await amount.fill('500');
+  await expect(dialog.getByText('Курс: 1 USD = 5 KZT')).toBeVisible();
+  const patch = page.waitForRequest((r) => r.method() === 'PATCH');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  expect((await patch).postDataJSON()).toEqual({ version: 1, amount: 50000, toAmount: 10000 });
+  await expect(dialog).toBeHidden();
+  const row = table(page).locator('tbody tr').first();
+  await expect(row).toContainText(/500,00\s₸/);
+  await expect(row).toContainText(/100,00\s\$/);
+  await expect(page.getByRole('navigation', { name: 'Счета' }).getByRole('link', { name: /^Касса/ })).toContainText(/9\s500,00\s₸/);
+});
+
+test('фокус и закрытие формы: после «Отмена» → «Продолжить» фокус в сумме; пока сохранение идёт, Esc и «Отмена» окно не закрывают', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Фокус ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+
+  await page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Новая операция' });
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  await expect(amount).toBeFocused();
+  await amount.fill('100');
+
+  // кнопка «Отмена», с которой спросили, исчезает вместе с вопросом — фокус возвращается в сумму
+  await dialog.getByRole('button', { name: 'Отмена', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Продолжить' }).click();
+  await expect(amount).toBeFocused();
+
+  // ответ сервера задержан: пока запрос идёт, окно не закрывается ни по Esc, ни по «Отмена»
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/api/v1/companies/*/operations', async (route) => {
+    if (route.request().method() === 'POST') await gate;
+    await route.continue();
+  });
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Сохранить', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await dialog.getByRole('button', { name: 'Отмена', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('group', { name: 'Несохранённые изменения' })).toHaveCount(0);
+  release();
+  await expect(dialog).toBeHidden();
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await expect(rows(page)).toHaveCount(1);
+});

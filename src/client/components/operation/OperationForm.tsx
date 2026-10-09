@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState, type FormEvent, type MutableRefObject } from 'react';
 import { Link } from 'react-router';
 import { getCurrency } from '../../../shared/currencies';
@@ -6,6 +7,7 @@ import { api, ApiError } from '../../lib/api';
 import type { OperationType } from '../../lib/journal-filter';
 import { invalidateOperations } from '../../lib/journal-mutations';
 import { createFromForm, type CreatableKind } from '../../lib/operation-create';
+import { archivedAccountOf, draftFromOperation, duplicateDraft, patchBody, withoutArchived, type Available, type OperationRecord } from '../../lib/operation-edit';
 import {
   buildBody,
   changeType,
@@ -38,7 +40,7 @@ import { Field } from '../Field';
 import { Modal } from '../Modal';
 import { Pending } from '../QueryState';
 import { SearchPicker } from '../SearchPicker';
-import { alertClass, btnPrimary, btnSecondary, btnSmall, inputClass } from '../ui';
+import { alertClass, btnDanger, btnPrimary, btnSecondary, btnSmall, inputClass } from '../ui';
 import { AmountField } from './AmountField';
 import { ComboSelect } from './ComboSelect';
 import { SplitEditor } from './SplitEditor';
@@ -59,6 +61,9 @@ const TYPES: { type: OperationType; label: string }[] = [
   { type: 'transfer', label: 'Перевод' },
 ];
 
+/** Подсказка у полей, которые нельзя менять: операция затрагивает архивный счёт (инвариант 7, §7). */
+const LOCKED_HINT = 'счёт в архиве';
+
 /** Модалка на десктопе, на телефоне (меньше 768 px) — на весь экран (§7). */
 const MODAL_CLASS = 'max-w-2xl max-md:m-0 max-md:h-dvh max-md:max-h-dvh max-md:w-full max-md:max-w-none max-md:rounded-none';
 
@@ -75,7 +80,17 @@ export function serverFieldErrors(fields: Record<string, string> | undefined): R
  */
 export function OperationForm(props: { company: Company; request: OperationFormRequest; onClose: () => void }) {
   const [open, setOpen] = useState(true);
-  const cancel = useRef<() => void>(() => setOpen(false));
+  const [editing, setEditing] = useState(props.request.kind === 'edit');
+  const deleted = useRef(false);
+  const editId = props.request.kind === 'edit' ? props.request.id : null;
+  // операция для правки — всегда свежая с сервера: версия нужна для PATCH
+  const operation = useQuery<OperationRecord, ApiError>({
+    queryKey: ['operation', props.company.id, editId],
+    queryFn: async () => (await api<{ operation: OperationRecord }>(`/companies/${props.company.id}/operations/${editId}`)).operation,
+    enabled: editId !== null,
+    gcTime: 0,
+  });
+  const cancel =useRef<() => void>(() => setOpen(false));
   const meta = useMeta();
   const accounts = useAccounts(props.company.id);
   const categories = useCategories(props.company.id);
@@ -83,7 +98,7 @@ export function OperationForm(props: { company: Company; request: OperationFormR
   const counterparties = useCounterparties(props.company.id);
   const tags = useTags(props.company.id);
   const presets = useSplitPresets(props.company.id);
-  const queries = [meta, accounts, categories, projects, counterparties, tags];
+  const queries = [meta, accounts, categories, projects, counterparties, tags, ...(editId !== null ? [operation] : [])];
   const data: FormData | null =
     accounts.data && categories.data && projects.data && counterparties.data && tags.data
       ? {
@@ -98,13 +113,27 @@ export function OperationForm(props: { company: Company; request: OperationFormR
       : null;
 
   return (
-    <Modal open={open} title="Новая операция" onClose={props.onClose} onCancel={() => cancel.current()} className={MODAL_CLASS}>
-      {data && meta.data ? (
+    <Modal
+      open={open}
+      title={editing ? 'Изменить операцию' : 'Новая операция'}
+      onClose={() => {
+        props.onClose();
+        // после удаления строки, с которой открыли форму, больше нет — фокус туда, куда просил открывший
+        const target = deleted.current && props.request.kind === 'edit' ? props.request.focusAfterDelete?.() : null;
+        if (target) requestAnimationFrame(() => target.focus());
+      }}
+      onCancel={() => cancel.current()}
+      className={MODAL_CLASS}
+    >
+      {data && meta.data && (editId === null || operation.data) ? (
         <OperationEditor
           company={props.company}
           data={data}
           timeZone={meta.data.timezone}
-          type={props.request.type}
+          type={props.request.kind === 'create' ? props.request.type : operation.data!.type}
+          operation={operation.data ?? null}
+          onEditingChange={setEditing}
+          onDeleted={() => (deleted.current = true)}
           close={() => setOpen(false)}
           cancelRef={cancel}
         />
@@ -120,6 +149,12 @@ function OperationEditor(p: {
   data: FormData;
   timeZone: string;
   type: OperationType;
+  /** Правка существующей операции; null — новая. */
+  operation: OperationRecord | null;
+  /** Форма перешла от правки к новой операции («Дублировать», «Сохранить и создать похожий»). */
+  onEditingChange: (editing: boolean) => void;
+  /** Операция удалена: окно закроется, фокус — не на исчезнувшую строку. */
+  onDeleted: () => void;
   close: () => void;
   /** Что делать по Esc: форма решает сама (несохранённые изменения). */
   cancelRef: MutableRefObject<() => void>;
@@ -127,35 +162,70 @@ function OperationEditor(p: {
   const today = todayInTimezone(p.timeZone);
   const typeName = useId();
   const firstAccount = p.data.accounts.find((a) => !a.archivedAt)?.id ?? null;
-  const [initial, setInitial] = useState(() => emptyDraft(p.type, today, firstAccount));
+  const accounts = new Map(p.data.accounts.map((a) => [a.id, a]));
+  const [op, setOp] = useState(p.operation);
+  const [initial, setInitial] = useState(() => (op ? draftFromOperation(op, accounts, p.timeZone) : emptyDraft(p.type, today, firstAccount)));
   const [draft, setDraft] = useState(initial);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  /** После «Не удалять» (или Esc) фокус возвращается на «Удалить». */
+  const deleteRef = useRef<HTMLButtonElement>(null);
+  const deleteAsked = useRef(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
-  const [more, setMore] = useState(false);
+  // блок «Проект, теги, комментарий» раскрыт, если в нём уже что-то есть
+  const [more, setMore] = useState(() => initial.projectId !== null || initial.tagIds.length > 0 || initial.comment !== '');
   const [refocusAmount, setRefocusAmount] = useState(0);
+  /** Ошибка сохранения: фокус — на первое поле с ошибкой или действие в сообщении (поля были недоступны, фокус потерян). */
+  const formRef = useRef<HTMLFormElement>(null);
+  const [errorFocus, setErrorFocus] = useState(0);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
   /** Вопрос о несохранённом: фокус на «Продолжить», после ответа — туда, где был. */
   const continueRef = useRef<HTMLButtonElement>(null);
   const focusBefore = useRef<HTMLElement | null>(null);
+  const closeAsked = useRef(false);
 
   useEffect(() => {
-    if (confirmClose) continueRef.current?.focus();
-    else focusBefore.current?.focus();
+    if (confirmClose) {
+      continueRef.current?.focus();
+      return;
+    }
+    if (!closeAsked.current) return;
+    closeAsked.current = false;
+    // «Отмена», с которой спросили, уже исчезла вместе с кнопками — тогда фокус в поле суммы
+    if (focusBefore.current?.isConnected) focusBefore.current.focus();
+    else setRefocusAmount((n) => n + 1);
   }, [confirmClose]);
 
-  // Esc: открыт вопрос — продолжить ввод; есть несохранённые изменения — спросить; иначе закрыть
+  useEffect(() => {
+    if (confirmDelete || !deleteAsked.current) return;
+    deleteAsked.current = false;
+    deleteRef.current?.focus();
+  }, [confirmDelete]);
+
+  useEffect(() => {
+    if (!errorFocus) return;
+    const form = formRef.current;
+    const target = form?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? form?.querySelector<HTMLElement>('[role="alert"] button');
+    if (target) target.focus();
+    else setRefocusAmount((n) => n + 1);
+  }, [errorFocus]);
+
+  // Esc: пока идёт запрос — ничего (окно закрылось бы, а операция всё равно сохранится); открыто подтверждение
+  // удаления или вопрос — закрыть их; есть несохранённые изменения — спросить; иначе закрыть
   p.cancelRef.current = () => {
-    if (confirmClose) setConfirmClose(false);
+    if (pending) return;
+    if (confirmDelete) setConfirmDelete(false);
+    else if (confirmClose) setConfirmClose(false);
     else if (dirty) {
       focusBefore.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      closeAsked.current = true;
       setConfirmClose(true);
     } else p.close();
   };
 
-  const accounts = new Map(p.data.accounts.map((a) => [a.id, a]));
   const account = draft.accountId === null ? undefined : accounts.get(draft.accountId);
   const toAccount = draft.toAccountId === null ? undefined : accounts.get(draft.toAccountId);
   const currency = getCurrency(account?.currency ?? p.company.baseCurrency);
@@ -168,6 +238,9 @@ function OperationEditor(p: {
   const amountMinor = amountParsed.ok ? amountParsed.minor : null;
   // подходящий тип контрагента — по статье операции или первой строки разбиения
   const mainCategory = draft.split ? (draft.split.lines[0]?.categoryId ?? null) : draft.categoryId;
+  // операция на архивном счёте: сумма, дата оплаты и счета заблокированы, удалить нельзя (инвариант 7)
+  const locked = op ? archivedAccountOf(op, accounts) : null;
+  const lockHint = locked ? LOCKED_HINT : undefined;
 
   /**
    * «+ Создать „…“» (§7): создать элемент справочника и выбрать его. Контрагент получает тип, подходящий статье,
@@ -199,8 +272,10 @@ function OperationEditor(p: {
   const submit = async (then: 'close' | 'similar') => {
     if (pending) return;
     const now = new Date();
+    // у существующей операции при смене дня сохраняется прежнее время суток
+    const timeOfDayFrom = op ? new Date(op.paidAt) : now;
     // buildBody вычисляет выражение в сумме само: Enter или «Сохранить» без ухода из поля сохраняют результат
-    const r = buildBody(draft, { accounts, today: todayInTimezone(p.timeZone, now), timeZone: p.timeZone, now, timeOfDayFrom: now });
+    const r = buildBody(draft, { accounts, today: todayInTimezone(p.timeZone, now), timeZone: p.timeZone, now, timeOfDayFrom });
     if (!r.ok) {
       setErrors(r.errors);
       setFormError('Проверьте заполнение полей');
@@ -211,13 +286,22 @@ function OperationEditor(p: {
     setFormError(null);
     setStatus(null);
     try {
-      await api(`/companies/${p.company.id}/operations`, { method: 'POST', body: r.body });
+      if (op) {
+        // в PATCH — только изменённые поля (итоги плана 4a, п. 1); без изменений запроса нет
+        const patch = patchBody(op, r.body, p.timeZone);
+        if (patch) await api(`/companies/${p.company.id}/operations/${op.id}`, { method: 'PATCH', body: patch });
+      } else {
+        await api(`/companies/${p.company.id}/operations`, { method: 'POST', body: r.body });
+      }
       void invalidateOperations(p.company.id);
       if (then === 'close') {
         p.close();
         return;
       }
-      const next = similarDraft(draft);
+      // после правки: архивные счёт, статьи и прочее в новую операцию не переносятся (инвариант 7)
+      const next = op ? withoutArchived(similarDraft(draft), available()) : similarDraft(draft);
+      setOp(null);
+      p.onEditingChange(false);
       setDraft(next);
       setInitial(next);
       setStatus('Операция сохранена — можно ввести похожую');
@@ -225,9 +309,51 @@ function OperationEditor(p: {
     } catch (e) {
       setErrors(serverFieldErrors(e instanceof ApiError ? e.fields : undefined));
       setFormError(e instanceof ApiError ? e.message : 'Ошибка сервера');
+      setErrorFocus((n) => n + 1);
     } finally {
       setPending(false);
     }
+  };
+
+  /** Неархивные элементы справочников: только их может выбрать новая операция (инвариант 7). */
+  const available = (): Available => {
+    const ids = <T extends { id: number; archivedAt: string | null }>(xs: readonly T[]) => new Set(xs.filter((x) => !x.archivedAt).map((x) => x.id));
+    const categories = new Set(
+      [...p.data.categories.income, ...p.data.categories.expense].flatMap((n) =>
+        n.archivedAt ? [] : [n.id, ...n.children.filter((c) => !c.archivedAt).map((c) => c.id)],
+      ),
+    );
+    return { accounts: ids(p.data.accounts), categories, projects: ids(p.data.projects), counterparties: ids(p.data.counterparties), tags: ids(p.data.tags) };
+  };
+
+  const remove = async () => {
+    if (!op) return;
+    setPending(true);
+    setFormError(null);
+    try {
+      await api(`/companies/${p.company.id}/operations/${op.id}`, { method: 'DELETE' });
+      void invalidateOperations(p.company.id);
+      p.onDeleted();
+      p.close();
+    } catch (e) {
+      setConfirmDelete(false);
+      setFormError(e instanceof ApiError ? e.message : 'Ошибка сервера');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  /** «Дублировать» (§7): новая операция с теми же значениями на сегодня; закрыть её без сохранения — с вопросом. */
+  const duplicate = () => {
+    const copy = duplicateDraft(draft, available(), today);
+    setOp(null);
+    p.onEditingChange(false);
+    setDraft(copy);
+    setInitial(emptyDraft(copy.type, today, firstAccount));
+    setErrors({});
+    setFormError(null);
+    setStatus('Это копия — проверьте и сохраните');
+    setRefocusAmount((n) => n + 1);
   };
 
   const onSubmit = (e: FormEvent) => {
@@ -235,7 +361,7 @@ function OperationEditor(p: {
     void submit('close');
   };
 
-  if (activeAccounts.length === 0) {
+  if (!op && activeAccounts.length === 0) {
     return (
       <div>
         <p className="mb-4 text-muted">В компании нет счетов — операцию не к чему привязать.</p>
@@ -261,11 +387,15 @@ function OperationEditor(p: {
       placeholder="Выберите счёт"
       onChange={(id) => set({ [key]: id }, key)}
       error={errors[key]}
+      disabled={!!locked}
+      hint={lockHint}
     />
   );
 
   return (
-    <form onSubmit={onSubmit} noValidate aria-label="Операция" className="grid gap-4">
+    <form ref={formRef} onSubmit={onSubmit} noValidate aria-label="Операция" className="grid gap-4">
+      {/* тип существующей операции не меняется (схема правки) */}
+      {!op && (
       <fieldset disabled={pending}>
         <legend className="sr-only">Тип операции</legend>
         <div className="inline-flex flex-wrap gap-1 rounded-xl bg-field p-1">
@@ -291,6 +421,7 @@ function OperationEditor(p: {
           ))}
         </div>
       </fieldset>
+      )}
 
       {/* пока запрос идёт, поля недоступны: «похожий» копирует ровно то, что ушло на сервер */}
       <fieldset disabled={pending} className="contents">
@@ -305,6 +436,8 @@ function OperationEditor(p: {
           error={errors.amount}
           autoFocus
           refocusSignal={refocusAmount}
+          disabled={!!locked}
+          hint={lockHint}
         />
         {crossCurrency && toCurrency && (
           <AmountField
@@ -313,7 +446,8 @@ function OperationEditor(p: {
             onChange={(toAmount) => set({ toAmount }, 'toAmount')}
             minorUnits={toCurrency.minorUnits}
             error={errors.toAmount}
-            hint={rateHint(draft, currency.code, currency.minorUnits, toCurrency.code, toCurrency.minorUnits)}
+            disabled={!!locked}
+            hint={lockHint ?? rateHint(draft, currency.code, currency.minorUnits, toCurrency.code, toCurrency.minorUnits)}
           />
         )}
       </div>
@@ -372,9 +506,17 @@ function OperationEditor(p: {
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label={transfer ? 'Дата' : 'Дата оплаты'} error={errors.paidAt}>
+        <Field label={transfer ? 'Дата' : 'Дата оплаты'} error={errors.paidAt} hint={lockHint}>
           {(c) => (
-            <input {...c} type="date" max={today} value={draft.paidDate} onChange={(e) => set({ paidDate: e.target.value }, 'paidAt')} className={inputClass} />
+            <input
+              {...c}
+              type="date"
+              max={today}
+              disabled={!!locked}
+              value={draft.paidDate}
+              onChange={(e) => set({ paidDate: e.target.value }, 'paidAt')}
+              className={inputClass}
+            />
           )}
         </Field>
         {!transfer && (
@@ -439,7 +581,17 @@ function OperationEditor(p: {
         {status}
       </p>
 
-      {confirmClose ? (
+      {confirmDelete && op ? (
+        <div role="group" aria-label="Удаление операции" className="flex flex-wrap items-center gap-2 text-sm">
+          <span>Удалить операцию?</span>
+          <button type="button" disabled={pending} onClick={() => void remove()} className={btnDanger}>
+            Да, удалить
+          </button>
+          <button type="button" autoFocus onClick={() => setConfirmDelete(false)} className={btnSecondary}>
+            Не удалять
+          </button>
+        </div>
+      ) : confirmClose ? (
         <div role="group" aria-label="Несохранённые изменения" className="flex flex-wrap items-center gap-2 text-sm">
           <span>Есть несохранённые изменения. Закрыть без сохранения?</span>
           <button type="button" onClick={p.close} className={btnSecondary}>
@@ -457,9 +609,35 @@ function OperationEditor(p: {
           <button type="button" disabled={pending} onClick={() => void submit('similar')} className={btnSecondary}>
             Сохранить и создать похожий
           </button>
+          {op && (
+            <>
+              <button type="button" disabled={pending} onClick={duplicate} className={btnSecondary}>
+                Дублировать
+              </button>
+              <button
+                type="button"
+                ref={deleteRef}
+                disabled={pending || !!locked}
+                aria-describedby={locked ? 'operation-delete-locked' : undefined}
+                onClick={() => {
+                  deleteAsked.current = true;
+                  setConfirmDelete(true);
+                }}
+                className={btnDanger}
+              >
+                Удалить
+              </button>
+            </>
+          )}
+          {/* пока запрос идёт, «Отмена» и Esc окно не закрывают: операция всё равно сохранилась бы */}
           <button type="button" onClick={() => p.cancelRef.current()} className={btnSecondary}>
             Отмена
           </button>
+          {locked && (
+            <span id="operation-delete-locked" className="self-center text-sm text-muted">
+              Удалить нельзя: {LOCKED_HINT} («{locked.name}»)
+            </span>
+          )}
         </div>
       )}
     </form>
