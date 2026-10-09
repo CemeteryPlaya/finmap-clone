@@ -41,7 +41,7 @@ import { Modal } from '../Modal';
 import { Pending } from '../QueryState';
 import { SearchPicker } from '../SearchPicker';
 import { alertClass, btnDanger, btnPrimary, btnSecondary, btnSmall, inputClass } from '../ui';
-import { uploadAttachment, uploadErrorText } from '../../lib/attachments';
+import { uploadAttachment, uploadErrorText, useAttachments } from '../../lib/attachments';
 import { AmountField } from './AmountField';
 import { AttachmentsField } from './AttachmentsField';
 import { ComboSelect } from './ComboSelect';
@@ -186,6 +186,11 @@ function OperationEditor(p: {
   // блок «Проект, теги, комментарий» раскрыт, если в нём уже что-то есть
   const [more, setMore] = useState(() => initial.projectId !== null || initial.tagIds.length > 0 || initial.comment !== '');
   const [refocusAmount, setRefocusAmount] = useState(0);
+  // файлы операции раскрывают тот же блок; их список приходит отдельным запросом (его же использует AttachmentsField)
+  const hasFiles = (useAttachments(p.company.id, op?.id ?? null).data?.length ?? 0) > 0;
+  useEffect(() => {
+    if (hasFiles) setMore(true);
+  }, [hasFiles]);
   /** Файлы, выбранные до создания операции: загружаются сразу после него (§7). */
   const [files, setFiles] = useState<File[]>([]);
   /** Ошибка сохранения: фокус — на первое поле с ошибкой или действие в сообщении (поля были недоступны, фокус потерян). */
@@ -349,7 +354,11 @@ function OperationEditor(p: {
         return;
       }
       if (op && e instanceof ApiError && e.status === 409) {
-        setConflict(e.message.startsWith('Операция удалена') ? 'deleted' : 'changed');
+        if (e.message.startsWith('Операция удалена')) {
+          setConflict('deleted');
+          // строки больше нет: «Закрыть» вернёт фокус на заголовок журнала
+          p.onDeleted();
+        } else setConflict('changed');
         void invalidateOperations(p.company.id);
         setErrorFocus((n) => n + 1);
         return;
@@ -370,6 +379,7 @@ function OperationEditor(p: {
       const fresh = (await api<{ operation: OperationRecord }>(`/companies/${p.company.id}/operations/${op.id}`)).operation;
       if (fresh.deletedAt) {
         setConflict('deleted');
+        p.onDeleted();
         return;
       }
       const next = draftFromOperation(fresh, accounts, p.timeZone);
@@ -426,6 +436,8 @@ function OperationEditor(p: {
     setInitial(emptyDraft(copy.type, today, firstAccount));
     setErrors({});
     setFormError(null);
+    setConflict(null);
+    setMissingRate(null);
     setStatus('Это копия — проверьте и сохраните');
     setRefocusAmount((n) => n + 1);
   };

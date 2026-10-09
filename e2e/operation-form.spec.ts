@@ -472,6 +472,14 @@ test('нет курса на дату: «Указать курс на {D}» со
   await alert.getByRole('button', { name: 'Указать курс на 15.06.2021' }).click();
   await alert.getByRole('button', { name: 'Не указывать' }).click();
   await expect(alert.getByRole('button', { name: 'Указать курс на 15.06.2021' })).toBeFocused();
+  // Esc в мини-форме закрывает только её, а не всю форму; фокус — на «Указать курс…»
+  await alert.getByRole('button', { name: 'Указать курс на 15.06.2021' }).click();
+  await expect(alert.getByLabel('Курс CHF к тенге на 15.06.2021')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('group', { name: 'Несохранённые изменения' })).toHaveCount(0);
+  await expect(alert.getByLabel('Курс CHF к тенге на 15.06.2021')).toHaveCount(0);
+  await expect(alert.getByRole('button', { name: 'Указать курс на 15.06.2021' })).toBeFocused();
   await alert.getByRole('button', { name: 'Указать курс на 15.06.2021' }).click();
   const rate = alert.getByLabel('Курс CHF к тенге на 15.06.2021');
   await expect(rate).toBeFocused();

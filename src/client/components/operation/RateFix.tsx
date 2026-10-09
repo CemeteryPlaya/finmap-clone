@@ -64,7 +64,19 @@ export function RateFix(props: { missing: MissingRate; companyId: number; pendin
         </span>
       )}
       {open ? (
-        <div role="group" aria-label={`Курс на ${day}`} className="flex flex-wrap items-end gap-2 text-ink">
+        <div
+          role="group"
+          aria-label={`Курс на ${day}`}
+          className="flex flex-wrap items-end gap-2 text-ink"
+          onKeyDown={(ev) => {
+            // Esc закрывает только эту мини-форму, а не всю форму операции
+            if (ev.code !== 'Escape') return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            focusAfterClose.current = 'open';
+            setOpen(false);
+          }}
+        >
           <Field label={`Курс ${currency} к тенге на ${day}`} error={error ?? undefined} className="min-w-48 flex-1">
             {(c) => (
               <input

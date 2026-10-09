@@ -282,6 +282,68 @@ test('409: операцию изменили в другом окне — «За
   await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(rows(page).filter({ hasText: 'вторая' })).toHaveCount(0);
+  // строки, с которой открыли форму, больше нет — фокус на заголовке «Журнал»
+  await expect(page.getByRole('heading', { name: 'Журнал' })).toBeFocused();
+});
+
+test('409: «Дублировать» убирает сообщение о конфликте; удалили при «Загрузить актуальную» — «Закрыть» ведёт фокус на «Журнал»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Конфликт 2 ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  const first = (await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(2), accountId: cash, amount: 10000, comment: 'первая' })).operation.id;
+  const second = (await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: cash, amount: 5000, comment: 'вторая' })).operation.id;
+  await page.reload();
+
+  // после 409 «Дублировать» открывает копию без старого сообщения
+  await rows(page).filter({ hasText: 'первая' }).getByText('первая').click();
+  let dialog = editForm(page);
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  expect((await page.request.patch(`${base}/operations/${first}`, { data: { version: 1, comment: 'чужая правка' }, headers: csrf(page) })).status()).toBe(200);
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('150');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Операция изменена другим пользователем');
+  await dialog.getByRole('button', { name: 'Дублировать' }).click();
+  const copy = page.getByRole('dialog', { name: 'Новая операция' });
+  await expect(copy).toBeVisible();
+  await expect(copy.getByRole('alert')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Закрыть без сохранения' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  // изменили, затем удалили: «Загрузить актуальную» находит удаление — «Закрыть» возвращает фокус на заголовок
+  await rows(page).filter({ hasText: 'вторая' }).getByText('вторая').click();
+  dialog = editForm(page);
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  expect((await page.request.patch(`${base}/operations/${second}`, { data: { version: 1, comment: 'чужая правка 2' }, headers: csrf(page) })).status()).toBe(200);
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('70');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Операция изменена другим пользователем');
+  expect((await page.request.delete(`${base}/operations/${second}`, { headers: csrf(page) })).status()).toBe(200);
+  await dialog.getByRole('button', { name: 'Загрузить актуальную' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Операция удалена другим пользователем');
+  await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('heading', { name: 'Журнал' })).toBeFocused();
+});
+
+test('операция только с файлом: блок «Проект, теги, комментарий, файл» раскрыт, файл виден', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Только файл ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  const id = (await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: cash, amount: 7000 })).operation.id;
+  const up = await page.request.post(`${base}/operations/${id}/attachments`, {
+    data: PNG,
+    headers: { ...csrf(page), 'content-type': 'application/octet-stream', 'x-file-name': encodeURIComponent('чек.png') },
+  });
+  expect(up.status(), await up.text()).toBeLessThan(300);
+  await page.reload();
+
+  await rows(page).first().getByText(/70,00/).first().click();
+  const dialog = editForm(page);
+  await expect(dialog.getByRole('button', { name: 'Проект, теги, комментарий, файл' })).toHaveAttribute('aria-expanded', 'true');
+  await expect(dialog.getByRole('link', { name: 'чек.png' })).toBeVisible();
 });
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
