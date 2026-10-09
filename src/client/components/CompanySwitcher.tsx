@@ -80,7 +80,8 @@ export function CompanySwitcher({ current, companies }: { current: Company; comp
   };
 
   return (
-    <div ref={rootRef} className="relative min-w-0">
+    // длинное название обрезается многоточием, когда шапке не хватает ширины (телефон)
+    <div ref={rootRef} className="relative min-w-0 max-w-xs">
       <button
         ref={buttonRef}
         type="button"
@@ -94,7 +95,7 @@ export function CompanySwitcher({ current, companies }: { current: Company; comp
             setOpen(true);
           }
         }}
-        className="flex max-w-xs items-center gap-2 rounded-xl bg-chrome-2 px-3 py-2 text-sm hover:bg-white/10"
+        className="flex max-w-full items-center gap-2 rounded-xl bg-chrome-2 px-3 py-2 text-sm hover:bg-white/10"
       >
         {/* доступное имя содержит видимое название компании (WCAG 2.5.3 «Label in Name») */}
         <span className="sr-only">Сменить компанию: </span>
@@ -108,7 +109,7 @@ export function CompanySwitcher({ current, companies }: { current: Company; comp
           role="menu"
           aria-label="Компании"
           onKeyDown={onMenuKey}
-          className="absolute left-0 z-20 mt-2 w-72 rounded-2xl bg-card p-2 text-ink shadow-xl"
+          className="absolute left-0 z-20 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-2xl bg-card p-2 text-ink shadow-xl"
         >
           {active.map((c) => {
             const t = totals.get(c.id);

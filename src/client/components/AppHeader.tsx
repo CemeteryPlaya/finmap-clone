@@ -21,20 +21,22 @@ export function AppHeader({ left, actions, profileHref }: { left?: ReactNode; ac
   }, [meta.data]);
 
   return (
-    // в PWA на iPhone строка состояния прозрачная (black-translucent): шапка начинается ниже выреза экрана
-    <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-6 pb-4 pt-[max(1rem,env(safe-area-inset-top))] text-white">
-      <div className="flex min-w-0 items-center gap-4">
-        <span className="shrink-0 text-lg font-bold">{meta.data?.appName}</span>
+    // в PWA на iPhone строка состояния прозрачная (black-translucent): шапка начинается ниже выреза экрана.
+    // На телефоне — одна строка: «Счета», компания, «Выйти»; название продукта (если слева есть что-то ещё)
+    // и имя пользователя — только на компьютере
+    <header className="flex items-center justify-between gap-x-4 gap-y-2 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white md:flex-wrap md:px-6 md:pb-4 md:pt-[max(1rem,env(safe-area-inset-top))]">
+      <div className="flex min-w-0 items-center gap-2 md:gap-4">
+        <span className={`shrink-0 text-lg font-bold ${left ? 'hidden md:inline' : ''}`}>{meta.data?.appName}</span>
         {left}
       </div>
       {actions}
       <div className="flex shrink-0 items-center gap-4">
         {profileHref ? (
-          <Link to={profileHref} className="text-sm text-white/70 underline-offset-4 hover:text-white hover:underline">
+          <Link to={profileHref} className="hidden text-sm text-white/70 underline-offset-4 hover:text-white hover:underline md:inline">
             {me.data?.user.name}
           </Link>
         ) : (
-          <span className="text-sm text-white/70">{me.data?.user.name}</span>
+          <span className="hidden text-sm text-white/70 md:inline">{me.data?.user.name}</span>
         )}
         <button onClick={() => logout.mutate()} className="rounded-xl bg-chrome-2 px-4 py-2 text-sm hover:bg-white/10">
           Выйти

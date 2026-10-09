@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Navigate, NavLink, Outlet, useParams } from 'react-router';
-import { AccountsPanel } from '../components/AccountsPanel';
+import { AccountsDrawerButton, AccountsPanel } from '../components/AccountsPanel';
 import { AppHeader } from '../components/AppHeader';
 import { CompanySwitcher } from '../components/CompanySwitcher';
 import { LoadError } from '../components/LoadError';
@@ -38,7 +38,12 @@ export function CompanyLayout() {
     <OperationFormHost company={company}>
       <div className="min-h-dvh bg-chrome">
         <AppHeader
-          left={<CompanySwitcher current={company} companies={companies.data} />}
+          left={
+            <>
+              <AccountsDrawerButton company={company} />
+              <CompanySwitcher current={company} companies={companies.data} />
+            </>
+          }
           actions={<NewOperationButtons />}
           profileHref={`/c/${company.id}/settings/profile`}
         />
