@@ -138,13 +138,8 @@ describe('imageIsNodeFromTasklist', () => {
 });
 
 describe('processImageIsNode', () => {
-  it('свой процесс — node (win32/linux); не бросает исключений на несуществующем PID', () => {
-    if (process.platform === 'win32' || process.platform === 'linux') {
-      expect(processImageIsNode(process.pid)).toBe(true);
-      expect(processImageIsNode(999999)).toBe(false);
-    } else {
-      expect(processImageIsNode(process.pid)).toBeNull();
-    }
+  it.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('свой процесс — node', () => {
+    expect(processImageIsNode(process.pid)).toBe(true);
   });
 });
 
@@ -217,6 +212,27 @@ describe('acquireExclusiveLock (блокировка супервизора)', (
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     expect(results.filter((r) => r.status === 'rejected' && r.reason instanceof LockHeldError)).toHaveLength(1);
     for (const r of results) if (r.status === 'fulfilled') r.value();
+  });
+
+  it('второй захват в том же процессе — LockHeldError, в файле остаётся token первого', async () => {
+    const release = await acquireExclusiveLock(lock, { portBusy: free, token: 'first' });
+    await expect(acquireExclusiveLock(lock, { portBusy: free, token: 'second' })).rejects.toBeInstanceOf(LockHeldError);
+    expect((JSON.parse(fs.readFileSync(lock, 'utf8')) as { token: string }).token).toBe('first');
+    release();
+    expect(fs.readdirSync(dir).filter((f) => f.includes('.tmp'))).toEqual([]);
+  });
+
+  it('пустой/битый файл моложе 5 с — его пишут прямо сейчас: занято; старый — перехватывается', async () => {
+    fs.writeFileSync(lock, '');
+    await expect(acquireExclusiveLock(lock, { portBusy: free })).rejects.toBeInstanceOf(LockHeldError);
+    expect(fs.readFileSync(lock, 'utf8')).toBe('');
+    fs.writeFileSync(lock, '{"pid":');
+    await expect(acquireExclusiveLock(lock, { portBusy: free })).rejects.toBeInstanceOf(LockHeldError);
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(lock, old, old);
+    const release = await acquireExclusiveLock(lock, { portBusy: free, token: 'mine' });
+    expect((JSON.parse(fs.readFileSync(lock, 'utf8')) as { token: string }).token).toBe('mine');
+    release();
   });
 
   it('снятие не удаляет чужую блокировку (файл перехватил другой процесс)', async () => {

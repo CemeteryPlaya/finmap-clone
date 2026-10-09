@@ -4,7 +4,15 @@ import AdmZip from 'adm-zip';
 import type { Config } from '../../config';
 import { openDb } from '../../db/client';
 import { appliedMigrationsCount, codeMigrationsCount, runMigrations } from '../../db/migrate';
-import { acquireLock, isLockHeld, isPortFree, SUPERVISOR_LOCK_FILE } from '../../lock';
+import {
+  acquireLock,
+  type IsNodeProcess,
+  isLockHeld,
+  isPortFree,
+  lockState,
+  processImageIsNode,
+  SUPERVISOR_LOCK_FILE,
+} from '../../lock';
 
 async function bestEffortRm(p: string, warn: (msg: string) => void): Promise<void> {
   try {
@@ -23,13 +31,20 @@ export async function restoreBackup(i: {
   config: Config;
   now?: () => Date;
   warn?: (msg: string) => void;
+  /** Проверка образа процесса (для тестов). */
+  isNode?: IsNodeProcess;
 }): Promise<{ preRestoreDir: string }> {
   const { config } = i;
   const now = i.now ?? (() => new Date());
   const warn = i.warn ?? ((m: string) => console.warn(m));
 
   const supervisorLock = path.join(config.dataDir, SUPERVISOR_LOCK_FILE);
-  if (isLockHeld(config.lockPath) || isLockHeld(supervisorLock) || !(await isPortFree(config.host, config.port))) {
+  // Восстановление разрушительно: подозрительный lock супервизора (скачок часов, пауза перезапуска)
+  // считаем рабочим супервизором, пока процесс точно не опровергнут как «не node». Порт не проверяем.
+  const sup = lockState(supervisorLock);
+  const isNode = i.isNode ?? processImageIsNode;
+  const supervisorRuns = sup.kind === 'held' || (sup.kind === 'suspect' && isNode(sup.pid) !== false);
+  if (isLockHeld(config.lockPath) || supervisorRuns || !(await isPortFree(config.host, config.port))) {
     throw new Error('Приложение запущено. Остановите приложение (и задачу автозапуска) и повторите восстановление.');
   }
   // Держим lock на всё время восстановления: приложение не стартует посреди подмены данных.

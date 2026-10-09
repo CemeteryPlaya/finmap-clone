@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
+import path from 'node:path';
 
 /** Допуск при сравнении времени загрузки системы (uptime и часы дают погрешность). */
 const BOOT_TOLERANCE_S = 60;
@@ -48,21 +49,24 @@ export type IsNodeProcess = (pid: number) => boolean | null;
 /**
  * Это процесс node? true/false — проверено; null — проверить не удалось.
  * Windows: tasklist /FI "PID eq N" /FO CSV /NH (первое поле — имя образа, node.exe);
- * Linux: /proc/N/comm («node»). Другие системы — null. Не бросает исключений.
+ * Linux: /proc/N/comm («node» или «nodejs»). Другие системы — null. Не бросает исключений.
  */
 export function processImageIsNode(pid: number): boolean | null {
   try {
     if (process.platform === 'win32') {
-      const r = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
+      const tasklist = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tasklist.exe');
+      const r = spawnSync(tasklist, ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
         encoding: 'utf8',
         windowsHide: true,
+        timeout: 5000,
       });
       if (r.error || r.status !== 0 || typeof r.stdout !== 'string') return null;
       return imageIsNodeFromTasklist(r.stdout);
     }
     if (process.platform === 'linux') {
       try {
-        return fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim() === 'node';
+        const comm = fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim();
+        return comm === 'node' || comm === 'nodejs';
       } catch (e) {
         return (e as NodeJS.ErrnoException).code === 'ENOENT' ? false : null;
       }
@@ -167,13 +171,41 @@ export async function lockRunningPid(
   return null;
 }
 
+/** Файл без разбираемого содержимого моложе этого срока считаем блокировкой, которую пишут прямо сейчас. */
+const FRESH_UNPARSEABLE_MS = 5000;
+
+/**
+ * Создаёт файл блокировки сразу с содержимым: пишет во временный файл и жёстко связывает его с lockPath
+ * (атомарно; EEXIST — занято). Где жёсткие ссылки недоступны (FAT/exFAT) — запасной путь: запись с флагом 'wx'.
+ */
 function writeExclusive(lockPath: string, token: string): boolean {
+  const content = JSON.stringify({ pid: process.pid, bootTime: currentBootTime(), token });
+  const tmp = `${lockPath}.${token}.tmp`;
+  fs.writeFileSync(tmp, content);
   try {
-    fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, bootTime: currentBootTime(), token }), { flag: 'wx' });
+    fs.linkSync(tmp, lockPath);
+    return true;
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'EEXIST') return false;
+    if (code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'ENOSYS') throw e;
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+  try {
+    fs.writeFileSync(lockPath, content, { flag: 'wx' });
     return true;
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'EEXIST') return false;
     throw e;
+  }
+}
+
+function isFresh(p: string): boolean {
+  try {
+    return Date.now() - fs.statSync(p).mtimeMs < FRESH_UNPARSEABLE_MS;
+  } catch {
+    return false;
   }
 }
 
@@ -210,6 +242,8 @@ export async function acquireExclusiveLock(
     if (writeExclusive(lockPath, token)) return release;
     const raw = readRaw(lockPath);
     if (raw === null) continue; // исчез между попытками
+    // Пустой/битый файл, который только что появился: его пишет другой процесс (или старая версия) — занято.
+    if (readLock(lockPath) === null && isFresh(lockPath)) throw new LockHeldError(0, lockPath);
     // Свой PID с чужим token — второй захват в этом же процессе: занято.
     const state = stateOf(readLock(lockPath), false);
     if (

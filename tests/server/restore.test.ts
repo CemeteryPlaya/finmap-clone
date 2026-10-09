@@ -62,6 +62,17 @@ describe('restore', () => {
     await expect(restoreBackup({ archivePath: archive, config })).rejects.toThrow(/остановите приложение/i);
   });
 
+  it('подозрительный lock супервизора (другой bootTime): отказ, пока процесс не опровергнут как не node', async () => {
+    const { config, archive } = prepare();
+    fs.writeFileSync(
+      path.join(config.dataDir, 'supervisor.lock'),
+      JSON.stringify({ pid: process.ppid, bootTime: currentBootTime() - 3600 }),
+    );
+    await expect(restoreBackup({ archivePath: archive, config, isNode: () => true })).rejects.toThrow(/остановите приложение/i);
+    await expect(restoreBackup({ archivePath: archive, config, isNode: () => null })).rejects.toThrow(/остановите приложение/i);
+    await expect(restoreBackup({ archivePath: archive, config, isNode: () => false })).resolves.toBeDefined();
+  });
+
   it('держит lock на время восстановления и снимает его после (и после ошибки)', async () => {
     const { config, archive } = prepare();
     const seen: Array<string | null> = [];
