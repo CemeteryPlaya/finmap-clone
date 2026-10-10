@@ -250,16 +250,21 @@ test('вопрос о несохранённом: вложенное окно, E
   await expect(form).toBeHidden();
 });
 
-test('«Настройки журнала»: колонки и «Спрашивать перед закрытием формы» применяются вместе по «Применить»', async ({ page }) => {
+test('«Настройки журнала»: «Применить» только при изменениях, сохраняет вместе, частичный сбой понятен, журнал меняется без перезагрузки', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Вид журнала ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
   const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
   await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minuteAgo(), accountId: cash, amount: 1000, comment: 'для колонок' });
+  const putPref = async (key: string, value: unknown) => {
+    const res = await page.request.put(`/api/v1/preferences/${key}`, { data: { value }, headers: csrf(page) });
+    expect(res.ok(), await res.text()).toBe(true);
+  };
   const before = (await (await page.request.get('/api/v1/preferences')).json()).preferences as Record<string, unknown>;
-  // вопрос выключен «Больше не спрашивать» — его возвращают здесь
-  await page.request.put('/api/v1/preferences/operationForm.skipCloseConfirm', { data: { value: true }, headers: csrf(page) });
+  const skipUrl = '**/api/v1/preferences/operationForm.skipCloseConfirm';
   try {
+    // вопрос выключен «Больше не спрашивать» — его возвращают здесь
+    await putPref('operationForm.skipCloseConfirm', true);
     await page.goto(`/c/${cid}/settings/journal`);
     await expect(page.getByRole('heading', { level: 1, name: 'Настройки журнала' })).toBeVisible();
     const nav = page.getByRole('navigation', { name: 'Разделы настроек' });
@@ -267,16 +272,32 @@ test('«Настройки журнала»: колонки и «Спрашив�
     await expect(page.getByRole('checkbox', { name: 'Дата', exact: true })).toBeDisabled();
     await expect(page.getByRole('checkbox', { name: 'Сумма', exact: true })).toBeChecked();
     const ask = page.getByRole('checkbox', { name: 'Спрашивать перед закрытием формы с несохранёнными данными' });
+    const apply = page.getByRole('button', { name: 'Применить' });
     await expect(ask).not.toBeChecked();
+    await expect(apply).toBeDisabled();
+    await ask.check();
+    await expect(apply).toBeEnabled();
+    await ask.uncheck();
+    await expect(apply).toBeDisabled();
+
+    // сбой второго сохранения: колонки сохранены, вопрос — нет; форма остаётся изменённой
+    await page.route(skipUrl, (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'INTERNAL', message: 'Сбой сохранения' } }) }),
+    );
     await ask.check();
     await page.getByRole('checkbox', { name: 'Комментарий', exact: true }).uncheck();
-    await page.getByRole('button', { name: 'Применить' }).click();
+    await apply.click();
+    await expect(page.getByRole('alert')).toHaveText('Колонки сохранены, но вопрос о несохранённом — нет: Сбой сохранения');
+    await expect(apply).toBeEnabled();
+    await expect(apply).toBeFocused();
+    await page.unroute(skipUrl);
+    await apply.click();
     await expect(page.getByRole('status')).toHaveText('Настройки сохранены');
-    await page.reload();
-    await expect(ask).toBeChecked();
-    await expect(page.getByRole('checkbox', { name: 'Комментарий', exact: true })).not.toBeChecked();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(apply).toBeDisabled();
+    await expect(page.getByRole('status')).toBeFocused();
 
-    // журнал: колонки «Комментарий» нет; изменённая форма снова спрашивает
+    // журнал по ссылке, без перезагрузки: колонки «Комментарий» нет; изменённая форма снова спрашивает
     await nav.getByRole('link', { name: /Назад к журналу/ }).click();
     await expect(page.getByRole('table', { name: 'Операции' }).locator('tbody tr')).toHaveCount(1);
     await expect(page.getByRole('columnheader', { name: 'Комментарий' })).toHaveCount(0);
@@ -287,8 +308,15 @@ test('«Настройки журнала»: колонки и «Спрашив�
     const question = page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' });
     await expect(question).toBeVisible();
     await question.getByRole('button', { name: 'Закрыть' }).click();
+
+    // сохранено на сервере
+    await page.goto(`/c/${cid}/settings/journal`);
+    await expect(ask).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'Комментарий', exact: true })).not.toBeChecked();
+    await expect(apply).toBeDisabled();
   } finally {
-    await page.request.put('/api/v1/preferences/operationForm.skipCloseConfirm', { data: { value: false }, headers: csrf(page) });
-    await page.request.put('/api/v1/preferences/journal.columns', { data: { value: before['journal.columns'] ?? null }, headers: csrf(page) });
+    await page.unroute(skipUrl);
+    await putPref('operationForm.skipCloseConfirm', before['operationForm.skipCloseConfirm'] ?? null);
+    await putPref('journal.columns', before['journal.columns'] ?? null);
   }
 });
