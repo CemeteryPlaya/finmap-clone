@@ -27,7 +27,7 @@ async function world() {
 }
 
 describe('split-presets API', () => {
-  it('создание: доли в сумме 100%, строки со категорией и/или проектом', async () => {
+  it('создание: доли в сумме 100%, строки с категорией и/или проектом', async () => {
     const w = await world();
     const res = await h.req('POST', base(w.cid), {
       name: 'Аренда пополам',
