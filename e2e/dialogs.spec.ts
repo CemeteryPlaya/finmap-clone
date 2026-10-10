@@ -249,3 +249,46 @@ test('вопрос о несохранённом: вложенное окно, E
   await question.getByRole('button', { name: 'Закрыть' }).click();
   await expect(form).toBeHidden();
 });
+
+test('«Настройки журнала»: колонки и «Спрашивать перед закрытием формы» применяются вместе по «Применить»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Вид журнала ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minuteAgo(), accountId: cash, amount: 1000, comment: 'для колонок' });
+  const before = (await (await page.request.get('/api/v1/preferences')).json()).preferences as Record<string, unknown>;
+  // вопрос выключен «Больше не спрашивать» — его возвращают здесь
+  await page.request.put('/api/v1/preferences/operationForm.skipCloseConfirm', { data: { value: true }, headers: csrf(page) });
+  try {
+    await page.goto(`/c/${cid}/settings/journal`);
+    await expect(page.getByRole('heading', { level: 1, name: 'Настройки журнала' })).toBeVisible();
+    const nav = page.getByRole('navigation', { name: 'Разделы настроек' });
+    await expect(nav.getByRole('link', { name: 'Настройки журнала' })).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('checkbox', { name: 'Дата', exact: true })).toBeDisabled();
+    await expect(page.getByRole('checkbox', { name: 'Сумма', exact: true })).toBeChecked();
+    const ask = page.getByRole('checkbox', { name: 'Спрашивать перед закрытием формы с несохранёнными данными' });
+    await expect(ask).not.toBeChecked();
+    await ask.check();
+    await page.getByRole('checkbox', { name: 'Комментарий', exact: true }).uncheck();
+    await page.getByRole('button', { name: 'Применить' }).click();
+    await expect(page.getByRole('status')).toHaveText('Настройки сохранены');
+    await page.reload();
+    await expect(ask).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'Комментарий', exact: true })).not.toBeChecked();
+
+    // журнал: колонки «Комментарий» нет; изменённая форма снова спрашивает
+    await nav.getByRole('link', { name: /Назад к журналу/ }).click();
+    await expect(page.getByRole('table', { name: 'Операции' }).locator('tbody tr')).toHaveCount(1);
+    await expect(page.getByRole('columnheader', { name: 'Комментарий' })).toHaveCount(0);
+    await page.getByRole('banner').getByRole('button', { name: 'Доход', exact: true }).click();
+    const amount = page.getByRole('dialog', { name: 'Новая операция' }).getByRole('textbox', { name: /^Сумма,/ });
+    await amount.fill('5');
+    await amount.press('Escape');
+    const question = page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' });
+    await expect(question).toBeVisible();
+    await question.getByRole('button', { name: 'Закрыть' }).click();
+  } finally {
+    await page.request.put('/api/v1/preferences/operationForm.skipCloseConfirm', { data: { value: false }, headers: csrf(page) });
+    await page.request.put('/api/v1/preferences/journal.columns', { data: { value: before['journal.columns'] ?? null }, headers: csrf(page) });
+  }
+});

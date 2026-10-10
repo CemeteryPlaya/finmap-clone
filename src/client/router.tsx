@@ -17,6 +17,7 @@ import { ProfileSettings } from './pages/settings/ProfileSettings';
 import { UsersSettings } from './pages/settings/UsersSettings';
 import { AuditSettings } from './pages/settings/AuditSettings';
 import { BackupSettings } from './pages/settings/BackupSettings';
+import { JournalViewSettings } from './pages/settings/JournalViewSettings';
 import { SettingsLayout, SettingsRedirect } from './pages/settings/SettingsLayout';
 
 export const router = createBrowserRouter([
@@ -50,6 +51,7 @@ export const router = createBrowserRouter([
               { path: 'users', element: <UsersSettings /> },
               { path: 'rates', element: <RatesSettings /> },
               { path: 'backup', element: <BackupSettings /> },
+              { path: 'journal', element: <JournalViewSettings /> },
               { path: 'audit', element: <AuditSettings /> },
               { path: '*', element: <SettingsRedirect section="counterparties" /> },
             ],

@@ -218,8 +218,10 @@ test('зона настроек: разделы по группам, без па
     'Пользователи',
     'Фиксированные курсы валют',
     'Резервное копирование',
+    'Настройки журнала',
   ]);
   await expect(nav).toContainText(name);
+  await expect(nav).toContainText('Визуальные настройки');
   await expect(nav.getByRole('link', { name: 'Контрагенты' })).toHaveAttribute('aria-current', 'page');
 
   // общий для экземпляра раздел — серая строка

@@ -7,6 +7,7 @@ describe('навигация зоны настроек (§4.2 этапа 1.5)', 
     expect(groups.map((g) => [g.key, g.title, g.items.map((i) => i.path)])).toEqual([
       ['account', null, ['profile', 'companies']],
       ['company', 'ТОО «Демо Клубы»', ['counterparties', 'accounts', 'categories', 'projects', 'tags', 'users', 'rates', 'backup']],
+      ['view', 'Визуальные настройки', ['journal']],
     ]);
     expect(groups.flatMap((g) => g.items.map((i) => i.label))).toEqual([
       'Профиль',
@@ -19,6 +20,7 @@ describe('навигация зоны настроек (§4.2 этапа 1.5)', 
       'Пользователи',
       'Фиксированные курсы валют',
       'Резервное копирование',
+      'Настройки журнала',
     ]);
   });
 

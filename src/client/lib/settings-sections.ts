@@ -45,5 +45,10 @@ export function settingsGroups(companyName: string): SettingsGroup[] {
         { path: 'backup', label: 'Резервное копирование' },
       ],
     },
+    {
+      key: 'view',
+      title: 'Визуальные настройки',
+      items: [{ path: 'journal', label: 'Настройки журнала' }],
+    },
   ];
 }
