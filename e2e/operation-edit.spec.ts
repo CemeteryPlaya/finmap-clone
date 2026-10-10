@@ -194,7 +194,7 @@ test('фокус и закрытие формы: «×» → «Отменить»
   await page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' }).getByRole('button', { name: 'Отменить' }).click();
   await expect(close).toBeFocused();
 
-  // ответ сервера задержан: пока запрос идёт, окно не закрывается ни по Esc, ни по «Отмена»
+  // ответ сервера задержан: пока запрос идёт, окно не закрывается ни по Esc, ни по «×»
   let release!: () => void;
   const gate = new Promise<void>((resolve) => (release = resolve));
   await page.route('**/api/v1/companies/*/operations', async (route) => {

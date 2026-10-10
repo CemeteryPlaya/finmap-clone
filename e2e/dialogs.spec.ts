@@ -8,6 +8,77 @@ async function login(page: Page) {
   await expect(page.getByRole('button', { name: 'Выйти' })).toBeVisible();
 }
 
+test('закрытие формы не прокручивает журнал, даже если кнопка, с которой открыли, не держит фокус (Safari, Firefox на Mac)', async ({ page }) => {
+  await login(page);
+  await page.setViewportSize({ width: 1100, height: 480 });
+  const cid = await createCompany(page, `ТОО Прокрутка ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  for (let i = 1; i <= 30; i++) {
+    await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minuteAgo(), accountId: cash, amount: 100 + i, comment: `строка ${i}` });
+  }
+  await page.reload();
+  const open = page.getByRole('table', { name: 'Операции' }).getByRole('button', { name: /^Открыть операцию/ });
+  await expect(open).toHaveCount(30);
+
+  // положение прокрутки страницы и всех прокручиваемых предков таблицы
+  const scrolled = () =>
+    page.evaluate(() => {
+      let sum = 0;
+      for (let el: Element | null = document.querySelector('table'); el; el = el.parentElement) sum += el.scrollTop;
+      return sum + window.scrollY;
+    });
+  await open.last().scrollIntoViewIfNeeded();
+  await page.mouse.wheel(0, 3000);
+  await expect.poll(scrolled).toBeGreaterThan(100);
+  const before = await scrolled();
+
+  const form = page.getByRole('dialog', { name: 'Изменить операцию' });
+  // обычный возврат: фокус на кнопку строки без прокрутки
+  await open.last().click();
+  await expect(form).toBeVisible();
+  await form.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await expect(form).toBeHidden();
+  expect(Math.abs((await scrolled()) - before)).toBeLessThanOrEqual(4);
+
+  // запасной путь по-настоящему: открываем с клавиатуры, перед закрытием убираем фокус с кнопки-открывашки и закрываем «×»
+  await open.last().focus();
+  await page.keyboard.press('Enter');
+  await expect(form).toBeVisible();
+  await page.evaluate(() => {
+    // открывашку «забыли»: её фокус уже не вернуть, остаётся заголовок страницы
+    document.querySelectorAll('table button').forEach((b) => b.setAttribute('disabled', ''));
+  });
+  await form.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await expect(form).toBeHidden();
+  await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
+  expect(Math.abs((await scrolled()) - before)).toBeLessThanOrEqual(4);
+});
+
+test('телефон: «×» окна и вопроса о несохранённом — цель касания не меньше 44×44 px', async ({ page }) => {
+  await login(page);
+  await page.setViewportSize(PHONE);
+  const cid = await createCompany(page, `ТОО Касание ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+  await page.getByRole('group', { name: 'Добавить операцию' }).getByRole('button', { name: 'Расход', exact: true }).click();
+  const form = page.getByRole('dialog', { name: 'Новая операция' });
+  const size = async (b: ReturnType<typeof form.getByRole>) => (await b.boundingBox())!;
+  const cross = await size(form.getByRole('button', { name: 'Закрыть', exact: true }));
+  expect(cross.width).toBeGreaterThanOrEqual(44);
+  expect(cross.height).toBeGreaterThanOrEqual(44);
+  await form.getByRole('textbox', { name: /^Сумма,/ }).fill('7');
+  await form.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  const question = page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' });
+  const ask = await size(question.getByRole('button', { name: 'Не закрывать', exact: true }));
+  expect(ask.width).toBeGreaterThanOrEqual(44);
+  expect(ask.height).toBeGreaterThanOrEqual(44);
+  await question.getByRole('button', { name: 'Не закрывать', exact: true }).click();
+  await expect(question).toBeHidden();
+  await expect(form).toBeVisible();
+});
+
+
 async function createCompany(page: Page, name: string): Promise<number> {
   await page.goto('/companies/new');
   await page.getByLabel('Название компании').fill(name);
@@ -112,13 +183,24 @@ test('вопрос о несохранённом: вложенное окно, E
     await amount.press('Escape');
     await expect(question).toBeVisible();
     await expect(question).toHaveAccessibleDescription('Закрыть окно? Введённые данные будут потеряны.');
-    await expect(question.getByRole('button')).toHaveText(['Отменить', 'Закрыть']);
+    await expect(question.getByRole('button')).toHaveText(['×', 'Отменить', 'Закрыть']);
+    // «×» — как «Отменить»: остаться в форме; имя другое, чтобы не путать с кнопкой «Закрыть»
+    const cross = question.getByRole('button', { name: 'Не закрывать', exact: true });
+    await expect(cross).toHaveAttribute('title', 'Не закрывать');
     await expect(question.getByRole('button', { name: 'Отменить' })).toBeFocused();
     // Tab по кругу внутри вопроса: в форму под ним фокус не уходит
     for (let i = 0; i < 4; i++) {
       await page.keyboard.press('Tab');
       expect(await question.evaluate((d) => d.contains(document.activeElement))).toBe(true);
     }
+    // «×» вопроса: вопрос закрывается, форма и введённое остаются, фокус возвращается в сумму
+    await cross.click();
+    await expect(question).toBeHidden();
+    await expect(form).toBeVisible();
+    await expect(amount).toBeFocused();
+    await expect(amount).toHaveValue('250');
+    await amount.press('Escape');
+    await expect(question).toBeVisible();
     // Esc закрывает только вопрос: форма открыта, фокус — в сумме, где нажали Esc
     await page.keyboard.press('Escape');
     await expect(question).toBeHidden();
@@ -154,7 +236,8 @@ test('вопрос о несохранённом: вложенное окно, E
     await form.getByRole('button', { name: 'Закрыть', exact: true }).click();
     await expect(form).toBeHidden();
   } finally {
-    await page.request.put('/api/v1/preferences/operationForm.skipCloseConfirm', { data: { value: false }, headers: csrf(page) });
+    const restore = await page.request.put('/api/v1/preferences/operationForm.skipCloseConfirm', { data: { value: false }, headers: csrf(page) });
+    expect(restore.ok(), await restore.text()).toBe(true);
   }
 
   // после возврата настройки (новая загрузка страницы) вопрос снова задаётся

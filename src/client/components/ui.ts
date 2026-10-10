@@ -4,5 +4,7 @@ export const btnSecondary = 'rounded-xl bg-field px-4 py-2.5 font-medium text-in
 export const btnDanger = 'rounded-xl bg-expense-soft px-4 py-2.5 font-medium text-expense hover:brightness-95 disabled:opacity-50';
 export const btnSmall = 'rounded-lg bg-field px-3 py-1.5 text-sm font-medium text-ink hover:brightness-95 disabled:opacity-50';
 export const btnIcon = 'rounded-lg bg-field px-2.5 py-1.5 text-sm font-semibold text-ink hover:brightness-95 disabled:opacity-30';
+/** «×» в шапке окна: на телефоне цель касания не меньше 44×44 px, знак по центру; на компьютере размер как у btnIcon. */
+export const btnClose = `${btnIcon} shrink-0 max-md:flex max-md:size-11 max-md:items-center max-md:justify-center max-md:p-0`;
 export const alertClass = 'mb-4 rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense';
 export const noticeClass = 'mb-4 rounded-xl bg-field px-4 py-3 text-sm text-muted';

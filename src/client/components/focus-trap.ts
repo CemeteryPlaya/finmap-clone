@@ -64,7 +64,8 @@ export function focusPageHeading(): void {
   const heading = document.querySelector<HTMLElement>('main h1');
   if (!heading) return;
   if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1');
-  heading.focus();
+  // без прокрутки: если кнопка не принимала фокус (Safari, Firefox на Mac), страница не должна уезжать к заголовку
+  heading.focus({ preventScroll: true });
 }
 
 /**

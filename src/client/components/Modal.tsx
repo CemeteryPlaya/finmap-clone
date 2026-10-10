@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { cycleTab, firstTabbable, focusPageHeading } from './focus-trap';
-import { btnIcon } from './ui';
+import { btnClose } from './ui';
 
 /**
  * Модальное окно на `<dialog>`: открывается через showModal() — браузер держит фокус внутри окна,
@@ -79,7 +79,7 @@ export function Modal(props: {
         props.onClose();
         // кнопки, с которой открыли окно, уже нет (строку журнала удалили) или она не принимает фокус — фокус на заголовок страницы
         const back = opener.current;
-        if (back?.isConnected && back !== document.body) back.focus();
+        if (back?.isConnected && back !== document.body) back.focus({ preventScroll: true });
         if (!back?.isConnected || back === document.body || document.activeElement !== back) focusPageHeading();
       }}
       className={`m-auto max-h-[90dvh] w-[calc(100%-2rem)] rounded-3xl bg-card p-0 text-ink shadow-2xl outline-none backdrop:bg-black/40 ${props.className ?? 'max-w-2xl'}`}
@@ -92,7 +92,7 @@ export function Modal(props: {
             <h2 id={titleId} className="text-xl font-bold">
               {props.title}
             </h2>
-            <button ref={closeRef} type="button" data-modal-close="" aria-label="Закрыть" title="Закрыть" onClick={cancel} className={`${btnIcon} shrink-0`}>
+            <button ref={closeRef} type="button" data-modal-close="" aria-label="Закрыть" title="Закрыть" onClick={cancel} className={btnClose}>
               <span aria-hidden="true">×</span>
             </button>
           </div>

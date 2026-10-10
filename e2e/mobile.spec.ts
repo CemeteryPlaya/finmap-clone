@@ -483,14 +483,15 @@ test('архивная компания: форма операции тольк�
     await expect(view.getByRole('button', { name, exact: true })).toHaveCount(0);
   }
   await expect(view.getByLabel('Добавить файл')).toHaveCount(0);
-  // R3: поле суммы недоступно — фокус сразу на «Закрыть», а не на самом окне
-  await expect(view.getByRole('form', { name: 'Операция' }).getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
+  // R3: поле суммы недоступно — фокус сразу на «×», а не на самом окне; другой кнопки закрытия в форме нет
+  await expect(view.getByRole('button', { name: 'Закрыть', exact: true })).toHaveCount(1);
+  await expect(view.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
   // отправка формы ничего не меняет: окно остаётся, запросов на изменение нет
   const writes: string[] = [];
   page.on('request', (r) => {
     if (r.method() !== 'GET') writes.push(`${r.method()} ${r.url()}`);
   });
-  // Enter на «Закрыть» нажимает её саму, поэтому отправку формы (то, что делает Enter в поле) вызываем напрямую
+  // Enter на «×» нажимает её саму, поэтому отправку формы (то, что делает Enter в поле) вызываем напрямую
   await view.getByRole('form', { name: 'Операция' }).evaluate((f) => (f as HTMLFormElement).requestSubmit());
   await expectNoWriteRequest(page);
   await expect(view).toBeVisible();
@@ -503,7 +504,7 @@ test('архивная компания: форма операции тольк�
       expect(inForm, `${key} №${i + 1}`).toBe(true);
     }
   }
-  await view.getByRole('form', { name: 'Операция' }).getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await view.getByRole('button', { name: 'Закрыть', exact: true }).click();
   await expect(view).toBeHidden();
 
   // телефон: нижней панели нет, карточка открывает ту же форму для просмотра; Esc закрывает без вопросов
@@ -512,7 +513,7 @@ test('архивная компания: форма операции тольк�
   await cards(page).getByRole('button').first().click();
   await expect(view).toContainText('Компания в архиве — изменения недоступны');
   await expect(view.getByRole('button', { name: 'Сохранить', exact: true })).toHaveCount(0);
-  await expect(view.getByRole('form', { name: 'Операция' }).getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
+  await expect(view.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(view).toBeHidden();
 });

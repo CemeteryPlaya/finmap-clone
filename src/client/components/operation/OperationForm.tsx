@@ -212,15 +212,16 @@ function OperationEditor(p: {
   const formRef = useRef<HTMLFormElement>(null);
   const [errorFocus, setErrorFocus] = useState(0);
   const dirty = files.length > 0 || JSON.stringify(draft) !== JSON.stringify(initial);
-  /** Только просмотр: поле суммы недоступно, начальный фокус — на «Закрыть». */
-  const closeRef = useRef<HTMLButtonElement>(null);
+  /** Только просмотр: поле суммы недоступно, начальный фокус — на «×» окна. */
+  const closeButton = () => formRef.current?.closest('dialog')?.querySelector<HTMLButtonElement>('[data-modal-close]') ?? null;
 
   useEffect(() => {
     if (!readOnly) return;
-    closeRef.current?.focus();
+    closeButton()?.focus({ preventScroll: true });
     // окно ещё может открываться (данные были в кэше): showModal() переставил бы фокус на первый элемент
     const frame = requestAnimationFrame(() => {
-      if (closeRef.current?.isConnected && document.activeElement !== closeRef.current) closeRef.current.focus();
+      const close = closeButton();
+      if (close?.isConnected && document.activeElement !== close) close.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [readOnly]);
@@ -706,13 +707,7 @@ function OperationEditor(p: {
             Не удалять
           </button>
         </div>
-      ) : readOnly ? (
-        <div className="flex flex-wrap gap-2">
-          <button type="button" ref={closeRef} onClick={p.close} className={btnSecondary}>
-            Закрыть
-          </button>
-        </div>
-      ) : (
+      ) : readOnly ? null /* в архивной форме закрывает только «×» окна, как в Finmap */ : (
         <div className="flex flex-wrap gap-2">
           <button type="submit" disabled={pending} className={btnPrimary}>
             Сохранить

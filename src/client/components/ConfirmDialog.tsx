@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef } from 'react';
 import { cycleTab } from './focus-trap';
-import { btnDanger, btnSecondary } from './ui';
+import { btnClose, btnDanger, btnSecondary } from './ui';
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -43,7 +43,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     if (props.open && !dialog.open) {
       opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       dialog.showModal();
-      cancelRef.current?.focus();
+      cancelRef.current?.focus({ preventScroll: true });
     } else if (!props.open && dialog.open) {
       dialog.close();
     }
@@ -57,6 +57,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     <dialog
       ref={ref}
       role="alertdialog"
+      tabIndex={-1}
       aria-labelledby={titleId}
       aria-describedby={textId}
       onKeyDown={(e) => {
@@ -76,9 +77,11 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
       onClose={(e) => {
         e.stopPropagation();
         if (e.target !== e.currentTarget) return;
+        // окно закрыл браузер, а владелец всё ещё держит open: сообщаем ему, чтобы состояние не разошлось
+        if (latest.current.open) latest.current.onCancel();
         const back = opener.current;
         opener.current = null;
-        if (back?.isConnected && back !== document.body) back.focus();
+        if (back?.isConnected && back !== document.body) back.focus({ preventScroll: true });
         // фокус был «ничей» (body), элемента уже нет или он не принял фокус — решает владелец (форма: поле суммы)
         if (!back?.isConnected || back === document.body || document.activeElement !== back) latest.current.onFocusLost?.();
       }}
@@ -86,9 +89,14 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     >
       {props.open && (
         <>
-          <h2 id={titleId} className="mb-3 text-xl font-bold">
-            {props.title}
-          </h2>
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <h2 id={titleId} className="text-xl font-bold">
+              {props.title}
+            </h2>
+            <button type="button" aria-label="Не закрывать" title="Не закрывать" disabled={props.pending} onClick={cancel} className={btnClose}>
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
           <p id={textId} className="mb-4 text-sm text-muted">
             {props.text}
           </p>
