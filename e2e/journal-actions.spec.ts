@@ -391,8 +391,8 @@ test('массовые действия: категория с итогом и �
   await bar.getByRole('button', { name: 'Да, удалить' }).click();
   await expect(undo).toBeFocused();
   await expect.poll(lettersTick).toBe('DCA');
-  await page.getByRole('button', { name: /Сменить компанию/ }).click();
-  await page.getByRole('menuitem', { name: otherName }).click();
+  await page.getByRole('banner').getByRole('button', { name: /Сменить компанию/ }).click();
+  await page.getByRole('dialog', { name: 'Компании' }).getByRole('button', { name: new RegExp(`^${otherName}`) }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${other}/log$`));
   await settled(() => expect(page.getByText('Операций пока нет.')).toBeVisible());
   await expect(bar).toHaveCount(0);
@@ -402,8 +402,8 @@ test('массовые действия: категория с итогом и �
   await settled(() =>
     expect(page.getByRole('status').filter({ hasText: 'Отмена удаления:' })).toContainText(`Компания «${name}»: Отмена удаления: изменено 1, пропущено 0`),
   );
-  await page.getByRole('button', { name: /Сменить компанию/ }).click();
-  await page.getByRole('menuitem', { name }).click();
+  await page.getByRole('banner').getByRole('button', { name: /Сменить компанию/ }).click();
+  await page.getByRole('dialog', { name: 'Компании' }).getByRole('button', { name: new RegExp(`^${name}`) }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
   await expect.poll(lettersTick).toBe('DCBA');
   await settled(() => expect(page.getByRole('status').filter({ hasText: 'Отмена удаления:' })).toContainText('Отмена удаления: изменено 1, пропущено 0'));

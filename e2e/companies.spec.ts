@@ -23,15 +23,26 @@ async function openCompanySettings(page: Page) {
   await page.getByRole('dialog').getByRole('link', { name: 'Настройки компании' }).click();
 }
 
-test('компании: создание, переключение', async ({ page }) => {
+/** Строка компании в панели «Компании»: имя кнопки начинается с названия (у ✎ — «Изменить компанию «…»»). */
+const companyRow = (name: string) => new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
+
+test('компании: создание, панель «Компании» — переключение, поиск, ✎ поверх панели, «Добавить компанию»', async ({ page }) => {
   await login(page);
   const suffix = Date.now();
   const first = `ТОО Ромашка ${suffix}`;
   const second = `ИП Лютик ${suffix}`;
 
+  // поиск в панели появляется, когда компаний больше пяти: в начале прогона их может быть меньше
+  const headers = { origin: new URL(page.url()).origin, 'x-requested-with': 'fetch' };
+  for (let i = 1; i <= 4; i++) {
+    expect((await page.request.post('/api/v1/companies', { data: { name: `ТОО Наполнение ${suffix} ${i}` }, headers })).status()).toBe(201);
+  }
+
   const firstId = await createCompany(page, first);
-  await expect(page.getByRole('heading', { name: 'Журнал' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Сменить компанию' })).toContainText(first);
+  await expect(page.getByRole('heading', { name: 'Журнал' })).toBeAttached();
+  const block = page.getByRole('banner').getByRole('button', { name: /Сменить компанию/ });
+  await expect(block).toContainText(first);
+  await expect(block).toContainText('Сменить компанию');
 
   // «Отмена» на экране новой компании возвращает в журнал первой активной
   await page.goto('/companies/new');
@@ -40,12 +51,50 @@ test('компании: создание, переключение', async ({ pa
 
   const secondId = await createCompany(page, second);
   expect(secondId).not.toBe(firstId);
-  await expect(page.getByRole('button', { name: 'Сменить компанию' })).toContainText(second);
+  await expect(block).toContainText(second);
 
-  await page.getByRole('button', { name: 'Сменить компанию' }).click();
-  await page.getByRole('menuitem', { name: first }).click();
+  // панель: текущая отмечена; в общей базе e2e компаний больше пяти — есть поиск
+  await block.click();
+  const drawer = page.getByRole('dialog', { name: 'Компании' });
+  await expect(drawer.getByRole('button', { name: companyRow(second) })).toHaveAttribute('aria-current', 'true');
+  await drawer.getByRole('searchbox', { name: 'Поиск' }).fill(String(suffix));
+  await expect(drawer.getByRole('button', { name: new RegExp(`^(ТОО Ромашка|ИП Лютик) ${suffix}`) })).toHaveCount(2);
+  await drawer.getByRole('button', { name: companyRow(first) }).click();
+  await expect(drawer).toBeHidden();
   await expect(page).toHaveURL(new RegExp(`/c/${firstId}/log$`));
-  await expect(page.getByRole('button', { name: 'Сменить компанию' })).toContainText(first);
+  await expect(block).toContainText(first);
+  await expect(page.getByRole('heading', { name: 'Журнал' })).toBeFocused();
+
+  // ✎ — окно «Компания» поверх панели; Esc закрывает только окно, фокус — на ✎
+  await block.click();
+  const pencil = drawer.getByRole('button', { name: `Изменить компанию «${first}»` });
+  await pencil.click();
+  const edit = page.getByRole('dialog', { name: 'Компания', exact: true });
+  await expect(edit.getByLabel('Название компании')).toHaveValue(first);
+  await page.keyboard.press('Escape');
+  await expect(edit).toBeHidden();
+  await expect(drawer).toBeVisible();
+  await expect(pencil).toBeFocused();
+  // переименование: новое название — в панели и в шапке
+  await pencil.click();
+  const renamed = `ТОО Ромашка переим ${suffix}`;
+  await edit.getByLabel('Название компании').fill(renamed);
+  await edit.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(edit).toBeHidden();
+  await expect(drawer.getByRole('button', { name: companyRow(renamed) })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(drawer).toBeHidden();
+  await expect(block).toContainText(renamed);
+
+  // «Все компании, в том числе архивные» и «Добавить компанию»
+  await block.click();
+  await drawer.getByRole('link', { name: 'Все компании, в том числе архивные' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${firstId}/settings/companies$`));
+  await expect(page.getByRole('heading', { level: 1, name: 'Мои компании' })).toBeFocused();
+  await block.click();
+  await drawer.getByRole('link', { name: 'Добавить компанию' }).click();
+  await expect(page).toHaveURL(/\/companies\/new$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Новая компания' })).toBeFocused();
 
   await page.goto('/c/999999/log');
   await expect(page).not.toHaveURL(/\/c\/999999\//); // неизвестная компания → редирект…

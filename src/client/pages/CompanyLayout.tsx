@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { Navigate, NavLink, Outlet, useMatch, useParams } from 'react-router';
 import { AccountsDrawerButton, AccountsPanel } from '../components/AccountsPanel';
 import { AppHeader } from '../components/AppHeader';
-import { CompanySwitcher } from '../components/CompanySwitcher';
+import { CompanyBlockButton } from '../components/CompaniesDrawer';
 import { LoadError } from '../components/LoadError';
 import { NewOperationButtons, OperationFormHost } from '../components/operation/OperationFormHost';
 import { mainCardClass } from '../components/ui';
@@ -44,7 +44,7 @@ export function CompanyLayout() {
           left={
             <>
               <AccountsDrawerButton company={company} />
-              <CompanySwitcher current={company} companies={companies.data} />
+              <CompanyBlockButton current={company} companies={companies.data} />
             </>
           }
           // архивная компания — только чтение: новых операций нет ни в шапке, ни в нижней панели

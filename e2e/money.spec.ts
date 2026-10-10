@@ -45,9 +45,10 @@ test('левая панель: балансы и итог, переход в ж�
   await panel.getByRole('link', { name: /^Kaspi/ }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?account=${kaspi}$`));
 
-  // переключатель: у компании — её итог
-  await page.getByRole('button', { name: /Сменить компанию/ }).click();
-  await expect(page.getByRole('menuitem', { name })).toContainText(/₸\s1\s500$/);
+  // панель «Компании»: у компании — её итог, ₸ впереди
+  await page.getByRole('banner').getByRole('button', { name: /Сменить компанию/ }).click();
+  const companies = page.getByRole('dialog', { name: 'Компании' });
+  await expect(companies.getByRole('button', { name: new RegExp(`^${name}`) })).toContainText(/₸\s1\s500/);
   await page.keyboard.press('Escape');
 
   // настройка общая для пользователя admin и остальных e2e: что бы ни случилось, она должна остаться «развёрнуто»

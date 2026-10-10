@@ -136,7 +136,9 @@ test('резервная копия: последняя копия и «Скач
   expect(download.suggestedFilename()).toMatch(/^backup-\d{8}-\d{6}\.zip$/);
 });
 
-test('переключатель: клавиатура, текущая компания не уводит из настроек, последняя компания запоминается', async ({ page }) => {
+const companyRow = (name: string) => new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
+
+test('панель «Компании»: текущая компания не уводит из настроек, другая — тот же раздел и фокус на заголовке; последняя компания запоминается', async ({ page }) => {
   await login(page);
   const stamp = Date.now();
   const alpha = `ТОО Альфа ${stamp}`;
@@ -145,31 +147,34 @@ test('переключатель: клавиатура, текущая комп�
   const betaId = await createCompany(page, beta);
 
   await page.goto(`/c/${betaId}/settings/accounts`);
-  const switcher = page.getByRole('button', { name: /Сменить компанию/ });
-  await expect(switcher).toHaveAccessibleName(`Сменить компанию: ${beta}`);
+  const block = page.getByRole('banner').getByRole('button', { name: /Сменить компанию/ });
+  await expect(block).toHaveAccessibleName(`Сменить компанию: ${beta}`);
+  await expect(block).toHaveAttribute('aria-haspopup', 'dialog');
 
-  // выбор текущей компании — остаёмся в настройках, фокус на кнопке
-  await switcher.click();
-  await page.getByRole('menuitem', { name: beta }).click();
+  // текущая компания — остаёмся в настройках, фокус на кнопке компании
+  await block.click();
+  const drawer = page.getByRole('dialog', { name: 'Компании' });
+  await drawer.getByRole('button', { name: companyRow(beta) }).click();
+  await expect(drawer).toBeHidden();
   await expect(page).toHaveURL(new RegExp(`/c/${betaId}/settings/accounts$`));
-  await expect(switcher).toBeFocused();
+  await expect(block).toBeFocused();
 
-  // клавиатура: стрелка открывает меню на текущей, ↑ — к «Альфе», Enter — тот же раздел у неё
-  await switcher.press('ArrowDown');
-  await expect(page.getByRole('menuitem', { name: beta })).toBeFocused();
-  await page.keyboard.press('ArrowUp');
-  await expect(page.getByRole('menuitem', { name: alpha })).toBeFocused();
+  // клавиатура: Enter открывает панель, Enter на «Альфе» — тот же раздел у неё, фокус на заголовке раздела
+  await block.press('Enter');
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole('button', { name: companyRow(alpha) }).focus();
   const saved = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/lastCompanyId') && r.request().method() === 'PUT');
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(new RegExp(`/c/${alphaId}/settings/accounts$`));
   await saved;
+  await expect(page.getByRole('heading', { level: 1, name: 'Счета' })).toBeFocused();
 
-  // Esc закрывает меню и возвращает фокус
-  await switcher.press('Enter');
-  await expect(page.getByRole('menu')).toBeVisible();
+  // Esc закрывает панель и возвращает фокус
+  await block.click();
+  await expect(drawer).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('menu')).toHaveCount(0);
-  await expect(switcher).toBeFocused();
+  await expect(drawer).toBeHidden();
+  await expect(block).toBeFocused();
 
   // стартовый экран открывает последнюю компанию
   await page.goto('/');
