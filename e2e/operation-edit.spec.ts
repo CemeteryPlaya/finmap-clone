@@ -255,7 +255,7 @@ test('409: операцию изменили в другом окне — «За
   await expect(dialog.getByLabel('Комментарий')).toHaveValue('поздно');
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('Операция удалена другим пользователем');
-  await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await dialog.getByRole('alert').getByRole('button', { name: 'Закрыть', exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(rows(page).filter({ hasText: 'вторая' })).toHaveCount(0);
   // строки, с которой открыли форму, больше нет — фокус на заголовке «Журнал»
@@ -298,7 +298,7 @@ test('409: «Дублировать» убирает сообщение о ко�
   expect((await page.request.delete(`${base}/operations/${second}`, { headers: csrf(page) })).status()).toBe(200);
   await dialog.getByRole('button', { name: 'Загрузить актуальную' }).click();
   await expect(dialog.getByRole('alert')).toContainText('Операция удалена другим пользователем');
-  await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await dialog.getByRole('alert').getByRole('button', { name: 'Закрыть', exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(page.getByRole('heading', { name: 'Журнал' })).toBeFocused();
 });

@@ -45,7 +45,9 @@ export function Drawer(props: { open: boolean; title: string; side: 'left' | 'ri
         if (pressedOnBackdrop.current && e.target === e.currentTarget) ref.current?.close();
         pressedOnBackdrop.current = false;
       }}
-      onClose={() => {
+      onClose={(e) => {
+        // close вложенного окна (окно компании поверх панели «Компании») React доставляет и сюда
+        if (e.target !== e.currentTarget) return;
         props.onClose();
         opener.current?.focus();
       }}

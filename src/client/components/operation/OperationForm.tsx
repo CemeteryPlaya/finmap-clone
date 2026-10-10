@@ -72,7 +72,7 @@ const LOCKED_HINT = 'счёт в архиве';
  * под вырез экрана и «домашнюю» полосу (safe-area).
  */
 const MODAL_CLASS =
-  'max-w-2xl max-md:m-0 max-md:h-dvh max-md:max-h-dvh max-md:w-full max-md:max-w-none max-md:rounded-none max-md:pt-[env(safe-area-inset-top)] max-md:pr-[env(safe-area-inset-right)] max-md:pb-[env(safe-area-inset-bottom)] max-md:pl-[env(safe-area-inset-left)]';
+  'max-w-2xl max-md:m-0 max-md:h-dvh max-md:max-h-dvh max-md:w-full max-md:max-w-none max-md:rounded-none max-md:pr-[env(safe-area-inset-right)] max-md:pb-[env(safe-area-inset-bottom)] max-md:pl-[env(safe-area-inset-left)]';
 
 /** Ошибки полей из ответа сервера: `lines.0.amount` → `lines`, `tagIds.1` → `tagIds`. */
 export function serverFieldErrors(fields: Record<string, string> | undefined): Record<string, string> {
@@ -131,6 +131,7 @@ export function OperationForm(props: { company: Company; request: OperationFormR
       }}
       onCancel={() => cancel.current()}
       className={MODAL_CLASS}
+      phoneFullScreen
     >
       {data && meta.data && (editId === null || operation.data) ? (
         <OperationEditor

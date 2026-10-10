@@ -77,7 +77,7 @@ export function projectShare(lines: readonly LineLike[], projectIds: readonly nu
   return lines.filter((l) => l.projectId !== null && chosen.has(l.projectId)).reduce((s, l) => s + l.amount, 0);
 }
 
-/** Сумма со знаком по типу: доход «+1 500,00 ₸», расход «-1 500,00 ₸», перевод без знака. */
+/** Сумма со знаком по типу: доход «+1 500 ₸», расход «\u22121 500,50 ₸» (знак минус U+2212; нулевые копейки не показываются), перевод без знака. */
 export function signedMoney(type: OperationType, minor: number, currency: string): string {
   const sign = type === 'income' ? '+' : type === 'expense' ? '\u2212' : '';
   return `${sign}${formatMoney(minor, currency, MONEY_SCREEN)}`;

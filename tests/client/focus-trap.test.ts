@@ -38,4 +38,9 @@ describe('tabbable: куда попадает Tab в модальном окне
     const list = [el('a'), el('b', { tabIndex: -1 }), el('c', { tabIndex: 0 }), el('d')];
     expect(ids(tabbable(list))).toEqual(['a', 'c', 'd']);
   });
+
+  it('пропускает элементы вложенного окна (подтверждение поверх формы, окно поверх панели)', () => {
+    const list = [el('a'), el('b', { nested: true }), el('c'), el('d', { nested: true })];
+    expect(ids(tabbable(list))).toEqual(['a', 'c']);
+  });
 });

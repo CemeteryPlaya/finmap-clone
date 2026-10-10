@@ -49,6 +49,8 @@ export function AmountField(props: {
     // кадр спустя: окно <dialog> к этому моменту уже открыто через showModal()
     if (!props.autoFocus) return;
     const isRadio = (el: unknown) => el instanceof HTMLInputElement && el.type === 'radio';
+    // «×» окна (Modal) — тоже «ничей» фокус: на ней он оказывается только до переноса на содержимое
+    const isModalClose = (el: unknown) => el instanceof HTMLElement && el.hasAttribute('data-modal-close');
     let frame = 0;
     const stop = () => {
       cancelAnimationFrame(frame);
@@ -56,14 +58,14 @@ export function AmountField(props: {
     };
     // пользователь уже выбрал что-то другое в окне — фокус не перехватываем
     const onFocusIn = (e: FocusEvent) => {
-      if (e.target !== ref.current && !isRadio(e.target)) stop();
+      if (e.target !== ref.current && !isRadio(e.target) && !isModalClose(e.target)) stop();
     };
     document.addEventListener('focusin', onFocusIn);
     frame = requestAnimationFrame(() => {
       stop();
       const active = document.activeElement;
-      // фокус «ничей»: на странице, на самом окне или на радиокнопке типа (туда его ставит showModal())
-      const free = active === document.body || active instanceof HTMLDialogElement || isRadio(active);
+      // фокус «ничей»: на странице, на самом окне, на «×» окна или на радиокнопке типа (туда его ставит showModal())
+      const free = active === document.body || active instanceof HTMLDialogElement || isRadio(active) || isModalClose(active);
       if (free) ref.current?.focus();
     });
     return stop;
