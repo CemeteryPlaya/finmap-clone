@@ -1,3 +1,5 @@
+import type { IsNodeProcess, LockState } from '../../src/server/lock';
+
 export interface StopDeps {
   /** PID работающего супервизора (data/supervisor.lock) или null. */
   supervisorPid: number | null;
@@ -23,9 +25,10 @@ export interface StopDeps {
 /**
  * not-running — ничего не запущено; stopped — остановлено по заявке; killed — супервизор не ответил,
  * завершён принудительно; killed-server — сервер без супервизора (npm run dev) завершён принудительно;
- * failed — процесс жив и после принудительного завершения.
+ * failed — процесс жив и после принудительного завершения; foreign — жив только процесс, не подтверждённый как наш
+ * (canForceKill отказал), его не трогали.
  */
-export type StopResult = 'not-running' | 'stopped' | 'killed' | 'killed-server' | 'failed';
+export type StopResult = 'not-running' | 'stopped' | 'killed' | 'killed-server' | 'failed' | 'foreign';
 
 /**
  * Остановка приложения (§9.3: перед восстановлением и обновлением). Сначала мягко — заявкой,
@@ -49,11 +52,30 @@ export async function stopApp(d: StopDeps): Promise<StopResult> {
     if (gone()) return 'stopped';
     d.clearRequest();
   }
-  for (const pid of [sup, srv]) if (alive(pid) && (d.canForceKill?.(pid) ?? true)) d.forceKill(pid);
+  const killed: number[] = [];
+  const skipped: number[] = [];
+  for (const pid of [sup, srv]) {
+    if (!alive(pid)) continue;
+    if (d.canForceKill?.(pid) ?? true) {
+      d.forceKill(pid);
+      killed.push(pid);
+    } else skipped.push(pid);
+  }
   const killDeadline = d.now() + (d.killWaitMs ?? 5_000);
   while (!gone() && d.now() < killDeadline) await d.sleep(250);
-  if (!gone()) return 'failed';
-  return sup === null ? 'killed-server' : 'killed';
+  if (!gone()) return killed.some(alive) ? 'failed' : 'foreign';
+  if (sup !== null && killed.includes(sup)) return 'killed';
+  if (srv !== null && killed.includes(srv)) return 'killed-server';
+  return 'stopped';
+}
+
+/**
+ * Можно ли принудительно завершить PID: он держит живую блокировку этой загрузки системы (held)
+ * либо образ процесса подтверждён как node. Подозрительная блокировка с неопознанным образом
+ * (null) могла достаться чужому процессу.
+ */
+export function canForceKillFor(locks: LockState[], isNode: IsNodeProcess): (pid: number) => boolean {
+  return (pid) => locks.some((l) => l.kind === 'held' && l.pid === pid) || isNode(pid) === true;
 }
 
 /** Команда принудительного завершения дерева процессов; на POSIX — null (используется SIGKILL). */
@@ -67,6 +89,9 @@ export const STOP_MESSAGES: Record<StopResult, string> = {
   killed:
     'Приложение не ответило за 20 секунд и остановлено принудительно. База осталась согласованной; ' +
     'могли не сохраниться только изменения, которые выполнялись в эту секунду.',
-  'killed-server': 'Сервер, запущенный без супервизора (например npm run dev), остановлен принудительно.',
+  'killed-server': 'Сервер не завершился сам (например, запущенный командой npm run dev) и остановлен принудительно.',
   failed: 'Не удалось остановить приложение даже принудительно. Перезагрузите компьютер и повторите.',
+  foreign:
+    'Не удалось остановить: файл блокировки в папке данных указывает на процесс, который не похож на приложение. ' +
+    'Убедитесь, что приложение не запущено, перезагрузите компьютер и повторите.',
 };

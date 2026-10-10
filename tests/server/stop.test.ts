@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { forceKillCommand, STOP_MESSAGES, stopApp, type StopDeps } from '../../scripts/lib/stop';
+import { canForceKillFor, forceKillCommand, STOP_MESSAGES, stopApp, type StopDeps } from '../../scripts/lib/stop';
 
 /** Мир с подменёнными часами: процессы «умирают» в заданный момент или от принудительного завершения. */
 function world(o: {
@@ -69,18 +69,32 @@ describe('npm run stop', () => {
     expect(STOP_MESSAGES.failed).toMatch(/Перезагрузите/);
   });
 
-  it('PID, который нельзя завершать (не подтверждён как наш), не передаётся в forceKill — итог failed', async () => {
+  it('PID, который нельзя завершать (не подтверждён как наш), не передаётся в forceKill — итог foreign', async () => {
     const w = world({ sup: 100, srv: 200, dieAtMs: null, canForceKill: (pid) => pid !== 200 });
-    expect(await stopApp(w.deps)).toBe('failed');
+    expect(await stopApp(w.deps)).toBe('foreign');
     expect(w.events).toEqual(['request', 'clear', 'kill 100']);
     expect(w.events).not.toContain('kill 200');
     expect(w.clock()).toBe(25_000);
   });
 
-  it('сервер без супервизора, которого нельзя завершать — forceKill не вызывается, failed', async () => {
+  it('сервер без супервизора, которого нельзя завершать — forceKill не вызывается, foreign', async () => {
     const w = world({ sup: null, srv: 200, dieAtMs: null, canForceKill: () => false });
-    expect(await stopApp(w.deps)).toBe('failed');
+    expect(await stopApp(w.deps)).toBe('foreign');
     expect(w.events).toEqual([]);
+    expect(STOP_MESSAGES.foreign).toMatch(/не похож на приложение/);
+  });
+
+  it('супервизор вышел при мягкой остановке, сервер-сирота жив — завершается принудительно, killed-server', async () => {
+    const w = world({ sup: 100, srv: 200, dieAtMs: null });
+    const killedSrv = new Set<number>();
+    w.deps.isAlive = (pid) => (pid === 100 ? w.clock() < 1000 : !killedSrv.has(pid));
+    w.deps.forceKill = (pid) => {
+      w.events.push(`kill ${pid}`);
+      killedSrv.add(pid);
+    };
+    expect(await stopApp(w.deps)).toBe('killed-server');
+    expect(w.events).toEqual(['request', 'clear', 'kill 200']);
+    expect(STOP_MESSAGES['killed-server']).not.toMatch(/20 секунд/);
   });
 
   it('canForceKill, разрешающий всё, ведёт себя как значение по умолчанию', async () => {
@@ -92,5 +106,16 @@ describe('npm run stop', () => {
   it('на Windows — taskkill всего дерева, на POSIX — сигнал (SIGKILL в обёртке)', () => {
     expect(forceKillCommand('win32', 4242)).toEqual({ cmd: 'taskkill', args: ['/PID', '4242', '/T', '/F'] });
     expect(forceKillCommand('linux', 4242)).toBeNull();
+  });
+
+  it('canForceKillFor: held — да; suspect+node — да; suspect+null/false и чужой PID с null — нет', () => {
+    const held: { kind: 'held'; pid: number } = { kind: 'held', pid: 1 };
+    const suspect: { kind: 'suspect'; pid: number } = { kind: 'suspect', pid: 2 };
+    const locks = [{ kind: 'free' as const }, held, suspect];
+    expect(canForceKillFor(locks, () => null)(1)).toBe(true);
+    expect(canForceKillFor(locks, () => true)(2)).toBe(true);
+    expect(canForceKillFor(locks, () => null)(2)).toBe(false);
+    expect(canForceKillFor(locks, () => false)(2)).toBe(false);
+    expect(canForceKillFor(locks, () => null)(9)).toBe(false);
   });
 });
