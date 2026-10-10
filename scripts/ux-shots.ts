@@ -115,12 +115,39 @@ const SCENARIOS: Scenario[] = [
   { ours: 'c15-expense.png', finmap: '15-expense.png', path: 'log', act: openForm('Расход') },
   { ours: 'c16-transfer.png', finmap: '16-transfer.png', path: 'log', act: openForm('Перевод') },
   {
+    ours: 'c17-period-dd.png',
+    finmap: '17-period-dd.png',
+    path: 'log',
+    act: async (p) => {
+      await p.getByRole('button', { name: /^Период:/ }).click();
+      await p.getByRole('dialog', { name: 'Период', exact: true }).waitFor();
+    },
+  },
+  {
     ours: 'c18-filter-modal.png',
     finmap: '18-filter-modal.png',
     path: 'log',
     act: async (p) => {
       await p.getByRole('button', { name: 'Фильтр', exact: true }).click();
       await p.getByRole('dialog', { name: 'Фильтр', exact: true }).waitFor();
+    },
+  },
+  {
+    ours: 'c18b-filter-saved-dd.png',
+    finmap: '18b-filter-saved-dd.png',
+    path: 'log',
+    act: async (p) => {
+      await p.getByRole('button', { name: 'Быстрые фильтры' }).click();
+      await p.getByRole('dialog', { name: 'Быстрые фильтры' }).waitFor();
+    },
+  },
+  {
+    ours: 'c19-toolbar-more.png',
+    finmap: '19-toolbar-more.png',
+    path: 'log',
+    act: async (p) => {
+      await p.getByRole('button', { name: 'Ещё', exact: true }).click();
+      await p.getByRole('dialog', { name: 'Ещё', exact: true }).waitFor();
     },
   },
   { ours: 'c21-account-add.png', finmap: '21-account-add.png', path: 'settings/accounts', act: (p) => p.getByRole('button', { name: 'Добавить счёт' }).click() },
