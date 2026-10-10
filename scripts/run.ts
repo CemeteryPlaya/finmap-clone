@@ -168,7 +168,8 @@ if (config.deployMode === 'ngrok') {
   const secret = config.ngrokAuthtoken;
   try {
     const ngrok = await import('@ngrok/ngrok');
-    // Повторяем всё, кроме ошибок токена/домена: сеть клуба может появиться позже сервера.
+    // Сеть повторяем всегда (она может появиться позже сервера); ответы ngrok с кодом ошибки — нет,
+    // кроме занятой прошлой сессией (до TRANSIENT_ATTEMPTS попыток).
     const listener = await connectWithRetry({
       connect: () =>
         ngrok.forward({

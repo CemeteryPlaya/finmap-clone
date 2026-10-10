@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { connectWithRetry, isFatalNgrokError, maskSecret } from '../../scripts/lib/ngrok';
+import { connectWithRetry, isFatalNgrokError, maskSecret, TRANSIENT_ATTEMPTS } from '../../scripts/lib/ngrok';
 
 function ngrokError(message: string, errorCode?: string): Error {
   return Object.assign(new Error(message), errorCode ? { errorCode } : {});
@@ -42,8 +42,21 @@ describe('isFatalNgrokError', () => {
     expect(isFatalNgrokError(e)).toBe(true);
   });
 
-  it('ERR_NGROK_3xx без упоминания домена — повторяем', () => {
-    expect(isFatalNgrokError(ngrokError('session limit\n\nerror_code: ERR_NGROK_324', 'ERR_NGROK_324'))).toBe(false);
+  it('занятая сессия (ERR_NGROK_108, 324, 334) — повторяем, но не больше TRANSIENT_ATTEMPTS раз', () => {
+    expect(TRANSIENT_ATTEMPTS).toBe(8);
+    for (const code of ['108', '324', '334']) {
+      const e = ngrokError(`session limit\n\nerror_code: ERR_NGROK_${code}`, `ERR_NGROK_${code}`);
+      expect(isFatalNgrokError(e, 1)).toBe(false);
+      expect(isFatalNgrokError(e, TRANSIENT_ATTEMPTS - 1)).toBe(false);
+      expect(isFatalNgrokError(e, TRANSIENT_ATTEMPTS)).toBe(true);
+    }
+  });
+
+  it('ERR_NGROK_4018 (нет подтверждённого аккаунта и authtoken) и другие коды ngrok — фатальные', () => {
+    const auth = 'authentication failed: Usage of ngrok requires a verified account and authtoken.\n\nERR_NGROK_4018';
+    expect(isFatalNgrokError(ngrokError(auth, 'ERR_NGROK_4018'))).toBe(true);
+    expect(isFatalNgrokError(ngrokError('failed to start tunnel\n\nerror_code: ERR_NGROK_302'))).toBe(true);
+    expect(isFatalNgrokError(ngrokError('account limit\n\nerror_code: ERR_NGROK_9017'))).toBe(true);
   });
 
   it('сетевая ошибка — повторяем', () => {
@@ -97,6 +110,15 @@ describe('connectWithRetry', () => {
     await expect(h.run).rejects.toBe(fatal);
     expect(h.sleeps).toEqual([]);
     expect(h.calls()).toBe(1);
+  });
+
+  it('занятая сессия: TRANSIENT_ATTEMPTS попыток, затем ошибка пробрасывается', async () => {
+    const busy = ngrokError('endpoint already online\n\nerror_code: ERR_NGROK_334', 'ERR_NGROK_334');
+    // Предохранитель: не больше 20 пауз, иначе harness останавливает цикл (старый код повторял бы бесконечно).
+    const h = harness([busy], 20);
+    await expect(h.run).rejects.toBe(busy);
+    expect(h.calls()).toBe(TRANSIENT_ATTEMPTS);
+    expect(h.sleeps).toHaveLength(TRANSIENT_ATTEMPTS - 1);
   });
 
   it('прекращает попытки при остановке и возвращает null', async () => {

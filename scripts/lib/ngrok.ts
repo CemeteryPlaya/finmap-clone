@@ -15,16 +15,21 @@ function ngrokCode(err: unknown): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** Коды, которые проходят сами: прошлая сессия этого ПК ещё не закрыта на стороне ngrok (сразу после перезапуска). */
+const TRANSIENT_CODES = new Set([108, 324, 334]);
+/** Сколько попыток даём таким кодам (паузы 1+2+4+8+16+32+60 с — около двух минут). */
+export const TRANSIENT_ATTEMPTS = 8;
+
 /**
- * Ошибки, которые повтор не исправит: неверный authtoken (ERR_NGROK_105) и ошибки домена
- * (ERR_NGROK_3xx с упоминанием домена — не зарезервирован, неверный и т. п.).
- * Всё остальное (сеть, неизвестное) — повторяем.
+ * Повтор не исправит ответ ngrok с кодом ошибки: authtoken (105, 4018), домен и тариф (3xx).
+ * Исключение — коды занятой сессии: им даём TRANSIENT_ATTEMPTS попыток. Ошибки без кода (сеть) — повторяем всегда.
+ * attempt — номер неудачной попытки, начиная с 1.
  */
-export function isFatalNgrokError(err: unknown): boolean {
+export function isFatalNgrokError(err: unknown, attempt = 1): boolean {
   const code = ngrokCode(err);
   if (code === null) return false;
-  if (code === 105) return true;
-  return code >= 300 && code < 400 && /domain/i.test(errorText(err));
+  if (TRANSIENT_CODES.has(code)) return attempt >= TRANSIENT_ATTEMPTS;
+  return true;
 }
 
 /**
@@ -33,18 +38,20 @@ export function isFatalNgrokError(err: unknown): boolean {
  */
 export async function connectWithRetry<T>(o: {
   connect: () => Promise<T>;
-  isFatal: (err: unknown) => boolean;
+  isFatal: (err: unknown, attempt: number) => boolean;
   isStopped: () => boolean;
   sleep: (ms: number) => Promise<void>;
   onRetry: (err: unknown, delayMs: number) => void;
 }): Promise<T | null> {
   let delay = 1000;
+  let attempt = 0;
   for (;;) {
     if (o.isStopped()) return null;
     try {
       return await o.connect();
     } catch (e) {
-      if (o.isFatal(e)) throw e;
+      attempt++;
+      if (o.isFatal(e, attempt)) throw e;
       if (o.isStopped()) return null;
       o.onRetry(e, delay);
       await o.sleep(delay);
