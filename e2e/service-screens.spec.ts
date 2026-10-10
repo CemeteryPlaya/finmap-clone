@@ -5,7 +5,7 @@ async function login(page: Page, user = 'admin', password = 'e2e-password-1') {
   await page.getByPlaceholder('Логин').fill(user);
   await page.getByPlaceholder('Пароль').fill(password);
   await page.getByRole('button', { name: 'Войти' }).click();
-  await expect(page.getByRole('button', { name: 'Выйти' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Настройки', exact: true })).toBeVisible();
 }
 
 async function createCompany(page: Page, name: string): Promise<number> {
@@ -75,7 +75,9 @@ test('профиль: смена пароля оставляет текущий 
   const b = await ctxB.newPage();
   await login(b, user, 'profiler-pass-1');
 
-  await a.getByRole('link', { name: 'Профилёр' }).click(); // имя в шапке ведёт в профиль
+  // профиль — в панели «Настройки» (шестерёнка): в её шапке имя пользователя
+  await a.getByRole('banner').getByRole('button', { name: 'Настройки', exact: true }).click();
+  await a.getByRole('dialog', { name: 'Профилёр' }).getByRole('link', { name: 'Профиль' }).click();
   await expect(a.getByRole('heading', { name: 'Профиль' })).toBeVisible();
   await a.getByLabel('Текущий пароль').fill('wrong-password-0');
   await a.getByLabel('Новый пароль', { exact: true }).fill('profiler-pass-2');

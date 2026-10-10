@@ -36,15 +36,16 @@ export function OperationFormHost(props: { company: Company; children: ReactNode
   );
 }
 
-const BUTTONS: { type: OperationType; symbol: string; label: string; className: string }[] = [
-  { type: 'income', symbol: '+', label: 'Доход', className: 'bg-income text-white' },
-  { type: 'expense', symbol: '\u2212', label: 'Расход', className: 'bg-expense text-white' },
-  { type: 'transfer', symbol: '⇄', label: 'Перевод', className: 'bg-chrome-2 text-white' },
+const BUTTONS: { type: OperationType; symbol: string; label: string; bottom: string; header: string }[] = [
+  { type: 'income', symbol: '+', label: 'Доход', bottom: 'bg-income text-white', header: 'bg-income/20 text-income' },
+  { type: 'expense', symbol: '\u2212', label: 'Расход', bottom: 'bg-expense text-white', header: 'bg-expense/20 text-expense' },
+  { type: 'transfer', symbol: '⇄', label: 'Перевод', bottom: 'bg-chrome-2 text-white', header: 'bg-white/10 text-white' },
 ];
 
 /**
- * Кнопки «+ Доход», «- Расход», «⇄ Перевод» (§7; у минуса — знак U+2212). `header` — в шапке, только на компьютере;
- * `bottom` — на телефоне (меньше 768 px) панель, закреплённая у нижнего края экрана (§7 «Мобильная версия»).
+ * Кнопки «+ Доход», «\u2212 Расход», «⇄ Перевод» (§3.1 этапа 1.5; у минуса — знак U+2212). `header` — по центру шапки,
+ * одинаковой ширины, тёмный полупрозрачный фон и цветной текст, только на компьютере; `bottom` — на телефоне
+ * (меньше 768 px) панель, закреплённая у нижнего края экрана (§7 «Мобильная версия»; план 1.5-5 перенесёт её наверх).
  */
 export function NewOperationButtons({ placement = 'header' }: { placement?: 'header' | 'bottom' }) {
   const open = useOpenOperationForm();
@@ -54,12 +55,16 @@ export function NewOperationButtons({ placement = 'header' }: { placement?: 'hea
       type="button"
       aria-haspopup="dialog"
       onClick={() => open({ kind: 'create', type: b.type })}
-      className={`rounded-xl font-semibold hover:brightness-110 ${placement === 'header' ? 'px-3 py-2 text-sm' : 'px-2 py-3 text-base'} ${b.className}`}
+      className={
+        placement === 'header'
+          ? `rounded-xl px-8 py-2.5 text-base font-semibold whitespace-nowrap hover:brightness-125 ${b.header}`
+          : `rounded-xl px-2 py-3 text-base font-semibold hover:brightness-110 ${b.bottom}`
+      }
     >
       <span aria-hidden="true">{b.symbol}</span> {b.label}
     </button>
   ));
-  if (placement === 'header') return <div className="hidden gap-2 md:flex">{buttons}</div>;
+  if (placement === 'header') return <div className="hidden grid-cols-3 gap-3 md:grid">{buttons}</div>;
   return (
     <div
       role="group"

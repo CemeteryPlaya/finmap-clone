@@ -5,7 +5,7 @@ async function login(page: Page) {
   await page.getByPlaceholder('Логин').fill('admin');
   await page.getByPlaceholder('Пароль').fill('e2e-password-1');
   await page.getByRole('button', { name: 'Войти' }).click();
-  await expect(page.getByRole('button', { name: 'Выйти' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Настройки', exact: true })).toBeVisible();
 }
 
 async function createCompany(page: Page, name: string): Promise<number> {
@@ -21,7 +21,8 @@ const section = (page: Page, name: string) => page.getByRole('navigation', { nam
 test('счета: создание в USD, архив только при нулевом остатке, удаление', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Счета ${Date.now()}`);
-  await page.getByRole('link', { name: 'Настройки' }).click();
+  await page.getByRole('banner').getByRole('button', { name: 'Настройки', exact: true }).click();
+  await page.getByRole('dialog').getByRole('link', { name: 'Настройки компании' }).click();
   await section(page, 'Счета').click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/accounts$`));
 

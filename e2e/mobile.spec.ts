@@ -5,7 +5,7 @@ async function login(page: Page) {
   await page.getByPlaceholder('Логин').fill('admin');
   await page.getByPlaceholder('Пароль').fill('e2e-password-1');
   await page.getByRole('button', { name: 'Войти' }).click();
-  await expect(page.getByRole('button', { name: 'Выйти' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Настройки', exact: true })).toBeVisible();
 }
 
 async function createCompany(page: Page, name: string): Promise<number> {
@@ -104,6 +104,12 @@ test('счета на телефоне выезжают слева: итог и 
   await drawer.getByRole('link', { name: /^Kaspi/ }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?account=${kaspi}$`));
   await expect(drawer).toBeHidden();
+  // переход из панели — фокус на заголовок страницы; «+ счёт» ведёт в раздел «Счета» (§11 этапа 1.5)
+  await expect(page.getByRole('heading', { level: 1, name: 'Журнал' })).toBeFocused();
+  await open.click();
+  await drawer.getByRole('link', { name: '+ счёт' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/accounts$`));
+  await expect(page.getByRole('heading', { level: 1, name: 'Счета' })).toBeFocused();
 
   // страница без компании (новая компания): в шапке телефона — название продукта, а не одна «Выйти»
   await page.goto('/companies/new');

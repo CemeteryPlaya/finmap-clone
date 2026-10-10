@@ -5,7 +5,7 @@ async function login(page: Page) {
   await page.getByPlaceholder('Логин').fill('admin');
   await page.getByPlaceholder('Пароль').fill('e2e-password-1');
   await page.getByRole('button', { name: 'Войти' }).click();
-  await expect(page.getByRole('button', { name: 'Выйти' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Настройки', exact: true })).toBeVisible();
 }
 
 async function createCompany(page: Page, name: string): Promise<number> {

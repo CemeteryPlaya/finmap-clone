@@ -49,7 +49,7 @@ export function CompanyLayout() {
           }
           // архивная компания — только чтение: новых операций нет ни в шапке, ни в нижней панели
           actions={company.archivedAt ? undefined : <NewOperationButtons />}
-          profileHref={`/c/${company.id}/settings/profile`}
+          menu={{ companyId: company.id, companyName: company.name }}
         />
         <div className="flex items-start gap-4 md:mx-4">
           {inSettings ? (
@@ -61,9 +61,6 @@ export function CompanyLayout() {
                 <nav className="mb-6 flex gap-2">
                   <NavLink to={`/c/${company.id}/log`} className={tab}>
                     Журнал
-                  </NavLink>
-                  <NavLink to={`/c/${company.id}/settings`} className={tab}>
-                    Настройки
                   </NavLink>
                 </nav>
                 <Outlet context={{ company } satisfies CompanyOutletContext} />

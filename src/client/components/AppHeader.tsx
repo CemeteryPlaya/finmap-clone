@@ -1,46 +1,34 @@
-import { useMutation } from '@tanstack/react-query';
 import { useEffect, type ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router';
-import { api } from '../lib/api';
-import { queryClient, useMe, useMeta } from '../lib/query';
+import { useMeta } from '../lib/query';
+import { SettingsMenuButton } from './SettingsMenuDrawer';
 
-export function AppHeader({ left, actions, profileHref }: { left?: ReactNode; actions?: ReactNode; profileHref?: string }) {
-  const me = useMe();
+/**
+ * Шапка (§3.1 этапа 1.5). Слева — блок компании (на телефоне перед ним «Счета»); на страницах без компании —
+ * название продукта. По центру — «+ Доход», «− Расход», «⇄ Перевод» (только компьютер). Справа — иконки:
+ * «История действий» (tools) и шестерёнка «Настройки». Имени пользователя и «Выйти» в шапке нет — они в панели
+ * «Настройки». Название продукта всегда в document.title. В PWA на iPhone шапка начинается ниже выреза экрана.
+ */
+export function AppHeader(props: {
+  left?: ReactNode;
+  actions?: ReactNode;
+  tools?: ReactNode;
+  menu: { companyId: number | null; companyName: string | null };
+}) {
   const meta = useMeta();
-  const navigate = useNavigate();
-  const logout = useMutation({
-    mutationFn: () => api<void>('/auth/logout', { method: 'POST' }),
-    onSettled: () => {
-      queryClient.clear();
-      navigate('/login', { replace: true });
-    },
-  });
 
   useEffect(() => {
     if (meta.data) document.title = meta.data.appName;
   }, [meta.data]);
 
   return (
-    // в PWA на iPhone строка состояния прозрачная (black-translucent): шапка начинается ниже выреза экрана.
-    // На телефоне — одна строка: «Счета», компания, «Выйти»; название продукта (если слева есть что-то ещё)
-    // и имя пользователя — только на компьютере
-    <header className="flex items-center justify-between gap-x-4 gap-y-2 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white md:flex-wrap md:px-6 md:pb-4 md:pt-[max(1rem,env(safe-area-inset-top))]">
-      <div className="flex min-w-0 items-center gap-2 md:gap-4">
-        <span className={`shrink-0 text-lg font-bold ${left ? 'hidden md:inline' : ''}`}>{meta.data?.appName}</span>
-        {left}
+    <header className="flex items-center gap-3 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:gap-4 md:px-6 md:pb-4 md:pt-[max(1rem,env(safe-area-inset-top))]">
+      <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-3">
+        {props.left ?? <span className="truncate text-lg font-bold">{meta.data?.appName}</span>}
       </div>
-      {actions}
-      <div className="flex shrink-0 items-center gap-4">
-        {profileHref ? (
-          <Link to={profileHref} className="hidden text-sm text-white/70 underline-offset-4 hover:text-white hover:underline md:inline">
-            {me.data?.user.name}
-          </Link>
-        ) : (
-          <span className="hidden text-sm text-white/70 md:inline">{me.data?.user.name}</span>
-        )}
-        <button onClick={() => logout.mutate()} className="rounded-xl bg-chrome-2 px-4 py-2 text-sm hover:bg-white/10">
-          Выйти
-        </button>
+      {props.actions ?? <span aria-hidden="true" className="hidden md:block" />}
+      <div className="flex shrink-0 items-center justify-end gap-2">
+        {props.tools}
+        <SettingsMenuButton companyId={props.menu.companyId} companyName={props.menu.companyName} />
       </div>
     </header>
   );

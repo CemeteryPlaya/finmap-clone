@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { formatMoney, MONEY_SCREEN_BEFORE } from '../../shared/money';
 import { groupAccounts } from '../lib/accounts-panel';
+import { focusHeadingSoon } from '../lib/focus-heading';
 import { useIsMobile } from '../lib/media';
 import { savePreference, useAccounts, useBalances, usePreferences, useProjects, type Company } from '../lib/queries';
 import { Drawer } from './Drawer';
@@ -115,10 +116,11 @@ export function AccountsPanel({ company }: { company: Company }) {
 
 /**
  * Счета на телефоне (§7 «Мобильная версия»): кнопка «Счета» в шапке, «Всего на счетах» и балансы выезжают
- * слева. Переход по счёту (фильтр журнала) или к «+ счёт» закрывает панель.
+ * слева. Переход по счёту (фильтр журнала) или к «+ счёт» закрывает панель, фокус — на `<h1>` страницы (§11 этапа 1.5).
  */
 export function AccountsDrawerButton({ company }: { company: Company }) {
   const [open, setOpen] = useState(false);
+  const navigated = useRef(false);
   const mobile = useIsMobile();
   // окно стало шире телефона — на месте левая панель, выезжающая не нужна
   useEffect(() => {
@@ -135,8 +137,25 @@ export function AccountsDrawerButton({ company }: { company: Company }) {
       >
         Счета
       </button>
-      <Drawer open={open} title="Счета" side="left" onClose={() => setOpen(false)}>
-        <AccountsSummary company={company} onNavigate={() => setOpen(false)} />
+      <Drawer
+        open={open}
+        title="Счета"
+        side="left"
+        onClose={() => setOpen(false)}
+        afterClose={() => {
+          const handled = navigated.current;
+          navigated.current = false;
+          return handled;
+        }}
+      >
+        <AccountsSummary
+          company={company}
+          onNavigate={() => {
+            navigated.current = true;
+            focusHeadingSoon();
+            setOpen(false);
+          }}
+        />
       </Drawer>
     </>
   );

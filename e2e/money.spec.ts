@@ -5,7 +5,7 @@ async function login(page: Page) {
   await page.getByPlaceholder('Логин').fill('admin');
   await page.getByPlaceholder('Пароль').fill('e2e-password-1');
   await page.getByRole('button', { name: 'Войти' }).click();
-  await expect(page.getByRole('button', { name: 'Выйти' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Настройки', exact: true })).toBeVisible();
 }
 
 async function createCompany(page: Page, name: string): Promise<number> {
@@ -90,7 +90,8 @@ test('курсы: валюта без курса — предупреждени�
   await expect(panel).toContainText(/Всего на счетах\s*₸\s0(?![\s\d])/);
   await expect(panel.getByRole('link', { name: /^Евро-счёт/ })).toContainText(/€\s10$/);
 
-  await page.getByRole('link', { name: 'Настройки' }).click();
+  await page.getByRole('banner').getByRole('button', { name: 'Настройки', exact: true }).click();
+  await page.getByRole('dialog').getByRole('link', { name: 'Настройки компании' }).click();
   await section(page, 'Фиксированные курсы валют').click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/rates$`));
 

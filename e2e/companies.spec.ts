@@ -5,7 +5,7 @@ async function login(page: Page) {
   await page.getByPlaceholder('Логин').fill('admin');
   await page.getByPlaceholder('Пароль').fill('e2e-password-1');
   await page.getByRole('button', { name: 'Войти' }).click();
-  await expect(page.getByRole('button', { name: 'Выйти' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Настройки', exact: true })).toBeVisible();
 }
 
 async function createCompany(page: Page, name: string): Promise<number> {
@@ -15,6 +15,12 @@ async function createCompany(page: Page, name: string): Promise<number> {
   await page.getByRole('button', { name: 'Создать компанию' }).click();
   await expect(page).toHaveURL(/\/c\/\d+\/log$/);
   return Number(page.url().match(/\/c\/(\d+)\//)![1]);
+}
+
+/** Шестерёнка в шапке → «Настройки компании» (§3.3 этапа 1.5). */
+async function openCompanySettings(page: Page) {
+  await page.getByRole('banner').getByRole('button', { name: 'Настройки', exact: true }).click();
+  await page.getByRole('dialog').getByRole('link', { name: 'Настройки компании' }).click();
 }
 
 test('компании: создание, переключение', async ({ page }) => {
@@ -51,7 +57,7 @@ test('проекты по шаблонам: клуб и общий', async ({ pa
   const companyName = `ТОО Клубы ${Date.now()}`;
   const cid = await createCompany(page, companyName);
 
-  await page.getByRole('link', { name: 'Настройки' }).click();
+  await openCompanySettings(page);
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/counterparties$`));
   await page.getByRole('navigation', { name: 'Разделы настроек' }).getByRole('link', { name: 'Проекты' }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/projects$`));
@@ -103,7 +109,7 @@ test('истёкшая сессия уводит на вход', async ({ page }
   // левая панель счетов грузит данные сразу после входа в компанию: дожидаемся её, иначе 401 придёт раньше клика
   await page.waitForLoadState('networkidle');
   await page.context().clearCookies();
-  await page.getByRole('link', { name: 'Настройки' }).click();
+  await openCompanySettings(page);
   // экран настроек монтируется и перезапрашивает данные → 401 → уход на вход
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole('button', { name: 'Войти' })).toBeVisible();

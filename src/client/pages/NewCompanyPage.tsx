@@ -2,16 +2,18 @@ import { Link, useNavigate } from 'react-router';
 import { AppHeader } from '../components/AppHeader';
 import { CompanyForm } from '../components/CompanyForm';
 import { LoadError } from '../components/LoadError';
-import { useCompanies } from '../lib/queries';
+import { pickStartCompany } from '../lib/company-path';
+import { useCompanies, usePreferences } from '../lib/queries';
 
 export function NewCompanyPage() {
   const navigate = useNavigate();
   const companies = useCompanies();
+  const prefs = usePreferences();
 
   if (!companies.data) {
     return (
       <div className="min-h-dvh bg-chrome">
-        <AppHeader />
+        <AppHeader menu={{ companyId: null, companyName: null }} />
         <main className="mx-auto mt-8 max-w-md rounded-3xl bg-card p-8">
           {companies.error ? (
             <LoadError message={companies.error.message} onRetry={() => void companies.refetch()} />
@@ -28,7 +30,8 @@ export function NewCompanyPage() {
   const archived = all.find((c) => c.archivedAt);
   return (
     <div className="min-h-dvh bg-chrome">
-      <AppHeader />
+      {/* ссылки «Мой аккаунт» в панели «Настройки» — от последней открытой компании; группы «Моя компания» нет */}
+      <AppHeader menu={{ companyId: pickStartCompany(all, prefs.data?.lastCompanyId)?.id ?? null, companyName: null }} />
       <main className="mx-auto mt-8 max-w-md rounded-3xl bg-card p-8">
         <h1 className="mb-6 text-2xl font-bold">{hasActive ? 'Новая компания' : 'Создайте первую компанию'}</h1>
         {!hasActive && archived && (

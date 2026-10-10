@@ -9,7 +9,21 @@ import { btnIcon } from './ui';
  * и касание затемнённого фона закрывают панель, фокус возвращается на кнопку, которой её открыли.
  * Отступы учитывают вырезы экрана (safe-area). Содержимое монтируется заново при каждом открытии.
  */
-export function Drawer(props: { open: boolean; title: string; side: 'left' | 'right'; onClose: () => void; children: ReactNode }) {
+export function Drawer(props: {
+  open: boolean;
+  title: string;
+  /** Строка под заголовком (логин под именем пользователя). */
+  subtitle?: ReactNode;
+  side: 'left' | 'right';
+  onClose: () => void;
+  /**
+   * После закрытия панели — только сигнал: true — был переход по ссылке (фокус ставит focusHeadingSoon, запущенный
+   * в обработчике ссылки), на кнопку открытия не возвращать. Если панель исчезла вместе с раскладкой, close не
+   * наступает и afterClose не вызывается — поэтому фокус и ставится не отсюда.
+   */
+  afterClose?: () => boolean;
+  children: ReactNode;
+}) {
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLElement | null>(null);
   /** Нажатие началось на фоне: выделение текста, отпущенное над фоном, панель не закрывает. */
@@ -49,7 +63,7 @@ export function Drawer(props: { open: boolean; title: string; side: 'left' | 'ri
         // close вложенного окна (окно компании поверх панели «Компании») React доставляет и сюда
         if (e.target !== e.currentTarget) return;
         props.onClose();
-        opener.current?.focus();
+        if (!props.afterClose?.()) opener.current?.focus();
       }}
       className={`my-0 h-dvh max-h-none w-[min(22rem,calc(100vw-3rem))] max-w-none bg-card p-0 text-ink shadow-2xl transition-transform duration-200 backdrop:bg-black/40 motion-reduce:transition-none ${side}`}
     >
@@ -58,9 +72,12 @@ export function Drawer(props: { open: boolean; title: string; side: 'left' | 'ri
           className={`flex h-full flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ${props.side === 'left' ? 'pl-[env(safe-area-inset-left)]' : 'pr-[env(safe-area-inset-right)]'}`}
         >
           <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-2">
-            <h2 id={titleId} className="text-xl font-bold">
-              {props.title}
-            </h2>
+            <div className="min-w-0">
+              <h2 id={titleId} className="truncate text-xl font-bold">
+                {props.title}
+              </h2>
+              {props.subtitle && <p className="truncate text-sm text-muted">{props.subtitle}</p>}
+            </div>
             <button type="button" aria-label="Закрыть" onClick={() => ref.current?.close()} className={btnIcon}>
               <span aria-hidden="true">✕</span>
             </button>
