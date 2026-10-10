@@ -18,7 +18,8 @@
 - **Деньги:** `formatMoney(minor, currency, opts?)` получает `symbol: 'before' | 'after'` и `trimZeroMinor`. Две готовые константы `MONEY_SCREEN` (после суммы) и `MONEY_SCREEN_BEFORE` (перед суммой) — все экранные вызовы передают одну из них. Поля ввода (`amountInputText`), Excel и курсы не меняются.
 - **Обновление при возврате на вкладку:** только `useBalances` и `useCompaniesSummary` получают `refetchOnWindowFocus: true, staleTime: 30_000`; общий умолчательный `refetchOnWindowFocus: false` остаётся, журнал сам не перезапрашивается.
 - **Вложенные `<dialog>`:** React доставляет события `close` и `cancel` вложенного окна обработчикам родительского `<dialog>` (они не всплывают в DOM, но React собирает обработчики по дереву компонентов). Поэтому `Modal` и `Drawer` реагируют только на свои события (`e.target === e.currentTarget`), а `cycleTab` не считает элементы вложенного окна своими. `ConfirmDialog` останавливает всплытие клавиш и своих событий.
-- **Начальный фокус окна не на «×»:** «×» — первая кнопка в DOM (после заголовка), и `showModal()` поставил бы фокус на неё. `Modal` после `showModal()` переносит фокус с «×» на первый доступный элемент содержимого, а если его нет (форма ещё грузится) — на само окно. Так поведение `AmountField` (фокус в сумму, если он «ничей») остаётся прежним.
+- **Начальный фокус окна не на «×»:** «×» — первая кнопка в DOM (после заголовка), и `showModal()` ставит фокус на неё. `Modal` открывается в `useLayoutEffect`: `showModal()` и перенос фокуса с «×» на первый элемент содержимого (а пока содержимое грузится — на само окно) выполняются до любого `useEffect` дочерних компонентов. `AmountField` подписывается на `focusin` в `useEffect` и кадр спустя забирает «ничей» фокус (страница, окно, радиокнопка типа) — значит, он видит уже итоговое положение фокуса. Это важно при повторном открытии формы: данные уже в кэше, содержимое монтируется вместе с окном, и с `useEffect` в `Modal` подписка `AmountField` увидела бы `focusin` на «×» и отказалась бы от автофокуса. Для надёжности `AmountField` считает «ничьим» и фокус на «×» (атрибут `data-modal-close`).
+- **Фокус после закрытия окна (§11):** возвращается на открывшую кнопку; если её уже нет (или фокус был на `body`) — на `<h1>` страницы (`focusPageHeading()` в `focus-trap.ts`).
 
 **Tech Stack:** как в этапе 1: Node 24, TypeScript, Fastify 5, React 19, react-router 8, TanStack Query 5, Tailwind 4, Vitest, Playwright. Новых пакетов нет.
 
@@ -40,7 +41,9 @@
    - «Изменить в перевод» — план 1.5-6.
 6. **Возврат вопроса о несохранённом** («Спрашивать перед закрытием формы…») появляется в плане 1.5-1b на странице «Настройки журнала» (минимальная версия). Между 1.5-1a и 1.5-1b настройку можно вернуть только запросом `PUT /api/v1/preferences/operationForm.skipCloseConfirm` со значением `false`. Планы выполняются подряд, поэтому так и задумано.
 7. **Вопрос о несохранённом без изменений не задаётся** (наше, решение 6 владельца). Флажок «Больше не спрашивать» сохраняется только по кнопке «Закрыть». «Отменить» и Esc флажок не сохраняют.
-8. **Фокус после «Отменить» в вопросе** возвращается на элемент, с которого спросили: «×» или поле, где нажали Esc. Если элемента уже нет — в поле суммы.
+8. **Фокус после «Отменить» в вопросе** возвращается на элемент, с которого спросили: «×» или поле, где нажали Esc. Если элемента уже нет (или фокус был на `body`) — в поле суммы.
+9. **Правило §11 «фокус при закрытии окна — на открывшую кнопку, если её нет — на `h1` страницы»** сделано в `Modal` этого плана. Правило про ссылки внутри выезжающих панелей (в том числе «+ счёт» в панели «Счета» на телефоне) — в плане 1.5-1b (`focusHeadingSoon`).
+10. **Липкая шапка окна на весь экран (телефон):** отступ под вырез экрана переносится с самого `<dialog>` формы операции в шапку окна (`Modal phoneFullScreen`): иначе шапка прилипала бы над отступом и «×» уходила бы под строку состояния iPhone.
 
 ## Global Constraints
 
@@ -67,7 +70,7 @@
 
 1. **Esc во вложенном подтверждении** закрывает только подтверждение: форма остаётся открытой, фокус возвращается в поле, где нажали Esc; повторный Esc снова задаёт вопрос. Событие `close` подтверждения не закрывает форму. Тест — задача 4 (`e2e/dialogs.spec.ts`).
 2. **«Больше не спрашивать» отмечен, но нажата «Отменить»** — настройка не сохраняется, следующий Esc снова спрашивает, флажок снова пуст. Тест — задача 4.
-3. **Окно открывается, пока данные грузятся** (правка операции): фокус в сумме, а не на «×»; в форме архивной компании — на «Закрыть» внизу; Shift+Tab с первого элемента ведёт на «×», фокус не уходит из окна. Тест — задача 3.
+3. **Окно открывается, пока данные грузятся** (правка операции), **и повторно, когда данные уже в кэше** (новая операция второй и третий раз за сеанс): фокус в сумме, а не на «×»; в форме архивной компании — на «Закрыть» внизу; Shift+Tab с первого элемента ведёт на «×», фокус не уходит из окна. Тест — задача 3.
 4. **Отрицательный баланс с копейками в левой панели** — «−₸ 500,50», итог «−₸ 500,50»; ноль — «₸ 0». Тесты — задача 2 (unit `money.test.ts` и e2e `money.spec.ts`).
 5. **Другой пользователь внёс операцию, пока вкладка была в фоне** — после возврата на вкладку баланс и итог в левой панели новые, журнал не перезапрашивался. Тест — задача 2.
 6. **Слово в редкой форме** («статье», «статьёй») и слова-соседи («остаться», «статус») — проверка терминологии находит первые и не путает вторые. Тест — задача 1.
@@ -314,7 +317,7 @@ describe('formatMoney', () => {
     expect(formatMoney(12500, 'KWD', MONEY_SCREEN)).toBe('12,500\u00A0KD');
   });
 
-  it('символ перед суммой: «₸ 114 997», отрицательная — «−₸ 1 378»', () => {
+  it('символ перед суммой: «₸ 114 997», отрицательная — «\u2212₸ 1 378»', () => {
     expect(formatMoney(11499700, 'KZT', MONEY_SCREEN_BEFORE)).toBe('₸\u00A0114\u202F997');
     expect(formatMoney(-137800, 'KZT', MONEY_SCREEN_BEFORE)).toBe('\u2212₸\u00A01\u202F378');
     expect(formatMoney(-50050, 'KZT', MONEY_SCREEN_BEFORE)).toBe('\u2212₸\u00A0500,50');
@@ -379,12 +382,12 @@ export interface MoneyFormat {
 
 /** Журнал, карточки, форма, подсказки разбиения: символ после суммы, без нулевых копеек. */
 export const MONEY_SCREEN: MoneyFormat = { trimZeroMinor: true };
-/** Левая панель, итоги компаний, история действий: «₸ 114 997», «−₸ 1 378». */
+/** Левая панель, итоги компаний, история действий: «₸ 114 997», «\u2212₸ 1 378». */
 export const MONEY_SCREEN_BEFORE: MoneyFormat = { symbol: 'before', trimZeroMinor: true };
 
 /**
  * Сумма с символом валюты: «1 500,50 ₸» — неразрывный пробел не даёт символу уехать на другую строку.
- * Минус (U+2212) всегда в самом начале: «−1 378 ₸», «−₸ 1 378». Поля ввода и Excel эту функцию не используют.
+ * Минус (U+2212) всегда в самом начале: «\u22121 378 ₸», «\u2212₸ 1 378». Поля ввода и Excel эту функцию не используют.
  */
 export function formatMoney(minor: number, currency: string, opts: MoneyFormat = {}): string {
   const c = getCurrency(currency);
@@ -402,7 +405,7 @@ export function formatMoney(minor: number, currency: string, opts: MoneyFormat =
 `src/client/lib/journal-format.ts`: импорт `import { formatAmount, formatMoney, MONEY_SCREEN } from '../../shared/money';`; функцию `signedMoney` замените:
 
 ```ts
-/** Сумма со знаком по типу: доход «+1 500 ₸», расход «−1 500,50 ₸», перевод без знака; нулевые копейки не показываются. */
+/** Сумма со знаком по типу: доход «+1 500 ₸», расход «\u22121 500,50 ₸», перевод без знака; нулевые копейки не показываются. */
 export function signedMoney(type: OperationType, minor: number, currency: string): string {
   const sign = type === 'income' ? '+' : type === 'expense' ? '\u2212' : '';
   return `${sign}${formatMoney(minor, currency, MONEY_SCREEN)}`;
@@ -595,7 +598,7 @@ Expected: PASS.
 В конец `e2e/money.spec.ts` добавьте:
 
 ```ts
-test('отрицательный баланс с копейками в панели: «−₸ 500,50»; копейки показываются, только если не нулевые', async ({ page }) => {
+test('отрицательный баланс с копейками в панели: «\u2212₸ 500,50»; копейки показываются, только если не нулевые', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Минус ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
@@ -657,6 +660,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 **Files:**
 - Modify: `src/client/components/focus-trap.ts`, `tests/client/focus-trap.test.ts`
 - Modify: `src/client/components/Modal.tsx`, `src/client/components/Drawer.tsx`
+- Modify: `src/client/components/operation/AmountField.tsx` (фокус на «×» — «ничей»), `src/client/components/operation/OperationForm.tsx` (`MODAL_CLASS` и `phoneFullScreen`)
 - Create: `e2e/dialogs.spec.ts`
 - Modify: `e2e/mobile.spec.ts`, `e2e/operation-edit.spec.ts` (кнопка «Закрыть» внизу формы теперь не единственная с этим именем)
 
@@ -665,8 +669,9 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Produces:
   - `TabCandidate.nested?: boolean` — элемент лежит во вложенном `<dialog>`, Tab по кругу родительского окна его пропускает;
   - `firstTabbable(container: HTMLElement): HTMLElement | null` (`focus-trap.ts`);
+  - `focusPageHeading(): void` (`focus-trap.ts`) — фокус на `main h1`, при необходимости с `tabindex="-1"`; план 1.5-1b использует её же;
   - `cycleTab(e, root)` — как раньше, но без элементов вложенных окон;
-  - `Modal` — те же props (`open`, `title`, `onClose`, `onCancel?`, `children`, `className?`); в шапке кнопка «×» (`aria-label="Закрыть"`, `title="Закрыть"`); на телефоне шапка `sticky top-0`; `onClose`/`onCancel` вложенных окон его не трогают;
+  - `Modal` — те же props (`open`, `title`, `onClose`, `onCancel?`, `children`, `className?`) и новый `phoneFullScreen?: boolean` (окно на весь экран телефона: отступ под вырез экрана — в шапке); в шапке кнопка «×» (`aria-label="Закрыть"`, `title="Закрыть"`, `data-modal-close`); на телефоне шапка `sticky top-0`; открывается в `useLayoutEffect`; `onClose`/`onCancel` вложенных окон его не трогают; при закрытии фокус — на открывшую кнопку, а если её нет — на `h1` страницы;
   - `Drawer` — те же props; `onClose` вложенных окон его не закрывает.
 
 - [ ] **Step 1: Write the failing unit test**
@@ -728,6 +733,17 @@ function tabbableIn(container: HTMLElement): HTMLElement[] {
 export function firstTabbable(container: HTMLElement): HTMLElement | null {
   return tabbableIn(container)[0] ?? null;
 }
+
+/**
+ * Фокус на заголовок `<h1>` страницы (§11 этапа 1.5): когда элемента, к которому надо вернуться, уже нет.
+ * Заголовку без `tabindex` ставится `tabindex="-1"`: он принимает фокус, но не попадает в порядок Tab.
+ */
+export function focusPageHeading(): void {
+  const heading = document.querySelector<HTMLElement>('main h1');
+  if (!heading) return;
+  if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1');
+  heading.focus();
+}
 ```
 
 В `cycleTab` замените строку получения элементов:
@@ -746,8 +762,8 @@ Expected: PASS (7 тестов).
 `src/client/components/Modal.tsx` — замените файл целиком:
 
 ```tsx
-import { useEffect, useId, useRef, type ReactNode } from 'react';
-import { cycleTab, firstTabbable } from './focus-trap';
+import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { cycleTab, firstTabbable, focusPageHeading } from './focus-trap';
 import { btnIcon } from './ui';
 
 /**
@@ -759,6 +775,7 @@ import { btnIcon } from './ui';
  * Шапка: заголовок и «×» справа (§2.4 этапа 1.5); на телефоне шапка липкая — «×» видна при прокрутке.
  * Вложенные окна (подтверждение поверх формы) — свои `<dialog>`: их события close и cancel React доставляет
  * и сюда, поэтому окно реагирует только на свои (target === currentTarget).
+ * Если кнопки, с которой открыли окно, уже нет — фокус на `<h1>` страницы (§11).
  */
 export function Modal(props: {
   open: boolean;
@@ -767,6 +784,8 @@ export function Modal(props: {
   onCancel?: () => void;
   children: ReactNode;
   className?: string;
+  /** Окно на весь экран телефона (форма операции): отступ под вырез экрана — в липкой шапке, а не у окна. */
+  phoneFullScreen?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -774,7 +793,10 @@ export function Modal(props: {
   const opener = useRef<HTMLElement | null>(null);
   const titleId = useId();
 
-  useEffect(() => {
+  // useLayoutEffect, а не useEffect: окно открывается и фокус встаёт на место до любого useEffect содержимого.
+  // Поле суммы подписывается на focusin в useEffect и кадр спустя забирает «ничей» фокус — оно должно видеть
+  // уже итоговое положение, а не промежуточный фокус на «×» (иначе при повторном открытии автофокуса нет)
+  useLayoutEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
     if (props.open && !dialog.open) {
@@ -817,17 +839,22 @@ export function Modal(props: {
       onClose={(e) => {
         if (e.target !== e.currentTarget) return;
         props.onClose();
-        opener.current?.focus();
+        // кнопки, с которой открыли окно, уже нет (строку журнала удалили) — фокус на заголовок страницы
+        const back = opener.current;
+        if (back?.isConnected && back !== document.body) back.focus();
+        else focusPageHeading();
       }}
       className={`m-auto max-h-[90dvh] w-[calc(100%-2rem)] rounded-3xl bg-card p-0 text-ink shadow-2xl outline-none backdrop:bg-black/40 ${props.className ?? 'max-w-2xl'}`}
     >
       {props.open && (
         <>
-          <div className="flex items-start justify-between gap-3 bg-card px-6 pt-6 pb-4 max-md:sticky max-md:top-0 max-md:z-10">
+          <div
+            className={`flex items-start justify-between gap-3 bg-card px-6 pt-6 pb-4 max-md:sticky max-md:top-0 max-md:z-10 ${props.phoneFullScreen ? 'max-md:pt-[max(1.5rem,env(safe-area-inset-top))]' : ''}`}
+          >
             <h2 id={titleId} className="text-xl font-bold">
               {props.title}
             </h2>
-            <button ref={closeRef} type="button" aria-label="Закрыть" title="Закрыть" onClick={cancel} className={`${btnIcon} shrink-0`}>
+            <button ref={closeRef} type="button" data-modal-close="" aria-label="Закрыть" title="Закрыть" onClick={cancel} className={`${btnIcon} shrink-0`}>
               <span aria-hidden="true">×</span>
             </button>
           </div>
@@ -853,6 +880,42 @@ export function Modal(props: {
         opener.current?.focus();
       }}
 ```
+
+- [ ] **Step 6a: AmountField treats «×» as free focus; the operation form's safe-area padding moves into the header**
+
+В `src/client/components/operation/AmountField.tsx`, в эффекте автофокуса (`if (!props.autoFocus) return;`):
+- после строки `const isRadio = (el: unknown) => el instanceof HTMLInputElement && el.type === 'radio';` добавьте:
+
+```ts
+    // «×» окна (Modal) — тоже «ничей» фокус: на ней он оказывается только до переноса на содержимое
+    const isModalClose = (el: unknown) => el instanceof HTMLElement && el.hasAttribute('data-modal-close');
+```
+
+- в обработчике `onFocusIn` строку `if (e.target !== ref.current && !isRadio(e.target)) stop();` замените на
+
+```ts
+      if (e.target !== ref.current && !isRadio(e.target) && !isModalClose(e.target)) stop();
+```
+
+- строки
+
+```ts
+      // фокус «ничей»: на странице, на самом окне или на радиокнопке типа (туда его ставит showModal())
+      const free = active === document.body || active instanceof HTMLDialogElement || isRadio(active);
+```
+
+замените на
+
+```ts
+      // фокус «ничей»: на странице, на самом окне, на «×» окна или на радиокнопке типа (туда его ставит showModal())
+      const free = active === document.body || active instanceof HTMLDialogElement || isRadio(active) || isModalClose(active);
+```
+
+В `src/client/components/operation/OperationForm.tsx`:
+- в `MODAL_CLASS` удалите фрагмент `max-md:pt-[env(safe-area-inset-top)] ` (отступ сверху теперь у липкой шапки окна; остальные отступы безопасной зоны остаются);
+- в `<Modal …>` формы добавьте свойство `phoneFullScreen` (рядом с `className={MODAL_CLASS}`).
+
+Эффект «Только просмотр: начальный фокус — на «Закрыть»» (`closeRef` и `requestAnimationFrame`) в `OperationEditor` оставьте как есть: с `useLayoutEffect` в `Modal` повтор кадр спустя уже не нужен, но и не мешает.
 
 - [ ] **Step 7: Make the footer «Закрыть» locators unambiguous**
 
@@ -931,6 +994,14 @@ test('окно: «×» закрывает форму и «Фильтр»; нач
   await close.click();
   await expect(form).toBeHidden();
   await expect(income).toBeFocused();
+
+  // повторное открытие в той же странице: данные в кэше, содержимое монтируется вместе с окном — фокус снова в сумме
+  for (const label of ['Расход', 'Доход', 'Перевод'] as const) {
+    await page.getByRole('banner').getByRole('button', { name: label, exact: true }).click();
+    await expect(form.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(form).toBeHidden();
+  }
 
   // правка: окно открывается, пока операция грузится — фокус всё равно в сумме, а не на «×»
   await page.getByRole('table', { name: 'Операции' }).getByRole('button', { name: /^Открыть операцию/ }).click();
@@ -1076,7 +1147,7 @@ export interface ConfirmDialogProps {
   pending?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
-  /** Элемент, с которого открыли подтверждение, исчез: куда вернуть фокус (например, в поле суммы). */
+  /** Элемент, с которого открыли подтверждение, исчез (или фокус был на body): куда вернуть фокус (например, в поле суммы). */
   onFocusLost?: () => void;
 }
 
@@ -1138,7 +1209,8 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
         if (e.target !== e.currentTarget) return;
         const back = opener.current;
         opener.current = null;
-        if (back?.isConnected) back.focus();
+        // фокус был «ничей» (body) или элемента уже нет — решает владелец (форма: поле суммы)
+        if (back?.isConnected && back !== document.body) back.focus();
         else latest.current.onFocusLost?.();
       }}
       className="m-auto w-[calc(100%-2rem)] max-w-md rounded-3xl bg-card p-6 text-ink shadow-2xl backdrop:bg-black/40"
@@ -1342,7 +1414,7 @@ test('фокус и закрытие формы: «×» → «Отменить»
   expect((await close.boundingBox())!.x + (await close.boundingBox())!.width).toBeLessThanOrEqual(PHONE.width);
 ```
 
-Проверка: `grep -rn "Несохранённые изменения\|Продолжить\|Закрыть без сохранения" e2e` — пусто; `grep -rn "name: 'Отмена'" e2e/operation-form.spec.ts e2e/operation-edit.spec.ts` — пусто.
+Проверка: `grep -rn "Несохранённые изменения\|Продолжить\|Закрыть без сохранения" e2e` — пусто; `grep -n "name: 'Отмена'" e2e/operation-form.spec.ts e2e/operation-edit.spec.ts` — остаются только две строки в `operation-edit.spec.ts` (около 372 и 379): это подтверждение удаления файла (`confirm.getByRole('button', { name: 'Отмена' })`) в блоке вложений, оно не меняется — **не трогайте их**.
 
 - [ ] **Step 7: Write the e2e test for the question and «Больше не спрашивать»**
 

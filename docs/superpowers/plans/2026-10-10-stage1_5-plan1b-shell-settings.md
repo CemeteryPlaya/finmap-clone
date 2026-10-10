@@ -14,7 +14,7 @@
 **Architecture:**
 - **Зона настроек — вложенный маршрут** `c/:companyId/settings` с элементом `SettingsLayout`. `CompanyLayout` по `useMatch('/c/:companyId/settings/*')` рисует вместо панели счетов и карточки с вкладками сам `<Outlet>`; `SettingsLayout` рисует слева `SettingsNav` и справа белую карточку (`mainCardClass`). На телефоне та же навигация — строкой над разделом (список разделов отдельным экраном — план 1.5-5). Перенаправления — компонент `SettingsRedirect` с абсолютным адресом.
 - **Разделы и порядок** — чистые данные `settingsGroups(companyName)` (`lib/settings-sections.ts`) с тестом. Адрес «Назад к журналу» — чистая функция `journalBackHref` (`lib/last-journal.ts`): журнал записывает свою строку запроса в `sessionStorage` (`fc.lastJournal.<cid>`), принимается только строка вида `?…` без `#`.
-- **Панели** — `Drawer` (план 7) с двумя новыми необязательными свойствами: `subtitle` (логин под именем пользователя) и `afterClose` (после перехода по ссылке фокус ставит не на кнопку, а на `<h1>` новой страницы — `focusHeadingSoon()`). Окно правки компании открывается поверх панели «Компании»: это вложенный `<dialog>`, а защита от его событий уже есть в `Drawer` (план 1.5-1a).
+- **Панели** — `Drawer` (план 7) с двумя новыми необязательными свойствами: `subtitle` (логин под именем пользователя) и `afterClose` (только сигнал «был переход — на кнопку открытия фокус не возвращать»). Фокус на `<h1>` новой страницы ставит `focusHeadingSoon()`, который запускается **в обработчике нажатия ссылки**, до перехода: он запоминает адрес и заголовок на момент нажатия и не берёт старый заголовок, пока адрес не сменился (React Router рисует новую страницу в `startTransition`, старый `<h1>` ещё несколько кадров на месте). Так фокус ставится и тогда, когда панель исчезает вместе с раскладкой («Добавить компанию» → `/companies/new`) и её `close` не наступает. Окно правки компании открывается поверх панели «Компании»: это вложенный `<dialog>`, а защита от его событий уже есть в `Drawer` (план 1.5-1a).
 - **История действий** читает существующий `GET /companies/:cid/audit?entity=operation&limit=20`. Чтобы писать «Изменён расход» и «Удалён перевод», сервер добавляет в историю правки, удаления и восстановления операции её тип (а удалению и восстановлению — сумму и счёт). Новых маршрутов нет. Текст записи — чистая функция `historyItems` (`lib/history.ts`).
 - **Сворачивание** — хук `useSidebarCollapsed()` (`lib/sidebar.ts`): одна настройка `sidebar.collapsed`, оптимистично в кэше, сохранение в фоне.
 - **Визуальная сверка** — `scripts/ux-shots.ts`: свой сервер на временной папке и порту 41741, демо-набор с фиксированной датой, Chromium с часами на 10.10.2026 15:58 (Алматы), снимки по списку сценариев и `index.html` «Finmap | наш».
@@ -33,12 +33,13 @@
 2. **`settings` без раздела и неизвестные адреса** перенаправляют на `counterparties` и на телефоне. Список разделов отдельным экраном появится в плане 1.5-5 (§8.6). На телефоне до него навигация — строкой ссылок над разделом.
 3. **Вкладки «Проекты | Шаблоны разделения»** в разделе «Проекты» появляются уже здесь, в простом виде: пункта «Шаблоны разделения» в навигации больше нет, и без вкладок раздел был бы недоступен. Оформление по §7.4 — план 1.5-4.
 4. **«Настройки журнала» — первая версия здесь** (флажки колонок и «Спрашивать перед закрытием формы с несохранёнными данными», кнопка «Применить»). Иначе «Больше не спрашивать» из плана 1.5-1a нельзя было бы отменить. «Дата сделки» и «Показывать полностью» добавит план 1.5-2, окончательный вид — план 1.5-4.
-5. **История операции для панели истории.** В записи правки появляется `type`, в записях удаления и восстановления — `type`, `amount`, `accountId`, `paidAt`. У старых записей без типа текст «Изменена операция», «Восстановлена операция». Запись открывает операцию в форме, если последнее действие с ней в ленте — не удаление.
-6. **Окно ✎ в панели «Компании»** — «Компания»: название и базовая валюта, «Сохранить» и «Отмена». «В архив» и «Вернуть из архива» в нём появятся с карточками «Мои компании» в плане 1.5-4, пока они остаются на странице «Мои компании».
+5. **История операции для панели истории.** В записи правки появляется `type` — тип **после** правки (сама смена типа в плане 1.5-6 попадёт ещё и в `before.type`/`after.type` записи, как остальные изменённые поля); в записях удаления и восстановления — `type`, `amount`, `accountId`, `paidAt`. У старых записей без типа текст «Изменена операция», «Восстановлена операция». Запись открывает операцию в форме, если последнее действие с ней в ленте — не удаление. На полной странице «История действий» новые сведения не мешают: у удаления в «Подробностях» не показывается `accountId`, у восстановления «Подробностей» нет, как раньше (`pageDiff` в `lib/audit-format.ts`).
+6. **Окно ✎ в панели «Компании»** — «Компания»: название и базовая валюта, «Сохранить» и «Отмена». «В архив» и «Вернуть из архива» в нём появятся с карточками «Мои компании» в плане 1.5-4, пока они остаются на странице «Мои компании». `CompanyForm` (только создание) здесь не используется: окно — отдельная форма правки `CompanyEditDialog`; в плане 1.5-4 она же заменит правку в строке страницы «Мои компании», которая до тех пор дублирует эти поля. Подпись поля — «Название компании», как в форме создания; в строке страницы «Мои компании» до 1.5-4 остаётся «Название».
 7. **Доступное имя блока компании** — «Сменить компанию: {название}», как у прежнего переключателя (видимый текст — название и «Сменить компанию»).
-8. **Фокус после перехода из панели** — на `<h1>` новой страницы: если у заголовка нет `tabindex`, ставится `tabindex="-1"`. Ждём заголовок до 2 с (страница может показывать «Загрузка…»). Если перехода не было (текущая компания, Esc, «✕»), фокус возвращается на кнопку, открывшую панель.
+8. **Фокус после перехода из панели** — на `<h1>` новой страницы (§11): `focusHeadingSoon()` запускается в обработчике нажатия ссылки, запоминает адрес и `main h1` на момент нажатия и не больше 120 кадров (около 2 с) ищет заголовок. Новый элемент `<h1>` берётся сразу; прежний — только если адрес сменился не меньше 6 кадров назад, а он всё ещё на месте (та же страница другой компании: React переиспользовал заголовок) или если адрес не сменился за 10 кадров (переход на текущую страницу). Заголовок считается найденным, когда простоял в фокусе 2 кадра; если он исчез (старая страница размонтировалась) — поиск продолжается. Заголовку без `tabindex` ставится `tabindex="-1"`. `afterClose` панели только сообщает, что был переход; без перехода (текущая компания, Esc, «✕») фокус возвращается на кнопку, открывшую панель.
 9. **Подписи кнопки сворачивания в зоне настроек** — «Свернуть меню настроек» и «Развернуть меню настроек». У панели счетов подписи прежние.
-10. **Скрипт визуальной сверки снимает только экраны, которые уже есть.** Для снимков Finmap без сценария в `index.html` пишется «нет сценария». Следующие планы добавляют сценарии в тот же список `SCENARIOS`. Скрипт не запускается на портах 3457, 3460 и 41731.
+10. **Ссылки панели «Счета» на телефоне** (счёт → журнал с фильтром, «+ счёт» → раздел «Счета») тоже ставят фокус на `<h1>` новой страницы (§11): это та же `focusHeadingSoon()`.
+11. **Скрипт визуальной сверки снимает только экраны, которые уже есть.** Для снимков Finmap без сценария в `index.html` пишется «нет сценария». Следующие планы добавляют сценарии в тот же список `SCENARIOS`. Скрипт не запускается на портах 3457, 3460 и 41731.
 
 ## Global Constraints
 
@@ -65,7 +66,7 @@
 
 ## Review Focus
 
-1. **Смена компании из панели внутри настроек:** другая компания — тот же раздел у неё и фокус на её `<h1>`; текущая — остаёмся на месте, фокус на кнопке компании; последняя компания запоминается. Тест — задача 4.
+1. **Смена компании из панели внутри настроек:** другая компания — тот же раздел у неё и фокус на её `<h1>` (не на старом заголовке, который ещё несколько кадров на месте во время перехода); текущая — остаёмся на месте, фокус на кнопке компании; последняя компания запоминается. Тесты — задача 3 (`acceptHeading`) и задача 4 (e2e).
 2. **«← Назад к журналу»** возвращает журнал с тем же фильтром; без сохранённого адреса — просто журнал; мусор в `sessionStorage` (`//evil.example`, `https://…`, `?a#b`) не уводит со страницы журнала. Тесты — задача 1 (unit и e2e).
 3. **Старые адреса и закладки:** `/settings`, `/settings/split-presets`, неизвестный раздел — перенаправляются, а не дают пустой экран. Тест — задача 1.
 4. **Окно поверх панели:** Esc в окне «Компания» закрывает только его, панель «Компании» остаётся, фокус — на ✎; после сохранения новое название видно в панели и в шапке. Тест — задача 4.
@@ -106,7 +107,7 @@ src/server/modules/operations/service.ts     # тип (и сумма со счё
 src/client/lib/sidebar.ts                    # (новый) useSidebarCollapsed
 src/client/components/CollapseButton.tsx     # (новый) круглая кнопка на границе панели
 src/client/components/AccountsPanel.tsx      # сворачивание через общий хук и новую кнопку
-src/client/components/operation/OperationFormHost.tsx  # вид кнопок «+ Доход», «− Расход», «⇄ Перевод» в шапке
+src/client/components/operation/OperationFormHost.tsx  # вид кнопок «+ Доход», «- Расход», «⇄ Перевод» в шапке
 scripts/ux-shots.ts                          # (новый) визуальная сверка
 package.json                                 # shots:ux
 README.md                                    # «Что уже работает», «Разработка»
@@ -922,44 +923,115 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ### Task 3: Шапка и панель «Настройки» с «Выйти»
 
 **Files:**
-- Create: `src/client/components/icons.tsx`, `src/client/components/SettingsMenuDrawer.tsx`, `src/client/lib/focus-heading.ts`
-- Modify: `src/client/components/AppHeader.tsx` (целиком), `src/client/components/Drawer.tsx`, `src/client/components/ui.ts`, `src/client/pages/CompanyLayout.tsx`, `src/client/pages/NewCompanyPage.tsx`, `src/client/components/operation/OperationFormHost.tsx`
-- Modify (тесты): `e2e/auth.spec.ts`, помощник `login` во всех `e2e/*.spec.ts`, `e2e/companies.spec.ts`, `e2e/dictionaries.spec.ts`, `e2e/money.spec.ts`, `e2e/service-screens.spec.ts`
+- Create: `src/client/components/icons.tsx`, `src/client/components/SettingsMenuDrawer.tsx`, `src/client/lib/focus-heading.ts`, `tests/client/focus-heading.test.ts`
+- Modify: `src/client/components/AppHeader.tsx` (целиком), `src/client/components/Drawer.tsx`, `src/client/components/ui.ts`, `src/client/pages/CompanyLayout.tsx`, `src/client/pages/NewCompanyPage.tsx`, `src/client/components/operation/OperationFormHost.tsx`, `src/client/components/AccountsPanel.tsx` (ссылки панели «Счета» на телефоне)
+- Modify (тесты): `e2e/auth.spec.ts`, помощник `login` во всех `e2e/*.spec.ts`, `e2e/companies.spec.ts`, `e2e/dictionaries.spec.ts`, `e2e/money.spec.ts`, `e2e/service-screens.spec.ts`, `e2e/mobile.spec.ts`
 
 **Interfaces:**
 - Consumes: `Drawer`, `useMe`, `useMeta`, `queryClient` (`lib/query.ts`), `api`, `pickStartCompany` (`lib/company-path.ts`).
 - Produces:
-  - `Drawer` props: `subtitle?: ReactNode` (строка под заголовком), `afterClose?: () => boolean` (вызывается после закрытия; `true` — фокус уже поставлен, на кнопку открытия не возвращать);
-  - `focusHeadingSoon(): void` (`lib/focus-heading.ts`);
+  - `Drawer` props: `subtitle?: ReactNode` (строка под заголовком), `afterClose?: () => boolean` (вызывается после закрытия панели; это только сигнал: `true` — был переход по ссылке, фокус ставит `focusHeadingSoon`, на кнопку открытия не возвращать);
+  - `focusHeadingSoon(): void` — вызывать в обработчике нажатия ссылки до перехода; `acceptHeading({ isPrevious, frame, changedAt }): boolean`, `SAME_PAGE_FRAMES = 6`, `NO_NAVIGATION_FRAMES = 10`, `MAX_FRAMES = 120` (`lib/focus-heading.ts`);
+  - шаблон для панелей с ссылками: `navigated` (`useRef(false)`); в обработчике ссылки — `navigated.current = true; focusHeadingSoon(); setOpen(false);`; `afterClose={() => { const handled = navigated.current; navigated.current = false; return handled; }}`;
   - `GearIcon()` (`components/icons.tsx`);
   - `headerIconClass` (`components/ui.ts`);
   - `SettingsMenuButton({ companyId: number | null; companyName: string | null })` — шестерёнка `aria-label="Настройки"` и панель с заголовком — именем пользователя;
   - `AppHeader({ left?, actions?, tools?, menu: { companyId: number | null; companyName: string | null } })`.
 
-- [ ] **Step 1: Drawer — subtitle and afterClose; focusHeadingSoon**
+- [ ] **Step 1: Drawer — subtitle and afterClose; focusHeadingSoon (test first)**
+
+`tests/client/focus-heading.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { acceptHeading, MAX_FRAMES, NO_NAVIGATION_FRAMES, SAME_PAGE_FRAMES } from '../../src/client/lib/focus-heading';
+
+describe('фокус на заголовок новой страницы после перехода из панели (§11 этапа 1.5)', () => {
+  it('новый <h1> берётся сразу; прежний — пока адрес не сменился, не берётся', () => {
+    expect(acceptHeading({ isPrevious: false, frame: 1, changedAt: null })).toBe(true);
+    expect(acceptHeading({ isPrevious: false, frame: 1, changedAt: 1 })).toBe(true);
+    // адрес сменился, а на месте ещё старый заголовок: React Router рисует новую страницу в startTransition
+    expect(acceptHeading({ isPrevious: true, frame: 3, changedAt: 2 })).toBe(false);
+    expect(acceptHeading({ isPrevious: true, frame: 2 + SAME_PAGE_FRAMES - 1, changedAt: 2 })).toBe(false);
+  });
+
+  it('прежний заголовок пережил смену адреса — та же страница (другая компания); адрес не сменился — переход на текущую страницу', () => {
+    expect(acceptHeading({ isPrevious: true, frame: 2 + SAME_PAGE_FRAMES, changedAt: 2 })).toBe(true);
+    expect(acceptHeading({ isPrevious: true, frame: NO_NAVIGATION_FRAMES - 1, changedAt: null })).toBe(false);
+    expect(acceptHeading({ isPrevious: true, frame: NO_NAVIGATION_FRAMES, changedAt: null })).toBe(true);
+    expect(MAX_FRAMES).toBeGreaterThan(NO_NAVIGATION_FRAMES + SAME_PAGE_FRAMES);
+  });
+});
+```
+
+Run: `npx vitest run tests/client/focus-heading.test.ts` → FAIL (модуля нет).
 
 `src/client/lib/focus-heading.ts`:
 
 ```ts
+/** Сколько кадров после смены адреса ждать, прежде чем принять прежний `<h1>` (React переиспользовал страницу). */
+export const SAME_PAGE_FRAMES = 6;
+/** Адрес не сменился за столько кадров — переход на текущую страницу: годится и прежний `<h1>`. */
+export const NO_NAVIGATION_FRAMES = 10;
+/** Не дольше ~2 с: страница может сначала показывать «Загрузка…». */
+export const MAX_FRAMES = 120;
+
 /**
- * После перехода по ссылке из выезжающей панели (§11 этапа 1.5): фокус — на заголовок `<h1>` новой страницы,
- * как только он появится (страница может сначала показывать «Загрузка…»), но не дольше 2 с. Заголовку без
- * `tabindex` ставится `tabindex="-1"`: так он принимает фокус, но не попадает в порядок Tab.
+ * Годится ли найденный `main h1`. isPrevious — это тот же элемент, что был на странице в момент нажатия;
+ * frame — номер кадра с нажатия (с 1); changedAt — кадр, на котором адрес впервые отличался от исходного, или null.
+ */
+export function acceptHeading(s: { isPrevious: boolean; frame: number; changedAt: number | null }): boolean {
+  if (!s.isPrevious) return true;
+  if (s.changedAt !== null) return s.frame - s.changedAt >= SAME_PAGE_FRAMES;
+  return s.frame >= NO_NAVIGATION_FRAMES;
+}
+
+/**
+ * Фокус на заголовок `<h1>` новой страницы после перехода по ссылке из выезжающей панели (§11 этапа 1.5).
+ * Вызывать в обработчике нажатия ссылки, ДО перехода: запоминаются адрес и `main h1` на момент нажатия.
+ * React Router рисует новую страницу в startTransition — старый заголовок ещё несколько кадров на месте,
+ * и фокус на нём ушёл бы в body, когда старая страница размонтируется. Поэтому прежний заголовок берётся,
+ * только когда это та же страница (acceptHeading), а поставленный фокус проверяется ещё 2 кадра; если
+ * заголовок исчез, поиск продолжается. Заголовку без `tabindex` ставится `tabindex="-1"`.
  */
 export function focusHeadingSoon(): void {
-  const started = performance.now();
+  const where = () => window.location.pathname + window.location.search;
+  const startedAt = where();
+  const previous = document.querySelector<HTMLElement>('main h1');
+  let frame = 0;
+  let changedAt: number | null = null;
+  let focused: HTMLElement | null = null;
+  let held = 0;
   const tick = () => {
-    const heading = document.querySelector<HTMLElement>('main h1');
-    if (heading) {
-      if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1');
-      heading.focus();
-      return;
+    frame++;
+    if (changedAt === null && where() !== startedAt) changedAt = frame;
+    if (focused) {
+      if (!focused.isConnected) {
+        // старая страница размонтировалась вместе с заголовком — ищем новый
+        focused = null;
+        held = 0;
+      } else if (document.activeElement !== focused) {
+        return; // пользователь уже сам увёл фокус
+      } else if (++held >= 2) {
+        return; // заголовок на месте и в фокусе — готово
+      }
     }
-    if (performance.now() - started < 2000) requestAnimationFrame(tick);
+    if (!focused) {
+      const heading = document.querySelector<HTMLElement>('main h1');
+      if (heading && acceptHeading({ isPrevious: heading === previous, frame, changedAt })) {
+        if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1');
+        heading.focus();
+        // фокус не встал (панель ещё закрывается и страница под ней недоступна) — попробуем в следующем кадре
+        if (document.activeElement === heading) focused = heading;
+      }
+    }
+    if (frame < MAX_FRAMES) requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
 }
 ```
+
+Run: `npx vitest run tests/client/focus-heading.test.ts` → PASS (2 теста).
 
 В `src/client/components/Drawer.tsx`:
 - импорт `import { useEffect, useId, useRef, type ReactNode } from 'react';` — без изменений;
@@ -973,7 +1045,11 @@ export function Drawer(props: {
   subtitle?: ReactNode;
   side: 'left' | 'right';
   onClose: () => void;
-  /** После закрытия: true — фокус уже поставлен (переход по ссылке), на кнопку открытия не возвращать. */
+  /**
+   * После закрытия панели — только сигнал: true — был переход по ссылке (фокус ставит focusHeadingSoon, запущенный
+   * в обработчике ссылки), на кнопку открытия не возвращать. Если панель исчезла вместе с раскладкой, close не
+   * наступает и afterClose не вызывается — поэтому фокус и ставится не отсюда.
+   */
   afterClose?: () => boolean;
   children: ReactNode;
 }) {
@@ -1067,8 +1143,11 @@ export function SettingsMenuButton({ companyId, companyName }: { companyId: numb
       navigate('/login', { replace: true });
     },
   });
+  // переход: фокус на <h1> новой страницы запускается здесь, до перехода (панель может исчезнуть вместе с шапкой
+  // страницы без компании, и её close не наступит)
   const go = () => {
     navigated.current = true;
+    focusHeadingSoon();
     setOpen(false);
   };
   const item = (to: string, label: string) => (
@@ -1092,10 +1171,9 @@ export function SettingsMenuButton({ companyId, companyName }: { companyId: numb
         subtitle={me.data?.user.login}
         onClose={() => setOpen(false)}
         afterClose={() => {
-          if (!navigated.current) return false;
+          const handled = navigated.current;
           navigated.current = false;
-          focusHeadingSoon();
-          return true;
+          return handled;
         }}
       >
         {companyId !== null && (
@@ -1137,7 +1215,7 @@ import { SettingsMenuButton } from './SettingsMenuDrawer';
 
 /**
  * Шапка (§3.1 этапа 1.5). Слева — блок компании (на телефоне перед ним «Счета»); на страницах без компании —
- * название продукта. По центру — «+ Доход», «− Расход», «⇄ Перевод» (только компьютер). Справа — иконки:
+ * название продукта. По центру — «+ Доход», «\u2212 Расход», «⇄ Перевод» (только компьютер). Справа — иконки:
  * «История действий» (tools) и шестерёнка «Настройки». Имени пользователя и «Выйти» в шапке нет — они в панели
  * «Настройки». Название продукта всегда в document.title. В PWA на iPhone шапка начинается ниже выреза экрана.
  */
@@ -1173,12 +1251,12 @@ export function AppHeader(props: {
 ```tsx
 const BUTTONS: { type: OperationType; symbol: string; label: string; bottom: string; header: string }[] = [
   { type: 'income', symbol: '+', label: 'Доход', bottom: 'bg-income text-white', header: 'bg-income/20 text-income' },
-  { type: 'expense', symbol: '−', label: 'Расход', bottom: 'bg-expense text-white', header: 'bg-expense/20 text-expense' },
+  { type: 'expense', symbol: '\u2212', label: 'Расход', bottom: 'bg-expense text-white', header: 'bg-expense/20 text-expense' },
   { type: 'transfer', symbol: '⇄', label: 'Перевод', bottom: 'bg-chrome-2 text-white', header: 'bg-white/10 text-white' },
 ];
 
 /**
- * Кнопки «+ Доход», «− Расход», «⇄ Перевод» (§3.1 этапа 1.5; у минуса — знак U+2212). `header` — по центру шапки,
+ * Кнопки «+ Доход», «\u2212 Расход», «⇄ Перевод» (§3.1 этапа 1.5; у минуса — знак U+2212). `header` — по центру шапки,
  * одинаковой ширины, тёмный полупрозрачный фон и цветной текст, только на компьютере; `bottom` — на телефоне
  * (меньше 768 px) панель, закреплённая у нижнего края экрана (§7 «Мобильная версия»; план 1.5-5 перенесёт её наверх).
  */
@@ -1251,6 +1329,61 @@ export function NewOperationButtons({ placement = 'header' }: { placement?: 'hea
 
 Проверка: `grep -rn "profileHref\|Выйти" src/client` — «Выйти» только в `SettingsMenuDrawer.tsx`.
 
+- [ ] **Step 3a: Links of the phone «Счета» drawer focus the new page's heading**
+
+В `src/client/components/AccountsPanel.tsx`:
+- импорт React: `import { useEffect, useRef, useState } from 'react';`; добавьте `import { focusHeadingSoon } from '../lib/focus-heading';`;
+- функцию `AccountsDrawerButton` с комментарием над ней замените:
+
+```tsx
+/**
+ * Счета на телефоне (§7 «Мобильная версия»): кнопка «Счета» в шапке, «Всего на счетах» и балансы выезжают
+ * слева. Переход по счёту (фильтр журнала) или к «+ счёт» закрывает панель, фокус — на `<h1>` страницы (§11 этапа 1.5).
+ */
+export function AccountsDrawerButton({ company }: { company: Company }) {
+  const [open, setOpen] = useState(false);
+  const navigated = useRef(false);
+  const mobile = useIsMobile();
+  // окно стало шире телефона — на месте левая панель, выезжающая не нужна
+  useEffect(() => {
+    if (!mobile) setOpen(false);
+  }, [mobile]);
+  return (
+    <>
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
+        className="shrink-0 rounded-xl bg-chrome-2 px-3 py-2 text-sm hover:bg-white/10 md:hidden"
+      >
+        Счета
+      </button>
+      <Drawer
+        open={open}
+        title="Счета"
+        side="left"
+        onClose={() => setOpen(false)}
+        afterClose={() => {
+          const handled = navigated.current;
+          navigated.current = false;
+          return handled;
+        }}
+      >
+        <AccountsSummary
+          company={company}
+          onNavigate={() => {
+            navigated.current = true;
+            focusHeadingSoon();
+            setOpen(false);
+          }}
+        />
+      </Drawer>
+    </>
+  );
+}
+```
+
 - [ ] **Step 4: Update e2e — login helpers and paths to settings**
 
 Во всех файлах `e2e/*.spec.ts`, где есть помощник `login` (`companies`, `dictionaries`, `dialogs`, `journal-actions`, `journal`, `mobile`, `money`, `operation-edit`, `operation-form`, `service-screens`), строку
@@ -1292,6 +1425,25 @@ async function openCompanySettings(page: Page) {
   // профиль — в панели «Настройки» (шестерёнка): в её шапке имя пользователя
   await a.getByRole('banner').getByRole('button', { name: 'Настройки', exact: true }).click();
   await a.getByRole('dialog', { name: 'Профилёр' }).getByRole('link', { name: 'Профиль' }).click();
+```
+
+`e2e/mobile.spec.ts`, тест «счета на телефоне выезжают слева…»: после строк
+
+```ts
+  await drawer.getByRole('link', { name: /^Kaspi/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?account=${kaspi}$`));
+  await expect(drawer).toBeHidden();
+```
+
+добавьте
+
+```ts
+  // переход из панели — фокус на заголовок страницы; «+ счёт» ведёт в раздел «Счета» (§11 этапа 1.5)
+  await expect(page.getByRole('heading', { level: 1, name: 'Журнал' })).toBeFocused();
+  await open.click();
+  await drawer.getByRole('link', { name: '+ счёт' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/accounts$`));
+  await expect(page.getByRole('heading', { level: 1, name: 'Счета' })).toBeFocused();
 ```
 
 - [ ] **Step 5: Rewrite auth.spec**
@@ -1386,7 +1538,7 @@ test('панель «Настройки» на странице компании
 
 - [ ] **Step 6: Run all checks; e2e twice**
 
-Run: `npm test` → PASS, 627. Run: `npm run typecheck` → без ошибок.
+Run: `npm test` → PASS, 629 (627 + 2 в `focus-heading.test.ts`). Run: `npm run typecheck` → без ошибок.
 Run: `npm run test:e2e` дважды → 65 passed оба раза.
 
 - [ ] **Step 7: Commit**
@@ -1635,17 +1787,18 @@ export function CompanyBlockButton({ current, companies }: { current: Company; c
         side="left"
         onClose={() => setOpen(false)}
         afterClose={() => {
-          if (!navigated.current) return false;
+          const handled = navigated.current;
           navigated.current = false;
-          focusHeadingSoon();
-          return true;
+          return handled;
         }}
       >
         <CompaniesList
           current={current}
           companies={companies}
           onDone={(withNavigation) => {
+            // вызывается до navigate() и до перехода по ссылке: focusHeadingSoon запоминает исходную страницу
             navigated.current = withNavigation;
+            if (withNavigation) focusHeadingSoon();
             setOpen(false);
           }}
         />
@@ -1904,7 +2057,7 @@ test('панель «Компании»: текущая компания не у
 
 - [ ] **Step 7: Run all checks; e2e twice**
 
-Run: `npm test` → PASS, 629 (627 + 2). Run: `npm run typecheck` → без ошибок.
+Run: `npm test` → PASS, 631 (629 + 2). Run: `npm run typecheck` → без ошибок.
 Run: `npm run test:e2e` дважды → 65 passed оба раза.
 
 - [ ] **Step 8: Commit**
@@ -1926,12 +2079,14 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Modify: `src/shared/dates.ts`, `tests/shared/dates.test.ts`
 - Create: `src/client/lib/history.ts`, `tests/client/history.test.ts`, `src/client/components/HistoryDrawer.tsx`
 - Modify: `src/client/lib/queries.ts`, `src/client/components/icons.tsx`, `src/client/pages/CompanyLayout.tsx`
+- Modify: `src/client/lib/audit-format.ts`, `tests/client/audit-format.test.ts`, `src/client/pages/settings/AuditSettings.tsx` (новые сведения истории на полной странице)
 - Modify (тесты): `e2e/service-screens.spec.ts`
 
 **Interfaces:**
 - Consumes: `diffRows`, `ACTION_LABELS` (`lib/audit-format.ts`), `AuditEntry` (`lib/queries.ts`), `formatMoney`, `MONEY_SCREEN_BEFORE`, `useOpenOperationForm`, `Drawer` (`afterClose`), `focusHeadingSoon`, `headerIconClass`.
 - Produces:
-  - история операций: правка — `diff.type`; удаление и восстановление — `diff = { type, amount, accountId, paidAt }`;
+  - история операций: правка — `diff.type` (тип после правки); удаление и восстановление — `diff = { type, amount, accountId, paidAt }`;
+  - `pageDiff(e: { entity; action; diff }): Record<string, unknown> | null` (`lib/audit-format.ts`) — что показывать в «Подробностях» полной страницы истории;
   - `formatDateTimeSec(iso, timeZone): string` — «04.10.2026, 10:32:15» (`shared/dates.ts`);
   - `HistoryItem`, `OPERATION_FIELD_LABELS`, `historyItems(entries, ctx): HistoryItem[]` (`lib/history.ts`);
   - `useOperationHistory(companyId)` → `AuditEntry[]` (`lib/queries.ts`);
@@ -1981,8 +2136,9 @@ Expected: FAIL — у `update` нет `type`, у `restore` `diff` равен `nu
 - в `update` вызов `record({ … action: 'update', diff: { ...changes, … } })` замените строку `diff`:
 
 ```ts
-          // тип — для панели «История действий» («Изменён расход», §3.4 этапа 1.5)
-          diff: { type: current.type, ...changes, ...(recalc ? { recalculated: { rate: [current.rate, rate], baseAmount: [current.baseAmount, baseAmount] } } : {}) },
+          // тип после правки — для панели «История действий» («Изменён расход», §3.4 этапа 1.5); смена типа
+          // (план 1.5-6) видна ещё и в before.type / after.type, как любое изменённое поле
+          diff: { type: draft.type, ...changes, ...(recalc ? { recalculated: { rate: [current.rate, rate], baseAmount: [current.baseAmount, baseAmount] } } : {}) },
 ```
 
 - в `remove`:
@@ -2037,7 +2193,7 @@ const entry = (over: Partial<AuditEntry>): AuditEntry => ({
   ...over,
 });
 /** Неразрывные пробелы денег → обычные: так ожидания читаются. */
-const plain = (s: string | null) => (s === null ? null : s.replace(/[  ]/g, ' '));
+const plain = (s: string | null) => (s === null ? null : s.replace(/[\u00A0\u202F]/g, ' '));
 
 describe('панель «История действий» (§3.4 этапа 1.5)', () => {
   it('добавление: действие и тип, сумма с ₸ впереди, счёт, пользователь и время до секунд', () => {
@@ -2085,7 +2241,22 @@ describe('панель «История действий» (§3.4 этапа 1.5
 });
 ```
 
-Run: `npx vitest run tests/shared/dates.test.ts tests/client/history.test.ts` → FAIL (нет `formatDateTimeSec`, нет модуля).
+В `tests/client/audit-format.test.ts` в строку импорта добавьте `pageDiff`, а в `describe('audit-format', …)` — тест:
+
+```ts
+  it('pageDiff: у операции — без счёта в удалении и без подробностей восстановления; остальные записи как есть', () => {
+    const del = { entity: 'operation', action: 'delete', diff: { type: 'expense', amount: 100, accountId: 3, paidAt: '2026-10-05T10:00:00.000Z' } };
+    expect(pageDiff(del)).toEqual({ type: 'expense', amount: 100, paidAt: '2026-10-05T10:00:00.000Z' });
+    expect(pageDiff({ entity: 'operation', action: 'restore', diff: { type: 'expense', amount: 100, accountId: 3 } })).toBeNull();
+    const update = { entity: 'operation', action: 'update', diff: { type: 'expense', before: { comment: null }, after: { comment: 'x' } } };
+    expect(pageDiff(update)).toBe(update.diff);
+    const tag = { entity: 'tag', action: 'delete', diff: { name: 'Аренда' } };
+    expect(pageDiff(tag)).toBe(tag.diff);
+    expect(pageDiff({ entity: 'operation', action: 'delete', diff: null })).toBeNull();
+  });
+```
+
+Run: `npx vitest run tests/shared/dates.test.ts tests/client/history.test.ts tests/client/audit-format.test.ts` → FAIL (нет `formatDateTimeSec`, `pageDiff`, модуля истории).
 
 - [ ] **Step 4: Implement formatDateTimeSec and historyItems**
 
@@ -2197,7 +2368,37 @@ export function historyItems(
 }
 ```
 
-Run: `npx vitest run tests/shared/dates.test.ts tests/client/history.test.ts` → PASS.
+В `src/client/lib/audit-format.ts` в конец добавьте:
+
+```ts
+/**
+ * «Подробности» записи на полной странице «История действий». Для панели истории (§3.4 этапа 1.5) сервер пишет
+ * в удаление и восстановление операции тип, сумму, счёт и дату: счёт по id здесь не нужен, а у восстановления
+ * подробностей нет, как раньше. Тип в записи правки странице не мешает: таблица «Было / Стало» строится по before/after.
+ */
+export function pageDiff(e: { entity: string; action: string; diff: Record<string, unknown> | null }): Record<string, unknown> | null {
+  if (e.entity !== 'operation' || e.diff === null) return e.diff;
+  if (e.action === 'restore') return null;
+  if (e.action === 'delete') {
+    const { accountId: _accountId, ...rest } = e.diff;
+    return rest;
+  }
+  return e.diff;
+}
+```
+
+В `src/client/pages/settings/AuditSettings.tsx`:
+- в импорт из `'../../lib/audit-format'` добавьте `pageDiff`;
+- в `AuditItem` строку `const rows = diffRows(e.diff);` замените на
+
+```tsx
+  const diff = pageDiff(e);
+  const rows = diffRows(diff);
+```
+
+- там же `{e.diff && (` → `{diff && (` и `{JSON.stringify(e.diff, null, 2)}` → `{JSON.stringify(diff, null, 2)}`.
+
+Run: `npx vitest run tests/shared/dates.test.ts tests/client/history.test.ts tests/client/audit-format.test.ts` → PASS.
 
 - [ ] **Step 5: Query, icon, drawer**
 
@@ -2259,10 +2460,9 @@ export function HistoryButton({ company }: { company: Company }) {
         title="История действий"
         onClose={() => setOpen(false)}
         afterClose={() => {
-          if (!navigated.current) return false;
+          const handled = navigated.current;
           navigated.current = false;
-          focusHeadingSoon();
-          return true;
+          return handled;
         }}
       >
         <HistoryList
@@ -2270,6 +2470,7 @@ export function HistoryButton({ company }: { company: Company }) {
           onOpenOperation={() => setOpen(false)}
           onMore={() => {
             navigated.current = true;
+            focusHeadingSoon();
             setOpen(false);
           }}
         />
@@ -2426,7 +2627,7 @@ test('панель «История действий»: последние де�
 
 - [ ] **Step 7: Run all checks; e2e twice**
 
-Run: `npm test` → PASS, 635 (629 + 1 серверный + 1 даты + 4 истории). Run: `npm run typecheck` → без ошибок.
+Run: `npm test` → PASS, 638 (631 + 1 серверный + 1 даты + 4 истории + 1 `pageDiff`). Run: `npm run typecheck` → без ошибок.
 Run: `npm run test:e2e` дважды → 66 passed оба раза.
 
 - [ ] **Step 8: Commit**
@@ -2667,7 +2868,7 @@ function SettingsNavBody(props: { companyId: number; companyName: string; back: 
 
 - [ ] **Step 6: Run all checks; e2e twice**
 
-Run: `npm test` → PASS, 635. Run: `npm run typecheck` → без ошибок.
+Run: `npm test` → PASS, 638. Run: `npm run typecheck` → без ошибок.
 Run: `npm run test:e2e` дважды → 67 passed оба раза. Старый тест сворачивания панели счетов (`money.spec.ts`, «левая панель: балансы и итог…») проходит без изменений: кнопка внутри `<nav aria-label="Счета">`, подписи прежние, фокус остаётся на ней.
 
 - [ ] **Step 7: Commit**
@@ -3012,9 +3213,9 @@ process.exit(failures > 0 ? 1 : 0);
 - [ ] **Step 3: Typecheck and run the script once**
 
 Run: `npm run typecheck` → без ошибок.
-Run: `npm test` → PASS, 635 (тест терминологии сканирует и `scripts/ux-shots.ts`).
+Run: `npm test` → PASS, 638 (тест терминологии сканирует и `scripts/ux-shots.ts`).
 Run: `npm run shots:ux`
-Expected: строки `✓ c01-log.png` … и итог `Готово: …\parity\index.html — снято 34 из 34.` Сервер скрипта — на порту 41741, база во временной папке, после работы папка удаляется. Если какой-то сценарий упал (`✗ …`), прочитайте сообщение: обычно это локатор, который не нашёл элемент на демо-данных (например, в первых строках журнала нет «Указать»). Исправьте локатор в этом сценарии, а не продукт, и запустите ещё раз. Откройте `docs/research/screens/v2/parity/index.html` и убедитесь, что пары видны рядом. В git папка не попадает (`git status` её не показывает).
+Expected: строки `✓ c01-log.png` … и итог `Готово: …\parity\index.html — снято 33 из 33.` Сервер скрипта — на порту 41741, база во временной папке, после работы папка удаляется. Если какой-то сценарий упал (`✗ …`), прочитайте сообщение: обычно это локатор, который не нашёл элемент на демо-данных (например, в первых строках журнала нет «Указать»). Исправьте локатор в этом сценарии, а не продукт, и запустите ещё раз. Откройте `docs/research/screens/v2/parity/index.html` и убедитесь, что пары видны рядом. В git папка не попадает (`git status` её не показывает).
 
 - [ ] **Step 4: README**
 
@@ -3064,7 +3265,7 @@ Run: `npx vitest run tests/shared/terminology.test.ts` → PASS (README по-п�
 
 - [ ] **Step 5: Final checks**
 
-Run: `npm test` → PASS, 635. Run: `npm run typecheck` → без ошибок. Run: `npm run test:e2e` → 67 passed.
+Run: `npm test` → PASS, 638. Run: `npm run typecheck` → без ошибок. Run: `npm run test:e2e` → 67 passed.
 
 - [ ] **Step 6: Commit**
 
@@ -3081,3 +3282,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 - Итоги, отложенные замечания и итог визуальной сверки (что совпало, что отличается намеренно) — `docs/superpowers/followups/2026-10-10-stage1_5-plan1b-followups.md` (пишет контролёр).
 - Следующий план — 1.5-2 «Журнал». Он добавляет в `SCENARIOS` скрипта сверки снимки 17, 18b, 19 и колонку «Дата сделки» в «Настройки журнала».
+- Замечания для итогов плана (followups):
+  - «Добавить компанию» из панели «Компании» теперь ставит фокус на заголовок «Новая компания», а не в поле названия (раньше поле получало `autoFocus` при прямом переходе — оно и сейчас его получает, но `focusHeadingSoon` переставляет фокус на `<h1>` по правилу §11);
+  - снимки Finmap `29-settings-accounts.png` и `32-settings-projects.png` (дубли ракурсов «Счета» и «Проекты») в `index.html` будут с пометкой «нет сценария»;
+  - «Категория» длиннее «Статья»: заголовки колонок, подписи полей и пункты меню на 390 px проверяет тест ширины `mobile.spec.ts` (все разделы настроек, форма, окно «Фильтр»).
