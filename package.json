@@ -10,6 +10,7 @@
     "dev": "concurrently -k -n server,client \"tsx watch src/server/index.ts\" \"vite\"",
     "build:client": "vite build",
     "start": "tsx scripts/run.ts",
+    "stop": "tsx scripts/stop.ts",
     "setup": "tsx scripts/setup.ts",
     "user:add": "tsx scripts/user-add.ts",
     "user:passwd": "tsx scripts/user-passwd.ts",
