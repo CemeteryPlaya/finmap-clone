@@ -89,7 +89,7 @@ describe('patchBody — в PATCH только изменённые поля (и�
     });
   });
 
-  it('теги — без учёта порядка; новая статья — новые строки', () => {
+  it('теги — без учёта порядка; новая категория — новые строки', () => {
     expect(patchFor(op(), (d) => ({ ...d, tagIds: [1, 2] }))).toBeNull();
     expect(patchFor(op(), (d) => ({ ...d, categoryId: 70 }))).toEqual({ version: 3, lines: [{ categoryId: 70, projectId: 8, amount: 150050 }] });
   });

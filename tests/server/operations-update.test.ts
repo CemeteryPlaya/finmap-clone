@@ -96,9 +96,9 @@ describe('operations: правка, удаление, восстановлени
     expect(w.h.auditCount('operation', 'restore')).toBe(1);
   });
 
-  it('восстановление: архивная статья не мешает, архивный счёт мешает, openedAt позже даты операции — INVARIANT_6 (Review Focus 4)', async () => {
+  it('восстановление: архивная категория не мешает, архивный счёт мешает, openedAt позже даты операции — INVARIANT_6 (Review Focus 4)', async () => {
     w = await opsWorld();
-    // архивная статья — восстановление проходит (инвариант 11)
+    // архивная категория — восстановление проходит (инвариант 11)
     const withCat = await create({ type: 'expense', paidAt: '2026-10-05T10:00:00Z', accountId: w.kzt, amount: 100, lines: [{ categoryId: w.expense, amount: 100 }] });
     await w.h.req('DELETE', `${w.ops}/${withCat.id}`);
     await w.post(`/api/v1/companies/${w.cid}/categories/${w.expense}/archive`, {});

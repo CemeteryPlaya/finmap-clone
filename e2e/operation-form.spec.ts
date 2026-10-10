@@ -64,7 +64,7 @@ test('доход, расход и перевод KZT → USD через форм
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
   await expect(amount).toBeFocused();
   await pick(page, 'Счёт', 'Касса (KZT)');
-  await pick(page, 'Статья', 'Выручка');
+  await pick(page, 'Категория', 'Выручка');
   await amount.fill('1 500 + 500');
   await amount.blur();
   await expect(amount).toHaveValue('2000');
@@ -75,7 +75,7 @@ test('доход, расход и перевод KZT → USD через форм
 
   // расход с комментарием из свёрнутого блока; сумма — невычисленное выражение, «Сохранить» нажимают сразу
   dialog = await openForm(page, 'Расход');
-  await pick(page, 'Статья', 'Аренда');
+  await pick(page, 'Категория', 'Аренда');
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('100+200');
   await dialog.getByRole('button', { name: 'Проект, теги, комментарий' }).click();
   await dialog.getByLabel('Комментарий').fill('за октябрь');
@@ -103,7 +103,7 @@ test('доход, расход и перевод KZT → USD через форм
   await expect(panel(page)).toContainText(/Всего на счетах\s*2\s700,00\s₸/);
 });
 
-test('ошибки у полей, Esc с вопросом о несохранённом, «Сохранить и создать похожий», контрагенты под статью «Зарплата»', async ({ page }) => {
+test('ошибки у полей, Esc с вопросом о несохранённом, «Сохранить и создать похожий», контрагенты под категорию «Зарплата»', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Похожий ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
@@ -133,38 +133,38 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   await expect(question).toBeHidden();
   await expect(dialog).toBeVisible();
   // Esc внутри списка с поиском закрывает только список: окно открыто, вопроса нет, фокус на кнопке списка
-  await dialog.getByRole('button', { name: /^Статья:/ }).click();
-  await expect(dialog.getByRole('listbox', { name: 'Статьи' })).toBeVisible();
+  await dialog.getByRole('button', { name: /^Категория:/ }).click();
+  await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(dialog.getByRole('listbox', { name: 'Статьи' })).toBeHidden();
+  await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeHidden();
   await expect(dialog).toBeVisible();
   await expect(question).toBeHidden();
-  await expect(dialog.getByRole('button', { name: /^Статья:/ })).toBeFocused();
+  await expect(dialog.getByRole('button', { name: /^Категория:/ })).toBeFocused();
 
-  // «Зарплата» (системная статья): сначала сотрудники, затем остальные
-  await pick(page, 'Статья', 'Зарплата');
+  // «Зарплата» (системная категория): сначала сотрудники, затем остальные
+  await pick(page, 'Категория', 'Зарплата');
   await dialog.getByRole('button', { name: /^Контрагент:/ }).click();
   const people = dialog.getByRole('listbox', { name: 'Контрагенты' }).getByRole('option');
   await expect(people).toHaveText(['Без контрагента', 'Айгерим', 'ТОО Ромашка']);
   await expect(dialog.getByRole('listbox', { name: 'Контрагенты' })).toContainText('Сотрудники');
   await page.keyboard.press('Escape');
-  await pick(page, 'Статья', 'Аренда');
+  await pick(page, 'Категория', 'Аренда');
   await dialog.getByRole('button', { name: /^Контрагент:/ }).click();
   await expect(people).toHaveText(['Без контрагента', 'ТОО Ромашка', 'Айгерим']);
   await page.keyboard.press('Escape');
 
   // после выбора значения список открывается сразу на нём: aria-activedescendant указывает на выбранный пункт
-  await dialog.getByRole('button', { name: 'Статья: Аренда' }).click();
-  const search = dialog.getByRole('combobox', { name: 'Статьи: поиск' });
-  const selected = dialog.getByRole('listbox', { name: 'Статьи' }).getByRole('option', { name: 'Аренда', exact: true });
+  await dialog.getByRole('button', { name: 'Категория: Аренда' }).click();
+  const search = dialog.getByRole('combobox', { name: 'Категории: поиск' });
+  const selected = dialog.getByRole('listbox', { name: 'Категории' }).getByRole('option', { name: 'Аренда', exact: true });
   await expect(selected).toHaveAttribute('aria-selected', 'true');
   const selectedId = (await selected.getAttribute('id'))!;
   await expect(search).toHaveAttribute('aria-activedescendant', selectedId);
   await page.keyboard.press('Escape');
-  await expect(dialog.getByRole('listbox', { name: 'Статьи' })).toBeHidden();
+  await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeHidden();
   await expect(dialog).toBeVisible();
 
-  // «Сохранить и создать похожий»: статья и контрагент остаются, сумма и комментарий — нет
+  // «Сохранить и создать похожий»: категория и контрагент остаются, сумма и комментарий — нет
   await pick(page, 'Контрагент', 'ТОО Ромашка');
   await amount.fill('100');
   await dialog.getByRole('button', { name: 'Проект, теги, комментарий' }).click();
@@ -174,7 +174,7 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   await expect(amount).toHaveValue('');
   await expect(amount).toBeFocused();
   await expect(dialog.getByLabel('Комментарий')).toHaveValue('');
-  await expect(dialog.getByRole('button', { name: 'Статья: Аренда' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Категория: Аренда' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Контрагент: ТОО Ромашка' })).toBeVisible();
   // Enter в поле суммы с невычисленным выражением: сохраняется результат, а не текст
   await amount.fill('150+50');
@@ -196,7 +196,7 @@ test('ошибки у полей, Esc с вопросом о несохранё�
 
 // Сценарий 4 §10 на ширине 390 px (создание с нижней панели и правка из карточки) — в e2e/mobile.spec.ts (план 7).
 
-test('«Разделить» в процентах на два проекта; шаблон разделения: применить с недоступной статьёй, сохранить текущее', async ({ page }) => {
+test('«Разделить» в процентах на два проекта; шаблон разделения: применить с недоступной категорией, сохранить текущее', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Разбиение ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
@@ -231,16 +231,16 @@ test('«Разделить» в процентах на два проекта; �
   await expect(split.getByRole('radio', { name: 'В процентах' })).toBeChecked();
   const line1 = split.getByRole('group', { name: 'Строка 1' });
   const line2 = split.getByRole('group', { name: 'Строка 2' });
-  await pick(page, 'Статья', 'Аренда', line1);
+  await pick(page, 'Категория', 'Аренда', line1);
   await pick(page, 'Проект', 'Север', line1);
   await line1.getByLabel('Доля, %').fill('60');
-  await pick(page, 'Статья', 'Аренда', line2);
+  await pick(page, 'Категория', 'Аренда', line2);
   await pick(page, 'Проект', 'Юг', line2);
   await line2.getByLabel('Доля, %').fill('30');
   await expect(split.getByRole('status').first()).toHaveText('Не распределено: 10 %');
-  // фокус в списке строк: новая строка — на её «Статье», удаление — на «Убрать» предыдущей строки
+  // фокус в списке строк: новая строка — на её «Категории», удаление — на «Убрать» предыдущей строки
   await split.getByRole('button', { name: '+ Строка' }).click();
-  await expect(split.getByRole('group', { name: 'Строка 3' }).getByRole('button', { name: /^Статья:/ })).toBeFocused();
+  await expect(split.getByRole('group', { name: 'Строка 3' }).getByRole('button', { name: /^Категория:/ })).toBeFocused();
   await split.getByRole('button', { name: 'Убрать строку 3' }).click();
   await expect(split.getByRole('button', { name: 'Убрать строку 2' })).toBeFocused();
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
@@ -257,7 +257,7 @@ test('«Разделить» в процентах на два проекта; �
   await expect(row).toContainText('2 проекта');
   await expect(row).toContainText(/1\s000,00\s₸/);
 
-  // шаблон: статья «Свет» в архиве — отброшена с предупреждением, её строка остаётся с проектом
+  // шаблон: категория «Свет» в архиве — отброшена с предупреждением, её строка остаётся с проектом
   dialog = await openForm(page, 'Расход');
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('100');
   await dialog.getByRole('button', { name: 'Разделить', exact: true }).click();
@@ -266,10 +266,10 @@ test('«Разделить» в процентах на два проекта; �
   // в первой строке стоит сумма операции: шаблон заменит строки — сначала вопрос
   await split.getByRole('button', { name: 'Сбросить значения' }).click();
   await expect(split).toContainText('Шаблон «Север и Юг»: 1 элемент недоступен');
-  await expect(line1.getByRole('button', { name: 'Статья: Аренда' })).toBeVisible();
+  await expect(line1.getByRole('button', { name: 'Категория: Аренда' })).toBeVisible();
   await expect(line1.getByRole('button', { name: 'Проект: Север' })).toBeVisible();
   await expect(line1.getByLabel('Доля, %')).toHaveValue('70');
-  await expect(line2.getByRole('button', { name: 'Статья: Без статьи' })).toBeVisible();
+  await expect(line2.getByRole('button', { name: 'Категория: Без категории' })).toBeVisible();
   await expect(line2.getByRole('button', { name: 'Проект: Юг' })).toBeVisible();
   await expect(split.getByRole('status').first()).toHaveText('Распределено полностью');
 
@@ -307,7 +307,7 @@ test('сценарий 3 §10 через форму: доход, расход н
   await expect(amount).toBeFocused();
   await amount.fill('500');
   await pick(page, 'Счёт', 'Касса (KZT)');
-  await pick(page, 'Статья', 'Выручка');
+  await pick(page, 'Категория', 'Выручка');
   await dialog.getByRole('button', { name: 'Проект, теги, комментарий' }).click();
   await pick(page, 'Проект', 'Север');
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
@@ -321,15 +321,15 @@ test('сценарий 3 §10 через форму: доход, расход н
   const split = dialog.getByRole('region', { name: 'Разбиение' });
   const line1 = split.getByRole('group', { name: 'Строка 1' });
   const line2 = split.getByRole('group', { name: 'Строка 2' });
-  // удалили единственную возможную к удалению строку — фокус на «+ Строка»; добавили — на «Статье» новой строки
+  // удалили единственную возможную к удалению строку — фокус на «+ Строка»; добавили — на «Категории» новой строки
   await split.getByRole('button', { name: 'Убрать строку 2' }).click();
   await expect(split.getByRole('button', { name: '+ Строка' })).toBeFocused();
   await split.getByRole('button', { name: '+ Строка' }).click();
-  await expect(line2.getByRole('button', { name: /^Статья:/ })).toBeFocused();
-  await pick(page, 'Статья', 'Аренда', line1);
+  await expect(line2.getByRole('button', { name: /^Категория:/ })).toBeFocused();
+  await pick(page, 'Категория', 'Аренда', line1);
   await pick(page, 'Проект', 'Север', line1);
   await line1.getByRole('textbox', { name: /^Сумма/ }).fill('100');
-  await pick(page, 'Статья', 'Аренда', line2);
+  await pick(page, 'Категория', 'Аренда', line2);
   await pick(page, 'Проект', 'Юг', line2);
   await line2.getByRole('textbox', { name: /^Сумма/ }).fill('200');
   await expect(split.getByRole('status').first()).toHaveText('Распределено полностью');
@@ -363,7 +363,7 @@ test('сценарий 3 §10 через форму: доход, расход н
   await expect(transfer).toContainText(/остаток 1,00\s\$/);
 });
 
-test('«+ Создать „…“» прямо из формы: контрагент с типом под статью, статья, проект, тег; тег из архива — ошибка', async ({ page }) => {
+test('«+ Создать „…“» прямо из формы: контрагент с типом под категорию, категория, проект, тег; тег из архива — ошибка', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Создать ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
@@ -374,25 +374,25 @@ test('«+ Создать „…“» прямо из формы: контраг�
 
   const dialog = await openForm(page, 'Расход');
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('700');
-  // «Зарплата» — системная статья: новый контрагент создаётся сотрудником
-  await pick(page, 'Статья', 'Зарплата');
+  // «Зарплата» — системная категория: новый контрагент создаётся сотрудником
+  await pick(page, 'Категория', 'Зарплата');
   await dialog.getByRole('button', { name: /^Контрагент:/ }).click();
   await dialog.getByRole('combobox', { name: 'Контрагенты: поиск' }).fill('Асель');
   await dialog.getByRole('option', { name: '+ Создать „Асель“' }).click();
   await expect(dialog.getByRole('button', { name: 'Контрагент: Асель' })).toBeVisible();
 
-  // статья: Enter на пункте «+ Создать» тоже создаёт
-  await dialog.getByRole('button', { name: /^Статья:/ }).click();
-  const search = dialog.getByRole('combobox', { name: 'Статьи: поиск' });
+  // категория: Enter на пункте «+ Создать» тоже создаёт
+  await dialog.getByRole('button', { name: /^Категория:/ }).click();
+  const search = dialog.getByRole('combobox', { name: 'Категории: поиск' });
   await search.fill('Интернет');
   await search.press('ArrowDown');
   // активный пункт — тот, на который указывает aria-activedescendant поля поиска
   const createId = await dialog.getByRole('option', { name: '+ Создать „Интернет“' }).getAttribute('id');
   await expect(search).toHaveAttribute('aria-activedescendant', createId!);
   await search.press('Enter');
-  await expect(dialog.getByRole('button', { name: 'Статья: Интернет' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Категория: Интернет' })).toBeVisible();
   // такое название уже есть (без учёта регистра) — «Создать» не предлагается
-  await dialog.getByRole('button', { name: /^Статья:/ }).click();
+  await dialog.getByRole('button', { name: /^Категория:/ }).click();
   await search.fill('интернет');
   await expect(dialog.getByRole('option', { name: /Создать/ })).toHaveCount(0);
   await search.press('Escape');

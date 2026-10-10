@@ -67,13 +67,13 @@ function SortHeader(props: { label: string; column: JournalSortKey; sort: Journa
 
 function lineHint(item: JournalItem, lookups: JournalLookups, currency: string): string[] {
   return item.lines.map((l) => {
-    const category = l.categoryId === null ? 'без статьи' : (lookups.categories.get(l.categoryId) ?? '…');
+    const category = l.categoryId === null ? 'без категории' : (lookups.categories.get(l.categoryId) ?? '…');
     const project = l.projectId === null ? 'без проекта' : (lookups.projects.get(l.projectId) ?? '…');
     return `${category} · ${project} — ${formatMoney(l.amount, currency)}`;
   });
 }
 
-/** Ячейка статьи или проекта: название, «N категорий» с подсказкой у разбитой операции, «Указать» или пусто. */
+/** Ячейка категории или проекта: название, «N категорий» с подсказкой у разбитой операции, «Указать» или пусто. */
 function dimensionCell(item: JournalItem, key: 'categoryId' | 'projectId', names: Map<number, string>, hint: string[], assign: ReactNode): ReactNode {
   const d = lineDimension(item.lines, key);
   if (d.kind === 'many') return <SplitHint label={splitLabel(d.count, key === 'categoryId' ? 'category' : 'project')} lines={hint} />;
@@ -99,7 +99,7 @@ export function JournalTable(props: JournalTableProps) {
 
   const onRowClick = (item: JournalItem) => (e: MouseEvent<HTMLTableRowElement>) => {
     // клики по настоящим элементам управления внутри строки — не открытие операции;
-    // «2 статьи» (подсказка с tabIndex) — открывает: по §7 клик по ним открывает форму
+    // «2 категории» (подсказка с tabIndex) — открывает: по §7 клик по ним открывает форму
     // события из портала (подсказка) всплывают по дереву React, но в DOM лежат вне строки — их игнорируем
     if (!e.currentTarget.contains(e.target as Node)) return;
     if ((e.target as HTMLElement).closest('button, a, input, label, select, [role="combobox"], [role="listbox"]')) return;

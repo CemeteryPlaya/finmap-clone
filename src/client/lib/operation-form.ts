@@ -26,7 +26,7 @@ export interface OperationDraft {
   counterpartyId: number | null;
   tagIds: number[];
   comment: string;
-  /** «Разделить» (только доход и расход): строки вместо статьи и проекта. null — без разбиения. */
+  /** «Разделить» (только доход и расход): строки вместо категории и проекта. null — без разбиения. */
   split: SplitDraft | null;
 }
 
@@ -83,7 +83,7 @@ export function emptyDraft(type: OperationType, today: string, accountId: number
   };
 }
 
-/** Смена типа в новой операции: статья другого вида и контрагент у перевода не переносятся. */
+/** Смена типа в новой операции: категория другого вида и контрагент у перевода не переносятся. */
 export function changeType(draft: OperationDraft, type: OperationType): OperationDraft {
   if (type === draft.type) return draft;
   return {

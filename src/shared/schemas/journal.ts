@@ -3,7 +3,7 @@ import { isValidDate } from '../dates';
 
 export const JOURNAL_LIMIT_DEFAULT = 50;
 export const JOURNAL_LIMIT_MAX = 200;
-/** Не больше значений в одном списке фильтра (счета, статьи…). */
+/** Не больше значений в одном списке фильтра (счета, категории…). */
 export const JOURNAL_LIST_MAX = 200;
 
 /** Пустая строка в запросе (`amountMin=`) — то же, что отсутствие параметра. */

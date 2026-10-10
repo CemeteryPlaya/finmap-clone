@@ -22,7 +22,7 @@ describe('шаблоны', () => {
     expect(refs.every((r) => r.startsWith(`${key}:`))).toBe(true);
   });
 
-  it.each(TEMPLATES.map((t) => [t.key, t] as const))('%s: underSystem ссылается на системную статью своего вида', (_k, t) => {
+  it.each(TEMPLATES.map((t) => [t.key, t] as const))('%s: underSystem ссылается на системную категорию своего вида', (_k, t) => {
     for (const kind of ['income', 'expense'] as const) {
       for (const n of t.categories[kind]) {
         if (isUnderSystem(n)) expect(systemCategory(n.underSystem).kind).toBe(kind);

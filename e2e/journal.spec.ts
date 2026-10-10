@@ -347,7 +347,7 @@ test('модалка «Фильтр»: все условия §6, «Готово
   const filterButton = page.getByRole('button', { name: /^Фильтр/ });
   const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
 
-  // тип и родительская статья (включает дочернюю)
+  // тип и родительская категория (включает дочернюю)
   await filterButton.click();
   await expect(dialog).toBeVisible();
   await dialog.getByRole('checkbox', { name: 'Расход' }).check();
@@ -359,10 +359,10 @@ test('модалка «Фильтр»: все условия §6, «Готово
   await expect(filterButton).toHaveText('Фильтр · 2');
   await expect.poll(comments).toBe('A');
 
-  // «Без статьи» — вместе с выбранной статьёй через ИЛИ
+  // «Без категории» — вместе с выбранной категорией через ИЛИ
   await filterButton.click();
   await expect(dialog.getByRole('checkbox', { name: 'Расход' })).toBeChecked();
-  await dialog.getByRole('checkbox', { name: 'Без статьи' }).check();
+  await dialog.getByRole('checkbox', { name: 'Без категории' }).check();
   await dialog.getByRole('button', { name: 'Готово' }).click();
   await expect.poll(comments).toBe('BA');
 

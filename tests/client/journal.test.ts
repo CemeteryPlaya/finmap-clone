@@ -171,8 +171,8 @@ describe('форматирование строк журнала', () => {
 
   it('множественное число и подпись разбитой операции', () => {
     expect([1, 2, 4, 5, 11, 12, 14, 21, 22, 25, 101, 111].map((n) => pluralRu(n, 'а', 'б', 'в')).join('')).toBe('аббввввабвав');
-    expect(splitLabel(2, 'category')).toBe('2 статьи');
-    expect(splitLabel(5, 'category')).toBe('5 статей');
+    expect(splitLabel(2, 'category')).toBe('2 категории');
+    expect(splitLabel(5, 'category')).toBe('5 категорий');
     expect(splitLabel(21, 'project')).toBe('21 проект');
     expect(splitLabel(3, 'project')).toBe('3 проекта');
   });

@@ -20,7 +20,7 @@ interface Option {
   /** Имя без пометки «(архив)»: по нему идёт поиск. */
   name: string;
   label: string;
-  /** Отступ дочерней статьи. */
+  /** Отступ дочерней категории. */
   nested?: boolean;
 }
 
@@ -153,15 +153,15 @@ function FilterForm(props: {
         <Section legend="Счета">
           <CheckList items={options(data.accounts, draft.accountIds)} selected={draft.accountIds} onToggle={toggle('accountIds')} empty="Счетов нет" />
         </Section>
-        <Section legend="Статьи">
-          {flag('withoutCategory', 'Без статьи')}
+        <Section legend="Категории">
+          {flag('withoutCategory', 'Без категории')}
           <fieldset className="mt-1">
             <legend className="text-xs text-muted">Доходы</legend>
-            <CheckList items={categoryOptions(data.categories.income, draft.categoryIds)} selected={draft.categoryIds} onToggle={toggle('categoryIds')} empty="Статей нет" />
+            <CheckList items={categoryOptions(data.categories.income, draft.categoryIds)} selected={draft.categoryIds} onToggle={toggle('categoryIds')} empty="Категорий нет" />
           </fieldset>
           <fieldset className="mt-1">
             <legend className="text-xs text-muted">Расходы</legend>
-            <CheckList items={categoryOptions(data.categories.expense, draft.categoryIds)} selected={draft.categoryIds} onToggle={toggle('categoryIds')} empty="Статей нет" />
+            <CheckList items={categoryOptions(data.categories.expense, draft.categoryIds)} selected={draft.categoryIds} onToggle={toggle('categoryIds')} empty="Категорий нет" />
           </fieldset>
         </Section>
         <Section legend="Проекты">
@@ -187,7 +187,7 @@ function FilterForm(props: {
         </Section>
       </div>
       <p className="mt-3 text-xs text-muted">
-        Внутри одного раздела подходит любой из выбранных вариантов («Аренда» или «Без статьи»), между разделами — все условия сразу. Родительская статья включает
+        Внутри одного раздела подходит любой из выбранных вариантов («Аренда» или «Без категории»), между разделами — все условия сразу. Родительская категория включает
         дочерние.
       </p>
       <div className="mt-4 flex flex-wrap gap-2">

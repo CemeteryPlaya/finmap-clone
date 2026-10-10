@@ -33,7 +33,7 @@ export function timeLabel(iso: string, timeZone: string): string {
   return fmt.format(new Date(iso));
 }
 
-/** Русское множественное число: 1 статья, 2 статьи, 5 статей, 11 статей, 21 статья. */
+/** Русское множественное число: 1 категория, 2 категории, 5 категорий, 11 категорий, 21 категория. */
 export function pluralRu(n: number, one: string, few: string, many: string): string {
   const d10 = n % 10;
   const d100 = n % 100;
@@ -42,10 +42,10 @@ export function pluralRu(n: number, one: string, few: string, many: string): str
   return many;
 }
 
-/** «2 статьи», «5 проектов» — подпись разбитой операции (§7; «N категорий» спецификации — статьи, как везде в интерфейсе). */
+/** «2 категории», «5 проектов» — подпись разбитой операции (§5.2 этапа 1.5). */
 export function splitLabel(count: number, what: 'category' | 'project'): string {
   return what === 'category'
-    ? `${count} ${pluralRu(count, 'статья', 'статьи', 'статей')}`
+    ? `${count} ${pluralRu(count, 'категория', 'категории', 'категорий')}`
     : `${count} ${pluralRu(count, 'проект', 'проекта', 'проектов')}`;
 }
 

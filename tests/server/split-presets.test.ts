@@ -27,7 +27,7 @@ async function world() {
 }
 
 describe('split-presets API', () => {
-  it('создание: доли в сумме 100%, строки со статьёй и/или проектом', async () => {
+  it('создание: доли в сумме 100%, строки со категорией и/или проектом', async () => {
     const w = await world();
     const res = await h.req('POST', base(w.cid), {
       name: 'Аренда пополам',
@@ -49,20 +49,20 @@ describe('split-presets API', () => {
     expect(h.auditCount('split_preset', 'create')).toBe(2);
   });
 
-  it('проверки строк: сумма ≠ 100%, пустая строка, повтор, разные виды статей', async () => {
+  it('проверки строк: сумма ≠ 100%, пустая строка, повтор, разные виды категорий', async () => {
     const w = await world();
     const linesError = async (lines: object[]) => (await h.req('POST', base(w.cid), { name: 'X', lines })).json().error.fields.lines;
     expect(await linesError([{ projectId: w.p1, bp: 5000 }, { projectId: w.p2, bp: 4999 }])).toBe('Сумма долей должна быть 100% (сейчас 99,99%)');
-    expect(await linesError([{ bp: 10000 }])).toBe('В каждой строке укажите статью или проект');
+    expect(await linesError([{ bp: 10000 }])).toBe('В каждой строке укажите категорию или проект');
     expect(await linesError([{ projectId: w.p1, bp: 5000 }, { projectId: w.p1, bp: 5000 }])).toBe('Строки повторяются');
-    expect(await linesError([{ categoryId: w.rent, bp: 5000 }, { categoryId: w.bar, bp: 5000 }])).toBe('Статьи шаблона должны быть одного вида');
+    expect(await linesError([{ categoryId: w.rent, bp: 5000 }, { categoryId: w.bar, bp: 5000 }])).toBe('Категории шаблона должны быть одного вида');
     expect(await linesError([])).toBe('Добавьте хотя бы одну строку');
   });
 
-  it('чужие статьи и проекты — ошибка поля; архивные — 422', async () => {
+  it('чужие категории и проекты — ошибка поля; архивные — 422', async () => {
     const w = await world();
     const foreign = await h.req('POST', base(w.cid), { name: 'X', lines: [{ categoryId: w.foreignCategory, bp: 10000 }] });
-    expect(foreign.json().error.fields.lines).toBe('Статья не найдена в этой компании');
+    expect(foreign.json().error.fields.lines).toBe('Категория не найдена в этой компании');
     const foreignProject = await w.project(w.other, 'Чужой');
     const fp = await h.req('POST', base(w.cid), { name: 'X', lines: [{ projectId: foreignProject, bp: 10000 }] });
     expect(fp.json().error.fields.lines).toBe('Проект не найден в этой компании');

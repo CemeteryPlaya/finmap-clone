@@ -123,7 +123,7 @@ export function TagsSettings() {
           </button>
         </div>
       )}
-      {list.length === 0 && <p className="text-muted">Тегов пока нет. Теги помогают отмечать операции поперёк статей и проектов.</p>}
+      {list.length === 0 && <p className="text-muted">Тегов пока нет. Теги помогают отмечать операции поперёк категорий и проектов.</p>}
       <ul className="space-y-2">
         {list.map((t) => (
           <li key={t.id} className={`rounded-2xl border border-field px-4 py-3 ${t.archivedAt ? 'opacity-60' : ''}`}>

@@ -85,14 +85,14 @@ describe('шаблоны разделения', () => {
   };
   const ctx = presetContext(tree, [{ id: 5, archivedAt: null }, { id: 6, archivedAt: '2026-10-01T00:00:00Z' }], 'expense');
 
-  it('применение: недоступные элементы отбрасываются и считаются (инвариант 10); строка без статьи и проекта не применяется', () => {
+  it('применение: недоступные элементы отбрасываются и считаются (инвариант 10); строка без категории и проекта не применяется', () => {
     const r = applyPreset(
       [
         { categoryId: 10, projectId: 5, bp: 5000 },
-        { categoryId: 11, projectId: 5, bp: 2000 }, // статья в архиве — остаётся проект
+        { categoryId: 11, projectId: 5, bp: 2000 }, // категория в архиве — остаётся проект
         { categoryId: 13, projectId: 6, bp: 2000 }, // дочерняя архивной и архивный проект — строки нет
-        { categoryId: 1, projectId: null, bp: 500 }, // статья доходов в расходе
-        { categoryId: 99, projectId: null, bp: 500 }, // удалённая статья
+        { categoryId: 1, projectId: null, bp: 500 }, // категория доходов в расходе
+        { categoryId: 99, projectId: null, bp: 500 }, // удалённая категория
       ],
       ctx,
     );
@@ -125,6 +125,6 @@ describe('шаблоны разделения', () => {
     expect(saved.ok && saved.lines.map((l) => l.bp)).toEqual([3334, 3333, 3333]);
     expect(presetFromSplit(lines('percent', '50', '40'), splitResult(lines('percent', '50', '40'), 100, 2))).toEqual({ ok: false, error: 'Распределите 100 %' });
     const empty: SplitDraft = { mode: 'percent', lines: [newLine({ value: '100' })] };
-    expect(presetFromSplit(empty, splitResult(empty, 100, 2))).toEqual({ ok: false, error: 'В каждой строке укажите статью или проект' });
+    expect(presetFromSplit(empty, splitResult(empty, 100, 2))).toEqual({ ok: false, error: 'В каждой строке укажите категорию или проект' });
   });
 });

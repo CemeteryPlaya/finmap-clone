@@ -32,7 +32,7 @@ describe('projects API', () => {
     expect(res.json().templates[0].defaultAccounts).toEqual(['Касса {project}', 'Kaspi {project}']);
   });
 
-  it('создание клуба применяет шаблон: статьи, счета KZT с projectId, история', async () => {
+  it('создание клуба применяет шаблон: категории, счета KZT с projectId, история', async () => {
     const { req, cid } = await setup();
     const res = await req('POST', `/api/v1/companies/${cid}/projects`, club('Клуб на Ленина'));
     expect(res.statusCode).toBe(201);
@@ -56,7 +56,7 @@ describe('projects API', () => {
     expect(audit).toEqual([{ action: 'create' }]);
   });
 
-  it('второй клуб не дублирует статьи, но получает свои счета (Review Focus 1)', async () => {
+  it('второй клуб не дублирует категории, но получает свои счета (Review Focus 1)', async () => {
     const { req, cid } = await setup();
     await req('POST', `/api/v1/companies/${cid}/projects`, club('Клуб 1'));
     const count = () => (t.sqlite.prepare('SELECT COUNT(*) n FROM categories WHERE company_id = ?').get(cid) as { n: number }).n;
@@ -78,7 +78,7 @@ describe('projects API', () => {
     expect(names).toContain('Касса Клуб $& $$');
   });
 
-  it('проект «Общий» без статей и счетов', async () => {
+  it('проект «Общий» без категорий и счетов', async () => {
     const { req, cid } = await setup();
     const res = await req('POST', `/api/v1/companies/${cid}/projects`, { name: 'Офис', templateKey: 'general' });
     expect(res.statusCode).toBe(201);

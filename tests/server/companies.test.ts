@@ -15,7 +15,7 @@ async function setup() {
 }
 
 describe('companies API', () => {
-  it('создаёт компанию с системными статьями и пишет историю', async () => {
+  it('создаёт компанию с системными категориями и пишет историю', async () => {
     const { req } = await setup();
     const res = await req('POST', '/api/v1/companies', { name: '  ТОО Ромашка ' });
     expect(res.statusCode).toBe(201);

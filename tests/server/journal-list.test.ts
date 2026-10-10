@@ -84,7 +84,7 @@ describe('журнал: GET /companies/:cid/operations', () => {
     expect(await ids('from=2026-10-04')).toEqual([early, late]);
   });
 
-  it('поиск без учёта регистра и «ё»: комментарий, контрагент, счёт списания и зачисления, статья и проект строки; % и _ — буквально (Review Focus 2)', async () => {
+  it('поиск без учёта регистра и «ё»: комментарий, контрагент, счёт списания и зачисления, категория и проект строки; % и _ — буквально (Review Focus 2)', async () => {
     w = await opsWorld();
     const byComment = await op({ paidAt: '2026-10-02T10:00:00Z', comment: 'Ёлка в зале' });
     const byCounterparty = await op({ type: 'income', paidAt: '2026-10-02T11:00:00Z', counterpartyId: w.counterparty });
@@ -127,7 +127,7 @@ describe('журнал: GET /companies/:cid/operations', () => {
     expect(await ids(`types=expense&accountIds=${w.kzt}`)).toEqual([small]);
   });
 
-  it('статьи: родительская включает дочерние, подходит любая строка разбиения; проекты — любая строка', async () => {
+  it('категории: родительская включает дочерние, подходит любая строка разбиения; проекты — любая строка', async () => {
     w = await opsWorld();
     const base = `/api/v1/companies/${w.cid}/categories`;
     const parent = (await w.post(base, { kind: 'expense', name: 'Помещение' })).category.id as number;
@@ -147,9 +147,9 @@ describe('журнал: GET /companies/:cid/operations', () => {
     expect(await ids(`projectIds=${w.project2}`)).toEqual([b]);
   });
 
-  it('«без статьи», «без проекта», «без контрагента» — по §6; с выбранными элементами того же измерения — через ИЛИ, между измерениями — И', async () => {
+  it('«без категории», «без проекта», «без контрагента» — по §6; с выбранными элементами того же измерения — через ИЛИ, между измерениями — И', async () => {
     w = await opsWorld();
-    const bare = await op({ type: 'income', paidAt: '2026-10-02T10:00:00Z' }); // одна строка без статьи и проекта, без контрагента
+    const bare = await op({ type: 'income', paidAt: '2026-10-02T10:00:00Z' }); // одна строка без категории и проекта, без контрагента
     const full = await op({ paidAt: '2026-10-02T11:00:00Z', counterpartyId: w.counterparty, lines: [{ categoryId: w.expense, projectId: w.project, amount: 1000 }] });
     const half = await op({
       paidAt: '2026-10-02T12:00:00Z',

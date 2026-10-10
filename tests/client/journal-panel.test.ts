@@ -10,7 +10,7 @@ describe('кнопка «Фильтры» на телефоне', () => {
     expect(panelConditionCount(state({ period: 'month' }))).toBe(1);
     expect(panelConditionCount(state({ period: 'custom', from: '2026-10-01' }))).toBe(1);
     expect(panelConditionCount(state({ amountMin: 100, amountMax: 500 }))).toBe(2);
-    // условия окна — по разделу, как у кнопки «Фильтр»: два счёта — одно условие, «без статьи» и статья — одно
+    // условия окна — по разделу, как у кнопки «Фильтр»: два счёта — одно условие, «без категории» и категория — одно
     expect(panelConditionCount(state({ types: ['expense'], accountIds: [1, 2], categoryIds: [3], withoutCategory: true }))).toBe(3);
     expect(panelConditionCount(state({ period: 'today', amountMin: 0, tagIds: [7] }))).toBe(3);
   });

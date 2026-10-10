@@ -18,7 +18,7 @@ function setup() {
 }
 
 describe('categories', () => {
-  it('seedSystem создаёт 9 системных статей верхнего уровня', () => {
+  it('seedSystem создаёт 9 системных категорий верхнего уровня', () => {
     const { svc, companyId } = setup();
     svc.seedSystem(t.db, companyId);
     const tree = svc.listTree(companyId);
@@ -27,7 +27,7 @@ describe('categories', () => {
     expect(tree.expense.every((c) => c.parentId === null && c.effectiveSystemKey === c.systemKey)).toBe(true);
   });
 
-  it('mergeTemplate кладёт детей underSystem под системную статью и наследует systemKey', () => {
+  it('mergeTemplate кладёт детей underSystem под системную категорию и наследует systemKey', () => {
     const { svc, companyId } = setup();
     svc.seedSystem(t.db, companyId);
     const created = svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!);
@@ -49,7 +49,7 @@ describe('categories', () => {
     expect(JSON.stringify(svc.listTree(companyId))).toBe(before);
   });
 
-  it('mergeTemplate не трогает переименованные и архивные статьи шаблона (Review Focus 2)', () => {
+  it('mergeTemplate не трогает переименованные и архивные категории шаблона (Review Focus 2)', () => {
     const { svc, companyId } = setup();
     svc.seedSystem(t.db, companyId);
     svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!);
@@ -65,7 +65,7 @@ describe('categories', () => {
     ]);
   });
 
-  it('mergeTemplate без системных статей падает понятной ошибкой', () => {
+  it('mergeTemplate без системных категорий падает понятной ошибкой', () => {
     const { svc, companyId } = setup();
     expect(() => svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!)).toThrow(/salary/);
   });

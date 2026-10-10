@@ -192,14 +192,14 @@ test('«Указать»: список с поиском и клавиатуро
   await expect(row('C').getByRole('button', { name: /^Указать/ })).toHaveCount(1);
   await expect(row('C').getByRole('button', { name: 'Указать проект' })).toBeVisible();
 
-  // статья с клавиатуры: поиск, стрелка, Enter; доход видит только доходные статьи
-  await row('A').getByRole('button', { name: 'Указать статью' }).click();
-  const search = page.getByRole('combobox', { name: 'Статьи: поиск' });
+  // категория с клавиатуры: поиск, стрелка, Enter; доход видит только доходные категории
+  await row('A').getByRole('button', { name: 'Указать категорию' }).click();
+  const search = page.getByRole('combobox', { name: 'Категории: поиск' });
   await expect(search).toBeFocused();
-  const categoryOptions = page.getByRole('listbox', { name: 'Статьи' }).getByRole('option');
+  const categoryOptions = page.getByRole('listbox', { name: 'Категории' }).getByRole('option');
   await expect(categoryOptions).toHaveText(['Инвестиции', 'Возврат займа', 'Получение кредита', 'Бар', 'Игровое время']);
   // список у последней строки не обрезан обёрткой таблицы (overflow-x: auto): он ниже её нижнего края и виден целиком
-  const listBox = (await page.getByRole('listbox', { name: 'Статьи' }).boundingBox())!;
+  const listBox = (await page.getByRole('listbox', { name: 'Категории' }).boundingBox())!;
   const wrapperBox = (await table(page).locator('xpath=..').boundingBox())!;
   expect(listBox.y + listBox.height).toBeGreaterThan(wrapperBox.y + wrapperBox.height);
   await expect(categoryOptions.last()).toBeInViewport();
@@ -215,7 +215,7 @@ test('«Указать»: список с поиском и клавиатуро
   await search.press('ArrowDown');
   await search.press('Enter');
   await expect(row('A')).toContainText('Бар');
-  await expect(row('A').getByRole('button', { name: 'Указать статью' })).toHaveCount(0);
+  await expect(row('A').getByRole('button', { name: 'Указать категорию' })).toHaveCount(0);
   // кнопки больше нет — фокус на строке операции, а не на body
   await expect(row('A')).toBeFocused();
 
@@ -251,7 +251,7 @@ test('«Указать»: список с поиском и клавиатуро
   await expect(row('C')).toContainText('Клуб 1');
 });
 
-test('массовые действия: статья с итогом и причинами, проект, удаление с подтверждением и «Отменить» — балансы в панели обновляются', async ({ page }) => {
+test('массовые действия: категория с итогом и причинами, проект, удаление с подтверждением и «Отменить» — балансы в панели обновляются', async ({ page }) => {
   // часы подменены: тост «Отменить» живёт 10 с только пока тест сам не продвинет время (медленная машина его не сожжёт)
   await page.clock.install();
   await login(page);
@@ -286,17 +286,17 @@ test('массовые действия: статья с итогом и при�
   // 1000 - 10 - 20 - 30 + 40 = 980 ₸
   await expect(kaspiLink).toContainText(/980,00\s₸/);
 
-  // выбрать все загруженные → «Статья»: расходы с одной строкой меняются, разбитая и доход пропущены с причинами
+  // выбрать все загруженные → «Категория»: расходы с одной строкой меняются, разбитая и доход пропущены с причинами
   await table(page).getByRole('checkbox', { name: 'Выбрать все загруженные операции' }).check();
   await expect(bar).toContainText('Выбрано: 4');
-  await bar.getByRole('button', { name: 'Статья', exact: true }).click();
-  await page.getByRole('listbox', { name: 'Статьи' }).getByRole('option', { name: 'Расход: Аренда' }).click();
-  const summary = page.getByRole('status').filter({ hasText: 'Статья:' });
-  await expect(summary).toContainText('Статья: изменено 2, пропущено 2');
+  await bar.getByRole('button', { name: 'Категория', exact: true }).click();
+  await page.getByRole('listbox', { name: 'Категории' }).getByRole('option', { name: 'Расход: Аренда' }).click();
+  const summary = page.getByRole('status').filter({ hasText: 'Категория:' });
+  await expect(summary).toContainText('Категория: изменено 2, пропущено 2');
   // фокус после выбора — на кнопке списка, а не на body
-  await expect(bar.getByRole('button', { name: 'Статья', exact: true })).toBeFocused();
+  await expect(bar.getByRole('button', { name: 'Категория', exact: true })).toBeFocused();
   await expect(summary).toContainText('Разбитая операция — измените её в форме — 1');
-  await expect(summary).toContainText('Статья расходов не подходит для дохода — 1');
+  await expect(summary).toContainText('Категория расходов не подходит для дохода — 1');
   await expect(row('A')).toContainText('Аренда');
   await expect(row('B')).toContainText('Аренда');
   await expect(row('D')).not.toContainText('Аренда');
@@ -447,8 +447,8 @@ test('«Указать»: два выбора подряд в одной стр�
   });
   await row('A').getByRole('button', { name: 'Указать контрагента' }).click();
   await page.getByRole('listbox', { name: 'Контрагенты' }).getByRole('option', { name: 'ИП Клиент' }).click();
-  await row('A').getByRole('button', { name: 'Указать статью' }).click();
-  await page.getByRole('listbox', { name: 'Статьи' }).getByRole('option', { name: 'Аренда' }).click();
+  await row('A').getByRole('button', { name: 'Указать категорию' }).click();
+  await page.getByRole('listbox', { name: 'Категории' }).getByRole('option', { name: 'Аренда' }).click();
   await expect(row('A')).toContainText('ИП Клиент');
   await expect(row('A')).toContainText('Аренда');
   await expect.poll(() => patches).toEqual([1, 2]);
@@ -459,15 +459,15 @@ test('«Указать»: два выбора подряд в одной стр�
   await expect(row('A')).toContainText('Аренда');
   await expect(page.getByRole('alert')).toHaveCount(0);
 
-  // «Без статьи»: назначенная строка уходит из выборки — фокус на строку, занявшую её место, а когда её нет — на заголовок
+  // «Без категории»: назначенная строка уходит из выборки — фокус на строку, занявшую её место, а когда её нет — на заголовок
   await page.goto(`/c/${cid}/log?noCategory=1`);
   await expect.poll(() => letters(page)).toBe('CB');
-  await row('C').getByRole('button', { name: 'Указать статью' }).click();
-  await page.getByRole('listbox', { name: 'Статьи' }).getByRole('option', { name: 'Аренда' }).click();
+  await row('C').getByRole('button', { name: 'Указать категорию' }).click();
+  await page.getByRole('listbox', { name: 'Категории' }).getByRole('option', { name: 'Аренда' }).click();
   await expect.poll(() => letters(page)).toBe('B');
   await expect(row('B')).toBeFocused();
-  await row('B').getByRole('button', { name: 'Указать статью' }).click();
-  await page.getByRole('listbox', { name: 'Статьи' }).getByRole('option', { name: 'Аренда' }).click();
+  await row('B').getByRole('button', { name: 'Указать категорию' }).click();
+  await page.getByRole('listbox', { name: 'Категории' }).getByRole('option', { name: 'Аренда' }).click();
   await expect(page.getByText('По этому фильтру операций нет.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Журнал' })).toBeFocused();
 });

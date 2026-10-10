@@ -143,9 +143,9 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
   await expect(amount).toBeFocused();
   await expect(amount).toHaveAttribute('inputmode', 'decimal');
-  await dialog.getByRole('button', { name: /^Статья:/ }).click();
+  await dialog.getByRole('button', { name: /^Категория:/ }).click();
   await dialog.getByRole('option', { name: 'Аренда', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Статья: Аренда' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Категория: Аренда' })).toBeVisible();
   // выражение набирается цифрами, операторы — кнопками под полем; фокус остаётся в поле
   await amount.click();
   await page.keyboard.type('1000');
@@ -160,7 +160,7 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog).toBeHidden();
 
-  // журнал — карточки: сумма, статья, счёт, дата; таблицы и флажков выделения нет
+  // журнал — карточки: сумма, категория, счёт, дата; таблицы и флажков выделения нет
   await expect(page.getByRole('table', { name: 'Операции' })).toHaveCount(0);
   await expect(page.getByRole('checkbox')).toHaveCount(0);
   const card = cards(page).getByRole('listitem').first();
@@ -404,10 +404,10 @@ test('ширина 390 px: журнал, все разделы настроек,
   await expect(page.getByRole('main')).toContainText('Касса_без_пробелов');
   await expectNoSideScroll(page, 'история с подробностями');
 
-  // шаблон разделения в правке: строка — карточкой, у статьи вся ширина
+  // шаблон разделения в правке: строка — карточкой, у категории вся ширина
   await page.goto(`/c/${cid}/settings/split-presets`);
   await page.getByRole('button', { name: 'Изменить', exact: true }).click();
-  const category = page.getByRole('combobox', { name: 'Статья, строка 1' });
+  const category = page.getByRole('combobox', { name: 'Категория, строка 1' });
   await expect(category).toBeVisible();
   expect((await category.boundingBox())!.width).toBeGreaterThan(250);
   await expectNoSideScroll(page, 'шаблон разделения');
@@ -425,7 +425,7 @@ test('ширина 390 px: журнал, все разделы настроек,
   await page.keyboard.press('Escape');
   await expect(newForm(page)).toBeHidden();
 
-  // окно «Фильтр» поверх панели: длинное название статьи переносится, разделы не шире экрана
+  // окно «Фильтр» поверх панели: длинное название категории переносится, разделы не шире экрана
   await page.getByRole('button', { name: /^Фильтры/ }).click();
   await page.getByRole('dialog', { name: 'Фильтры' }).getByRole('button', { name: 'Фильтр', exact: true }).click();
   const filter = page.getByRole('dialog', { name: 'Фильтр', exact: true });

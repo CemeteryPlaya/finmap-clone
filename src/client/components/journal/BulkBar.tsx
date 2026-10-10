@@ -5,7 +5,7 @@ import { btnDanger, btnSecondary, btnSmall } from '../ui';
 import { categoryPickerOptions, type AssignData } from './AssignPicker';
 
 /**
- * Массовые действия с выбранными строками (§7): «Статья», «Проект», «Контрагент» (только назначают значение),
+ * Массовые действия с выбранными строками (§7): «Категория», «Проект», «Контрагент» (только назначают значение),
  * «Удалить» с подтверждением. Не больше BULK_MAX операций за раз. Пока действие выполняется, списки только помечены
  * недоступными (aria-disabled): после выбора фокус возвращается на кнопку списка и там остаётся.
  */
@@ -36,8 +36,8 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
       ) : (
         <>
           <SearchPicker
-            label="Статья"
-            listLabel="Статьи"
+            label="Категория"
+            listLabel="Категории"
             options={categoryOptions}
             onPick={(categoryId) => props.onRun({ action: 'setCategory', categoryId })}
             buttonClassName={pickerClass}

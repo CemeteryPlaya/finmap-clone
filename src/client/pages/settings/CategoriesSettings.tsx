@@ -56,7 +56,7 @@ function TreeSection(props: {
     const up = planShift(nodes, n.id, -1);
     const down = planShift(nodes, n.id, 1);
     return (
-      // имя строки — название статьи: текст строки включает подписи выпадающего списка «Перенести в…»
+      // имя строки — название категории: текст строки включает подписи выпадающего списка «Перенести в…»
       <li key={n.id} aria-label={n.name}>
         <div
           draggable={!props.readOnly && renamingId !== n.id}
@@ -87,7 +87,7 @@ function TreeSection(props: {
               }}
             >
               <input
-                aria-label={`Новое название статьи «${n.name}»`}
+                aria-label={`Новое название категории «${n.name}»`}
                 autoFocus
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
@@ -115,7 +115,7 @@ function TreeSection(props: {
               {!props.readOnly &&
                 (deletingId === n.id ? (
                   <ConfirmDelete
-                    what={`статью «${n.name}»`}
+                    what={`категорию «${n.name}»`}
                     pending={props.pending}
                     onConfirm={async () => {
                       if (await props.run({ path: `${base}/${n.id}`, method: 'DELETE' })) setDeletingId(null);
@@ -188,7 +188,7 @@ function TreeSection(props: {
       </h2>
       {!props.readOnly && (
         <form onSubmit={add} className="mb-4 grid gap-2 md:grid-cols-[1fr_12rem_auto] md:items-end">
-          <Field label={kind === 'income' ? 'Новая статья доходов' : 'Новая статья расходов'}>
+          <Field label={kind === 'income' ? 'Новая категория доходов' : 'Новая категория расходов'}>
             {(c) => <input {...c} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />}
           </Field>
           <Field label="Родитель">
@@ -246,9 +246,9 @@ export function CategoriesSettings() {
     <section>
       <SettingsNav companyId={company.id} />
       <StaleNotice queries={[categories]} />
-      <h1 className="mb-2 text-2xl font-bold">Статьи</h1>
+      <h1 className="mb-2 text-2xl font-bold">Категории</h1>
       <p className="mb-4 text-sm text-muted">
-        Перетащите статью мышью или используйте ↑/↓ и «Перенести в…». Вложенность — не больше двух уровней; системные статьи остаются на
+        Перетащите категорию мышью или используйте ↑/↓ и «Перенести в…». Вложенность — не больше двух уровней; системные категории остаются на
         верхнем уровне, но в них можно вкладывать.
       </p>
       {readOnly && <p className={noticeClass}>Компания в архиве — изменения недоступны.</p>}

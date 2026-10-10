@@ -24,7 +24,7 @@ describe('«Указать» (§7)', () => {
     // разбитая операция — только через форму
     const split = op({ lines: [line(null, null, 400), line(null, null, 600)] });
     expect(FIELDS.map((f) => canAssign(split, f))).toEqual([false, false, false]);
-    // перевод: нет контрагента и статьи; проект — если строки нет или в ней нет проекта
+    // перевод: нет контрагента и категории; проект — если строки нет или в ней нет проекта
     const transfer = op({ type: 'transfer', lines: [] });
     expect(FIELDS.map((f) => canAssign(transfer, f))).toEqual([false, false, true]);
     expect(canAssign(op({ type: 'transfer', lines: [line(null, 9)] }), 'project')).toBe(false);
@@ -55,7 +55,7 @@ describe('«Указать» (§7)', () => {
     expect(operationErrorText(new ApiError(409, 'VERSION_CONFLICT', 'Операция удалена — обновите страницу'))).toBe(
       'Операция удалена другим пользователем. Журнал обновлён.',
     );
-    expect(operationErrorText(new ApiError(422, 'ARCHIVED_REFERENCE', 'Статья «Старая» в архиве — выберите другую'))).toBe('Статья «Старая» в архиве — выберите другую');
+    expect(operationErrorText(new ApiError(422, 'ARCHIVED_REFERENCE', 'Категория «Старая» в архиве — выберите другую'))).toBe('Категория «Старая» в архиве — выберите другую');
     // сообщение сервера уже с точкой на конце — вторая не добавляется
     expect(operationErrorText(new ApiError(409, 'VERSION_CONFLICT', 'Операция изменена другим пользователем.'))).toBe(
       'Операция изменена другим пользователем. Журнал обновлён — проверьте и повторите.',

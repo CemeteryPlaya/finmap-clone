@@ -11,7 +11,7 @@ let t: ReturnType<typeof createTestDb>;
 afterEach(() => t?.cleanup());
 
 describe('projects service: атомарность создания', () => {
-  it('сбой на втором счёте откатывает проект, статьи шаблона, счета и историю', () => {
+  it('сбой на втором счёте откатывает проект, категории шаблона, счета и историю', () => {
     t = createTestDb();
     seedCurrencies(t.db);
     const now = () => new Date('2026-10-06T00:00:00.000Z');

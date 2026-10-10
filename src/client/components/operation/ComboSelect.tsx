@@ -15,11 +15,11 @@ export const selectButtonClass =
  */
 export function ComboSelect(props: {
   label: string;
-  /** Название списка для программ чтения с экрана: «Статьи». */
+  /** Название списка для программ чтения с экрана: «Категории». */
   listLabel: string;
   value: number | null;
   options: PickerOption[];
-  /** Подпись пустого значения: «Без статьи». null — пустого значения нет (счёт). */
+  /** Подпись пустого значения: «Без категории». null — пустого значения нет (счёт). */
   emptyLabel: string | null;
   placeholder?: string;
   onChange: (id: number | null) => void;

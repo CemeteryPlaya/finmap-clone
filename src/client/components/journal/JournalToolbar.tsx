@@ -74,7 +74,7 @@ function SearchBox({ value, onSearch }: { value: string; onSearch: (q: string) =
             type="search"
             value={text}
             maxLength={SEARCH_MAX}
-            placeholder="Комментарий, контрагент, счёт, статья, проект"
+            placeholder="Комментарий, контрагент, счёт, категория, проект"
             onChange={(e) => setText(e.target.value)}
             className={compactInput}
           />

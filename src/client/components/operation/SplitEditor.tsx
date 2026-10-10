@@ -29,7 +29,7 @@ const MODES: { mode: SplitMode; label: string }[] = [
 ];
 
 /**
- * Разбиение операции (§7 «Разделить»): строки «статья, проект, сумма или %», индикатор нераспределённого
+ * Разбиение операции (§7 «Разделить»): строки «категория, проект, сумма или %», индикатор нераспределённого
  * остатка, применение сохранённого шаблона разделения и сохранение текущего разбиения как шаблона.
  */
 export function SplitEditor(props: {
@@ -37,7 +37,7 @@ export function SplitEditor(props: {
   kind: 'income' | 'expense';
   value: SplitDraft;
   onChange: (split: SplitDraft) => void;
-  /** Отменить разбиение: вернуться к одной статье и проекту. */
+  /** Отменить разбиение: вернуться к одной категории и проекту. */
   onCancel: () => void;
   /** Сумма операции в минимальных единицах; null — ещё не введена. */
   total: number | null;
@@ -47,7 +47,7 @@ export function SplitEditor(props: {
   projects: Project[];
   presets: SplitPreset[];
   error?: string;
-  /** «+ Создать „…“» в строке: создать статью или проект и выбрать его в строке с ключом key. */
+  /** «+ Создать „…“» в строке: создать категорию или проект и выбрать его в строке с ключом key. */
   onCreateCategory?: (name: string, key: number) => void;
   onCreateProject?: (name: string, key: number) => void;
 }) {
@@ -106,7 +106,7 @@ export function SplitEditor(props: {
     if (r.split) props.onChange(r.split);
     setNotice(
       r.split === null
-        ? `Шаблон «${preset.name}» не применён: все его статьи и проекты недоступны (удалены, в архиве или другого вида).`
+        ? `Шаблон «${preset.name}» не применён: все его категории и проекты недоступны (удалены, в архиве или другого вида).`
         : r.dropped > 0
           ? `Шаблон «${preset.name}»: ${droppedText(r.dropped)} (удалены, в архиве или другого вида) — не применены.`
           : null,
@@ -186,11 +186,11 @@ export function SplitEditor(props: {
       {split.lines.map((line, i) => (
         <div key={line.key} role="group" aria-label={`Строка ${i + 1}`} className="grid grid-cols-[minmax(0,1fr)] items-start gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_10rem_auto]">
           <ComboSelect
-            label="Статья"
-            listLabel="Статьи"
+            label="Категория"
+            listLabel="Категории"
             value={line.categoryId}
             options={categoryOptions(props.categories, props.kind, [line.categoryId])}
-            emptyLabel="Без статьи"
+            emptyLabel="Без категории"
             onChange={(categoryId) => setLine(i, { categoryId })}
             onCreate={props.onCreateCategory && ((name) => props.onCreateCategory!(name, line.key))}
           />

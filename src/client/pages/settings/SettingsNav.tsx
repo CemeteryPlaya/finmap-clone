@@ -4,7 +4,7 @@ import { NavLink } from 'react-router';
 const SECTIONS: readonly { path: string; label: string }[] = [
   { path: 'projects', label: 'Проекты' },
   { path: 'accounts', label: 'Счета' },
-  { path: 'categories', label: 'Статьи' },
+  { path: 'categories', label: 'Категории' },
   { path: 'counterparties', label: 'Контрагенты' },
   { path: 'tags', label: 'Теги' },
   { path: 'split-presets', label: 'Шаблоны разделения' },

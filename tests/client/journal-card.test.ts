@@ -75,7 +75,7 @@ const plain = (card: JournalCardText) =>
   Object.fromEntries(Object.entries(card).map(([k, v]) => [k, v === null ? null : v.replace(/[\u00A0\u202F]/g, ' ')]));
 
 describe('карточка операции в журнале на телефоне', () => {
-  it('расход: статья, счёт, контрагент и комментарий, сумма со знаком, «сегодня» и время', () => {
+  it('расход: категория, счёт, контрагент и комментарий, сумма со знаком, «сегодня» и время', () => {
     expect(plain(journalCardText(item({ counterpartyId: 30, comment: 'за октябрь' }), lookups, ctx))).toEqual({
       title: 'Аренда',
       account: 'Касса',
@@ -86,15 +86,15 @@ describe('карточка операции в журнале на телефо�
     });
   });
 
-  it('разбитый доход — «2 статьи»; без статьи — «Без статьи»; вчера и раньше — по дате', () => {
+  it('разбитый доход — «2 категории»; без категории — «Без категории»; вчера и раньше — по дате', () => {
     const split = item({
       type: 'income',
       paidAt: '2026-10-06T03:00:00.000Z',
       lines: [line(10, 20, 100000), line(11, 20, 150000, 1)],
     });
-    expect(plain(journalCardText(split, lookups, ctx))).toMatchObject({ title: '2 статьи', amount: '+2 500,00 ₸', date: 'вчера 08:00', details: null });
+    expect(plain(journalCardText(split, lookups, ctx))).toMatchObject({ title: '2 категории', amount: '+2 500,00 ₸', date: 'вчера 08:00', details: null });
     const none = item({ paidAt: '2026-10-01T13:15:00.000Z', lines: [line(null, 20, 250000)] });
-    expect(journalCardText(none, lookups, ctx)).toMatchObject({ title: 'Без статьи', date: '01.10.2026 18:15' });
+    expect(journalCardText(none, lookups, ctx)).toMatchObject({ title: 'Без категории', date: '01.10.2026 18:15' });
   });
 
   it('перевод между валютами: оба счёта, сумма без знака и зачисление в валюте счёта получателя', () => {

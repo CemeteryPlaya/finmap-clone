@@ -19,7 +19,7 @@ const lines = z
   .max(20, 'Не больше 20 строк')
   .superRefine((ls, ctx) => {
     if (ls.some((l) => l.categoryId === null && l.projectId === null)) {
-      ctx.addIssue({ code: 'custom', message: 'В каждой строке укажите статью или проект' });
+      ctx.addIssue({ code: 'custom', message: 'В каждой строке укажите категорию или проект' });
       return;
     }
     const keys = ls.map((l) => `${l.categoryId}:${l.projectId}`);

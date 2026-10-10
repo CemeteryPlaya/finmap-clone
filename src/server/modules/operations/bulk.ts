@@ -9,7 +9,7 @@ import type { OperationsService } from './service';
 export interface BulkService {
   /**
    * Массовое действие (§7 «Массовые действия»): версию не проверяет, у изменённых операций увеличивает её и пишет
-   * историю. Неподходящие операции пропускаются с причиной. Выбранная статья, проект или контрагент другой компании
+   * историю. Неподходящие операции пропускаются с причиной. Выбранная категория, проект или контрагент другой компании
    * или в архиве — отказ всего запроса (инварианты 5 и 7), как и архивная компания.
    */
   run(companyId: number, input: OperationBulkInput, userId: number): BulkResult;
@@ -34,16 +34,16 @@ export function createBulkService(d: { db: Db; operations: OperationsService }):
       case 'setCategory': {
         const cat = chosen(
           db.select().from(categories).where(and(eq(categories.id, input.categoryId), eq(categories.companyId, companyId))).get(),
-          'Статья не найдена в этой компании',
-          (name) => `Статья «${name}» в архиве — выберите другую`,
+          'Категория не найдена в этой компании',
+          (name) => `Категория «${name}» в архиве — выберите другую`,
         );
         return (id) => {
           const op = ops.get(companyId, id);
           if (op.deletedAt) return DELETED;
-          if (op.type === 'transfer') return 'У перевода нет статьи';
+          if (op.type === 'transfer') return 'У перевода нет категории';
           if (op.lines.length !== 1) return SPLIT;
-          // инвариант 3: вид статьи — по типу операции
-          if (op.type !== cat.kind) return cat.kind === 'income' ? 'Статья доходов не подходит для расхода' : 'Статья расходов не подходит для дохода';
+          // инвариант 3: вид категории — по типу операции
+          if (op.type !== cat.kind) return cat.kind === 'income' ? 'Категория доходов не подходит для расхода' : 'Категория расходов не подходит для дохода';
           const line = op.lines[0]!;
           ops.update(companyId, id, { version: op.version, lines: [{ categoryId: cat.id, projectId: line.projectId, amount: line.amount }] }, userId);
           return null;

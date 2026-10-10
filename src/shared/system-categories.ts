@@ -36,7 +36,7 @@ const byKey = new Map(SYSTEM_CATEGORIES.map((c) => [c.key, c]));
 
 export function systemCategory(key: SystemKey): SystemCategoryDef {
   const c = byKey.get(key);
-  if (!c) throw new Error(`Неизвестная системная статья: ${key}`);
+  if (!c) throw new Error(`Неизвестная системная категория: ${key}`);
   return c;
 }
 

@@ -3,9 +3,9 @@ import type { JournalLookups } from '../components/journal/JournalTable';
 import { dayLabel, dayOf, lineDimension, signedMoney, splitLabel, timeLabel } from './journal-format';
 import type { JournalItem } from './queries';
 
-/** Текст карточки операции в журнале на телефоне (§7 «Мобильная версия»: сумма, статья, счёт, дата). */
+/** Текст карточки операции в журнале на телефоне (§7 «Мобильная версия»: сумма, категория, счёт, дата). */
 export interface JournalCardText {
-  /** Статья: название, «2 статьи» у разбитой операции или «Без статьи»; у перевода — «Перевод». */
+  /** Категория: название, «2 категории» у разбитой операции или «Без категории»; у перевода — «Перевод». */
   title: string;
   /** Счёт; у перевода — «Касса → Валютный». */
   account: string;
@@ -31,7 +31,7 @@ export function journalCardText(
   let title = 'Перевод';
   if (item.type !== 'transfer') {
     const d = lineDimension(item.lines, 'categoryId');
-    title = d.kind === 'many' ? splitLabel(d.count, 'category') : d.id === null ? 'Без статьи' : (lookups.categories.get(d.id) ?? '…');
+    title = d.kind === 'many' ? splitLabel(d.count, 'category') : d.id === null ? 'Без категории' : (lookups.categories.get(d.id) ?? '…');
   }
 
   const counterparty = item.counterpartyId === null ? null : (lookups.counterparties.get(item.counterpartyId) ?? '…');

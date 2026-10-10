@@ -36,7 +36,7 @@ interface Option {
 
 const emptyLine = (): LineDraft => ({ categoryId: '', projectId: '', percent: '' });
 
-/** Статьи дерева плоским списком: «Родитель», «Родитель → Дочерняя». */
+/** Категории дерева плоским списком: «Родитель», «Родитель → Дочерняя». */
 function flatten(nodes: CategoryNode[]): Option[] {
   return nodes.flatMap((n) => [
     { id: n.id, label: n.name, archived: n.archivedAt !== null },
@@ -47,7 +47,7 @@ function flatten(nodes: CategoryNode[]): Option[] {
 function toDraft(p: SplitPreset, tree: CategoryTree): Draft {
   const income = flatten(tree.income);
   const expense = flatten(tree.expense);
-  // вид — по первой строке, чья статья ещё существует (удалённые статьи вида не определяют)
+  // вид — по первой строке, чья категория ещё существует (удалённые категории вида не определяют)
   const known = p.lines.find((l) => l.categoryId !== null && [...income, ...expense].some((o) => o.id === l.categoryId));
   const isIncome = known !== undefined && income.some((o) => o.id === known.categoryId);
   return {
@@ -136,7 +136,7 @@ function PresetForm(props: {
         <Field label="Название шаблона" error={props.serverFields?.name}>
           {(c) => <input {...c} autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className={inputClass} />}
         </Field>
-        <Field label="Вид статей">
+        <Field label="Вид категорий">
           {(c) => (
             <select
               {...c}
@@ -150,11 +150,11 @@ function PresetForm(props: {
           )}
         </Field>
       </div>
-      {/* на телефоне строка — карточкой: статья во всю ширину, под ней проект, доля и «×» */}
+      {/* на телефоне строка — карточкой: категория во всю ширину, под ней проект, доля и «×» */}
       <table className="w-full text-sm max-md:block">
         <thead className="max-md:hidden">
           <tr className="text-left text-muted">
-            <th className="pb-1 font-normal">Статья</th>
+            <th className="pb-1 font-normal">Категория</th>
             <th className="pb-1 font-normal">Проект</th>
             <th className="w-32 pb-1 font-normal">Доля, %</th>
             <th className="w-12 pb-1">
@@ -166,8 +166,8 @@ function PresetForm(props: {
           {draft.lines.map((l, i) => (
             <tr key={i} className="max-md:mb-3 max-md:grid max-md:grid-cols-[minmax(0,1fr)_6rem_auto] max-md:items-end max-md:gap-x-2">
               <td className="pb-2 pr-2 max-md:col-span-3 max-md:pr-0">
-                <MobileLabel>Статья</MobileLabel>
-                <OptionSelect label={`Статья, строка ${i + 1}`} value={l.categoryId} options={categoryOptions} onChange={(v) => setLine(i, { categoryId: v })} />
+                <MobileLabel>Категория</MobileLabel>
+                <OptionSelect label={`Категория, строка ${i + 1}`} value={l.categoryId} options={categoryOptions} onChange={(v) => setLine(i, { categoryId: v })} />
               </td>
               <td className="pb-2 pr-2 max-md:pr-0">
                 <MobileLabel>Проект</MobileLabel>
@@ -312,7 +312,7 @@ export function SplitPresetsSettings() {
           </button>
         )}
       </div>
-      <p className="mb-4 text-sm text-muted">Шаблон делит сумму операции между статьями и проектами в заданных долях; сумма долей — ровно 100%.</p>
+      <p className="mb-4 text-sm text-muted">Шаблон делит сумму операции между категориями и проектами в заданных долях; сумма долей — ровно 100%.</p>
       {readOnly && <p className={noticeClass}>Компания в архиве — изменения недоступны.</p>}
       {action.error && (
         <p role="alert" className={alertClass}>

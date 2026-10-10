@@ -158,7 +158,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
       if (draft.counterpartyId !== null) throw invalid({ counterpartyId: 'У перевода нет контрагента' });
       if (draft.lines.length > 1) throw invalid({ lines: 'У перевода — не больше одной строки, с проектом' });
       const line = draft.lines[0];
-      if (line?.categoryId != null) throw inv(3, 'У перевода нет статьи', { lines: 'У перевода нет статьи' });
+      if (line?.categoryId != null) throw inv(3, 'У перевода нет категории', { lines: 'У перевода нет категории' });
       if (line && line.projectId === null) throw invalid({ lines: 'В строке перевода укажите проект' });
     } else {
       if (draft.toAccountId !== null) throw invalid({ toAccountId: 'Счёт зачисления — только у перевода' });
@@ -189,17 +189,17 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
       if (a?.archivedAt && a.id !== prevId) throw archivedRef(`Счёт «${a.name}» в архиве — выберите другой`);
     }
 
-    // статьи строк: та же компания (5), вид по типу операции (3), архив — только уже выбранные (7)
+    // категории строк: та же компания (5), вид по типу операции (3), архив — только уже выбранные (7)
     const catIds = uniqueIds(draft.lines.map((l) => l.categoryId));
     const cats = catIds.length ? db.select().from(categories).where(and(eq(categories.companyId, companyId), inArray(categories.id, catIds))).all() : [];
-    if (cats.length !== catIds.length) throw inv(5, 'Статья не найдена в этой компании', { lines: 'Статья не найдена в этой компании' });
+    if (cats.length !== catIds.length) throw inv(5, 'Категория не найдена в этой компании', { lines: 'Категория не найдена в этой компании' });
     const kind = draft.type === 'income' ? 'income' : 'expense';
     if (cats.some((c) => c.kind !== kind)) {
-      throw inv(3, draft.type === 'income' ? 'У дохода — только статьи доходов' : 'У расхода — только статьи расходов', { lines: 'Статья другого вида' });
+      throw inv(3, draft.type === 'income' ? 'У дохода — только категории доходов' : 'У расхода — только категории расходов', { lines: 'Категория другого вида' });
     }
     const prevCats = new Set(prev?.lines.map((l) => l.categoryId) ?? []);
     const archivedCat = cats.find((c) => c.archivedAt && !prevCats.has(c.id));
-    if (archivedCat) throw archivedRef(`Статья «${archivedCat.name}» в архиве — выберите другую`);
+    if (archivedCat) throw archivedRef(`Категория «${archivedCat.name}» в архиве — выберите другую`);
 
     // проекты строк
     const projIds = uniqueIds(draft.lines.map((l) => l.projectId));

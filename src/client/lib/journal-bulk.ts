@@ -15,7 +15,7 @@ export interface BulkResult {
 }
 
 const TITLES: Record<BulkAction['action'], string> = {
-  setCategory: 'Статья',
+  setCategory: 'Категория',
   setProject: 'Проект',
   setCounterparty: 'Контрагент',
   delete: 'Удаление',
@@ -27,7 +27,7 @@ export interface BulkSummary {
   reasons: { reason: string; count: number }[];
 }
 
-/** Итог массового действия (§7): «Статья: изменено 3, пропущено 2» и причины пропуска с числом операций. */
+/** Итог массового действия (§7): «Категория: изменено 3, пропущено 2» и причины пропуска с числом операций. */
 export function bulkSummary(action: BulkAction['action'], r: BulkResult): BulkSummary {
   const counts = new Map<string, number>();
   for (const s of r.skipped) counts.set(s.reason, (counts.get(s.reason) ?? 0) + 1);

@@ -9,21 +9,21 @@ export interface AssignData {
   counterparties: Counterparty[];
 }
 
-/** Статьи для выбора: без архивных, дочерние — «Родитель → Дочерняя». */
+/** Категории для выбора: без архивных, дочерние — «Родитель → Дочерняя». */
 export function categoryPickerOptions(nodes: CategoryNode[]): PickerOption[] {
   return nodes
     .filter((n) => !n.archivedAt)
     .flatMap((n) => [{ id: n.id, label: n.name }, ...n.children.filter((c) => !c.archivedAt).map((c) => ({ id: c.id, label: `${n.name} → ${c.name}` }))]);
 }
 
-/** Варианты «Указать»: архивные не предлагаются (инвариант 7); статьи — только вида операции (инвариант 3). */
+/** Варианты «Указать»: архивные не предлагаются (инвариант 7); категории — только вида операции (инвариант 3). */
 function optionsFor(item: JournalItem, field: AssignField, data: AssignData): PickerOption[] {
   if (field === 'counterparty') return data.counterparties.filter((c) => !c.archivedAt).map((c) => ({ id: c.id, label: c.name }));
   if (field === 'project') return data.projects.filter((p) => !p.archivedAt).map((p) => ({ id: p.id, label: p.name }));
   return item.type === 'transfer' ? [] : categoryPickerOptions(data.categories[item.type]);
 }
 
-const LIST_LABELS: Record<AssignField, string> = { counterparty: 'Контрагенты', category: 'Статьи', project: 'Проекты' };
+const LIST_LABELS: Record<AssignField, string> = { counterparty: 'Контрагенты', category: 'Категории', project: 'Проекты' };
 
 /** «Указать» в пустой ячейке журнала: список с поиском, выбор сохраняется сразу. */
 export function AssignPicker(props: { item: JournalItem; field: AssignField; data: AssignData; onPick: (id: number) => void }) {

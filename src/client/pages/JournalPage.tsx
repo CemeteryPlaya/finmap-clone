@@ -41,7 +41,7 @@ function focusRow(id: number): void {
   requestAnimationFrame(() => document.querySelector<HTMLElement>(`tr[data-operation-id="${id}"]`)?.focus());
 }
 
-/** Статьи плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
+/** Категории плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
 function categoryNames(tree: CategoryTree): Map<number, string> {
   const names = new Map<number, string>();
   for (const node of [...tree.income, ...tree.expense]) {
@@ -205,7 +205,7 @@ function JournalScreen(props: {
       return next.length === prev.size ? prev : new Set(next);
     });
   }, [loadedIds]);
-  // назначенная строка ушла из выборки («Без статьи»), и фокус остался на <body>: на строку, занявшую её место, или на заголовок
+  // назначенная строка ушла из выборки («Без категории»), и фокус остался на <body>: на строку, занявшую её место, или на заголовок
   useEffect(() => {
     const a = assigned.current;
     if (!a || loadedIds === null) return;

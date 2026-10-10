@@ -5,7 +5,7 @@ export type AssignField = 'counterparty' | 'category' | 'project';
 
 export const ASSIGN_LABELS: Record<AssignField, string> = {
   counterparty: 'Указать контрагента',
-  category: 'Указать статью',
+  category: 'Указать категорию',
   project: 'Указать проект',
 };
 
@@ -13,7 +13,7 @@ export type AssignTarget = Pick<JournalItem, 'type' | 'version' | 'amount' | 'ba
 
 /**
  * «Указать» есть только в пустой ячейке операции с одной строкой; проект — ещё у перевода без строк (§7).
- * У перевода нет контрагента и статьи.
+ * У перевода нет контрагента и категории.
  */
 export function canAssign(item: AssignTarget, field: AssignField): boolean {
   const single = item.lines.length === 1 ? item.lines[0]! : null;

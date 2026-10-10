@@ -19,7 +19,7 @@ export interface ExportOperation {
   toCurrency: string | null;
   toBalanceAfter: number | null;
   counterpartyName: string | null;
-  /** Статьи и проекты строк по порядку, без повторов. */
+  /** Категории и проекты строк по порядку, без повторов. */
   categories: string[];
   projects: string[];
   tags: string[];
@@ -60,7 +60,7 @@ const money = (minor: number | null, currency: string | null): XlsxCell => {
 /**
  * Лист «Операции»: одна строка на операцию, как в журнале. Сумма со знаком (расход — минус, перевод — без знака),
  * в валюте счёта и в базовой валюте; у перевода — счёт, сумма и остаток зачисления. Разбитая операция —
- * статьи и проекты строк через «; ».
+ * категории и проекты строк через «; ».
  */
 export function journalSheet(ops: ExportOperation[], baseCurrency: string, timeZone: string): XlsxSheet {
   return {
@@ -77,7 +77,7 @@ export function journalSheet(ops: ExportOperation[], baseCurrency: string, timeZ
       { header: 'Сумма зачисления', width: 15 },
       { header: 'Остаток зачисления', width: 15 },
       { header: 'Контрагент', width: 24 },
-      { header: 'Статья', width: 28 },
+      { header: 'Категория', width: 28 },
       { header: 'Проект', width: 20 },
       { header: 'Теги', width: 16 },
       { header: 'Комментарий', width: 40 },

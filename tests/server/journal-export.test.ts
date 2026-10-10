@@ -67,7 +67,7 @@ describe('журнал: выгрузка в Excel (§7)', () => {
     expect(xml).toContain('<c r="A1" t="inlineStr" s="1"><is><t xml:space="preserve">Дата</t></is></c>');
     expect(xml).toContain('<t xml:space="preserve">Сумма, KZT</t>');
     expect(xml).toContain('<t xml:space="preserve">Остаток зачисления</t>');
-    // доход 1500,50 ₸: дата и время, суммы, остаток после (\u2212475,12 + 1500,50), статья без повтора, проекты и тег, дата сделки
+    // доход 1500,50 ₸: дата и время, суммы, остаток после (\u2212475,12 + 1500,50), категория без повтора, проекты и тег, дата сделки
     expect(xml).toMatch(/<c r="A2" s="2"><v>46300\.41666/);
     expect(xml).toContain('<c r="B2" t="inlineStr"><is><t xml:space="preserve">Доход</t></is></c>');
     expect(xml).toContain('<c r="C2" s="5"><v>1500.50</v></c>');

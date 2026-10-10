@@ -52,7 +52,7 @@ export function createSplitPresetsService(d: { db: Db; audit: AuditService; now?
     return toRow(row);
   }
 
-  /** Статьи и проекты строк: той же компании (инвариант 5), не в архиве (инвариант 7), статьи одного вида. */
+  /** Категории и проекты строк: той же компании (инвариант 5), не в архиве (инвариант 7), категории одного вида. */
   function checkRefs(companyId: number, lines: SplitLine[]): void {
     const catIds = [...new Set(lines.flatMap((l) => (l.categoryId === null ? [] : [l.categoryId])))];
     const projIds = [...new Set(lines.flatMap((l) => (l.projectId === null ? [] : [l.projectId])))];
@@ -62,9 +62,9 @@ export function createSplitPresetsService(d: { db: Db; audit: AuditService; now?
     const projs = projIds.length
       ? db.select().from(projects).where(and(eq(projects.companyId, companyId), inArray(projects.id, projIds))).all()
       : [];
-    if (cats.length !== catIds.length) throw invalidLines('Статья не найдена в этой компании');
+    if (cats.length !== catIds.length) throw invalidLines('Категория не найдена в этой компании');
     if (projs.length !== projIds.length) throw invalidLines('Проект не найден в этой компании');
-    if (new Set(cats.map((c) => c.kind)).size > 1) throw invalidLines('Статьи шаблона должны быть одного вида');
+    if (new Set(cats.map((c) => c.kind)).size > 1) throw invalidLines('Категории шаблона должны быть одного вида');
     const archived = [...cats, ...projs].find((x) => x.archivedAt);
     if (archived) throw new AppError(422, 'ARCHIVED_REFERENCE', `«${archived.name}» в архиве — выберите другой элемент`);
   }

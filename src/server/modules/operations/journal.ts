@@ -51,7 +51,7 @@ function anyOf(parts: (SQL | false | undefined)[]): SQL | null {
 
 /**
  * Условие фильтра журнала (§6) над `operations o`, без удалённых операций.
- * Внутри одного измерения «без …» объединяется с выбранными элементами через ИЛИ («Аренда» или без статьи),
+ * Внутри одного измерения «без …» объединяется с выбранными элементами через ИЛИ («Аренда» или без категории),
  * разные измерения — через И.
  */
 export function journalWhere(companyId: number, f: JournalFilter, timezone: string): SQL {
@@ -74,10 +74,10 @@ export function journalWhere(companyId: number, f: JournalFilter, timezone: stri
   if (counterparty) conds.push(counterparty);
 
   const category = anyOf([
-    // хотя бы одна строка; родительская статья включает дочерние (вложенность не больше двух уровней, §4.4)
+    // хотя бы одна строка; родительская категория включает дочерние (вложенность не больше двух уровней, §4.4)
     f.categoryIds &&
       sql`EXISTS (SELECT 1 FROM operation_lines fl WHERE fl.operation_id = o.id AND fl.category_id IN (SELECT c.id FROM categories c WHERE c.company_id = ${companyId} AND (c.id IN (${idList(f.categoryIds)}) OR c.parent_id IN (${idList(f.categoryIds)}))))`,
-    // доход или расход, у которого хотя бы у одной строки нет статьи; переводы не учитываются
+    // доход или расход, у которого хотя бы у одной строки нет категории; переводы не учитываются
     f.withoutCategory && sql`(o.type <> 'transfer' AND EXISTS (SELECT 1 FROM operation_lines fl WHERE fl.operation_id = o.id AND fl.category_id IS NULL))`,
   ]);
   if (category) conds.push(category);

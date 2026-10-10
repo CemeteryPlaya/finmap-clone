@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { effectiveSystemKey, SYSTEM_CATEGORIES, systemCategory } from '../../src/shared/system-categories';
 
-describe('системные статьи', () => {
-  it('содержат 3 доходные и 6 расходных статей с русскими названиями', () => {
+describe('системные категории', () => {
+  it('содержат 3 доходные и 6 расходных категорий с русскими названиями', () => {
     expect(SYSTEM_CATEGORIES.filter((c) => c.kind === 'income').map((c) => c.key)).toEqual([
       'investment',
       'loan_repaid',
@@ -20,7 +20,7 @@ describe('системные статьи', () => {
     expect(systemCategory('salary').name).toBe('Зарплата');
   });
 
-  it('связывают статьи с типами контрагентов по спецификации', () => {
+  it('связывают категории с типами контрагентов по спецификации', () => {
     const map = Object.fromEntries(SYSTEM_CATEGORIES.map((c) => [c.key, c.counterpartyType]));
     expect(map).toEqual({
       investment: 'investor',
@@ -35,7 +35,7 @@ describe('системные статьи', () => {
     });
   });
 
-  it('дочерняя статья наследует эффективный systemKey родителя', () => {
+  it('дочерняя категория наследует эффективный systemKey родителя', () => {
     expect(effectiveSystemKey(null, 'salary')).toBe('salary');
     expect(effectiveSystemKey('tax', null)).toBe('tax');
     expect(effectiveSystemKey(null, null)).toBeNull();

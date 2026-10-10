@@ -34,7 +34,7 @@ export interface CategoriesService {
   listTree(companyId: number): { income: CategoryNodeDto[]; expense: CategoryNodeDto[] };
   add(companyId: number, input: { kind: CategoryKind; name: string; parentId: number | null }, userId: number): CategoryRow;
   rename(companyId: number, id: number, name: string, userId: number): CategoryRow;
-  /** Новый порядок детей parentId (null — верхний уровень) дерева kind; moving — единственная статья, переносимая сюда из другого места. */
+  /** Новый порядок детей parentId (null — верхний уровень) дерева kind; moving — единственная категория, переносимая сюда из другого места. */
   move(companyId: number, input: { kind: CategoryKind; parentId: number | null; ids: number[]; moving?: number | null }, userId: number): void;
   archive(companyId: number, id: number, userId: number): CategoryRow;
   unarchive(companyId: number, id: number, userId: number): CategoryRow;
@@ -113,7 +113,7 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
 
   function requireCategory(companyId: number, id: number): CategoryRow {
     const r = find(companyId, id);
-    if (!r) throw new AppError(404, 'NOT_FOUND', 'Статья не найдена');
+    if (!r) throw new AppError(404, 'NOT_FOUND', 'Категория не найдена');
     return toRow(r);
   }
 
@@ -136,10 +136,10 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
   /** Родитель для вложения: та же компания и вид, верхний уровень, не в архиве (вложенность ≤ 2). */
   function checkParent(companyId: number, kind: CategoryKind, parentId: number, opts: { allowArchived?: boolean } = {}): void {
     const p = find(companyId, parentId);
-    if (!p) throw invalid('parentId', 'Родительская статья не найдена');
-    if (p.kind !== kind) throw invalid('parentId', 'Родительская статья из другого дерева');
+    if (!p) throw invalid('parentId', 'Родительская категория не найдена');
+    if (p.kind !== kind) throw invalid('parentId', 'Родительская категория из другого дерева');
     if (p.parentId !== null) throw invalid('parentId', 'Вложенность — не больше двух уровней');
-    if (p.archivedAt && !opts.allowArchived) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Родительская статья в архиве');
+    if (p.archivedAt && !opts.allowArchived) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Родительская категория в архиве');
   }
 
   function setArchived(companyId: number, id: number, userId: number, archivedAt: string | null): CategoryRow {
@@ -164,14 +164,14 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
           let parentId: number | null;
           if (isUnderSystem(node)) {
             if (systemCategory(node.underSystem).kind !== kind) {
-              throw new Error(`Системная статья ${node.underSystem} не относится к виду ${kind}`);
+              throw new Error(`Системная категория ${node.underSystem} не относится к виду ${kind}`);
             }
             const sys = ex
               .select()
               .from(categories)
               .where(and(eq(categories.companyId, companyId), eq(categories.kind, kind), eq(categories.systemKey, node.underSystem)))
               .get();
-            if (!sys) throw new Error(`В компании ${companyId} нет системной статьи ${node.underSystem}`);
+            if (!sys) throw new Error(`В компании ${companyId} нет системной категории ${node.underSystem}`);
             parentId = sys.id;
           } else {
             const existing = findByRef(ex, companyId, kind, node.ref);
@@ -229,8 +229,8 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
     rename(companyId, id, name, userId) {
       requireCompany(db, companyId, { writable: true });
       const before = requireCategory(companyId, id);
-      if (before.systemKey) throw new AppError(422, 'SYSTEM_CATEGORY', 'Системную статью нельзя переименовать');
-      if (before.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Статья в архиве — сначала верните её из архива');
+      if (before.systemKey) throw new AppError(422, 'SYSTEM_CATEGORY', 'Системную категорию нельзя переименовать');
+      if (before.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Категория в архиве — сначала верните её из архива');
       const changes = changedFields({ name: before.name }, { name: cleanName(name) });
       if (!changes) return before;
       return mutate(db, audit, (tx, record) => {
@@ -242,7 +242,7 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
 
     move(companyId, { kind, parentId, ids, moving = null }, userId) {
       requireCompany(db, companyId, { writable: true });
-      // порядок детей архивной группы менять можно; нельзя только переносить статью внутрь архивной
+      // порядок детей архивной группы менять можно; нельзя только переносить категорию внутрь архивной
       if (parentId !== null) checkParent(companyId, kind, parentId, { allowArchived: true });
       const current = childIds(companyId, kind, parentId);
       if (parentId !== null && moving !== null && !current.includes(moving)) checkParent(companyId, kind, parentId);
@@ -252,16 +252,16 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
       for (const id of ids) {
         if (current.includes(id)) continue;
         const c = requireCategory(companyId, id); // чужой id — 404
-        // переносится только явно названная статья; любая другая «лишняя» значит, что экран устарел
+        // переносится только явно названная категория; любая другая «лишняя» значит, что экран устарел
         // (её уже перенёс другой пользователь) — молча вернуть её назад нельзя
         if (id !== moving) throw stale();
-        if (c.kind !== kind) throw invalid('ids', 'Статью нельзя перенести в дерево другого вида');
+        if (c.kind !== kind) throw invalid('ids', 'Категорию нельзя перенести в дерево другого вида');
         if (parentId !== null) {
-          if (c.systemKey) throw new AppError(422, 'SYSTEM_CATEGORY', 'Системная статья остаётся на верхнем уровне');
-          if (c.id === parentId) throw invalid('ids', 'Статью нельзя вложить в саму себя');
-          if (hasChildren(c.id)) throw invalid('ids', 'Статью с дочерними нельзя сделать дочерней');
+          if (c.systemKey) throw new AppError(422, 'SYSTEM_CATEGORY', 'Системная категория остаётся на верхнем уровне');
+          if (c.id === parentId) throw invalid('ids', 'Категорию нельзя вложить в саму себя');
+          if (hasChildren(c.id)) throw invalid('ids', 'Категорию с дочерними нельзя сделать дочерней');
         }
-        if (c.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Статья в архиве — сначала верните её из архива');
+        if (c.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Категория в архиве — сначала верните её из архива');
         moved.push(id);
       }
       if (moved.length === 0 && isSameOrder(current, ids)) return;
@@ -274,9 +274,9 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
     archive(companyId, id, userId) {
       requireCompany(db, companyId, { writable: true });
       const row = requireCategory(companyId, id);
-      if (row.systemKey) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Системные статьи не архивируются');
+      if (row.systemKey) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Системные категории не архивируются');
       if (row.archivedAt) return row;
-      if (hasChildren(id, true)) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Сначала переведите в архив дочерние статьи');
+      if (hasChildren(id, true)) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Сначала переведите в архив дочерние категории');
       return setArchived(companyId, id, userId, now().toISOString());
     },
 
@@ -285,7 +285,7 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
       const row = requireCategory(companyId, id);
       if (!row.archivedAt) return row;
       if (row.parentId !== null && find(companyId, row.parentId)?.archivedAt) {
-        throw new AppError(422, 'ARCHIVED_REFERENCE', 'Сначала верните из архива родительскую статью');
+        throw new AppError(422, 'ARCHIVED_REFERENCE', 'Сначала верните из архива родительскую категорию');
       }
       return setArchived(companyId, id, userId, null);
     },
@@ -293,10 +293,10 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
     remove(companyId, id, userId) {
       requireCompany(db, companyId, { writable: true });
       const row = requireCategory(companyId, id);
-      if (row.systemKey) throw new AppError(422, 'SYSTEM_CATEGORY', 'Системную статью нельзя удалить');
-      if (hasChildren(id)) throw new AppError(422, 'IN_USE', 'Сначала удалите или перенесите дочерние статьи');
+      if (row.systemKey) throw new AppError(422, 'SYSTEM_CATEGORY', 'Системную категорию нельзя удалить');
+      if (hasChildren(id)) throw new AppError(422, 'IN_USE', 'Сначала удалите или перенесите дочерние категории');
       if (references.countOperations('category', id) > 0) {
-        throw new AppError(422, 'INVARIANT_9', 'На статью ссылаются операции — её можно только перевести в архив');
+        throw new AppError(422, 'INVARIANT_9', 'На категорию ссылаются операции — её можно только перевести в архив');
       }
       mutate(db, audit, (tx, record) => {
         tx.delete(categories).where(eq(categories.id, id)).run();

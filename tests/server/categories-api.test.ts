@@ -48,9 +48,9 @@ describe('categories API', () => {
     const child = await add(cid, { kind: 'expense', name: 'Таргет', parentId: ads.id });
     const foreign = await add(other, { kind: 'expense', name: 'Чужая' });
     const field = async (parentId: number) => (await h.req('POST', base(cid), { kind: 'expense', name: 'X', parentId })).json().error.fields?.parentId;
-    expect(await field(income.id)).toBe('Родительская статья из другого дерева');
+    expect(await field(income.id)).toBe('Родительская категория из другого дерева');
     expect(await field(child.id)).toBe('Вложенность — не больше двух уровней');
-    expect(await field(foreign.id)).toBe('Родительская статья не найдена');
+    expect(await field(foreign.id)).toBe('Родительская категория не найдена');
     const lonely = await add(cid, { kind: 'expense', name: 'Пустая' });
     await h.req('POST', `${base(cid)}/${lonely.id}/archive`);
     const res = await h.req('POST', base(cid), { kind: 'expense', name: 'X', parentId: lonely.id });
@@ -101,13 +101,13 @@ describe('categories API', () => {
     await fail({ kind: 'expense', parentId: salary.id, ids: [ads.id], moving: ads.id }, 400, 'VALIDATION');
     // системная остаётся на верхнем уровне
     await fail({ kind: 'expense', parentId: ads.id, ids: [print.id, salary.id], moving: salary.id }, 422, 'SYSTEM_CATEGORY');
-    // в статью второго уровня нельзя — был бы третий уровень
+    // в категорию второго уровня нельзя — был бы третий уровень
     await fail({ kind: 'expense', parentId: print.id, ids: [target.id], moving: target.id }, 400, 'VALIDATION');
     // в дерево другого вида нельзя
     await fail({ kind: 'expense', parentId: null, ids: [...(await top()), income.id], moving: income.id }, 400, 'VALIDATION');
     // в саму себя нельзя
     await fail({ kind: 'expense', parentId: target.id, ids: [target.id], moving: target.id }, 400, 'VALIDATION');
-    // устаревший список (нет одной статьи уровня)
+    // устаревший список (нет одной категории уровня)
     await fail({ kind: 'expense', parentId: null, ids: (await top()).slice(1) }, 409, 'VERSION_CONFLICT');
     // устаревший экран: «Печать» уже перенесли в «Рекламу», а старый список верхнего уровня всё ещё содержит её.
     // Порядок без явного moving не должен молча вернуть её наверх.
@@ -138,7 +138,7 @@ describe('categories API', () => {
     expect(into.json().error.code).toBe('ARCHIVED_REFERENCE');
   });
 
-  it('архив: системные и статьи с активными дочерними — нельзя; дочернюю архивного родителя не вернуть', async () => {
+  it('архив: системные и категории с активными дочерними — нельзя; дочернюю архивного родителя не вернуть', async () => {
     h = await createApi();
     const cid = await h.company();
     const ads = await add(cid, { kind: 'expense', name: 'Реклама' });
@@ -147,7 +147,7 @@ describe('categories API', () => {
     expect((await act((await salaryOf(cid)).id, 'archive')).json().error.code).toBe('ARCHIVED_REFERENCE');
     const withChild = await act(ads.id, 'archive');
     expect(withChild.statusCode).toBe(422);
-    expect(withChild.json().error.message).toBe('Сначала переведите в архив дочерние статьи');
+    expect(withChild.json().error.message).toBe('Сначала переведите в архив дочерние категории');
     expect((await act(tg.id, 'archive')).statusCode).toBe(200);
     expect((await act(ads.id, 'archive')).statusCode).toBe(200);
     expect((await act(tg.id, 'unarchive')).json().error.code).toBe('ARCHIVED_REFERENCE');
@@ -168,7 +168,7 @@ describe('categories API', () => {
     expect(h.auditCount('category', 'delete')).toBe(2);
   });
 
-  it('дерево компании не содержит чужих статей; чужие id → 404 без истории', async () => {
+  it('дерево компании не содержит чужих категорий; чужие id → 404 без истории', async () => {
     h = await createApi();
     const c1 = await h.company();
     const c2 = await h.company();

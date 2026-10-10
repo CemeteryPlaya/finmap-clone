@@ -269,14 +269,14 @@ function OperationEditor(p: {
   const activeAccounts = p.data.accounts.filter((a) => !a.archivedAt);
   const amountParsed = positiveAmount(draft.amount, currency.minorUnits);
   const amountMinor = amountParsed.ok ? amountParsed.minor : null;
-  // подходящий тип контрагента — по статье операции или первой строки разбиения
+  // подходящий тип контрагента — по категории операции или первой строки разбиения
   const mainCategory = draft.split ? (draft.split.lines[0]?.categoryId ?? null) : draft.categoryId;
   // операция на архивном счёте: сумма, дата оплаты и счета заблокированы, удалить нельзя (инвариант 7)
   const locked = op ? archivedAccountOf(op, accounts) : null;
   const lockHint = locked ? LOCKED_HINT : undefined;
 
   /**
-   * «+ Создать „…“» (§7): создать элемент справочника и выбрать его. Контрагент получает тип, подходящий статье,
+   * «+ Создать „…“» (§7): создать элемент справочника и выбрать его. Контрагент получает тип, подходящий категории,
    * иначе «Клиент» у дохода и «Поставщик» у расхода. apply — функцией от свежего черновика: создание идёт асинхронно.
    */
   const createItem = async (what: CreatableKind, name: string, apply: (d: OperationDraft, id: number) => OperationDraft) => {
@@ -357,7 +357,7 @@ function OperationEditor(p: {
         p.close();
         return;
       }
-      // после правки: архивные счёт, статьи и прочее в новую операцию не переносятся (инвариант 7)
+      // после правки: архивные счёт, категории и прочее в новую операцию не переносятся (инвариант 7)
       const next = op ? withoutArchived(similarDraft(draft), available()) : similarDraft(draft);
       setOp(null);
       p.onEditingChange(false);
@@ -580,11 +580,11 @@ function OperationEditor(p: {
           ) : (
             <div>
               <ComboSelect
-                label="Статья"
-                listLabel="Статьи"
+                label="Категория"
+                listLabel="Категории"
                 value={draft.categoryId}
                 options={categoryOptions(p.data.categories, kind, [draft.categoryId])}
-                emptyLabel="Без статьи"
+                emptyLabel="Без категории"
                 onChange={(categoryId) => set({ categoryId }, 'lines')}
                 onCreate={(name) => void createItem('category', name, (d, categoryId) => ({ ...d, categoryId }))}
                 error={errors.lines}

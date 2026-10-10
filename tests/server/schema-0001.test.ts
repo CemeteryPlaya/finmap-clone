@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 describe('миграция 0001', () => {
-  it('создаёт таблицы и уникальные индексы статей', () => {
+  it('создаёт таблицы и уникальные индексы категорий', () => {
     const t = createTestDb();
     cleanup = t.cleanup;
     const s = t.sqlite;

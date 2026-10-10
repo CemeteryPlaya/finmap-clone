@@ -4,7 +4,7 @@ export const JOURNAL_COLUMNS = [
   { id: 'amount', label: 'Сумма', fixed: true },
   { id: 'account', label: 'Счёт', fixed: false },
   { id: 'counterparty', label: 'Контрагент', fixed: false },
-  { id: 'category', label: 'Статья', fixed: false },
+  { id: 'category', label: 'Категория', fixed: false },
   { id: 'project', label: 'Проект', fixed: false },
   { id: 'comment', label: 'Комментарий', fixed: false },
 ] as const;

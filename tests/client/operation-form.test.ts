@@ -58,7 +58,7 @@ describe('paidAtFor — момент оплаты из даты формы', () 
 });
 
 describe('buildBody — черновик формы → тело POST /operations', () => {
-  it('расход: выражение в сумме, одна строка со статьёй и проектом, комментарий без краевых пробелов', () => {
+  it('расход: выражение в сумме, одна строка со категорией и проектом, комментарий без краевых пробелов', () => {
     expect(
       body(draft({ amount: '1 000 + 500,5', categoryId: 7, projectId: 8, counterpartyId: 9, tagIds: [3, 2], comment: '  аренда  ' })),
     ).toEqual({
@@ -76,7 +76,7 @@ describe('buildBody — черновик формы → тело POST /operation
     });
   });
 
-  it('доход без статьи — строка на всю сумму; дата сделки — только при включённом переключателе', () => {
+  it('доход без категории — строка на всю сумму; дата сделки — только при включённом переключателе', () => {
     const b = body(draft({ type: 'income', amount: '100', accrualOn: true, accrualDate: '2026-09-30', comment: '   ' }));
     expect(b).toMatchObject({ type: 'income', accrualDate: '2026-09-30', comment: null, lines: [{ categoryId: null, projectId: null, amount: 10000 }] });
     expect(body(draft({ amount: '100', accrualOn: false, accrualDate: '2026-09-30' })).accrualDate).toBeNull();
@@ -87,7 +87,7 @@ describe('buildBody — черновик формы → тело POST /operation
     expect(body(draft({ amount: '10/3' })).amount).toBe(333);
   });
 
-  it('перевод в одной валюте: сумма зачисления не передаётся, строк нет; с проектом — одна строка без статьи', () => {
+  it('перевод в одной валюте: сумма зачисления не передаётся, строк нет; с проектом — одна строка без категории', () => {
     const t = draft({ type: 'transfer', accountId: 1, toAccountId: 2, amount: '500', toAmount: '999', counterpartyId: 9, categoryId: 7 });
     expect(body(t)).toMatchObject({ type: 'transfer', toAccountId: 2, toAmount: null, counterpartyId: null, lines: [] });
     expect(body({ ...t, projectId: 8 }).lines).toEqual([{ categoryId: null, projectId: 8, amount: 50000 }]);
@@ -126,7 +126,7 @@ describe('buildBody — разбиение', () => {
     lines: values.map((value, i) => newLine({ categoryId: 7 + i, projectId: i === 0 ? 8 : null, value })),
   });
 
-  it('строки разбиения вместо статьи и проекта; проценты — наибольшим остатком', () => {
+  it('строки разбиения вместо категории и проекта; проценты — наибольшим остатком', () => {
     expect(body(draft({ amount: '1000', categoryId: 99, split: split('amount', '600', '400') })).lines).toEqual([
       { categoryId: 7, projectId: 8, amount: 60000 },
       { categoryId: 8, projectId: null, amount: 40000 },
@@ -144,7 +144,7 @@ describe('buildBody — разбиение', () => {
 });
 
 describe('changeType, similarDraft, transferRateText', () => {
-  it('смена типа сбрасывает статью; у перевода нет контрагента; из перевода — без счёта зачисления', () => {
+  it('смена типа сбрасывает категорию; у перевода нет контрагента; из перевода — без счёта зачисления', () => {
     const d = draft({ amount: '5', categoryId: 7, counterpartyId: 9, projectId: 8, comment: 'к' });
     expect(changeType(d, 'income')).toMatchObject({ type: 'income', amount: '5', categoryId: null, counterpartyId: 9, projectId: 8, comment: 'к' });
     const t = changeType(d, 'transfer');

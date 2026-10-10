@@ -219,7 +219,7 @@ export function journalApiParams(state: JournalUrlState, today: string): URLSear
   return p;
 }
 
-/** Сколько условий выбрано в модалке «Фильтр»: тип, счета, статьи, проекты, контрагенты, теги (по измерению). */
+/** Сколько условий выбрано в модалке «Фильтр»: тип, счета, категории, проекты, контрагенты, теги (по измерению). */
 export function filterConditionCount(state: JournalUrlState): number {
   return [
     state.types.length > 0,
@@ -257,7 +257,7 @@ export function clearFilter(state: JournalUrlState): JournalUrlState {
   return { ...EMPTY_JOURNAL_STATE, sort: state.sort, order: state.order };
 }
 
-/** Поля фильтра, которыми управляет модалка «Фильтр»: тип, счета, статьи, проекты, контрагенты, теги и «без …». */
+/** Поля фильтра, которыми управляет модалка «Фильтр»: тип, счета, категории, проекты, контрагенты, теги и «без …». */
 export type DialogFields = Pick<
   JournalUrlState,
   'types' | 'accountIds' | 'categoryIds' | 'projectIds' | 'counterpartyIds' | 'tagIds' | 'withoutCategory' | 'withoutProject' | 'withoutCounterparty'

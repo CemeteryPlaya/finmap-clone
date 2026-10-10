@@ -48,7 +48,7 @@ interface Ctx {
 
 /**
  * Демо-набор §10 через настоящие сервисы (те же инварианты и история): 3 компании, 5 проектов, 8 счетов,
- * не меньше 60 статей, 150 контрагентов, `operations` операций за 2 года. Только в пустую базу.
+ * не меньше 60 категорий, 150 контрагентов, `operations` операций за 2 года. Только в пустую базу.
  */
 export function seedDemo(d: { db: Db; timezone: string; now: Date; operations?: number }): DemoResult {
   const { db } = d;
@@ -117,7 +117,7 @@ function fill(d: { db: Db; timezone: string; now: Date; operations?: number }, u
   accounts.add(c2.id, { name: 'Kaspi бара', currency: 'KZT', openedAt: start, projectId: bar.id, startingBalance: 500_000_00 }, uid);
   accounts.add(c3.id, { name: 'Счёт USD', currency: 'USD', openedAt: start, startingBalance: 10_000_00 }, uid);
 
-  // статьи: шаблон клуба уже дал свои; добавляем статьи бару и офису, затем добираем до 60
+  // категории: шаблон клуба уже дал свои; добавляем категории бару и офису, затем добираем до 60
   categories.add(c2.id, { kind: 'income', name: 'Выручка бара', parentId: null }, uid);
   for (const name of ['Закупка напитков', 'Закупка закусок', 'Аренда', 'Коммунальные услуги']) {
     categories.add(c2.id, { kind: 'expense', name, parentId: null }, uid);

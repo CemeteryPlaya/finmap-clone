@@ -63,13 +63,13 @@ describe('варианты списков формы операции', () => {
     ]);
   });
 
-  it('статьи: только вида операции, дочерние — «Родитель → Дочерняя»; дочерняя архивного родителя — архивная', () => {
+  it('категории: только вида операции, дочерние — «Родитель → Дочерняя»; дочерняя архивного родителя — архивная', () => {
     expect(categoryOptions(tree, 'income', [])).toEqual([{ id: 1, label: 'Выручка' }]);
     expect(categoryOptions(tree, 'expense', [null]).map((o) => o.label)).toEqual(['Зарплата', 'Зарплата → Администраторы', 'Помещение', 'Помещение → Аренда']);
     expect(categoryOptions(tree, 'expense', [31]).map((o) => o.label)).toContain('Старое → Дочерняя (в архиве)');
   });
 
-  it('эффективный systemKey дочерней статьи → подходящий тип контрагента; обычная статья — без предпочтения', () => {
+  it('эффективный systemKey дочерней категории → подходящий тип контрагента; обычная категория — без предпочтения', () => {
     expect(findCategory(tree, 11)?.name).toBe('Администраторы');
     expect(findCategory(tree, 99)).toBeUndefined();
     expect(preferredCounterpartyType(tree, 10)).toBe('employee');

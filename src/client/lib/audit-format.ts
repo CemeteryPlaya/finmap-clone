@@ -2,7 +2,7 @@ export const ENTITY_LABELS: Record<string, string> = {
   company: 'Компания',
   project: 'Проект',
   account: 'Счёт',
-  category: 'Статья',
+  category: 'Категория',
   counterparty: 'Контрагент',
   tag: 'Тег',
   split_preset: 'Шаблон разделения',

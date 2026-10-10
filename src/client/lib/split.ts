@@ -6,7 +6,7 @@ import { pluralRu } from './journal-format';
 import type { CategoryTree } from './queries';
 
 /**
- * «Разделить» (§7): строки «статья, проект, сумма или %». Суммы строк — текст поля (выражение калькулятора),
+ * «Разделить» (§7): строки «категория, проект, сумма или %». Суммы строк — текст поля (выражение калькулятора),
  * доли — проценты с двумя знаками; проценты переводятся в суммы методом наибольшего остатка (§4.1, `allocate`).
  */
 export type SplitMode = 'amount' | 'percent';
@@ -34,7 +34,7 @@ export function newLine(patch: Partial<Omit<SplitLineDraft, 'key'>> = {}): Split
   return { key: lastKey, categoryId: null, projectId: null, value: '', ...patch };
 }
 
-/** Начать разбиение: первая строка — текущие статья, проект и вся сумма, вторая — пустая. */
+/** Начать разбиение: первая строка — текущие категория, проект и вся сумма, вторая — пустая. */
 export function startSplit(categoryId: number | null, projectId: number | null, amountText: string): SplitDraft {
   return { mode: 'amount', lines: [newLine({ categoryId, projectId, value: amountText }), newLine()] };
 }
@@ -92,7 +92,7 @@ export interface PresetLine {
   bp: number;
 }
 
-/** Доступность элементов для шаблона: статья — вид и архив (дочерняя архивного родителя тоже в архиве), проект — архив. */
+/** Доступность элементов для шаблона: категория — вид и архив (дочерняя архивного родителя тоже в архиве), проект — архив. */
 export interface PresetContext {
   categories: ReadonlyMap<number, { kind: 'income' | 'expense'; archived: boolean }>;
   projects: ReadonlyMap<number, { archived: boolean }>;
@@ -109,8 +109,8 @@ export function presetContext(tree: CategoryTree, projects: readonly { id: numbe
 }
 
 /**
- * Применение шаблона разделения (инвариант 10): удалённые, архивные статьи и проекты, а также статьи другого вида
- * отбрасываются (`dropped` — сколько); строка без статьи и проекта не применяется, её доля остаётся
+ * Применение шаблона разделения (инвариант 10): удалённые, архивные категории и проекты, а также категории другого вида
+ * отбрасываются (`dropped` — сколько); строка без категории и проекта не применяется, её доля остаётся
  * нераспределённой. Не осталось строк — шаблон не применяется (`split: null`).
  */
 export function applyPreset(lines: readonly PresetLine[], ctx: PresetContext): { split: SplitDraft | null; dropped: number } {
@@ -139,7 +139,7 @@ export function droppedText(n: number): string {
  * наибольшего остатка; сумма долей — ровно 100 %.
  */
 export function presetFromSplit(split: SplitDraft, result: SplitResult): { ok: true; lines: PresetLine[] } | { ok: false; error: string } {
-  if (split.lines.some((l) => l.categoryId === null && l.projectId === null)) return { ok: false, error: 'В каждой строке укажите статью или проект' };
+  if (split.lines.some((l) => l.categoryId === null && l.projectId === null)) return { ok: false, error: 'В каждой строке укажите категорию или проект' };
   let bps: number[];
   if (split.mode === 'percent') {
     if (result.left !== 0 || result.errors.some((e) => e !== null && e !== 'Слишком маленькая доля для этой суммы')) {

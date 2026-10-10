@@ -17,7 +17,7 @@ export function accountOptions(accounts: readonly Account[], selected: number | 
   return accounts.filter((a) => keep(a, [selected])).map((a) => ({ id: a.id, label: mark(`${a.name} (${a.currency})`, a) }));
 }
 
-/** Статьи вида kind: «Родитель», «Родитель → Дочерняя». Дочерняя архивного родителя тоже считается архивной. */
+/** Категории вида kind: «Родитель», «Родитель → Дочерняя». Дочерняя архивного родителя тоже считается архивной. */
 export function categoryOptions(tree: CategoryTree, kind: 'income' | 'expense', selected: readonly (number | null)[]): PickerOption[] {
   return tree[kind].flatMap((n) => [
     ...(keep(n, selected) ? [{ id: n.id, label: mark(n.name, n) }] : []),
@@ -36,7 +36,7 @@ export function tagOptions(tags: readonly Tag[], selected: readonly number[]): P
   return tags.filter((t) => keep(t, selected)).map((t) => ({ id: t.id, label: mark(t.name, t) }));
 }
 
-/** Статья дерева по id (верхний уровень или дочерняя). */
+/** Категория дерева по id (верхний уровень или дочерняя). */
 export function findCategory(tree: CategoryTree, id: number | null): CategoryNode | undefined {
   if (id === null) return undefined;
   for (const n of [...tree.income, ...tree.expense]) {
@@ -47,14 +47,14 @@ export function findCategory(tree: CategoryTree, id: number | null): CategoryNod
   return undefined;
 }
 
-/** Тип контрагента, который подходит статье с эффективным systemKey (§4.4): «Зарплата» → сотрудник. */
+/** Тип контрагента, который подходит категории с эффективным systemKey (§4.4): «Зарплата» → сотрудник. */
 export function preferredCounterpartyType(tree: CategoryTree, categoryId: number | null): CounterpartyType | null {
   const key = findCategory(tree, categoryId)?.effectiveSystemKey;
   return SYSTEM_CATEGORIES.find((c) => c.key === key)?.counterpartyType ?? null;
 }
 
 /**
- * Контрагенты: для статьи с эффективным systemKey сначала подходящий тип («Сотрудники»), затем «Остальные» (§7).
+ * Контрагенты: для категории с эффективным systemKey сначала подходящий тип («Сотрудники»), затем «Остальные» (§7).
  */
 export function counterpartyOptions(counterparties: readonly Counterparty[], selected: number | null, preferred: CounterpartyType | null): PickerOption[] {
   const list = counterparties.filter((c) => keep(c, [selected])).map((c) => ({ id: c.id, label: mark(c.name, c), type: c.type }));

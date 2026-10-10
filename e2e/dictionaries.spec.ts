@@ -51,17 +51,17 @@ test('счета: создание в USD, архив только при нул
   await expect(page.getByRole('listitem').filter({ hasText: 'Сейф' })).toHaveCount(0);
 });
 
-test('статьи: вложение, «Перенести в…», переименование, перетаскивание; системные не переименовываются', async ({ page }) => {
+test('категории: вложение, «Перенести в…», переименование, перетаскивание; системные не переименовываются', async ({ page }) => {
   await login(page);
-  const cid = await createCompany(page, `ТОО Статьи ${Date.now()}`);
+  const cid = await createCompany(page, `ТОО Категории ${Date.now()}`);
   await page.goto(`/c/${cid}/settings/categories`);
   const expense = page.getByRole('region', { name: 'Расходы' });
   const item = (name: string) => expense.getByRole('listitem', { name, exact: true });
 
-  await expense.getByLabel('Новая статья расходов').fill('Реклама');
+  await expense.getByLabel('Новая категория расходов').fill('Реклама');
   await expense.getByRole('button', { name: 'Добавить' }).click();
   await expect(item('Реклама')).toBeVisible();
-  await expense.getByLabel('Новая статья расходов').fill('Таргет');
+  await expense.getByLabel('Новая категория расходов').fill('Таргет');
   await expense.getByLabel('Родитель').selectOption({ label: 'Реклама' });
   await expense.getByRole('button', { name: 'Добавить' }).click();
   await expect(item('Реклама').getByRole('listitem', { name: 'Таргет', exact: true })).toBeVisible();
@@ -76,7 +76,7 @@ test('статьи: вложение, «Перенести в…», переим
   await expect(item('Таргет')).toBeVisible();
 
   await item('Таргет').getByRole('button', { name: 'Переименовать' }).click();
-  await expense.getByLabel('Новое название статьи «Таргет»').fill('Таргетинг');
+  await expense.getByLabel('Новое название категории «Таргет»').fill('Таргетинг');
   await expense.getByRole('button', { name: 'Сохранить' }).click();
   await expect(item('Таргетинг')).toBeVisible();
 

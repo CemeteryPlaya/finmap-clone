@@ -90,7 +90,7 @@ describe('operations: создание', () => {
     );
   });
 
-  it('инвариант 3: статья другого вида; статья у перевода', async () => {
+  it('инвариант 3: категория другого вида; категория у перевода', async () => {
     w = await opsWorld();
     const paidAt = '2026-10-05T10:00:00Z';
     fail(await create({ type: 'income', paidAt, accountId: w.kzt, amount: 100, lines: [{ categoryId: w.expense, amount: 100 }] }), 422, 'INVARIANT_3');
@@ -113,7 +113,7 @@ describe('operations: создание', () => {
     expect(noTo.fields?.toAmount).toBe('Укажите сумму зачисления');
   });
 
-  it('инвариант 5: счёт, статья, проект, контрагент и тег другой компании — 422 с полем', async () => {
+  it('инвариант 5: счёт, категория, проект, контрагент и тег другой компании — 422 с полем', async () => {
     w = await opsWorld();
     const other = await w.h.company('Чужая');
     const ob = `/api/v1/companies/${other}`;
@@ -139,7 +139,7 @@ describe('operations: создание', () => {
     expect(early.message).toBe('Счёт «Касса» открыт 01.10.2026 — операция не может быть раньше');
   });
 
-  it('инвариант 7: новый выбор архивного счёта, статьи, проекта, контрагента, тега', async () => {
+  it('инвариант 7: новый выбор архивного счёта, категории, проекта, контрагента, тега', async () => {
     w = await opsWorld();
     const b = `/api/v1/companies/${w.cid}`;
     const safe = (await w.post(`${b}/accounts`, { name: 'Сейф', currency: 'KZT', openedAt: '2026-10-01' })).account.id;

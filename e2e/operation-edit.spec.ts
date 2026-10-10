@@ -65,7 +65,7 @@ test('правка из журнала: клик по строке и с кла�
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('radio')).toHaveCount(0); // тип не меняется
   await expect(dialog.getByRole('button', { name: 'Счёт: Касса (KZT)' })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Статья: Аренда' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Категория: Аренда' })).toBeVisible();
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('300');
   // форма ставит фокус в сумму кадр спустя — дождаться, прежде чем заполнять другие поля
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
@@ -95,7 +95,7 @@ test('правка из журнала: клик по строке и с кла�
   dialog = page.getByRole('dialog', { name: 'Новая операция' });
   await expect(dialog.getByRole('status')).toHaveText('Это копия — проверьте и сохраните');
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('350');
-  await expect(dialog.getByRole('button', { name: 'Статья: Аренда' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Категория: Аренда' })).toBeVisible();
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(rows(page)).toHaveCount(2);

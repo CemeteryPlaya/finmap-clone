@@ -44,9 +44,9 @@ describe('массовые действия: POST /companies/:cid/operations/bul
     const r = await ok({ action: 'setCategory', categoryId: w.expense, ids: [single, income, splitOp, tr, gone, 999999, single] });
     expect(r.changed).toEqual([single]);
     expect(r.skipped).toEqual([
-      { id: income, reason: 'Статья расходов не подходит для дохода' },
+      { id: income, reason: 'Категория расходов не подходит для дохода' },
       { id: splitOp, reason: 'Разбитая операция — измените её в форме' },
-      { id: tr, reason: 'У перевода нет статьи' },
+      { id: tr, reason: 'У перевода нет категории' },
       { id: gone, reason: 'Операция удалена' },
       { id: 999999, reason: 'Операция не найдена' },
     ]);
@@ -167,7 +167,7 @@ describe('массовые действия: POST /companies/:cid/operations/bul
     const old = (await w.post(cats, { kind: 'expense', name: 'Старая' })).category.id;
     await w.post(`${cats}/${old}/archive`, {});
     expect(fail(await bulk({ action: 'setCategory', categoryId: old, ids: [a] }), 422, 'ARCHIVED_REFERENCE').message).toBe(
-      'Статья «Старая» в архиве — выберите другую',
+      'Категория «Старая» в архиве — выберите другую',
     );
     const other = await w.h.company('Другая');
     const foreign = (await w.post(`/api/v1/companies/${other}/projects`, { name: 'Чужой', templateKey: 'general' })).project.id;
