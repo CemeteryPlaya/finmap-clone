@@ -134,7 +134,7 @@ $env:PORT=3457; npm start
 
 Файл `.env` в папке проекта создаёт `npm run setup`. Чтобы изменить настройку:
 1. Остановите приложение: `npm run stop` (на VPS — `sudo systemctl stop finmap-clone`).
-2. Откройте `.env` Блокнотом, поправьте строку, сохраните (на VPS — в `/opt/finmap-clone/.env` от пользователя `finmap`, например `sudo -u finmap -H nano .env`).
+2. Откройте `.env` Блокнотом, поправьте строку, сохраните (на VPS — в `/opt/finmap-clone/.env` от пользователя `finmap`, например `sudo -u finmap -H nano /opt/finmap-clone/.env`).
 3. Запустите приложение: `npm start` или `schtasks /Run /TN finmap-clone` (на VPS — `sudo systemctl start finmap-clone`). Если в настройке ошибка, приложение не запустится, а причина будет в `data\logs\supervisor.log`.
 
 | Переменная | Значение по умолчанию | Смысл |

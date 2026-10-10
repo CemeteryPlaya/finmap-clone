@@ -6,7 +6,7 @@ import { openDb, type Sqlite } from './db/client';
 import { migrateWithBackup } from './db/migrate';
 import { seedCurrencies } from './db/seed';
 import { startScheduler } from './jobs/scheduler';
-import { acquireLock } from './lock';
+import { acquireLock, type IsNodeProcess } from './lock';
 import { createLoggerOptions } from './logger';
 import { createBackupService } from './modules/backup/service';
 
@@ -35,11 +35,13 @@ export interface StartOptions {
   handleSignals?: boolean;
   proc?: ProcLike;
   exit?: (code: number) => void;
+  /** Проверка образа процесса владельца блокировки (для тестов). */
+  isNode?: IsNodeProcess;
 }
 
 export async function startServer(config: Config, opts: StartOptions = {}): Promise<RunningServer> {
   for (const d of [config.dataDir, config.uploadsDir, config.backupsDir, config.logsDir]) fs.mkdirSync(d, { recursive: true });
-  const releaseLock = acquireLock(config.lockPath);
+  const releaseLock = acquireLock(config.lockPath, opts.isNode);
   const exit = opts.exit ?? ((code: number) => process.exit(code));
 
   // Слушатели остановки — сразу после lock, до долгого запуска: если супервизор исчезнет или попросит

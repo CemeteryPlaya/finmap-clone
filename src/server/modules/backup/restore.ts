@@ -41,15 +41,15 @@ export async function restoreBackup(i: {
   const supervisorLock = path.join(config.dataDir, SUPERVISOR_LOCK_FILE);
   // Восстановление разрушительно: подозрительный lock супервизора (скачок часов, пауза перезапуска)
   // считаем рабочим супервизором, пока процесс точно не опровергнут как «не node». Порт не проверяем.
-  const sup = lockState(supervisorLock);
   const isNode = i.isNode ?? processImageIsNode;
-  const supervisorRuns = sup.kind === 'held' || (sup.kind === 'suspect' && isNode(sup.pid) !== false);
-  if (isLockHeld(config.lockPath) || supervisorRuns || !(await isPortFree(config.host, config.port))) {
+  const sup = lockState(supervisorLock, isNode);
+  const supervisorRuns = sup.kind === 'held' || sup.kind === 'suspect';
+  if (isLockHeld(config.lockPath, isNode) || supervisorRuns || !(await isPortFree(config.host, config.port))) {
     throw new Error('Приложение запущено. Остановите приложение (и задачу автозапуска) и повторите восстановление.');
   }
   // Держим lock на всё время восстановления: приложение не стартует посреди подмены данных.
   fs.mkdirSync(config.dataDir, { recursive: true });
-  const releaseLock = acquireLock(config.lockPath);
+  const releaseLock = acquireLock(config.lockPath, isNode);
   try {
     return await restoreLocked(i.archivePath, config, now, warn);
   } finally {

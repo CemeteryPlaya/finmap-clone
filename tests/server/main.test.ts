@@ -35,7 +35,16 @@ describe('startServer', () => {
     const config = testConfig(dir, { PORT: '0' });
     fs.mkdirSync(config.dataDir, { recursive: true });
     fs.writeFileSync(config.lockPath, String(process.ppid));
-    await expect(startServer(config, { logger: false, handleSignals: false })).rejects.toBeInstanceOf(LockHeldError);
+    await expect(startServer(config, { logger: false, handleSignals: false, isNode: () => true })).rejects.toBeInstanceOf(LockHeldError);
+  });
+
+  it('lock с PID чужого процесса (не node) не мешает старту', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-main-'));
+    const config = testConfig(dir, { PORT: '0' });
+    fs.mkdirSync(config.dataDir, { recursive: true });
+    fs.writeFileSync(config.lockPath, String(process.ppid));
+    const s = await startServer(config, { logger: false, handleSignals: false, isNode: () => false });
+    await s.stop();
   });
 
   it('stop() при повторном вызове возвращает тот же промис и завершает очистку', async () => {

@@ -61,7 +61,12 @@ export function runServicePlan(kind: 'install' | 'uninstall', argv: string[]): v
   const dryRun = isDryRun(argv, process.env);
   let plan: ServicePlan;
   try {
-    if (fs.existsSync('.env')) process.loadEnvFile('.env');
+    try {
+      if (fs.existsSync('.env')) process.loadEnvFile('.env');
+    } catch (e) {
+      if (kind === 'install') throw new Error(`Не удалось прочитать файл настроек: ${(e as Error).message}`);
+      console.warn(`Не удалось прочитать файл настроек (${(e as Error).message}); удаление автозапуска продолжается без него.`);
+    }
     plan = kind === 'install' ? planInstall(currentServiceContext()) : planUninstall(uninstallServiceContext(process.env));
   } catch (e) {
     console.error((e as Error).message);

@@ -135,6 +135,14 @@ describe('lockState: скачок часов и перезагрузка', () =>
     expect(lockState(lock, unknownImage)).toEqual({ kind: 'suspect', pid: process.ppid });
   });
 
+  it('F1: мёртвый PID не проверяется инспектором', () => {
+    fs.writeFileSync(lock, JSON.stringify({ pid: 999999, bootTime: currentBootTime() }));
+    const spy = vi.fn(() => true);
+    expect(lockState(lock, spy)).toEqual({ kind: 'free' });
+    expect(isLockHeld(lock, spy)).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('F1: свой PID не проверяется инспектором', () => {
     fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, bootTime: currentBootTime() }));
     const spy = vi.fn(() => false);

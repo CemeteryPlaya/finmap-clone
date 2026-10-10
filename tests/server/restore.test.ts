@@ -53,13 +53,13 @@ describe('restore', () => {
   it('отказывается, если приложение запущено (lock с живым PID)', async () => {
     const { config, archive } = prepare();
     fs.writeFileSync(config.lockPath, JSON.stringify({ pid: process.ppid, bootTime: currentBootTime() }));
-    await expect(restoreBackup({ archivePath: archive, config })).rejects.toThrow(/остановите приложение/i);
+    await expect(restoreBackup({ archivePath: archive, config, isNode: () => true })).rejects.toThrow(/остановите приложение/i);
   });
 
   it('отказывается, если работает супервизор (data/supervisor.lock с живым PID)', async () => {
     const { config, archive } = prepare();
     fs.writeFileSync(path.join(config.dataDir, 'supervisor.lock'), JSON.stringify({ pid: process.ppid, bootTime: currentBootTime() }));
-    await expect(restoreBackup({ archivePath: archive, config })).rejects.toThrow(/остановите приложение/i);
+    await expect(restoreBackup({ archivePath: archive, config, isNode: () => true })).rejects.toThrow(/остановите приложение/i);
   });
 
   it('подозрительный lock супервизора (другой bootTime): отказ, пока процесс не опровергнут как не node', async () => {
