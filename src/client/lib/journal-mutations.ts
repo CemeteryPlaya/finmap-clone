@@ -19,6 +19,20 @@ export async function invalidateOperations(companyId: number): Promise<void> {
 }
 
 /**
+ * ⟳ «Обновить» (§2.5 этапа 1.5): то же, что после записи, но сбой перечитывания журнала не проглатывается
+ * (`throwOnError`; без него invalidateQueries всегда завершается успешно) — панель «Ещё» скажет
+ * «Не удалось обновить журнал». Загруженные страницы журнала перечитываются на месте.
+ */
+export async function refreshOperations(companyId: number): Promise<void> {
+  const [journal] = await Promise.allSettled([
+    queryClient.invalidateQueries({ queryKey: ['journal', companyId] }, { throwOnError: true }),
+    queryClient.invalidateQueries({ queryKey: ['accounts', companyId] }),
+    queryClient.invalidateQueries({ queryKey: ['companies'] }),
+  ]);
+  if (journal.status === 'rejected') throw journal.reason;
+}
+
+/**
  * Текст ошибки записи для пользователя. На конфликт версии (409) — что журнал обновлён: операцию изменили
  * («…проверьте и повторите») или удалили (повторять нечего).
  */

@@ -39,3 +39,50 @@ export function CalendarIcon() {
     </Svg>
   );
 }
+
+export function SearchIcon() {
+  return (
+    <Svg>
+      <circle cx="11" cy="11" r="7" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </Svg>
+  );
+}
+
+export function FunnelIcon() {
+  return (
+    <Svg>
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+    </Svg>
+  );
+}
+
+export function RefreshIcon({ spinning }: { spinning?: boolean }) {
+  return (
+    <Svg className={spinning ? 'animate-spin motion-reduce:animate-none' : undefined}>
+      <polyline points="23 4 23 10 17 10" />
+      <polyline points="1 20 1 14 7 14" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+    </Svg>
+  );
+}
+
+export function ColumnsIcon() {
+  return (
+    <Svg>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <line x1="9" y1="3" x2="9" y2="21" />
+      <line x1="15" y1="3" x2="15" y2="21" />
+    </Svg>
+  );
+}
+
+export function DownloadIcon() {
+  return (
+    <Svg>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </Svg>
+  );
+}

@@ -294,8 +294,8 @@ test('фильтры на телефоне — в панели справа: п�
   await expect(list.first()).toContainText('выручка');
 
   // сумма от 200 ₸ — по Enter
-  await panel.getByLabel('Сумма от, ₸').fill('200');
-  await panel.getByLabel('Сумма от, ₸').press('Enter');
+  await panel.getByLabel('Сумма от').fill('200');
+  await panel.getByLabel('Сумма от').press('Enter');
   await expect(list).toHaveCount(2);
 
   // окно «Фильтр» открывается поверх панели; «Готово» возвращает в панель
@@ -310,8 +310,8 @@ test('фильтры на телефоне — в панели справа: п�
   await expect(list.first()).toContainText('аренда');
 
   // список сохранённых фильтров открывается внутри панели; Esc закрывает только его
-  await panel.getByRole('button', { name: 'Сохранённые фильтры' }).click();
-  const saved = page.getByRole('dialog', { name: 'Сохранённые фильтры' });
+  await panel.getByRole('button', { name: 'Быстрые фильтры' }).click();
+  const saved = page.getByRole('dialog', { name: 'Быстрые фильтры' });
   await expect(saved).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(saved).toBeHidden();

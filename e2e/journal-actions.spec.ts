@@ -69,7 +69,17 @@ test('сохранённые фильтры: сохранить из окна «
 
   const filterButton = page.getByRole('button', { name: /^Фильтр/ });
   const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
-  const menuButton = page.getByRole('button', { name: 'Сохранённые фильтры' });
+  const menuButton = page.getByRole('button', { name: 'Быстрые фильтры' });
+
+  // пустое меню «Быстрые фильтры»: пояснение и «Создать новый фильтр» — открывает окно фильтра, после окна фокус на ▾
+  await menuButton.click();
+  const quick = page.getByRole('dialog', { name: 'Быстрые фильтры' });
+  await expect(quick).toContainText('Сохранённых фильтров пока нет');
+  await quick.getByRole('button', { name: 'Создать новый фильтр' }).click();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(menuButton).toBeFocused();
 
   // период «Сегодня» в тулбаре + доходы в окне → «Сохранить фильтр»
   await choosePeriod(page, 'За сегодня');
@@ -492,6 +502,13 @@ test('архивная компания: журнал только для чте
   await expect(page.getByText('Компания в архиве — изменения недоступны')).toHaveCount(1);
   await expect(page.getByRole('button', { name: /^Указать/ })).toHaveCount(0);
   await expect(page.getByRole('checkbox')).toHaveCount(0);
+  // «Быстрые фильтры» архивной компании: сохранять нечего — ни «Создать новый фильтр», ни подсказки про «Сохранить фильтр»
+  await page.getByRole('button', { name: 'Быстрые фильтры' }).click();
+  const quick = page.getByRole('dialog', { name: 'Быстрые фильтры' });
+  await expect(quick).toContainText('Сохранённых фильтров нет.');
+  await expect(quick.getByRole('button', { name: 'Создать новый фильтр' })).toHaveCount(0);
+  await expect(quick).not.toContainText('Сохранить фильтр');
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: /^Фильтр/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
   await expect(dialog.getByRole('button', { name: 'Готово' })).toBeVisible();
@@ -517,7 +534,7 @@ test('сохранённые фильтры: повреждённый не пр�
       : route.fallback(),
   );
   await page.reload();
-  const menuButton = page.getByRole('button', { name: 'Сохранённые фильтры' });
+  const menuButton = page.getByRole('button', { name: 'Быстрые фильтры' });
   await menuButton.click();
   const apply = page.getByRole('button', { name: /^Применить фильтр «Старый»/ });
   await expect(apply).toBeDisabled();

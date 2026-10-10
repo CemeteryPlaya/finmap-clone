@@ -181,6 +181,11 @@ test('тулбар: поиск с паузой, период, сумма от/д
   await page.reload();
   await expect(page.getByLabel('Поиск')).toHaveValue('ЕЛКА');
   await expect(bodyRows(page)).toHaveCount(1);
+  // лупа справа от поля применяет запрос сразу
+  await page.getByLabel('Поиск').fill('ёлка в');
+  await page.getByRole('button', { name: 'Найти' }).click();
+  await expect(page).toHaveURL(/q=%D1%91%D0%BB%D0%BA%D0%B0\+%D0%B2$/);
+  await expect(bodyRows(page)).toHaveCount(1);
   await page.getByLabel('Поиск').fill('');
   await expect(bodyRows(page)).toHaveCount(3);
 
@@ -279,33 +284,49 @@ test('тулбар: поиск с паузой, период, сумма от/д
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
   await expect(bodyRows(page)).toHaveCount(3);
 
-  // сумма от/до — в базовой валюте компании (по сумме в тенге)
-  await page.getByLabel('Сумма от, ₸').fill('1 000');
-  await page.getByLabel('Сумма от, ₸').press('Enter');
+  // сумма от/до — в меню «Ещё», в базовой валюте компании (по сумме в тенге)
+  const more = page.getByRole('button', { name: 'Ещё', exact: true });
+  const moreMenu = page.getByRole('dialog', { name: 'Ещё', exact: true });
+  await more.click();
+  await expect(moreMenu.getByLabel('Сумма от')).toBeFocused();
+  await moreMenu.getByLabel('Сумма от').fill('1 000');
+  await moreMenu.getByLabel('Сумма от').press('Enter');
   await expect(bodyRows(page)).toHaveCount(2);
-  await expect(page.getByLabel('Сумма от, ₸')).toHaveValue('1000');
-  await page.getByLabel('Сумма до, ₸').fill('1200,5');
-  await page.getByLabel('Сумма до, ₸').blur();
+  await expect(moreMenu.getByLabel('Сумма от')).toHaveValue('1000');
+  await moreMenu.getByLabel('Сумма до').fill('1200,5');
+  await moreMenu.getByLabel('Сумма до').blur();
   await expect(bodyRows(page)).toHaveCount(1);
   await expect(page).toHaveURL(/min=100000&max=120050$/);
-  await page.getByLabel('Сумма до, ₸').fill('abc');
-  await page.getByLabel('Сумма до, ₸').blur();
-  await expect(page.getByLabel('Сумма до, ₸')).toHaveAttribute('aria-invalid', 'true');
+  await moreMenu.getByLabel('Сумма до').fill('abc');
+  await moreMenu.getByLabel('Сумма до').blur();
+  await expect(moreMenu.getByLabel('Сумма до')).toHaveAttribute('aria-invalid', 'true');
+  await expect(moreMenu.getByLabel('Сумма до')).toHaveAccessibleDescription('Введите сумму');
   await expect(bodyRows(page)).toHaveCount(1);
 
   // выгрузка — по текущему фильтру; ссылка отдаёт книгу Excel
-  const href = await page.getByRole('link', { name: 'Выгрузить в Excel' }).getAttribute('href');
+  const href = await moreMenu.getByRole('link', { name: 'Выгрузить в Excel' }).getAttribute('href');
   expect(href).toContain(`/api/v1/companies/${cid}/operations/export.xlsx?`);
   expect(href).toContain('amountMin=100000&amountMax=120050');
   const xlsx = await page.request.get(href!);
   expect(xlsx.status()).toBe(200);
   expect(xlsx.headers()['content-type']).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 
+  // набранная без Enter сумма применяется и тогда, когда меню закрыли щелчком мимо (Review Focus 3)
+  await moreMenu.getByLabel('Сумма до').fill('2000');
+  await panel(page).getByText('Всего на счетах').click();
+  await expect(moreMenu).toBeHidden();
+  await expect(page).toHaveURL(/min=100000&max=200000$/);
+  await expect(bodyRows(page)).toHaveCount(2);
+
+  // «Сбросить фильтр» — ✕ рядом с «Фильтр»
   await page.getByRole('button', { name: 'Сбросить фильтр' }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
   await expect(bodyRows(page)).toHaveCount(3);
-  await expect(page.getByLabel('Сумма от, ₸')).toHaveValue('');
   await expect(page.getByRole('button', { name: 'Сбросить фильтр' })).toHaveCount(0);
+  await more.click();
+  await expect(moreMenu.getByLabel('Сумма от')).toHaveValue('');
+  await page.keyboard.press('Escape');
+  await expect(more).toBeFocused();
 
   // адрес, исправленный руками: мусор отбрасывается, журнал открывается (Review Focus 2)
   await page.goto(`/c/${cid}/log?account=abc&type=bogus&from=2026-13-01&min=-5&sort=name`);
@@ -313,7 +334,7 @@ test('тулбар: поиск с паузой, период, сумма от/д
   await expect(page.getByRole('button', { name: 'Сбросить фильтр' })).toHaveCount(0);
 });
 
-test('колонки: выбор сохраняется в настройках пользователя и переживает перезагрузку; дату и сумму не скрыть', async ({ page }) => {
+test('«Ещё»: суммы, ⟳, колонки и выгрузка в одной панели; Tab и Esc как у всех панелей; выбор колонок сохраняется в настройках пользователя', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Колонки ${Date.now()}`);
   const kaspi = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
@@ -321,63 +342,116 @@ test('колонки: выбор сохраняется в настройках 
   await page.reload();
   const header = (name: string) => table(page).getByRole('columnheader', { name, exact: true });
   await expect(header('Комментарий')).toBeVisible();
+  const more = page.getByRole('button', { name: 'Ещё', exact: true });
+  const menu = page.getByRole('dialog', { name: 'Ещё', exact: true });
+  const before = (await (await page.request.get('/api/v1/preferences')).json()).preferences as Record<string, unknown>;
 
-  // настройка общая для пользователя admin и остальных e2e: после теста все колонки снова видны
+  // настройка общая для пользователя admin и остальных e2e: в конце — прежнее значение
   try {
-    const columns = page.getByRole('button', { name: 'Колонки', exact: true });
-    await columns.click();
-    await expect(columns).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.getByRole('checkbox', { name: 'Дата' })).toBeDisabled();
-    // фокус — на первом доступном флажке
-    await expect(page.getByRole('checkbox', { name: 'Счёт' })).toBeFocused();
-    // панель — в портале, но порядок Tab не рвётся: Shift+Tab с первого флажка ведёт на кнопку, Tab с кнопки — обратно в панель
+    await more.click();
+    await expect(more).toHaveAttribute('aria-expanded', 'true');
+    // фокус — на первом поле панели
+    const amountFrom = menu.getByLabel('Сумма от');
+    await expect(amountFrom).toBeFocused();
+    // панель — в портале, но порядок Tab не рвётся: Shift+Tab с первого поля ведёт на кнопку, Tab с кнопки — обратно в панель
     await page.keyboard.press('Shift+Tab');
-    await expect(columns).toBeFocused();
-    await expect(columns).toHaveAttribute('aria-expanded', 'true');
+    await expect(more).toBeFocused();
+    await expect(more).toHaveAttribute('aria-expanded', 'true');
     await page.keyboard.press('Tab');
-    await expect(page.getByRole('checkbox', { name: 'Счёт' })).toBeFocused();
+    await expect(amountFrom).toBeFocused();
     // Esc с кнопки (фокус вернулся на неё Shift+Tab) тоже закрывает панель, фокус остаётся на кнопке
     await page.keyboard.press('Shift+Tab');
-    await expect(columns).toBeFocused();
+    await expect(more).toBeFocused();
     await page.keyboard.press('Escape');
+    await expect(more).toHaveAttribute('aria-expanded', 'false');
+    await expect(menu).toBeHidden();
+    await expect(more).toBeFocused();
+
+    // ▥ «Колонки» раскрывает список в той же панели; дату и сумму не скрыть
+    await more.click();
+    const columns = menu.getByRole('button', { name: 'Колонки', exact: true });
     await expect(columns).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.getByRole('checkbox', { name: 'Счёт' })).toBeHidden();
-    await expect(columns).toBeFocused();
     await columns.click();
     await expect(columns).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.getByRole('checkbox', { name: 'Счёт' })).toBeFocused();
+    await expect(menu.getByRole('checkbox', { name: 'Дата', exact: true })).toBeDisabled();
+    await expect(menu.getByRole('checkbox', { name: 'Сумма', exact: true })).toBeDisabled();
     const saved = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/journal.columns') && r.request().method() === 'PUT');
-    await page.getByRole('checkbox', { name: 'Комментарий', exact: true }).uncheck();
+    await menu.getByRole('checkbox', { name: 'Комментарий', exact: true }).uncheck();
     await saved;
     await expect(header('Комментарий')).toHaveCount(0);
     await expect(table(page)).not.toContainText('Видимый комментарий');
     // Esc закрывает панель и возвращает фокус на кнопку
     await page.keyboard.press('Escape');
-    await expect(columns).toHaveAttribute('aria-expanded', 'false');
-    await expect(columns).toBeFocused();
+    await expect(menu).toBeHidden();
+    await expect(more).toBeFocused();
 
-    // Tab за последним элементом панели закрывает её и возвращает фокус на кнопку
+    // Tab за последним элементом панели (ссылка «Настройки журнала») закрывает её и возвращает фокус на кнопку
+    await more.click();
     await columns.click();
-    await expect(columns).toHaveAttribute('aria-expanded', 'true');
-    await page.getByRole('checkbox', { name: 'Комментарий', exact: true }).focus();
+    await menu.getByRole('link', { name: 'Настройки журнала' }).focus();
     await page.keyboard.press('Tab');
-    await expect(columns).toHaveAttribute('aria-expanded', 'false');
-    await expect(columns).toBeFocused();
+    await expect(menu).toBeHidden();
+    await expect(more).toBeFocused();
 
     // фокус, ушедший за пределы кнопки и панели, закрывает панель
-    await columns.click();
-    await expect(columns).toHaveAttribute('aria-expanded', 'true');
+    await more.click();
+    await expect(menu).toBeVisible();
     await page.getByRole('heading', { name: 'Журнал' }).focus();
-    await expect(columns).toHaveAttribute('aria-expanded', 'false');
+    await expect(menu).toBeHidden();
 
-    await page.reload();
+    // «Настройки журнала» — страница настроек, фокус на её заголовке; выбор колонок уже там
+    await more.click();
+    await columns.click();
+    await menu.getByRole('link', { name: 'Настройки журнала' }).click();
+    await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/journal$`));
+    await expect(page.getByRole('heading', { level: 1, name: 'Настройки журнала' })).toBeFocused();
+    await expect(page.getByRole('checkbox', { name: 'Комментарий', exact: true })).not.toBeChecked();
+
+    await page.goto(`/c/${cid}/log`);
     await expect(header('Счёт')).toBeVisible();
     await expect(header('Комментарий')).toHaveCount(0);
   } finally {
-    await page.request.put('/api/v1/preferences/journal.columns', { data: { value: null }, headers: csrf(page) });
+    await page.request.put('/api/v1/preferences/journal.columns', { data: { value: before['journal.columns'] ?? null }, headers: csrf(page) });
   }
   await page.reload();
   await expect(header('Комментарий')).toBeVisible();
+});
+
+test('«Ещё» → ⟳ «Обновить»: операция с другого компьютера появляется, загруженные страницы и прокрутка сохраняются, балансы обновляются (§2.5)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Обновить ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  for (let i = 1; i <= 55; i++) {
+    await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(200 - i), accountId: kaspi, amount: 100, comment: `строка ${i}` });
+  }
+  await page.reload();
+  await expect(bodyRows(page)).toHaveCount(50);
+  await page.getByRole('button', { name: 'Показать ещё' }).scrollIntoViewIfNeeded();
+  await expect(bodyRows(page)).toHaveCount(55);
+  const kaspiLink = panel(page).getByRole('link', { name: /^Kaspi/ });
+  await expect(kaspiLink).toContainText(/₸\s55$/);
+
+  // операцию внесли «с другого компьютера»: журнал сам не перезапрашивается
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(1), accountId: kaspi, amount: 4500, comment: 'с другого компьютера' });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const more = page.getByRole('button', { name: 'Ещё', exact: true });
+  const menu = page.getByRole('dialog', { name: 'Ещё', exact: true });
+  await more.click();
+  await expect(menu).toBeVisible();
+  await expect(bodyRows(page)).toHaveCount(55);
+  // страницу прокрутили вниз при открытом меню; ⟳ нажимаем без прокрутки к нему (dispatchEvent не прокручивает)
+  await page.evaluate(() => window.scrollTo(0, 900));
+  const y = await page.evaluate(() => window.scrollY);
+  expect(y).toBeGreaterThan(0);
+  await menu.getByRole('button', { name: 'Обновить' }).dispatchEvent('click');
+  await expect(menu.getByRole('status')).toHaveText('Журнал обновлён');
+  // обе загруженные страницы перечитаны: 55 + 1, новая — сверху (Review Focus 4)
+  await expect(bodyRows(page)).toHaveCount(56);
+  await expect(bodyRows(page).first()).toContainText('с другого компьютера');
+  // прокрутка не сброшена к началу; браузер может сдвинуть её на строку, чтобы видимое не уехало (scroll anchoring)
+  expect(Math.abs((await page.evaluate(() => window.scrollY)) - y)).toBeLessThanOrEqual(100);
+  await expect(kaspiLink).toContainText(/₸\s100$/);
 });
 
 test('модалка «Фильтр»: все условия §6, «Готово» применяет, Esc закрывает без изменений; счёт из левой панели отмечен', async ({ page }) => {

@@ -142,17 +142,44 @@ function SavedFilterItem(props: { filter: SavedFilter; companyId: number; onAppl
   );
 }
 
-/** Меню «Сохранённые фильтры»: применить, переименовать, удалить. Сохраняют фильтр в модалке «Фильтр». */
-export function SavedFiltersMenu(props: { companyId: number; filters: SavedFilter[] | undefined; onApply: (f: SavedFilter) => void }) {
+/**
+ * «Быстрые фильтры» (§5.1 этапа 1.5) — стрелка составной кнопки «Фильтр | ▾»: применить, переименовать, удалить
+ * сохранённый фильтр. Сохраняют фильтр в окне фильтра; пустое меню ведёт туда кнопкой «Создать новый фильтр»
+ * (меню закрывается, фокус — на стрелке, после окна он вернётся сюда же).
+ */
+export function SavedFiltersMenu(props: {
+  companyId: number;
+  filters: SavedFilter[] | undefined;
+  onApply: (f: SavedFilter) => void;
+  /** Не передан (архивная компания: сохранять нечего) — пустое меню без «Создать новый фильтр» и подсказки. */
+  onCreate?: () => void;
+  buttonClassName?: string;
+}) {
   return (
-    <Popover label="Сохранённые фильтры" panelClassName="w-80">
+    <Popover label={<span aria-hidden="true">▾</span>} ariaLabel="Быстрые фильтры" buttonClassName={props.buttonClassName} panelClassName="w-80">
       {(close) => (
         <div>
-          <p className="mb-2 text-sm font-semibold">Сохранённые фильтры</p>
+          <p className="mb-2 text-sm font-semibold">Быстрые фильтры</p>
           {props.filters === undefined ? (
             <p className="text-sm text-muted">Загрузка…</p>
           ) : props.filters.length === 0 ? (
-            <p className="text-sm text-muted">Пока нет. Задайте условия и нажмите «Сохранить фильтр» в окне «Фильтр».</p>
+            props.onCreate ? (
+              <div className="text-sm">
+                <p className="mb-2 text-muted">Сохранённых фильтров пока нет. Задайте условия в окне фильтра и нажмите «Сохранить фильтр».</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    close(true);
+                    props.onCreate?.();
+                  }}
+                  className="font-semibold text-ink underline"
+                >
+                  Создать новый фильтр
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm text-muted">Сохранённых фильтров нет.</p>
+            )
           ) : (
             <ul>
               {props.filters.map((f) => (

@@ -3,17 +3,17 @@ import { useLocation, useOutletContext, useSearchParams } from 'react-router';
 import { todayInTimezone } from '../../shared/dates';
 import { AssignPicker } from '../components/journal/AssignPicker';
 import { BulkBar } from '../components/journal/BulkBar';
-import { ColumnsPicker } from '../components/journal/ColumnsPicker';
+import { FilterButton } from '../components/journal/FilterButton';
 import { JournalCards } from '../components/journal/JournalCards';
 import { FilterDialog } from '../components/journal/FilterDialog';
-import { SavedFiltersMenu, unavailableText } from '../components/journal/SavedFiltersMenu';
+import { unavailableText } from '../components/journal/SavedFiltersMenu';
 import { UndoToast } from '../components/journal/UndoToast';
 import { JournalTable, type JournalLookups } from '../components/journal/JournalTable';
 import { JournalToolbar } from '../components/journal/JournalToolbar';
 import { LoadMore } from '../components/journal/LoadMore';
 import { useOpenOperationForm } from '../components/operation/OperationFormHost';
 import { Pending, StaleNotice } from '../components/QueryState';
-import { btnSecondary, btnSmall, noticeClass } from '../components/ui';
+import { btnSecondary, noticeClass } from '../components/ui';
 import { JOURNAL_COLUMNS_PREF, visibleColumns } from '../lib/journal-columns';
 import { api } from '../lib/api';
 import {
@@ -30,7 +30,7 @@ import {
 } from '../lib/journal-filter';
 import { uniqueById } from '../lib/journal-format';
 import { bulkSummary, type BulkAction, type BulkSummary } from '../lib/journal-bulk';
-import { operationErrorText, runBulk, useAssign } from '../lib/journal-mutations';
+import { operationErrorText, refreshOperations, runBulk, useAssign } from '../lib/journal-mutations';
 import { rememberJournal } from '../lib/last-journal';
 import { useIsMobile } from '../lib/media';
 import { queryClient, useMeta } from '../lib/query';
@@ -300,23 +300,22 @@ function JournalScreen(props: {
         baseCurrency={company.baseCurrency}
         today={today}
         mobile={mobile}
-        actions={
-          <>
-            <button type="button" aria-haspopup="dialog" onClick={() => setFilterOpen(true)} className={btnSmall}>
-              Фильтр{conditions > 0 && ` · ${conditions}`}
-            </button>
-            <SavedFiltersMenu
-              companyId={company.id}
-              filters={savedFilters.data}
-              onApply={(f) => {
-                update(stateFromSavedFilter(f.filter, state));
-                setNotice(f.unavailable > 0 ? `Фильтр «${f.name}»: ${unavailableText(f.unavailable)} (удалены или в архиве) — они не применены.` : null);
-              }}
-            />
-            {/* у карточек на телефоне колонок нет */}
-            {!mobile && <ColumnsPicker visible={columns} />}
-          </>
+        filter={
+          <FilterButton
+            count={conditions}
+            onOpen={() => setFilterOpen(true)}
+            canSave={!readOnly}
+            companyId={company.id}
+            filters={savedFilters.data}
+            onApply={(f) => {
+              update(stateFromSavedFilter(f.filter, state));
+              setNotice(f.unavailable > 0 ? `Фильтр «${f.name}»: ${unavailableText(f.unavailable)} (удалены или в архиве) — они не применены.` : null);
+            }}
+          />
         }
+        // ⟳ (§2.5): загруженные страницы перечитываются на месте — таблица не размонтируется, прокрутка остаётся;
+        // сбой перечитывания журнала «Ещё» показывает
+        onRefresh={() => refreshOperations(company.id)}
       />
       <FilterDialog
         open={filterOpen}

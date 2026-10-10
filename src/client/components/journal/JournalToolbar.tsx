@@ -1,27 +1,25 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { getCurrency } from '../../../shared/currencies';
-import { parseAmount } from '../../../shared/money';
 import { clearFilter, isFiltered, journalApiParams, panelConditionCount, SEARCH_MAX, SORT_CHOICES, type JournalUrlState } from '../../lib/journal-filter';
-import { amountInputText } from '../../lib/journal-format';
 import { Drawer } from '../Drawer';
 import { Field } from '../Field';
+import { SearchIcon } from '../icons';
 import { btnSmall, inputClass } from '../ui';
+import { AmountRange } from './AmountRange';
+import { MoreMenu } from './MoreMenu';
 import { PeriodMenu } from './PeriodMenu';
 
 /** Пауза поиска: запрос уходит, когда пользователь перестал печатать. */
 export const SEARCH_DEBOUNCE_MS = 300;
 
 const compactInput = inputClass.replace('py-3', 'py-2');
+const searchInput = compactInput.replace('px-4', 'pl-10 pr-4');
+const squareButton = 'grid size-10 shrink-0 place-items-center rounded-xl bg-field text-ink hover:brightness-95 focus-visible:outline-2 focus-visible:outline-focus';
 
-type OptionalKey = 'q' | 'amountMin' | 'amountMax';
-
-/** Фильтр без необязательных полей keys. */
-function omit(state: JournalUrlState, ...keys: OptionalKey[]): JournalUrlState {
-  const next = { ...state };
-  for (const k of keys) delete next[k];
-  return next;
-}
-
+/**
+ * Поиск (§5.1 этапа 1.5): лупа внутри поля, справа кнопка-лупа «Найти» (применяет сразу); живой поиск через
+ * паузу и по Enter остаётся. Подписи над полем нет — доступное имя «Поиск».
+ */
 function SearchBox({ value, onSearch }: { value: string; onSearch: (q: string) => void }) {
   const [text, setText] = useState(value);
   // последнее значение, которое ушло в адресную строку: отличает внешнюю смену (сброс) от своей
@@ -48,7 +46,7 @@ function SearchBox({ value, onSearch }: { value: string; onSearch: (q: string) =
   return (
     <form
       role="search"
-      className="min-w-48 flex-1"
+      className="flex min-w-48 flex-1 items-center gap-2"
       onSubmit={(e) => {
         e.preventDefault();
         const q = text.trim();
@@ -56,75 +54,33 @@ function SearchBox({ value, onSearch }: { value: string; onSearch: (q: string) =
         onSearchRef.current(q);
       }}
     >
-      <Field label="Поиск">
-        {(c) => (
-          <input
-            {...c}
-            type="search"
-            value={text}
-            maxLength={SEARCH_MAX}
-            placeholder="Комментарий, контрагент, счёт, категория, проект"
-            onChange={(e) => setText(e.target.value)}
-            className={compactInput}
-          />
-        )}
-      </Field>
+      <div className="relative min-w-0 flex-1">
+        <span aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted">
+          <SearchIcon />
+        </span>
+        <input
+          type="search"
+          aria-label="Поиск"
+          value={text}
+          maxLength={SEARCH_MAX}
+          placeholder="Поиск по счетам, контрагентам, комментариям"
+          onChange={(e) => setText(e.target.value)}
+          className={searchInput}
+        />
+      </div>
+      <button type="submit" aria-label="Найти" title="Найти" className={squareButton}>
+        <SearchIcon />
+      </button>
     </form>
   );
 }
 
-function AmountInput(props: { label: string; value: number | undefined; minorUnits: number; onCommit: (v: number | undefined) => void }) {
-  const shown = props.value === undefined ? '' : amountInputText(props.value, props.minorUnits);
-  const [text, setText] = useState(shown);
-  const [error, setError] = useState<string | undefined>();
-
-  // значение сменилось снаружи (сброс, другая граница) — показываем его
-  useEffect(() => {
-    setText(shown);
-    setError(undefined);
-  }, [shown]);
-
-  const commit = () => {
-    const t = text.trim();
-    if (t === '') {
-      setError(undefined);
-      if (props.value !== undefined) props.onCommit(undefined);
-      return;
-    }
-    const minor = parseAmount(t, props.minorUnits);
-    if (minor === null) return setError('Введите сумму');
-    if (minor < 0) return setError('Сумма не меньше нуля');
-    setError(undefined);
-    if (minor !== props.value) props.onCommit(minor);
-  };
-
-  return (
-    <Field label={props.label} error={error} className="w-32">
-      {(c) => (
-        <input
-          {...c}
-          inputMode="decimal"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              commit();
-            }
-          }}
-          className={compactInput}
-        />
-      )}
-    </Field>
-  );
-}
-
 /**
- * Тулбар журнала (§5.1 этапа 1.5): пилюля периода, поиск, сумма от/до в базовой валюте, выгрузка в Excel по
- * текущему фильтру, сброс. actions — кнопки окна «Фильтр», сохранённых фильтров и колонок.
- * На телефоне (`mobile`) на виду только поиск и кнопка «Фильтры · N»: остальное, а также сортировка (у карточек
- * нет заголовков колонок) — в панели, выезжающей справа.
+ * Тулбар журнала (§5.1 этапа 1.5) — одна строка без подписей над полями: пилюля периода, поиск,
+ * «Фильтр · N | ▾» (её собирает страница: окно фильтра и сохранённые фильтры), ✕ «Сбросить фильтр», если что-то
+ * задано, и «Ещё ▾» (сумма, ⟳, колонки, выгрузка).
+ * На телефоне (`mobile`, до плана 1.5-5) на виду только поиск и кнопка «Фильтры · N»: период, сумма, сортировка
+ * (у карточек нет заголовков колонок), «Фильтр | ▾», выгрузка и сброс — в панели, выезжающей справа.
  */
 export function JournalToolbar(props: {
   state: JournalUrlState;
@@ -132,54 +88,40 @@ export function JournalToolbar(props: {
   companyId: number;
   baseCurrency: string;
   today: string;
-  actions?: ReactNode;
+  /** «Фильтр · N | ▾». */
+  filter: ReactNode;
+  /** ⟳ в «Ещё»: журнал, балансы и компании перечитываются (§2.5). */
+  onRefresh: () => Promise<void>;
   mobile?: boolean;
 }) {
   const { state, onChange } = props;
   const currency = getCurrency(props.baseCurrency);
   const exportHref = `/api/v1/companies/${props.companyId}/operations/export.xlsx?${journalApiParams(state, props.today).toString()}`;
-  const setAmount = (key: 'amountMin' | 'amountMax') => (v: number | undefined) => onChange(v === undefined ? omit(state, key) : { ...state, [key]: v });
   // сброс пересоздаёт поиск и суммы: набранный, но не применённый текст (запрос, неверная сумма) не переживёт сброс
-  const [searchKey, setSearchKey] = useState(0);
+  const [resetKey, setResetKey] = useState(0);
   const [panelOpen, setPanelOpen] = useState(false);
   // окно стало шире телефона — панели нет, всё снова в тулбаре
   useEffect(() => {
     if (!props.mobile) setPanelOpen(false);
   }, [props.mobile]);
 
+  const reset = () => {
+    setResetKey((k) => k + 1);
+    onChange(clearFilter(state));
+  };
+  const setQuery = (q: string) => {
+    const next = { ...state };
+    if (q) next.q = q;
+    else delete next.q;
+    onChange(next);
+  };
   const period = <PeriodMenu state={state} today={props.today} onChange={onChange} />;
-  const search = <SearchBox key={searchKey} value={state.q ?? ''} onSearch={(q) => onChange(q ? { ...state, q } : omit(state, 'q'))} />;
-  const amounts = (
-    <>
-      <AmountInput key={`min-${searchKey}`} label={`Сумма от, ${currency.symbol}`} value={state.amountMin} minorUnits={currency.minorUnits} onCommit={setAmount('amountMin')} />
-      <AmountInput key={`max-${searchKey}`} label={`Сумма до, ${currency.symbol}`} value={state.amountMax} minorUnits={currency.minorUnits} onCommit={setAmount('amountMax')} />
-    </>
-  );
-  const buttons = (
-    <div className="flex flex-wrap items-center gap-2">
-      {props.actions}
-      <a href={exportHref} download className={btnSmall}>
-        Выгрузить в Excel
-      </a>
-      {isFiltered(state) && (
-        <button
-          type="button"
-          onClick={() => {
-            setSearchKey((k) => k + 1);
-            onChange(clearFilter(state));
-          }}
-          className={btnSmall}
-        >
-          Сбросить фильтр
-        </button>
-      )}
-    </div>
-  );
+  const search = <SearchBox key={resetKey} value={state.q ?? ''} onSearch={setQuery} />;
 
   if (props.mobile) {
     const count = panelConditionCount(state);
     return (
-      <div className="mb-4 flex items-end gap-2">
+      <div className="mb-4 flex items-center gap-2">
         {search}
         <button
           type="button"
@@ -191,9 +133,12 @@ export function JournalToolbar(props: {
           Фильтры{count > 0 && ` · ${count}`}
         </button>
         <Drawer open={panelOpen} title="Фильтры" side="right" onClose={() => setPanelOpen(false)}>
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-4">
             <div>{period}</div>
-            <div className="flex flex-wrap gap-3">{amounts}</div>
+            <div>
+              <p className="mb-1 text-sm text-muted">Сумма, {currency.symbol}</p>
+              <AmountRange key={resetKey} state={state} onChange={onChange} minorUnits={currency.minorUnits} />
+            </div>
             <Field label="Сортировка" className="w-48">
               {(c) => (
                 <select
@@ -213,7 +158,17 @@ export function JournalToolbar(props: {
                 </select>
               )}
             </Field>
-            {buttons}
+            <div className="flex flex-wrap items-center gap-2">
+              {props.filter}
+              <a href={exportHref} download className={btnSmall}>
+                Выгрузить в Excel
+              </a>
+              {isFiltered(state) && (
+                <button type="button" onClick={reset} className={btnSmall}>
+                  Сбросить фильтр
+                </button>
+              )}
+            </div>
           </div>
         </Drawer>
       </div>
@@ -221,13 +176,24 @@ export function JournalToolbar(props: {
   }
 
   return (
-    <div className="mb-4 flex flex-col gap-3">
-      <div className="flex flex-wrap items-end gap-3">
-        {period}
-        {search}
-        {amounts}
-      </div>
-      {buttons}
+    <div className="mb-4 flex flex-wrap items-center gap-2">
+      {period}
+      {search}
+      {props.filter}
+      {isFiltered(state) && (
+        <button type="button" aria-label="Сбросить фильтр" title="Сбросить фильтр" onClick={reset} className={squareButton}>
+          <span aria-hidden="true">✕</span>
+        </button>
+      )}
+      <MoreMenu
+        companyId={props.companyId}
+        state={state}
+        onChange={onChange}
+        currencySymbol={currency.symbol}
+        minorUnits={currency.minorUnits}
+        exportHref={exportHref}
+        onRefresh={props.onRefresh}
+      />
     </div>
   );
 }
