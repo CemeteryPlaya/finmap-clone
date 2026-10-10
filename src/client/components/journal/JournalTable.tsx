@@ -55,16 +55,26 @@ const AMOUNT_CLASS: Record<JournalItem['type'], string> = {
 };
 
 const thClass = 'px-3 text-left text-xs font-semibold text-muted';
+/**
+ * Раскладка `table-fixed` (H1 финала 1.5-2a): узкие колонки — фиксированной ширины, текстовые делят остаток поровну,
+ * а длинный текст обрезается внутри колонки (truncate + title), не раздвигая таблицу. Так при 1440 px
+ * все колонки по умолчанию помещаются без горизонтальной прокрутки.
+ */
+const COLUMN_WIDTH: Partial<Record<JournalColumnId, string>> = {
+  date: 'w-[7.5rem]',
+  amount: 'w-[9rem]',
+  accrualDate: 'w-[7.5rem]',
+};
 /** Строки одной высоты (§5.2 этапа 1.5): высота ячейки работает как минимальная, содержимое — по центру. */
 const tdClass = 'h-[4.5rem] px-3 py-2 align-middle';
 /** Флажки выделения (§5.2): 18 px, цвет акцента. */
 const checkboxClass = 'size-[18px] shrink-0 cursor-pointer accent-income';
 
-function SortHeader(props: { label: string; column: JournalSortKey; sort: JournalSortKey; order: JournalSortOrder; onSort: JournalTableProps['onSort'] }) {
+function SortHeader(props: { label: string; column: JournalSortKey; sort: JournalSortKey; order: JournalSortOrder; onSort: JournalTableProps['onSort']; className?: string }) {
   const active = props.sort === props.column;
   const next: JournalSortOrder = active && props.order === 'desc' ? 'asc' : 'desc';
   return (
-    <th scope="col" className={thClass} aria-sort={active ? (props.order === 'asc' ? 'ascending' : 'descending') : undefined}>
+    <th scope="col" className={`${thClass} ${props.className ?? ''}`} aria-sort={active ? (props.order === 'asc' ? 'ascending' : 'descending') : undefined}>
       <button
         type="button"
         onClick={() => props.onSort(props.column, next)}
@@ -85,9 +95,9 @@ function SortHeader(props: { label: string; column: JournalSortKey; sort: Journa
  * Без `block` рядом с `line-clamp-2`: в Tailwind 4 `.block` идёт в CSS после `.line-clamp-2` и перебил бы
  * `display: -webkit-box` — обрезки по строкам не было бы.
  */
-function CellText({ text, wrap, width = 'max-w-56' }: { text: string; wrap: boolean; width?: string }) {
+function CellText({ text, wrap }: { text: string; wrap: boolean }) {
   return (
-    <span title={text} className={`${width} ${wrap ? 'line-clamp-2 break-words' : 'block truncate'}`}>
+    <span title={text} className={`min-w-0 ${wrap ? 'line-clamp-2 break-words' : 'block truncate'}`}>
       {text}
     </span>
   );
@@ -148,12 +158,12 @@ export function JournalTable(props: JournalTableProps) {
 
   return (
     <div className="overflow-x-auto">
-      <table aria-busy={props.busy} className={`w-full min-w-[56rem] border-collapse text-sm ${props.busy ? 'opacity-60' : ''}`}>
+      <table aria-busy={props.busy} className={`w-full min-w-[56rem] table-fixed border-collapse text-sm ${props.busy ? 'opacity-60' : ''}`}>
         <caption className="sr-only">Операции</caption>
         <thead>
           <tr className="h-12 border-b border-field">
             {selection && (
-              <th scope="col" className={`${thClass} w-8`}>
+              <th scope="col" className={`${thClass} w-[2.75rem]`}>
                 <input
                   type="checkbox"
                   data-select-all=""
@@ -169,9 +179,9 @@ export function JournalTable(props: JournalTableProps) {
             )}
             {shown.map((c) =>
               c.id === 'date' || c.id === 'amount' ? (
-                <SortHeader key={c.id} label={c.label} column={c.id} sort={props.sort} order={props.order} onSort={props.onSort} />
+                <SortHeader key={c.id} label={c.label} column={c.id} sort={props.sort} order={props.order} onSort={props.onSort} className={COLUMN_WIDTH[c.id]} />
               ) : (
-                <th key={c.id} scope="col" className={thClass}>
+                <th key={c.id} scope="col" className={`${thClass} ${COLUMN_WIDTH[c.id] ?? ''}`}>
                   {c.label}
                 </th>
               ),
@@ -227,11 +237,15 @@ export function JournalTable(props: JournalTableProps) {
                   {share !== null && <span className="block text-xs text-muted">доля проекта: {formatMoney(share, currency, MONEY_SCREEN)}</span>}
                 </span>
               ),
-              accrualDate: item.accrualDate && <span className="whitespace-nowrap">{formatDateShortRu(item.accrualDate)}</span>,
+              accrualDate: item.accrualDate && (
+                <time dateTime={item.accrualDate} className="whitespace-nowrap">
+                  {formatDateShortRu(item.accrualDate)}
+                </time>
+              ),
               account: (
                 <span className="block">
                   <CellText text={item.type === 'transfer' ? `${account?.name ?? '…'} → ${toAccount?.name ?? '…'}` : (account?.name ?? '…')} wrap={wrap} />
-                  <span className="block whitespace-nowrap text-xs tabular-nums">
+                  <span className="block truncate whitespace-nowrap text-xs tabular-nums">
                     <Balance account={account} balance={item.balanceAfter} />
                     {item.type === 'transfer' && toAccount && item.toBalanceAfter !== null && (
                       <>
@@ -247,7 +261,7 @@ export function JournalTable(props: JournalTableProps) {
               counterparty: item.counterpartyId === null ? assign('counterparty') : <CellText text={lookups.counterparties.get(item.counterpartyId) ?? '…'} wrap={wrap} />,
               category: dimensionCell(item, 'categoryId', categoryName, hint, assign('category')),
               project: dimensionCell(item, 'projectId', projectName, hint, assign('project')),
-              comment: item.comment && <CellText text={item.comment} wrap={wrap} width="max-w-xs" />,
+              comment: item.comment && <CellText text={item.comment} wrap={wrap} />,
             };
             return (
               <tr

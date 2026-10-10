@@ -3,7 +3,7 @@ import { api, ApiError } from '../../lib/api';
 import { pluralRu } from '../../lib/journal-format';
 import { queryClient } from '../../lib/query';
 import type { SavedFilter } from '../../lib/queries';
-import { Popover } from '../Popover';
+import { Caret, Popover } from '../Popover';
 import { btnDanger, btnSecondary, btnSmall, inputClass } from '../ui';
 
 /** «N условий недоступно»: ссылки фильтра на удалённые, архивные или чужие элементы (инвариант 10). */
@@ -156,7 +156,7 @@ export function SavedFiltersMenu(props: {
   buttonClassName?: string;
 }) {
   return (
-    <Popover label={<span aria-hidden="true">▾</span>} ariaLabel="Быстрые фильтры" buttonClassName={props.buttonClassName} panelClassName="w-80">
+    <Popover label={<Caret />} ariaLabel="Быстрые фильтры" align="right" buttonClassName={props.buttonClassName} panelClassName="w-80">
       {(close) => (
         <div>
           <p className="mb-2 text-sm font-semibold">Быстрые фильтры</p>

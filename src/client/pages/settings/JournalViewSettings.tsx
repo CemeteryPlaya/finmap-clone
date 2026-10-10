@@ -110,6 +110,7 @@ function JournalViewForm({ prefs }: { prefs: Record<string, unknown> }) {
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
+            aria-describedby="journal-wrap-help"
             checked={wrap}
             onChange={(e) => {
               edited();
@@ -118,7 +119,7 @@ function JournalViewForm({ prefs }: { prefs: Record<string, unknown> }) {
           />
           Показывать полностью (до 2 строк)
         </label>
-        <p className="mt-1 text-xs text-muted">Без флажка длинные названия и комментарии обрезаются в одну строку, полный текст — в подсказке.</p>
+        <p id="journal-wrap-help" className="mt-1 text-xs text-muted">Без флажка длинные названия и комментарии обрезаются в одну строку, полный текст — в подсказке.</p>
       </fieldset>
       <fieldset disabled={pending} className="mb-6">
         <legend className="mb-2 font-semibold">Форма операции</legend>

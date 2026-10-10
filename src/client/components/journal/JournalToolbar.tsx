@@ -24,6 +24,7 @@ function SearchBox({ value, onSearch }: { value: string; onSearch: (q: string) =
   const [text, setText] = useState(value);
   // последнее значение, которое ушло в адресную строку: отличает внешнюю смену (сброс) от своей
   const sent = useRef(value);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const onSearchRef = useRef(onSearch);
   onSearchRef.current = onSearch;
 
@@ -40,6 +41,7 @@ function SearchBox({ value, onSearch }: { value: string; onSearch: (q: string) =
       sent.current = q;
       onSearchRef.current(q);
     }, SEARCH_DEBOUNCE_MS);
+    timerRef.current = t;
     return () => clearTimeout(t);
   }, [text]);
 
@@ -50,6 +52,8 @@ function SearchBox({ value, onSearch }: { value: string; onSearch: (q: string) =
       onSubmit={(e) => {
         e.preventDefault();
         const q = text.trim();
+        // «Найти» применяет сразу: отложенный живой поиск не нужен
+        clearTimeout(timerRef.current);
         sent.current = q;
         onSearchRef.current(q);
       }}
@@ -92,6 +96,8 @@ export function JournalToolbar(props: {
   filter: ReactNode;
   /** ⟳ в «Ещё»: журнал, балансы и компании перечитываются (§2.5). */
   onRefresh: () => Promise<void>;
+  /** Сбой сохранения колонок или «Показывать полностью» после закрытия «Ещё». */
+  onPrefError?: (text: string) => void;
   mobile?: boolean;
 }) {
   const { state, onChange } = props;
@@ -193,6 +199,7 @@ export function JournalToolbar(props: {
         minorUnits={currency.minorUnits}
         exportHref={exportHref}
         onRefresh={props.onRefresh}
+        onPrefError={props.onPrefError}
       />
     </div>
   );

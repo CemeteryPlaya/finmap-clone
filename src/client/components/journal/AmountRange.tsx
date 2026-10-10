@@ -18,7 +18,16 @@ function AmountInput(props: { label: string; placeholder: string; value: number 
     setError(undefined);
   }, [shown]);
 
+  // Esc отменяет набранное, как в окне «Фильтр»: blur при возврате фокуса на кнопку и закрытие панели ничего не применяют.
+  // Сбрасывается следующим вводом
+  const discarded = useRef(false);
+
   const commit = () => {
+    if (discarded.current) {
+      setText(shown);
+      setError(undefined);
+      return;
+    }
     const t = text.trim();
     if (t === '') {
       setError(undefined);
@@ -53,9 +62,19 @@ function AmountInput(props: { label: string; placeholder: string; value: number 
         inputMode="decimal"
         placeholder={props.placeholder}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          discarded.current = false;
+          setText(e.target.value);
+        }}
         onBlur={commit}
         onKeyDown={(e) => {
+          // без preventDefault: Esc дальше закрывает панель
+          if (e.key === 'Escape') {
+            discarded.current = true;
+            setText(shown);
+            setError(undefined);
+            return;
+          }
           if (e.key === 'Enter') {
             e.preventDefault();
             commit();

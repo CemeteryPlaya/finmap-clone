@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { focusHeadingSoon, isPlainLeftClick, pathOf } from '../../lib/focus-heading';
 import type { JournalUrlState } from '../../lib/journal-filter';
 import { ColumnsIcon, DownloadIcon, RefreshIcon } from '../icons';
-import { Popover } from '../Popover';
+import { Caret, Popover } from '../Popover';
 import { AmountRange } from './AmountRange';
 import { ColumnsPanel } from './ColumnsPanel';
 
@@ -19,6 +19,8 @@ interface MoreProps {
   exportHref: string;
   /** ⟳: журнал, счета с балансами и компании перечитываются (§2.5). */
   onRefresh: () => Promise<void>;
+  /** Сбой сохранения колонок или «Показывать полностью» после закрытия панели — страница показывает его плашкой. */
+  onPrefError?: (text: string) => void;
 }
 
 function MorePanel(props: MoreProps) {
@@ -70,7 +72,7 @@ function MorePanel(props: MoreProps) {
       </p>
       {columnsOpen && (
         <div id={columnsId} className="mt-3 border-t border-field pt-3">
-          <ColumnsPanel />
+          <ColumnsPanel onFailAway={props.onPrefError} />
           <Link
             to={settings}
             onClick={(e) => {
@@ -92,14 +94,17 @@ function MorePanel(props: MoreProps) {
  * «Настройки журнала» — вложенного окна нет. Итог ⟳ — в живой области панели.
  */
 export function MoreMenu(props: MoreProps) {
+  // заданная сумма спрятана в закрытой панели — число границ («Ещё · 2») показывает, что журнал сужен
+  const bounds = (props.state.amountMin !== undefined ? 1 : 0) + (props.state.amountMax !== undefined ? 1 : 0);
   return (
     <Popover
       label={
         <>
-          Ещё <span aria-hidden="true">▾</span>
+          Ещё{bounds > 0 && ` · ${bounds}`} <Caret />
         </>
       }
-      ariaLabel="Ещё"
+      ariaLabel={bounds > 0 ? `Ещё · ${bounds}, задана сумма` : 'Ещё'}
+      panelLabel="Ещё"
       align="right"
       panelClassName="w-[30rem] max-w-[calc(100vw-1rem)]"
     >

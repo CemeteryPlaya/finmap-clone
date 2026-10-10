@@ -6,6 +6,15 @@ import { useFloating } from './useFloating';
 
 const FOCUSABLE = 'input:not([disabled]), button:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"], a[href]';
 
+/** Стрелка ▾ на кнопке Popover: при открытой панели переворачивается (▴); для чтения с экрана скрыта. */
+export function Caret() {
+  return (
+    <span aria-hidden="true" className="inline-block group-aria-expanded:rotate-180">
+      ▾
+    </span>
+  );
+}
+
 /**
  * Всплывающая панель у кнопки: кнопка с aria-haspopup и aria-expanded, панель — немодальный role="dialog".
  * Панель рисуется порталом в body (position: fixed), поэтому её не обрезают контейнеры с прокруткой
@@ -116,7 +125,7 @@ export function Popover(props: {
           e.preventDefault();
           first.focus();
         }}
-        className={`${props.buttonClassName ?? btnSmall} aria-disabled:cursor-not-allowed aria-disabled:opacity-50`}
+        className={`group ${props.buttonClassName ?? btnSmall} aria-disabled:cursor-not-allowed aria-disabled:opacity-50`}
       >
         {props.label}
       </button>

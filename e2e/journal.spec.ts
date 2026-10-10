@@ -223,7 +223,8 @@ test('тулбар: поиск с паузой, период, сумма от/д
     'Выбрать даты',
   ]);
   await expect(periodMenu.getByRole('button', { name: 'За все время', exact: true })).toHaveAttribute('aria-current', 'true');
-  await expect(periodMenu.getByRole('button', { name: 'За текущий год', exact: true })).toBeFocused();
+  // фокус при открытии — на текущем пункте (замечание 6)
+  await expect(periodMenu.getByRole('button', { name: 'За все время', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(periodMenu).toBeHidden();
   await expect(periodButton).toBeFocused();
@@ -327,6 +328,27 @@ test('тулбар: поиск с паузой, период, сумма от/д
   await expect(moreMenu).toBeHidden();
   await expect(page).toHaveURL(/min=100000&max=200000$/);
   await expect(bodyRows(page)).toHaveCount(2);
+
+  // заданная сумма видна у закрытой кнопки: «Ещё · N» по числу границ, в имени — тоже (H2 финала 1.5-2a)
+  const moreWithAmount = page.getByRole('button', { name: /^Ещё · 2/ });
+  await expect(moreWithAmount).toHaveText('Ещё · 2 ▾');
+  await expect(moreWithAmount).toHaveAccessibleName('Ещё · 2, задана сумма');
+  // Esc отменяет набранную, но не применённую сумму; щелчок мимо и Tab — применяют (замечание 3)
+  await moreWithAmount.click();
+  await moreMenu.getByLabel('Сумма до').fill('3000');
+  await page.keyboard.press('Escape');
+  await expect(moreMenu).toBeHidden();
+  await expect(moreWithAmount).toBeFocused();
+  await expect(page).toHaveURL(/min=100000&max=200000$/);
+  await moreWithAmount.click();
+  await expect(moreMenu.getByLabel('Сумма до')).toHaveValue('2000');
+  await page.keyboard.press('Escape');
+  // стрелка ▾ перевёрнута только у открытой панели
+  const caret = moreWithAmount.locator('span[aria-hidden="true"]');
+  await expect(caret).toHaveCSS('rotate', 'none');
+  await moreWithAmount.click();
+  await expect(caret).toHaveCSS('rotate', '180deg');
+  await page.keyboard.press('Escape');
 
   // «Сбросить фильтр» — ✕ рядом с «Фильтр»
   await page.getByRole('button', { name: 'Сбросить фильтр' }).click();
@@ -620,4 +642,114 @@ test('«Готово» в окне «Фильтр» не затирает пои
   await expect(page).toHaveURL(/q=/);
   await expect(page).toHaveURL(/type=income/);
   await expect(search).toHaveValue('аренда');
+});
+
+test('таблица помещается по ширине на 1440 px: все колонки по умолчанию видны без горизонтальной прокрутки, длинный текст обрезан с подсказкой (H1 финала 1.5-2a)', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await login(page);
+  const cid = await createCompany(page, `ТОО Ширина ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const account = (await apiPost(page, `${base}/accounts`, { name: 'Основной расчётный счёт в банке для клуба на Абая', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 5000000 })).account.id;
+  const category = (await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Очень длинное название категории расходов клуба' })).category.id;
+  const project = (await apiPost(page, `${base}/projects`, { name: 'Очень длинное название проекта на Абая', templateKey: 'general' })).project.id;
+  const counterparty = (await apiPost(page, `${base}/counterparties`, { name: 'ТОО Поставщик с очень длинным названием для проверки', type: 'supplier' })).counterparty.id;
+  const comment = 'Длинный комментарий оператора, который должен обрезаться в одну строку и остаться доступным в подсказке. '.repeat(3).trim();
+  await apiPost(page, `${base}/operations`, {
+    type: 'expense',
+    paidAt: todayAgo(1),
+    accountId: account,
+    counterpartyId: counterparty,
+    amount: 123456789,
+    lines: [{ categoryId: category, projectId: project, amount: 123456789 }],
+    comment,
+  });
+  await page.reload();
+  await expect(bodyRows(page)).toHaveCount(1);
+
+  const header = table(page).getByRole('columnheader', { name: 'Комментарий', exact: true });
+  await expect(header).toBeVisible();
+  const wrapper = table(page).locator('xpath=..');
+  const widths = await wrapper.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+  expect(widths.scroll, JSON.stringify(widths)).toBeLessThanOrEqual(widths.client + 1);
+  const box = (await header.boundingBox())!;
+  expect(box.x + box.width).toBeLessThanOrEqual(1440);
+  // комментарий виден хотя бы частично и обрезан одной строкой с полной подсказкой
+  const cell = bodyRows(page).first().locator('[data-column="comment"] [title]');
+  await expect(cell).toHaveAttribute('title', comment);
+  await expect(cell).toHaveClass(/truncate/);
+  expect((await cell.boundingBox())!.width).toBeGreaterThan(60);
+  // каждая ячейка обрезает текст у себя, а не раздвигает таблицу
+  const fits = await bodyRows(page)
+    .first()
+    .locator('td[data-column]')
+    .evaluateAll((tds) => tds.map((td) => td.scrollWidth <= td.clientWidth + 1));
+  expect(fits.every(Boolean), fits.join()).toBe(true);
+});
+
+test('⟳ «Обновить»: сбой перечитывания журнала показан в панели «Ещё»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Сбой обновления ${Date.now()}`);
+  const kaspi = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: todayAgo(1), accountId: kaspi, amount: 100, comment: 'до сбоя' });
+  await page.reload();
+  await expect(bodyRows(page)).toHaveCount(1);
+
+  // первый запрос журнала после нажатия ⟳ отвечает ошибкой 400 (её не повторяют), остальные идут как обычно
+  let fail = false;
+  await page.route(new RegExp(`/api/v1/companies/${cid}/operations\\?`), async (route) => {
+    if (fail) {
+      fail = false;
+      await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Сбой для проверки' }) });
+      return;
+    }
+    await route.fallback();
+  });
+  const more = page.getByRole('button', { name: 'Ещё', exact: true });
+  const menu = page.getByRole('dialog', { name: 'Ещё', exact: true });
+  await more.click();
+  fail = true;
+  await menu.getByRole('button', { name: 'Обновить' }).click();
+  await expect(menu.getByRole('status')).toHaveText('Не удалось обновить журнал');
+  await expect(bodyRows(page)).toHaveCount(1);
+  // повторное нажатие проходит
+  await menu.getByRole('button', { name: 'Обновить' }).click();
+  await expect(menu.getByRole('status')).toHaveText('Журнал обновлён');
+});
+
+test('самая высокая строка: перевод между валютами с суммой в базовой и «Показывать полностью» на двустрочном счёте — строки одной высоты, содержимое не обрезано', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await login(page);
+  const cid = await createCompany(page, `ТОО Высокая строка ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const usd = (await apiPost(page, `${base}/accounts`, { name: 'Валютный счёт основного зала клуба на первом этаже', currency: 'USD', openedAt: '2020-01-01', startingBalance: 1000 })).account.id;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса клуба северного филиала на втором этаже', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/fixed-rates`, { currency: 'USD', rate: '500', validFrom: '2020-01-01' });
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(3), accountId: cash, amount: 1000, comment: 'обычная' });
+  await apiPost(page, `${base}/operations`, { type: 'transfer', paidAt: todayAgo(1), accountId: usd, toAccountId: cash, amount: 100, toAmount: 50000 });
+  const before = (await (await page.request.get('/api/v1/preferences')).json()).preferences as Record<string, unknown>;
+  try {
+    await page.request.put('/api/v1/preferences/journal.wrap', { data: { value: true }, headers: csrf(page) });
+    await page.reload();
+    await expect(bodyRows(page)).toHaveCount(2);
+    const transfer = bodyRows(page).first();
+    // в ячейке суммы несколько строк: сумма, «→ в валюте получателя» и сумма в базовой валюте
+    await expect(transfer.locator('[data-column="amount"]')).toContainText(/→/);
+    const heights = await bodyRows(page).evaluateAll((rows) => rows.map((r) => Math.round(r.getBoundingClientRect().height)));
+    expect(Math.max(...heights) - Math.min(...heights), heights.join()).toBeLessThanOrEqual(1);
+    // содержимое каждой ячейки умещается в строку
+    const overflow = await transfer.evaluate((row) => {
+      const r = row.getBoundingClientRect();
+      return Array.from(row.querySelectorAll('td > *')).filter((el) => {
+        const b = el.getBoundingClientRect();
+        return b.height > 0 && (b.top < r.top - 1 || b.bottom > r.bottom + 1);
+      }).length;
+    });
+    expect(overflow).toBe(0);
+    // название счёта занимает две строки: перенос действует
+    const name = transfer.locator('[data-column="account"] [title]');
+    const lineHeight = await name.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+    expect((await name.boundingBox())!.height).toBeGreaterThan(lineHeight * 1.5);
+  } finally {
+    await page.request.put('/api/v1/preferences/journal.wrap', { data: { value: before['journal.wrap'] ?? null }, headers: csrf(page) });
+  }
 });

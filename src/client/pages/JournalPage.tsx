@@ -307,6 +307,8 @@ function JournalScreen(props: {
         // ⟳ (§2.5): загруженные страницы перечитываются на месте — таблица не размонтируется, прокрутка остаётся;
         // сбой перечитывания журнала «Ещё» показывает
         onRefresh={() => refreshOperations(company.id)}
+        // колонки и «Показывать полностью» не сохранились, а «Ещё» уже закрыт — ошибку видно на странице
+        onPrefError={setActionError}
       />
       <FilterDialog
         open={filterOpen}

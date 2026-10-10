@@ -94,14 +94,14 @@ test('сохранённые фильтры: сохранить из окна «
   await expect(dialog).toBeHidden();
   await expect.poll(() => letters(page)).toBe('CA');
 
-  // применить после сброса: период сохранён датами — «Произвольно»
+  // применить после сброса: период сохранён датами — «Выбрать даты» (custom)
   await page.getByRole('button', { name: 'Сбросить фильтр' }).click();
   await expect.poll(() => letters(page)).toBe('CBA');
   await menuButton.click();
   await page.getByRole('button', { name: 'Применить фильтр «Доходы за день»' }).click();
   await expect(menuButton).toBeFocused();
   await expect(page).toHaveURL(/from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}&type=income$/);
-  await expect(page.getByRole('button', { name: /^Период:/ })).toHaveAccessibleName(/^Период: \d{2}\.\d{2}\.\d{4} – \d{2}\.\d{2}\.\d{4}$/);
+  await expect(page.getByRole('button', { name: /^Период:/ })).toHaveAccessibleName(/^Период: \d{2}\.\d{2}\.\d{4}( – \d{2}\.\d{2}\.\d{4})?$/);
   await expect.poll(() => letters(page)).toBe('CA');
 
   // переименовать

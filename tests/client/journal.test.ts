@@ -95,6 +95,7 @@ describe('меню периода (§5.1 этапа 1.5)', () => {
     expect(periodLabel({ period: 'all' })).toBe('За все время');
     expect(periodLabel({ period: 'lastYear' })).toBe('За предыдущий год');
     expect(periodLabel({ period: 'custom', from: '2026-10-04', to: '2026-10-10' })).toBe('04.10.2026 – 10.10.2026');
+    expect(periodLabel({ period: 'custom', from: '2026-10-04', to: '2026-10-04' })).toBe('04.10.2026');
     expect(periodLabel({ period: 'custom', from: '2026-10-04' })).toBe('с 04.10.2026');
     expect(periodLabel({ period: 'custom', to: '2026-10-10' })).toBe('по 10.10.2026');
     expect(periodLabel({ period: 'custom' })).toBe('Выбрать даты');

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { PERIODS, periodLabel, periodRange, withPeriod, type JournalUrlState } from '../../lib/journal-filter';
 import { DateField } from '../DateField';
-import { Popover } from '../Popover';
+import { Caret, Popover } from '../Popover';
 import { btnPrimary } from '../ui';
 
 export const pillClass =
@@ -58,6 +58,8 @@ function PeriodPanel(props: { state: JournalUrlState; today: string; onChange: (
             <button
               type="button"
               aria-current={current ? 'true' : undefined}
+              // при открытии фокус — на текущем пункте
+              data-autofocus={current ? '' : undefined}
               onClick={() => {
                 if (p.key === 'custom') {
                   setChoosing(true);
@@ -94,7 +96,7 @@ export function PeriodMenu(props: { state: JournalUrlState; today: string; onCha
       label={
         <>
           <span className="truncate">{label}</span>
-          <span aria-hidden="true">▾</span>
+          <Caret />
         </>
       }
       ariaLabel={`Период: ${label}`}

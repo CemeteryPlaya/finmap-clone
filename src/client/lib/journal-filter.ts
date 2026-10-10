@@ -221,9 +221,10 @@ export function withPeriod(state: JournalUrlState, period: PeriodKey, range: { f
   return next;
 }
 
-/** Подпись пилюли периода: пункт меню, у своих дат — «04.10.2026 – 10.10.2026», «с 04.10.2026», «по 10.10.2026». */
+/** Подпись пилюли периода: пункт меню, у своих дат — «04.10.2026 – 10.10.2026», «с 04.10.2026», «по 10.10.2026»; при совпадении границ — одна дата. */
 export function periodLabel(state: Pick<JournalUrlState, 'period' | 'from' | 'to'>): string {
   if (state.period !== 'custom') return PERIODS.find((p) => p.key === state.period)?.label ?? '';
+  if (state.from && state.to && state.from === state.to) return formatDateRu(state.from);
   if (state.from && state.to) return `${formatDateRu(state.from)} – ${formatDateRu(state.to)}`;
   if (state.from) return `с ${formatDateRu(state.from)}`;
   if (state.to) return `по ${formatDateRu(state.to)}`;
@@ -350,7 +351,7 @@ export function savedFilterFromState(state: JournalUrlState, today: string): Sav
   return f;
 }
 
-/** Сохранённый фильтр → фильтр журнала: даты — период «Произвольно», сортировка остаётся текущей. */
+/** Сохранённый фильтр → фильтр журнала: даты — период «Выбрать даты» (custom), сортировка остаётся текущей. */
 export function stateFromSavedFilter(filter: SavedJournalFilter, current: Pick<JournalUrlState, 'sort' | 'order'>): JournalUrlState {
   const state: JournalUrlState = { ...EMPTY_JOURNAL_STATE, sort: current.sort, order: current.order };
   if (filter.from || filter.to) {
