@@ -32,6 +32,16 @@ async function addUser(page: Page, cid: number, login: string, name: string, pas
 const uniqueLogin = (prefix: string) =>
   `${prefix}${String(Date.now() % 1_000_000).padStart(6, '0')}${String(Math.floor(Math.random() * 100)).padStart(2, '0')}`; // одна длина — нет совпадений по префиксу
 
+const csrf = (page: Page) => ({ origin: new URL(page.url()).origin, 'x-requested-with': 'fetch' });
+
+async function apiPost(page: Page, url: string, data: unknown) {
+  const res = await page.request.post(url, { data, headers: csrf(page) });
+  expect(res.status(), await res.text()).toBeLessThan(300);
+  return res.json();
+}
+
+const minuteAgo = () => new Date(Date.now() - 60_000).toISOString();
+
 const section = (page: Page, name: string) => page.getByRole('navigation', { name: 'Разделы настроек' }).getByRole('link', { name });
 
 test('пользователи: сброс пароля и отключение сразу завершают чужой сеанс; себя отключить нельзя', async ({ page, browser }) => {
@@ -108,7 +118,9 @@ test('история: события компании с именем польз
   await page.getByRole('button', { name: 'Сохранить' }).click();
   await expect(page.getByRole('listitem').filter({ hasText: 'Аренда зала' })).toBeVisible();
 
-  await page.goto(`/c/${cid}/settings/audit`);
+  await page.getByRole('banner').getByRole('button', { name: 'История действий' }).click();
+  await page.getByRole('dialog', { name: 'История действий' }).getByRole('link', { name: 'Подробнее' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/audit$`));
   const first = page.getByRole('listitem').first();
   await expect(first).toContainText('Админ');
   await expect(first).toContainText('Изменение');
@@ -179,4 +191,49 @@ test('панель «Компании»: текущая компания не у
   // стартовый экран открывает последнюю компанию
   await page.goto('/');
   await expect(page).toHaveURL(new RegExp(`/c/${alphaId}/log$`));
+});
+
+test('панель «История действий»: последние действия с операциями, открытие операции, «Подробнее»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Лента ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  const income = (await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minuteAgo(), accountId: cash, amount: 131700, comment: 'выручка' })).operation;
+  const expense = (await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: minuteAgo(), accountId: cash, amount: 50000 })).operation;
+  expect((await page.request.patch(`${base}/operations/${income.id}`, { data: { version: 1, comment: 'выручка за смену' }, headers: csrf(page) })).status()).toBe(200);
+  expect((await page.request.delete(`${base}/operations/${expense.id}`, { headers: csrf(page) })).status()).toBe(200);
+  await page.reload();
+
+  const open = page.getByRole('banner').getByRole('button', { name: 'История действий' });
+  await expect(open).toHaveAttribute('title', 'История действий');
+  await open.click();
+  const drawer = page.getByRole('dialog', { name: 'История действий' });
+  const items = drawer.getByRole('list', { name: 'Последние действия' }).getByRole('listitem');
+  await expect(items).toHaveCount(4);
+  await expect(items.nth(0)).toContainText('Удалён расход');
+  await expect(items.nth(0)).toContainText(/₸\s500/);
+  await expect(items.nth(0)).toContainText('Касса');
+  await expect(items.nth(0)).toContainText(/Админ · \d{2}\.\d{2}\.\d{4}, \d{2}:\d{2}:\d{2}/);
+  await expect(items.nth(1)).toContainText('Изменён доход');
+  await expect(items.nth(1)).toContainText('Изменено: Комментарий');
+  await expect(items.nth(2)).toContainText('Добавлен расход');
+  await expect(items.nth(3)).toContainText('Добавлен доход');
+  await expect(items.nth(3)).toContainText(/₸\s1\s317/);
+  // удалённый расход не открыть ни из записи об удалении, ни из записи о добавлении
+  await expect(items.nth(0).getByRole('button')).toHaveCount(0);
+  await expect(items.nth(2).getByRole('button')).toHaveCount(0);
+
+  // запись о доходе открывает его в форме, панель закрывается
+  await items.nth(1).getByRole('button').click();
+  await expect(drawer).toBeHidden();
+  const form = page.getByRole('dialog', { name: 'Изменить операцию' });
+  await expect(form.getByLabel('Комментарий')).toHaveValue('выручка за смену');
+  await page.keyboard.press('Escape');
+  await expect(form).toBeHidden();
+
+  // «Подробнее» — полная лента в настройках, фокус на её заголовке
+  await open.click();
+  await drawer.getByRole('link', { name: 'Подробнее' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/audit$`));
+  await expect(page.getByRole('heading', { level: 1, name: 'История действий' })).toBeFocused();
 });

@@ -3,6 +3,7 @@ import { Navigate, NavLink, Outlet, useMatch, useParams } from 'react-router';
 import { AccountsDrawerButton, AccountsPanel } from '../components/AccountsPanel';
 import { AppHeader } from '../components/AppHeader';
 import { CompanyBlockButton } from '../components/CompaniesDrawer';
+import { HistoryButton } from '../components/HistoryDrawer';
 import { LoadError } from '../components/LoadError';
 import { NewOperationButtons, OperationFormHost } from '../components/operation/OperationFormHost';
 import { mainCardClass } from '../components/ui';
@@ -49,6 +50,7 @@ export function CompanyLayout() {
           }
           // архивная компания — только чтение: новых операций нет ни в шапке, ни в нижней панели
           actions={company.archivedAt ? undefined : <NewOperationButtons />}
+          tools={<HistoryButton company={company} />}
           menu={{ companyId: company.id, companyName: company.name }}
         />
         <div className="flex items-start gap-4 md:mx-4">

@@ -294,6 +294,14 @@ export function useAuditFeed(companyId: number | null, filters: { userId?: numbe
   });
 }
 
+/** Последние 20 действий с операциями компании — панель «История действий» (§3.4 этапа 1.5); при каждом открытии свежие. */
+export function useOperationHistory(companyId: number) {
+  return useQuery<AuditEntry[], ApiError>({
+    queryKey: ['audit', companyId, 'operations-recent'],
+    queryFn: async () => (await api<AuditPage>(`/companies/${companyId}/audit?entity=operation&limit=20`)).entries,
+  });
+}
+
 export interface BackupStatus {
   last: { file: string; createdAt: string; size: number } | null;
   copyDir: string | null;

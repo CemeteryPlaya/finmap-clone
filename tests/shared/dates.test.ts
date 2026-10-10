@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, formatDateRu, formatDateTime, isValidDate, startOfDayUtc, todayInTimezone, zoneOffsetMs } from '../../src/shared/dates';
+import { addDays, formatDateRu, formatDateTime, formatDateTimeSec, isValidDate, startOfDayUtc, todayInTimezone, zoneOffsetMs } from '../../src/shared/dates';
 
 describe('todayInTimezone', () => {
   it('возвращает календарную дату в указанном поясе', () => {
@@ -69,5 +69,12 @@ describe('zoneOffsetMs', () => {
   it('смещение в момент времени, миллисекунды не мешают', () => {
     expect(zoneOffsetMs(Date.parse('2026-10-05T05:00:00.500Z'), 'Asia/Almaty')).toBe(5 * 3600_000);
     expect(zoneOffsetMs(Date.parse('2024-01-15T05:00:00.000Z'), 'Asia/Almaty')).toBe(6 * 3600_000);
+  });
+});
+
+describe('formatDateTimeSec', () => {
+  it('дата и время до секунд в поясе приложения', () => {
+    expect(formatDateTimeSec('2026-10-04T05:32:15.000Z', 'Asia/Almaty')).toBe('04.10.2026, 10:32:15');
+    expect(formatDateTimeSec('2026-10-04T19:00:01.000Z', 'Asia/Almaty')).toBe('05.10.2026, 00:00:01');
   });
 });

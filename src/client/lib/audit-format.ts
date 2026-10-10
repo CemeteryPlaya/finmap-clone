@@ -77,3 +77,18 @@ export function formatBytes(n: number): string {
   }
   return `${v.toFixed(1).replace('.', ',').replace(/,0$/, '')} ${units[i]}`;
 }
+
+/**
+ * «Подробности» записи на полной странице «История действий». Для панели истории (§3.4 этапа 1.5) сервер пишет
+ * в удаление и восстановление операции тип, сумму, счёт и дату: счёт по id здесь не нужен, а у восстановления
+ * подробностей нет, как раньше. Тип в записи правки странице не мешает: таблица «Было / Стало» строится по before/after.
+ */
+export function pageDiff(e: { entity: string; action: string; diff: Record<string, unknown> | null }): Record<string, unknown> | null {
+  if (e.entity !== 'operation' || e.diff === null) return e.diff;
+  if (e.action === 'restore') return null;
+  if (e.action === 'delete') {
+    const { accountId: _accountId, ...rest } = e.diff;
+    return rest;
+  }
+  return e.diff;
+}

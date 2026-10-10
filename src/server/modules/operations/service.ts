@@ -362,7 +362,9 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
           entity: 'operation',
           entityId: id,
           action: 'update',
-          diff: { ...changes, ...(recalc ? { recalculated: { rate: [current.rate, rate], baseAmount: [current.baseAmount, baseAmount] } } : {}) },
+          // тип после правки — для панели «История действий» («Изменён расход», §3.4 этапа 1.5); смена типа
+          // (план 1.5-6) видна ещё и в before.type / after.type, как любое изменённое поле
+          diff: { type: draft.type, ...changes, ...(recalc ? { recalculated: { rate: [current.rate, rate], baseAmount: [current.baseAmount, baseAmount] } } : {}) },
         });
       });
       return load(companyId, id);
@@ -379,7 +381,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
           .set({ deletedAt: now().toISOString(), updatedAt: now().toISOString(), version: current.version + 1 })
           .where(eq(operations.id, id))
           .run();
-        record({ companyId, userId, entity: 'operation', entityId: id, action: 'delete', diff: { type: current.type, amount: current.amount, paidAt: current.paidAt } });
+        record({ companyId, userId, entity: 'operation', entityId: id, action: 'delete', diff: { type: current.type, amount: current.amount, accountId: current.accountId, paidAt: current.paidAt } });
       });
       return load(companyId, id);
     },
@@ -397,7 +399,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
           .set({ deletedAt: null, updatedAt: now().toISOString(), version: current.version + 1 })
           .where(eq(operations.id, id))
           .run();
-        record({ companyId, userId, entity: 'operation', entityId: id, action: 'restore' });
+        record({ companyId, userId, entity: 'operation', entityId: id, action: 'restore', diff: { type: current.type, amount: current.amount, accountId: current.accountId, paidAt: current.paidAt } });
       });
       return load(companyId, id);
     },

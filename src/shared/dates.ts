@@ -34,6 +34,20 @@ export function formatDateTime(iso: string, timeZone: string): string {
   }).format(new Date(iso));
 }
 
+/** Дата и время до секунд в поясе приложения: «04.10.2026, 10:32:15» (панель «История действий», §3.4 этапа 1.5). */
+export function formatDateTimeSec(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat('ru-RU', {
+    timeZone,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(iso));
+}
+
 /** Календарная дата `YYYY-MM-DD`, сдвинутая на days дней. */
 export function addDays(date: string, days: number): string {
   const [y, m, d] = date.split('-').map(Number) as [number, number, number];

@@ -4,7 +4,7 @@ import { formatDateTime } from '../../../shared/dates';
 import { Field } from '../../components/Field';
 import { Pending, StaleNotice } from '../../components/QueryState';
 import { btnSecondary, inputClass } from '../../components/ui';
-import { ACTION_LABELS, COMPANY_ENTITIES, diffRows, ENTITY_LABELS, SYSTEM_ENTITIES } from '../../lib/audit-format';
+import { ACTION_LABELS, COMPANY_ENTITIES, diffRows, ENTITY_LABELS, pageDiff, SYSTEM_ENTITIES } from '../../lib/audit-format';
 import { useMeta } from '../../lib/query';
 import { useAuditFeed, useUsers, type AuditEntry } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
@@ -12,7 +12,8 @@ import type { CompanyOutletContext } from '../CompanyLayout';
 type Scope = 'company' | 'system';
 
 function AuditItem({ e, timeZone }: { e: AuditEntry; timeZone: string }) {
-  const rows = diffRows(e.diff);
+  const diff = pageDiff(e);
+  const rows = diffRows(diff);
   return (
     <li className="rounded-2xl border border-field p-3 text-sm">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -26,7 +27,7 @@ function AuditItem({ e, timeZone }: { e: AuditEntry; timeZone: string }) {
           {e.entityId !== null ? ` №${e.entityId}` : ''}
         </span>
       </div>
-      {e.diff && (
+      {diff && (
         <details className="mt-2">
           <summary className="cursor-pointer text-muted">Подробности</summary>
           {rows ? (
@@ -49,7 +50,7 @@ function AuditItem({ e, timeZone }: { e: AuditEntry; timeZone: string }) {
               </tbody>
             </table>
           ) : (
-            <pre className="mt-2 overflow-x-auto rounded-xl bg-field p-3 text-xs">{JSON.stringify(e.diff, null, 2)}</pre>
+            <pre className="mt-2 overflow-x-auto rounded-xl bg-field p-3 text-xs">{JSON.stringify(diff, null, 2)}</pre>
           )}
         </details>
       )}
