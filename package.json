@@ -11,6 +11,8 @@
     "build:client": "vite build",
     "start": "tsx scripts/run.ts",
     "stop": "tsx scripts/stop.ts",
+    "service:install": "tsx scripts/service-install.ts",
+    "service:uninstall": "tsx scripts/service-uninstall.ts",
     "setup": "tsx scripts/setup.ts",
     "user:add": "tsx scripts/user-add.ts",
     "user:passwd": "tsx scripts/user-passwd.ts",
