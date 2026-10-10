@@ -11,7 +11,7 @@ export function CollapseButton(props: { collapsed: boolean; onToggle: () => void
       aria-label={label}
       title={label}
       onClick={props.onToggle}
-      className="absolute -right-4 top-8 z-10 grid h-8 w-8 place-items-center rounded-full border border-field bg-card text-ink shadow hover:bg-field"
+      className="absolute -right-4 top-8 z-10 grid h-8 w-8 place-items-center rounded-full border border-field bg-card text-ink shadow hover:bg-field focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
     >
       <span aria-hidden="true">{props.collapsed ? '›' : '‹'}</span>
     </button>

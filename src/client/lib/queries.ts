@@ -299,6 +299,7 @@ export function useOperationHistory(companyId: number) {
   return useQuery<AuditEntry[], ApiError>({
     queryKey: ['audit', companyId, 'operations-recent'],
     queryFn: async () => (await api<AuditPage>(`/companies/${companyId}/audit?entity=operation&limit=20`)).entries,
+    refetchOnMount: 'always',
   });
 }
 

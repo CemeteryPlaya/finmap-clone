@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { focusHeadingSoon } from '../lib/focus-heading';
+import { focusHeadingSoon, isPlainLeftClick } from '../lib/focus-heading';
 import { historyItems, type HistoryItem } from '../lib/history';
 import { useMeta } from '../lib/query';
 import { useAccounts, useOperationHistory, type Company } from '../lib/queries';
@@ -16,6 +16,9 @@ const AMOUNT_CLASS: Record<NonNullable<HistoryItem['type']>, string> = { income:
 export function HistoryButton({ company }: { company: Company }) {
   const [open, setOpen] = useState(false);
   const navigated = useRef(false);
+  /** Операция из списка: форма открывается, когда панель уже закрыта, — по закрытии формы фокус вернётся на эту кнопку. */
+  const pendingOperation = useRef<number | null>(null);
+  const openForm = useOpenOperationForm();
   return (
     <>
       <button type="button" aria-label="История действий" title="История действий" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)} className={headerIconClass}>
@@ -29,15 +32,31 @@ export function HistoryButton({ company }: { company: Company }) {
         afterClose={() => {
           const handled = navigated.current;
           navigated.current = false;
-          return handled;
+          const id = pendingOperation.current;
+          pendingOperation.current = null;
+          if (id === null) return handled;
+          openForm({ kind: 'edit', id });
+          return false; // фокус сначала на кнопку открытия: она станет «откуда открыли» для формы
         }}
+        footer={
+          <Link
+            to={`/c/${company.id}/settings/audit`}
+            onClick={(e) => {
+              if (!isPlainLeftClick(e)) return;
+              navigated.current = true;
+              focusHeadingSoon(`/c/${company.id}/settings/audit`);
+              setOpen(false);
+            }}
+            className={`${btnPrimary} block text-center`}
+          >
+            Подробнее
+          </Link>
+        }
       >
         <HistoryList
           company={company}
-          onOpenOperation={() => setOpen(false)}
-          onMore={() => {
-            navigated.current = true;
-            focusHeadingSoon();
+          onOpenOperation={(id) => {
+            pendingOperation.current = id;
             setOpen(false);
           }}
         />
@@ -46,29 +65,17 @@ export function HistoryButton({ company }: { company: Company }) {
   );
 }
 
-function HistoryList(props: { company: Company; onOpenOperation: () => void; onMore: () => void }) {
+function HistoryList(props: { company: Company; onOpenOperation: (id: number) => void }) {
   const feed = useOperationHistory(props.company.id);
   const accounts = useAccounts(props.company.id);
   const meta = useMeta();
-  const openForm = useOpenOperationForm();
-  const more = (
-    <Link to={`/c/${props.company.id}/settings/audit`} onClick={props.onMore} className={`${btnPrimary} mt-4 block text-center`}>
-      Подробнее
-    </Link>
-  );
-  if (!feed.data || !accounts.data || !meta.data) {
-    return (
-      <>
-        <Pending queries={[feed, accounts, meta]} />
-        {more}
-      </>
-    );
-  }
+  // прошлые строки при повторном открытии не показываем: «Загрузка…», пока не пришёл свежий ответ
+  if (!feed.data || !feed.isFetchedAfterMount || !accounts.data || !meta.data) return <Pending queries={[feed, accounts, meta]} />;
   const items = historyItems(feed.data, { accounts: new Map(accounts.data.map((a) => [a.id, a])), timeZone: meta.data.timezone });
 
   return (
-    <div className="flex min-h-full flex-col">
-      <div className="flex-1">
+    <div>
+      <div>
         {items.length === 0 ? (
           <p className="text-sm text-muted">Действий с операциями пока нет.</p>
         ) : (
@@ -93,10 +100,7 @@ function HistoryList(props: { company: Company; onOpenOperation: () => void; onM
                   {it.openable && it.operationId !== null ? (
                     <button
                       type="button"
-                      onClick={() => {
-                        props.onOpenOperation();
-                        openForm({ kind: 'edit', id: it.operationId! });
-                      }}
+                      onClick={() => props.onOpenOperation(it.operationId!)}
                       className="w-full rounded-xl px-2 py-1 text-left hover:bg-field"
                     >
                       {body}
@@ -110,7 +114,6 @@ function HistoryList(props: { company: Company; onOpenOperation: () => void; onM
           </ul>
         )}
       </div>
-      {more}
     </div>
   );
 }

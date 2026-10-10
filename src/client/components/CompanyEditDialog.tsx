@@ -26,7 +26,7 @@ function CompanyEditForm({ company, onDone }: { company: Company; onDone: () => 
   const readOnly = company.archivedAt !== null;
   // только изменённые поля: смена валюты может быть запрещена (есть операции), переименование — нет
   const changes = {
-    ...(name.trim() !== company.name ? { name } : {}),
+    ...(name.trim() !== company.name ? { name: name.trim() } : {}),
     ...(baseCurrency !== company.baseCurrency ? { baseCurrency } : {}),
   };
   const save = useMutation<unknown, ApiError>({

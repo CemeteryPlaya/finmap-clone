@@ -1,5 +1,6 @@
 import { Link, NavLink } from 'react-router';
 import { CollapseButton } from '../../components/CollapseButton';
+import { focusHeadingSoon, isPlainLeftClick, pathOf } from '../../lib/focus-heading';
 import { journalBackHref, readLastJournal } from '../../lib/last-journal';
 import type { Company } from '../../lib/queries';
 import { settingsGroups } from '../../lib/settings-sections';
@@ -27,19 +28,43 @@ export function SettingsNav({ company, variant }: { company: Company; variant: '
     );
   }
   return (
-    <nav aria-label="Разделы настроек" className={`relative hidden shrink-0 self-start md:block ${collapsed ? 'h-24 w-3' : 'w-64 rounded-3xl bg-card p-4'}`}>
+    <nav aria-label="Разделы настроек" className={`relative hidden shrink-0 self-start md:block ${collapsed ? 'h-36 w-3' : 'w-64 rounded-3xl bg-card p-4'}`}>
       <CollapseButton collapsed={collapsed} onToggle={toggle} collapseLabel="Свернуть меню настроек" expandLabel="Развернуть меню настроек" />
+      {collapsed && <BackLink to={back} compact />}
       {!collapsed && <SettingsNavBody companyId={company.id} companyName={company.name} back={back} sidebar />}
     </nav>
+  );
+}
+
+/**
+ * «← Назад к журналу»: ссылка исчезает вместе с меню настроек, поэтому фокус переносится на h1 журнала.
+ * compact — только стрелка в свёрнутой полосе (под кнопкой сворачивания).
+ */
+function BackLink({ to, compact }: { to: string; compact?: boolean }) {
+  const label = 'Назад к журналу';
+  return (
+    <Link
+      to={to}
+      onClick={(e) => {
+        if (isPlainLeftClick(e)) focusHeadingSoon(pathOf(to));
+      }}
+      {...(compact ? { 'aria-label': label, title: label } : {})}
+      className={
+        compact
+          ? '-right-4 absolute top-[4.75rem] z-10 grid h-8 w-8 place-items-center rounded-full border border-field bg-card text-ink shadow hover:bg-field'
+          : 'mb-3 inline-flex items-center gap-2 rounded-xl bg-field px-4 py-2 text-sm font-medium text-ink hover:brightness-95'
+      }
+    >
+      <span aria-hidden="true">←</span>
+      {!compact && ` ${label}`}
+    </Link>
   );
 }
 
 function SettingsNavBody(props: { companyId: number; companyName: string; back: string; sidebar: boolean }) {
   return (
     <>
-      <Link to={props.back} className="mb-3 inline-flex items-center gap-2 rounded-xl bg-field px-4 py-2 text-sm font-medium text-ink hover:brightness-95">
-        <span aria-hidden="true">←</span> Назад к журналу
-      </Link>
+      <BackLink to={props.back} />
       {settingsGroups(props.companyName).map((g) => (
         <div key={g.key} className={g.title ? 'mt-3 border-t border-field pt-3' : ''}>
           {g.title && <p className="mb-1 truncate px-3 text-xs font-semibold uppercase tracking-wide text-muted">{g.title}</p>}

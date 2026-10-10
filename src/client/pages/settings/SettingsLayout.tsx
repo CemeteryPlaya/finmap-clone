@@ -1,4 +1,4 @@
-import { Navigate, Outlet, useOutletContext, useParams } from 'react-router';
+import { Navigate, Outlet, useLocation, useOutletContext, useParams } from 'react-router';
 import { mainCardClass } from '../../components/ui';
 import type { CompanyOutletContext } from '../CompanyLayout';
 import { SettingsNav } from './SettingsNav';
@@ -23,5 +23,6 @@ export function SettingsLayout() {
 /** Перенаправление внутри настроек компании: старые адреса и закладки (§4.2). */
 export function SettingsRedirect({ section }: { section: string }) {
   const { companyId } = useParams();
-  return <Navigate to={`/c/${companyId}/settings/${section}`} replace />;
+  const { search, hash } = useLocation();
+  return <Navigate to={`/c/${companyId}/settings/${section}${search}${hash}`} replace />;
 }

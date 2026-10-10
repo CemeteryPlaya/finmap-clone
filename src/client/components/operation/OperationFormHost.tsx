@@ -37,8 +37,8 @@ export function OperationFormHost(props: { company: Company; children: ReactNode
 }
 
 const BUTTONS: { type: OperationType; symbol: string; label: string; bottom: string; header: string }[] = [
-  { type: 'income', symbol: '+', label: 'Доход', bottom: 'bg-income text-white', header: 'bg-income/20 text-income' },
-  { type: 'expense', symbol: '\u2212', label: 'Расход', bottom: 'bg-expense text-white', header: 'bg-expense/20 text-expense' },
+  { type: 'income', symbol: '+', label: 'Доход', bottom: 'bg-income text-white', header: 'bg-income/20 text-income-on-dark' },
+  { type: 'expense', symbol: '\u2212', label: 'Расход', bottom: 'bg-expense text-white', header: 'bg-expense/20 text-expense-on-dark' },
   { type: 'transfer', symbol: '⇄', label: 'Перевод', bottom: 'bg-chrome-2 text-white', header: 'bg-white/10 text-white' },
 ];
 

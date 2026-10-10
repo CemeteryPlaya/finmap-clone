@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router';
 import { formatMoney, MONEY_SCREEN_BEFORE } from '../../shared/money';
 import { companyInitials, filterCompanies, SEARCH_FROM } from '../lib/company-block';
 import { switchCompanyPath } from '../lib/company-path';
-import { focusHeadingSoon } from '../lib/focus-heading';
+import { focusHeadingSoon, isPlainLeftClick, pathOf } from '../lib/focus-heading';
 import { useCompaniesSummary, type Company } from '../lib/queries';
 import { CompanyEditDialog } from './CompanyEditDialog';
 import { Drawer } from './Drawer';
@@ -33,7 +33,8 @@ export function CompanyBlockButton({ current, companies }: { current: Company; c
         aria-expanded={open}
         aria-label={`Сменить компанию: ${current.name}`}
         onClick={() => setOpen(true)}
-        className="flex min-w-0 max-w-xs items-center gap-3 rounded-xl px-2 py-1 text-left hover:bg-white/10"
+        title={current.name}
+        className="flex min-w-[10rem] max-w-xs items-center gap-3 rounded-xl px-2 py-1 text-left hover:bg-white/10 max-md:min-w-0"
       >
         <Avatar name={current.name} className="hidden h-10 w-10 text-sm md:grid" />
         <span className="min-w-0">
@@ -55,10 +56,10 @@ export function CompanyBlockButton({ current, companies }: { current: Company; c
         <CompaniesList
           current={current}
           companies={companies}
-          onDone={(withNavigation) => {
+          onDone={(withNavigation, target) => {
             // вызывается до navigate() и до перехода по ссылке: focusHeadingSoon запоминает исходную страницу
             navigated.current = withNavigation;
-            if (withNavigation) focusHeadingSoon();
+            if (withNavigation) focusHeadingSoon(target);
             setOpen(false);
           }}
         />
@@ -67,7 +68,7 @@ export function CompanyBlockButton({ current, companies }: { current: Company; c
   );
 }
 
-function CompaniesList(props: { current: Company; companies: Company[]; onDone: (withNavigation: boolean) => void }) {
+function CompaniesList(props: { current: Company; companies: Company[]; onDone: (withNavigation: boolean, target?: string) => void }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [query, setQuery] = useState('');
@@ -75,20 +76,44 @@ function CompaniesList(props: { current: Company; companies: Company[]; onDone: 
   // итоги — при открытии панели (она монтирует список заново): свежие, без запросов на каждой странице
   const summary = useCompaniesSummary(true);
   const totals = new Map((summary.data ?? []).map((s) => [s.id, s.total]));
-  const active = props.companies.filter((c) => !c.archivedAt);
+  // открытая архивная компания остаётся в списке (с пометкой), чтобы было видно, где пользователь
+  const active = props.companies.filter((c) => !c.archivedAt || c.id === props.current.id);
   const shown = filterCompanies(active, query);
 
   const choose = (c: Company) => {
     // текущая компания — остаёмся там же (в том числе в настройках); другая — тот же раздел у неё
     if (c.id === props.current.id) return props.onDone(false);
-    props.onDone(true);
-    navigate(switchCompanyPath(location.pathname, c.id));
+    const to = switchCompanyPath(location.pathname, c.id);
+    props.onDone(true, pathOf(to));
+    navigate(to);
   };
 
   return (
     <div className="flex min-h-full flex-col">
       {active.length > SEARCH_FROM && (
-        <input type="search" aria-label="Поиск" placeholder="Поиск" value={query} onChange={(e) => setQuery(e.target.value)} className={`${inputClass} mb-4`} />
+        <input
+          type="search"
+          aria-label="Поиск"
+          placeholder="Поиск"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            // первое Esc очищает запрос, закрывает панель только Esc при пустом поле
+            if (e.key === 'Escape' && query !== '') {
+              e.preventDefault();
+              setQuery('');
+            }
+          }}
+          className={`${inputClass} mb-4`}
+        />
+      )}
+      {summary.isError && (
+        <p className="mb-2 px-1 text-xs text-expense">
+          Не удалось загрузить итоги.{' '}
+          <button type="button" className="underline" onClick={() => void summary.refetch()}>
+            Повторить
+          </button>
+        </p>
       )}
       <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">Мои компании</p>
       <div className="flex-1">
@@ -113,10 +138,16 @@ function CompaniesList(props: { current: Company; companies: Company[]; onDone: 
                       </span>
                     )}
                   </span>
-                  {t && (
+                  {t ? (
                     <span className="block truncate text-xs tabular-nums text-muted">
                       {formatMoney(t.amount, t.currency, MONEY_SCREEN_BEFORE)}
                       {t.unavailable.length > 0 && ` · без ${t.unavailable.join(', ')}`}
+                      {c.archivedAt && ' · в архиве'}
+                    </span>
+                  ) : (
+                    <span className="block truncate text-xs text-muted">
+                      {summary.isPending ? 'Загрузка…' : '—'}
+                      {c.archivedAt && ' · в архиве'}
                     </span>
                   )}
                 </span>
@@ -136,10 +167,22 @@ function CompaniesList(props: { current: Company; companies: Company[]; onDone: 
         {shown.length === 0 && <p className="px-1 text-sm text-muted">Ничего не найдено.</p>}
       </div>
       <div className="mt-4 grid gap-3 border-t border-field pt-4">
-        <Link to="/companies/new" onClick={() => props.onDone(true)} className={`${btnPrimary} block text-center`}>
+        <Link
+          to="/companies/new"
+          onClick={(e) => {
+            if (isPlainLeftClick(e)) props.onDone(true, '/companies/new');
+          }} 
+          className={`${btnPrimary} block text-center`}
+        >
           Добавить компанию
         </Link>
-        <Link to={`/c/${props.current.id}/settings/companies`} onClick={() => props.onDone(true)} className="text-center text-sm font-semibold text-muted underline hover:text-ink">
+        <Link
+          to={`/c/${props.current.id}/settings/companies`}
+          onClick={(e) => {
+            if (isPlainLeftClick(e)) props.onDone(true, `/c/${props.current.id}/settings/companies`);
+          }}
+          className="text-center text-sm font-semibold text-muted underline hover:text-ink"
+        >
           Все компании, в том числе архивные
         </Link>
       </div>

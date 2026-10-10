@@ -71,10 +71,11 @@ test('левая панель: балансы и итог, переход в ж�
     await expect(panel.getByRole('button', { name: 'Свернуть панель счетов' })).toBeFocused();
     await expect(panel.getByRole('link', { name: /^Kaspi/ })).toBeVisible();
   } finally {
-    await page.request.put('/api/v1/preferences/sidebar.collapsed', {
+    const restore = await page.request.put('/api/v1/preferences/sidebar.collapsed', {
       data: { value: false },
       headers: { origin: new URL(page.url()).origin, 'x-requested-with': 'fetch' },
     });
+    expect(restore.ok()).toBe(true);
   }
 });
 
@@ -266,6 +267,12 @@ test('сворачивание: кнопка на правой границе п
     expect((await saved).request().postDataJSON()).toEqual({ value: true });
     await expect(menu.getByRole('button', { name: 'Развернуть меню настроек' })).toBeFocused();
     await expect(menu.getByRole('link', { name: 'Теги' })).toHaveCount(0);
+    // в свёрнутой полосе остаётся «←» назад к журналу; фокус после перехода — на заголовке журнала
+    const back = menu.getByRole('link', { name: 'Назад к журналу' });
+    await expect(back).toHaveAttribute('title', 'Назад к журналу');
+    await back.click();
+    await expect(page).toHaveURL(new RegExp(`/c/${cid}/log`));
+    await expect(page.getByRole('heading', { level: 1, name: 'Журнал' })).toBeFocused();
 
     // та же настройка: в журнале свёрнута панель счетов (и после перезагрузки)
     await page.goto(`/c/${cid}/log`);
@@ -292,9 +299,10 @@ test('сворачивание: кнопка на правой границе п
     await expect(accounts.getByRole('button', { name: 'Развернуть панель счетов' })).toBeVisible();
     await expect(accounts.getByText('Всего на счетах')).toHaveCount(0);
   } finally {
-    await page.request.put('/api/v1/preferences/sidebar.collapsed', {
+    const restore = await page.request.put('/api/v1/preferences/sidebar.collapsed', {
       data: { value: false },
       headers: { origin: new URL(page.url()).origin, 'x-requested-with': 'fetch' },
     });
+    expect(restore.ok()).toBe(true);
   }
 });

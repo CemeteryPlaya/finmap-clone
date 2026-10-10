@@ -22,6 +22,8 @@ export function Drawer(props: {
    * наступает и afterClose не вызывается — поэтому фокус и ставится не отсюда.
    */
   afterClose?: () => boolean;
+  /** Закреплённый низ панели вне прокручиваемой области (кнопка «Подробнее»). */
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -83,6 +85,7 @@ export function Drawer(props: {
             </button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">{props.children}</div>
+          {props.footer && <div className="border-t border-field px-4 py-3">{props.footer}</div>}
         </div>
       )}
     </dialog>

@@ -15,4 +15,6 @@
   --color-expense-soft: #fde7e2;
   --color-transfer: #5b6270;
   --color-focus: #2bb3a0;
+  --color-income-on-dark: #3ddc9b; /* текст «+ Доход» на тёмной шапке: 7.8:1 */
+  --color-expense-on-dark: #ff8a75; /* текст «Расход» на тёмной шапке: 6.1:1 */
 }

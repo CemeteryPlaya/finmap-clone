@@ -230,6 +230,8 @@ test('панель «История действий»: последние де�
   await expect(form.getByLabel('Комментарий')).toHaveValue('выручка за смену');
   await page.keyboard.press('Escape');
   await expect(form).toBeHidden();
+  // форма открылась уже после закрытия панели: фокус вернулся на кнопку «История действий»
+  await expect(open).toBeFocused();
 
   // «Подробнее» — полная лента в настройках, фокус на её заголовке
   await open.click();

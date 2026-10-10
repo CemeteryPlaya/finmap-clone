@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { Link } from 'react-router';
 import { formatMoney, MONEY_SCREEN_BEFORE } from '../../shared/money';
 import { groupAccounts } from '../lib/accounts-panel';
-import { focusHeadingSoon } from '../lib/focus-heading';
+import { focusHeadingSoon, isPlainLeftClick, pathOf } from '../lib/focus-heading';
 import { useIsMobile } from '../lib/media';
 import { useAccounts, useBalances, useProjects, type Company } from '../lib/queries';
 import { useSidebarCollapsed } from '../lib/sidebar';
@@ -15,7 +15,7 @@ import { btnSmall } from './ui';
  * Без ролей listitem, status, alert, region: их ищут e2e экранов настроек. onNavigate — переход по ссылке
  * (выезжающая панель на телефоне при этом закрывается).
  */
-function AccountsSummary({ company, onNavigate }: { company: Company; onNavigate?: () => void }) {
+function AccountsSummary({ company, onNavigate, onAdd }: { company: Company; onNavigate?: (target: string) => void; onAdd?: (target: string) => void }) {
   const accounts = useAccounts(company.id);
   const projects = useProjects(company.id);
   const balances = useBalances(company.id);
@@ -23,6 +23,10 @@ function AccountsSummary({ company, onNavigate }: { company: Company; onNavigate
   const groups = groupAccounts(accounts.data ?? [], projects.data ?? []);
   const total = balances.data?.total;
   const failed = balances.error ?? accounts.error ?? projects.error;
+  // только обычное нажатие левой кнопкой: Ctrl/Shift/средняя кнопка открывают ссылку отдельно, страница остаётся
+  const click = (handler: ((target: string) => void) | undefined, to: string) => (e: MouseEvent) => {
+    if (handler && isPlainLeftClick(e)) handler(pathOf(to));
+  };
 
   return (
     <>
@@ -60,7 +64,7 @@ function AccountsSummary({ company, onNavigate }: { company: Company; onNavigate
               <Link
                 key={a.id}
                 to={`/c/${company.id}/log?account=${a.id}`}
-                onClick={onNavigate}
+                onClick={click(onNavigate, `/c/${company.id}/log?account=${a.id}`)}
                 className="flex items-baseline justify-between gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-field"
               >
                 <span className="truncate">{a.name}</span>
@@ -74,7 +78,7 @@ function AccountsSummary({ company, onNavigate }: { company: Company; onNavigate
       ))}
       {accounts.data && groups.length === 0 && <p className="mb-3 px-2 text-sm text-muted">Счетов пока нет.</p>}
       {!company.archivedAt && (
-        <Link to={`/c/${company.id}/settings/accounts`} onClick={onNavigate} className={`${btnSmall} inline-block`}>
+        <Link to={`/c/${company.id}/settings/accounts`} onClick={click(onAdd ?? onNavigate, `/c/${company.id}/settings/accounts`)} className={`${btnSmall} inline-block`}>
           + счёт
         </Link>
       )}
@@ -89,10 +93,11 @@ function AccountsSummary({ company, onNavigate }: { company: Company; onNavigate
  */
 export function AccountsPanel({ company }: { company: Company }) {
   const { collapsed, toggle } = useSidebarCollapsed();
+  // «+ счёт» уводит из журнала в настройки: панель заменяется меню настроек, нажатая ссылка исчезает — фокус на h1
   return (
     <nav aria-label="Счета" className={`relative hidden shrink-0 self-start md:block ${collapsed ? 'h-24 w-3' : 'w-64 rounded-3xl bg-card p-4'}`}>
       <CollapseButton collapsed={collapsed} onToggle={toggle} collapseLabel="Свернуть панель счетов" expandLabel="Развернуть панель счетов" />
-      {!collapsed && <AccountsSummary company={company} />}
+      {!collapsed && <AccountsSummary company={company} onAdd={(target) => focusHeadingSoon(target)} />}
     </nav>
   );
 }
@@ -133,9 +138,9 @@ export function AccountsDrawerButton({ company }: { company: Company }) {
       >
         <AccountsSummary
           company={company}
-          onNavigate={() => {
+          onNavigate={(target) => {
             navigated.current = true;
-            focusHeadingSoon();
+            focusHeadingSoon(target);
             setOpen(false);
           }}
         />

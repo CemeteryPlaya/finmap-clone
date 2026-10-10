@@ -1,8 +1,8 @@
 import { useMutation } from '@tanstack/react-query';
-import { useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { api } from '../lib/api';
-import { focusHeadingSoon } from '../lib/focus-heading';
+import { focusHeadingSoon, isPlainLeftClick, pathOf } from '../lib/focus-heading';
 import { queryClient, useMe } from '../lib/query';
 import { Drawer } from './Drawer';
 import { GearIcon } from './icons';
@@ -39,13 +39,14 @@ export function SettingsMenuButton({ companyId, companyName }: { companyId: numb
   });
   // переход: фокус на <h1> новой страницы запускается здесь, до перехода (панель может исчезнуть вместе с шапкой
   // страницы без компании, и её close не наступит)
-  const go = () => {
+  const go = (e: MouseEvent, to: string) => {
+    if (!isPlainLeftClick(e)) return; // новая вкладка и т. п.: панель и фокус остаются
     navigated.current = true;
-    focusHeadingSoon();
+    focusHeadingSoon(pathOf(to));
     setOpen(false);
   };
   const item = (to: string, label: string) => (
-    <Link to={to} onClick={go} className={itemClass}>
+    <Link to={to} onClick={(e) => go(e, to)} className={itemClass}>
       <span>{label}</span>
       <span aria-hidden="true" className="text-muted">
         ›

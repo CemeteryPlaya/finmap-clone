@@ -18,17 +18,39 @@ export function acceptHeading(s: { isPrevious: boolean; elapsed: number; changed
 }
 
 /**
+ * Нужно ли прекратить поиск заголовка: адрес не прежний и не тот, куда вела ссылка (например, 401 увёл на /login —
+ * фокус нужен полю входа). target — путь ссылки без query и hash; без него уходом считается только /login.
+ */
+export function shouldAbandon(s: { startPath: string; nowPath: string; target?: string }): boolean {
+  if (s.nowPath === s.startPath) return false;
+  if (s.target !== undefined) return s.nowPath !== s.target;
+  return s.nowPath === '/login';
+}
+
+/** Обычное нажатие левой кнопкой без модификаторов — только такое закрывает панель и двигает фокус (новая вкладка и т. п. — нет). */
+export function isPlainLeftClick(e: { button: number; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; defaultPrevented: boolean }): boolean {
+  return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.defaultPrevented;
+}
+
+/** Путь ссылки без query и hash — для focusHeadingSoon. */
+export function pathOf(to: string): string {
+  return to.split(/[?#]/)[0] ?? to;
+}
+
+/**
  * Фокус на заголовок `<h1>` новой страницы после перехода по ссылке из выезжающей панели (§11 этапа 1.5).
  * Вызывать в обработчике нажатия ссылки, ДО перехода: запоминаются адрес и `main h1` на момент нажатия.
  * React Router рисует новую страницу в startTransition — старый заголовок ещё некоторое время на месте,
  * и фокус на нём ушёл бы в body, когда старая страница размонтируется. Поэтому прежний заголовок берётся,
  * только когда это та же страница (acceptHeading). Пока фокус на прежнем заголовке, проверка `isConnected`
  * идёт до конца ожидания: если он исчез, поиск начинается заново. У новой страницы заголовка может не быть
- * (экран «Загрузка…») — ждём до GIVE_UP_MS и в body не уходим. Заголовку без `tabindex` ставится `tabindex="-1"`.
+ * (экран «Загрузка…») — ждём до GIVE_UP_MS и в body не уходим. target — путь ссылки: если адрес стал другим
+ * (401 увёл на /login), поиск прекращается и фокус полю входа не мешает. Заголовку без `tabindex` ставится `tabindex="-1"`.
  */
-export function focusHeadingSoon(): void {
+export function focusHeadingSoon(target?: string): void {
   const where = () => window.location.pathname + window.location.search;
   const startedAt = where();
+  const startPath = window.location.pathname;
   const previous = document.querySelector<HTMLElement>('main h1');
   const t0 = performance.now();
   let changedAt: number | null = null;
@@ -37,6 +59,7 @@ export function focusHeadingSoon(): void {
   const tick = () => {
     const elapsed = performance.now() - t0;
     if (changedAt === null && where() !== startedAt) changedAt = elapsed;
+    if (shouldAbandon({ startPath, nowPath: window.location.pathname, target })) return;
     if (focused) {
       if (!focused.isConnected) {
         // старая страница размонтировалась вместе с заголовком — ищем новый

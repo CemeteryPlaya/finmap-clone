@@ -227,6 +227,11 @@ async function shoot(context: BrowserContext, cid: number, s: Scenario): Promise
       await page.waitForFunction(() => !document.querySelector('main')?.textContent?.includes('Загрузка…'));
     }
     if (s.act) await s.act(page);
+    // шрифты и балансы левой панели догрузились, окна не показывают «Загрузка…»: иначе снимок ловит промежуточное состояние
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForFunction(
+      () => !(document.querySelector('nav[aria-label="Счета"]')?.textContent ?? '').includes('…') && ![...document.querySelectorAll('dialog[open]')].some((d) => (d.textContent ?? '').includes('Загрузка…')),
+    );
     await page.screenshot({ path: path.join(outDir, s.ours), animations: 'disabled' });
   } finally {
     await page.close();
@@ -236,23 +241,27 @@ async function shoot(context: BrowserContext, cid: number, s: Scenario): Promise
 if (FORBIDDEN_PORTS.includes(PORT)) fail(`Порт ${PORT} занят живым приложением, демо или e2e — задайте другой SHOTS_PORT.`);
 fs.mkdirSync(outDir, { recursive: true });
 
+// временная папка, база, сид и сервер — внутри try/finally: при сбое подготовки очистка всё равно выполняется
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-shots-'));
-const config = loadConfig({ SESSION_SECRET: 's'.repeat(40), DATA_DIR: dataDir, PORT: String(PORT), RATES_SOURCE: 'fixtures' });
-fs.mkdirSync(config.dataDir, { recursive: true });
-{
-  const { sqlite, db } = openDb(config.dbPath);
-  runMigrations(db);
-  seedCurrencies(db);
-  await createUsersService(db, createAuditService(db)).create({ login: LOGIN, name: 'Владелец', password: PASSWORD }, null);
-  seedDemo({ db, timezone: config.timezone, now: NOW, operations: 400 });
-  sqlite.close();
-}
-const server = await startServer(config, { logger: false });
-const base = `http://localhost:${PORT}`;
 const results = new Map<string, string>();
+const failed: string[] = [];
 let failures = 0;
 let browser: Browser | null = null;
+let server: Awaited<ReturnType<typeof startServer>> | null = null;
 try {
+  const config = loadConfig({ SESSION_SECRET: 's'.repeat(40), DATA_DIR: dataDir, PORT: String(PORT), RATES_SOURCE: 'fixtures' });
+  fs.mkdirSync(config.dataDir, { recursive: true });
+  const { sqlite, db } = openDb(config.dbPath);
+  try {
+    runMigrations(db);
+    seedCurrencies(db);
+    await createUsersService(db, createAuditService(db)).create({ login: LOGIN, name: 'Владелец', password: PASSWORD }, null);
+    seedDemo({ db, timezone: config.timezone, now: NOW, operations: 400 });
+  } finally {
+    sqlite.close();
+  }
+  server = await startServer(config, { logger: false });
+  const base = `http://localhost:${PORT}`;
   browser = await chromium.launch();
   const first = await newContext(browser, base, false);
   const companies = (await (await first.request.get('/api/v1/companies')).json()).companies as { id: number; name: string }[];
@@ -272,6 +281,7 @@ try {
       console.log(`✓ ${s.ours}`);
     } catch (e) {
       failures++;
+      failed.push(s.ours);
       const message = (e as Error).message.split('\n')[0]!;
       results.set(s.finmap, `ошибка: ${message}`);
       console.error(`✗ ${s.ours}: ${message}`);
@@ -279,9 +289,10 @@ try {
   }
 } finally {
   await browser?.close();
-  await server.stop();
+  await server?.stop();
   fs.rmSync(dataDir, { recursive: true, force: true });
 }
+if (failed.length > 0) console.error(`Не сняты сценарии (${failed.length}): ${failed.join(', ')}`);
 
 // index.html: каждый снимок Finmap и наш рядом; сценарии без снимка Finmap — тоже
 const finmapFiles = fs.existsSync(FINMAP_DIR)

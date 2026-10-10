@@ -111,7 +111,7 @@ test('счета на телефоне выезжают слева: итог и 
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/accounts$`));
   await expect(page.getByRole('heading', { level: 1, name: 'Счета' })).toBeFocused();
 
-  // страница без компании (новая компания): в шапке телефона — название продукта, а не одна «Выйти»
+  // страница без компании (новая компания): в шапке телефона — название продукта и шестерёнка «Настройки», без имени и «Выйти»
   await page.goto('/companies/new');
   await expect(page.getByRole('banner')).toContainText('Учёт');
   await page.goto(`/c/${cid}/log`);

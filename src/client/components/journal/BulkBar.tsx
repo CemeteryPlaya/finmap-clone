@@ -14,12 +14,13 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
   const deleteRef = useRef<HTMLButtonElement>(null);
   // «Отмена» убирает сфокусированную кнопку: фокус возвращается на «Удалить», как только она снова на месте
   const refocusDelete = useRef(false);
+  // и после «Отмены», и после неудачного удаления: фокус на «Удалить», когда она снова на месте и доступна
   useEffect(() => {
-    if (!confirm && refocusDelete.current) {
+    if (!confirm && !props.pending && refocusDelete.current) {
       refocusDelete.current = false;
       deleteRef.current?.focus();
     }
-  }, [confirm]);
+  }, [confirm, props.pending]);
   const tooMany = props.count > BULK_MAX;
   const disabled = props.pending || tooMany;
   const pickerClass = btnSmall;
@@ -73,9 +74,10 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
             type="button"
             disabled={disabled}
             onClick={() => {
+              // ошибка: полоса остаётся — эффект выше вернёт фокус на «Удалить»; при успехе полосы уже нет (ссылка пуста)
+              refocusDelete.current = true;
               setConfirm(false);
-              // ошибка: полоса остаётся — фокус возвращается на «Удалить»; при успехе полосы уже нет (ссылка пуста)
-              void Promise.resolve(props.onRun({ action: 'delete' })).then(() => requestAnimationFrame(() => deleteRef.current?.focus()));
+              void props.onRun({ action: 'delete' });
             }}
             className={`${btnDanger} px-3 py-1.5 text-sm`}
           >
