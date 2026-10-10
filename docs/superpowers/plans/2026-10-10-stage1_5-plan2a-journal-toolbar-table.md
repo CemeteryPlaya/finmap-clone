@@ -14,7 +14,7 @@
 - **Календарь** — чистая логика `lib/calendar.ts` (сетка месяца, клавиши, подписи) с тестами и компонент `Calendar` по шаблону WAI-ARIA «date picker dialog»: таблица `role="grid"`, у дня `role="gridcell"`, в порядке Tab один день. `DateField` — поле-кнопка «С: 04.10.2026» с `Popover` и календарём.
 - **Вложенные панели.** Календарь поля даты открывается внутри меню периода. `Popover` получает три правки: панель помечена `data-popover-panel`, вложенная панель рисуется внутри родительской (как сейчас внутри `<dialog>`), поэтому щелчок и фокус во вложенной панели для родительской «свои»; клавишу, которую уже обработала вложенная панель (`defaultPrevented`), родительская не трогает; начальный фокус — на элементе `data-autofocus` (активный день), иначе на первом.
 - **Тулбар** собирается из небольших компонентов в `components/journal/`: `PeriodMenu`, `AmountRange`, `FilterButton` (с `SavedFiltersMenu` на стрелке), `MoreMenu` (с `ColumnsPanel`). На телефоне остаётся панель справа (её переделает план 1.5-5): в ней те же меню периода, «Сумма от/до», сортировка, «Фильтр | ▾», выгрузка и сброс.
-- **⟳** вызывает существующий `invalidateOperations(cid)`: журнал, счета с балансами, компании. Бесконечный запрос перечитывает загруженные страницы на месте — таблица не размонтируется, прокрутка остаётся.
+- **⟳** вызывает новый `refreshOperations(cid)` (`lib/journal-mutations.ts`): то же, что `invalidateOperations` (журнал, счета с балансами, компании), но сбой перечитывания журнала не проглатывается (`throwOnError`) — панель «Ещё» сообщает «Не удалось обновить журнал». Бесконечный запрос перечитывает загруженные страницы на месте — таблица не размонтируется, прокрутка остаётся.
 - **Таблица.** Даты — `formatDateShortRu` (`shared/dates.ts`) и `journalDateParts` (`lib/journal-format.ts`). Справочник категорий журнала — `categoryLookup(tree)`: `Map<number, { name, systemKey }>` (§10.3). Ячейки помечены `data-column` — e2e ищут по ним.
 - **Настройки.** `journal.columns` получает id `accrualDate`; без сохранённой настройки «Дата сделки» выключена. `journal.wrap` — `boolean` (`lib/preferences.ts`). В «Ещё» обе настройки применяются сразу, на странице «Настройки журнала» — по «Применить».
 
@@ -32,11 +32,11 @@
 
 1. **План 1.5-2 разбит на 1.5-2a и 1.5-2b.** Каждая часть даёт работающий журнал; 2a не трогает «Указать», массовые действия и окно фильтра, кроме плашки «Указать» и названия меню сохранённых фильтров.
 2. **Календарь** — таблица `role="grid"`; у дня `role="gridcell"`, `tabindex` (0 у активного дня), имя «4 октября 2026», выбранный — `aria-selected="true"`, сегодня — `aria-current="date"`. Кнопки «« ‹ › »» — «Предыдущий год», «Предыдущий месяц», «Следующий месяц», «Следующий год»; они меняют месяц, фокус остаётся на кнопке.
-3. **Вложенные панели `Popover`** — см. «Architecture». Esc в календаре закрывает только календарь, меню периода остаётся; фокус — на поле даты.
+3. **Вложенные панели `Popover`** — см. «Architecture». Esc в календаре закрывает только календарь, меню периода остаётся; фокус — на поле даты. Порядок Tab панели (первый и последний элемент) и начальный фокус считаются только по её собственным элементам — элементы вложенной панели в него не входят.
 4. **«Выбрать даты»** начинается с границ выбранного периода (как прежнее «Произвольно»). Можно задать одну границу; перепутанные границы меняются местами. Подпись пилюли — «04.10.2026 – 10.10.2026», «с 04.10.2026», «по 10.10.2026». Имя пилюли — «Период: {подпись}».
-5. **Суммы в «Ещё»** применяются по Enter, уходу из поля и при закрытии панели (панель, закрытая щелчком мимо, не теряет набранное: поле при размонтировании применяет значение, если оно верное).
-6. **⟳** сообщает «Журнал обновлён» в живой области панели «Ещё» (`role="status"`); пока идёт запрос, кнопка `aria-disabled`. Ссылка «Настройки журнала» в «Ещё» ставит фокус на `<h1>` страницы (`focusHeadingSoon`).
-7. **«Быстрые фильтры»**: пустое меню — пояснение и кнопка «Создать новый фильтр»; она закрывает меню (фокус на ▾) и открывает окно фильтра, после окна фокус возвращается на ▾. Имя стрелки — «Быстрые фильтры».
+5. **Суммы в «Ещё»** применяются по Enter, уходу из поля и при закрытии панели (панель, закрытая щелчком мимо, не теряет набранное: поле при размонтировании применяет значение, если оно верное). При размонтировании — только если путь страницы тот же, что при открытии поля: после перехода (ссылка «Настройки журнала», «Назад» браузера, смена компании) правка фильтра увела бы чужую страницу обратно в журнал. Вариант «только blur и Enter» не взят: щелчок мимо закрывает панель раньше, чем приходит blur, и набранное терялось бы.
+6. **⟳** сообщает «Журнал обновлён» или «Не удалось обновить журнал» в живой области панели «Ещё» (`role="status"`): `refreshOperations` перечитывает журнал с `throwOnError`, а `invalidateQueries` без него сбой проглатывает. Пока идёт запрос, кнопка `aria-disabled`. Ссылка «Настройки журнала» в «Ещё» ставит фокус на `<h1>` страницы (`focusHeadingSoon`).
+7. **«Быстрые фильтры»**: пустое меню — пояснение и кнопка «Создать новый фильтр»; она закрывает меню (фокус на ▾) и открывает окно фильтра, после окна фокус возвращается на ▾. Имя стрелки — «Быстрые фильтры». В архивной компании сохранять нечего: пустое меню — только «Сохранённых фильтров нет.», без кнопки и подсказки.
 8. **Телефон до плана 1.5-5:** панель справа «Фильтры» остаётся (переименование — в 1.5-2b), но в ней те же `PeriodMenu`, `AmountRange` и «Фильтр | ▾»; «Колонок» и «Ещё» на телефоне нет. Карточки телефона сохраняют прежнюю дату («сегодня 10:30») до плана 1.5-5.
 9. **Дата в именах кнопки строки и флажка** — «Открыть операцию: 4 окт. 2026, Сегодня 10:32, +500 ₸», «Выбрать операцию: 4 окт. 2026, Сегодня 10:32, …».
 10. **Цвет.** Текст плашки «Указать» и бейджа «системная» — новый токен `income-strong` (#0b7a53): 4,7:1 на `income-soft`. У `text-income` на `bg-income-soft` из §5.2 контраст около 3:1 — меньше AA для мелкого текста. Тот же токен — фон полосы действий в 1.5-2b (5,4:1 с белым).
@@ -123,7 +123,7 @@ e2e/journal.spec.ts, journal-actions.spec.ts, mobile.spec.ts, operation-form.spe
   - `Calendar(props: { value: string | null; today: string; max?: string; onSelect: (date: string) => void })`, `AFTER_MAX_HINT` (`components/Calendar.tsx`);
   - `DateField(props: { label: string; value: string | null; today: string; max?: string; onChange: (date: string) => void; className?: string })` — кнопка с именем «{label}: 04.10.2026» или «{label}: не выбрана», панель «{label}: календарь» (`components/DateField.tsx`);
   - `CalendarIcon()` (`components/icons.tsx`);
-  - `Popover`: панель с атрибутом `data-popover-panel`; вложенная панель рисуется в родительской; начальный фокус — `[data-autofocus]`, иначе первый элемент.
+  - `Popover`: панель с атрибутом `data-popover-panel`; вложенная панель рисуется в родительской; порядок Tab и начальный фокус (`[data-autofocus]`, иначе первый элемент) — только по своим элементам, без элементов вложенной панели.
 
 - [ ] **Step 1: Write the failing unit tests**
 
@@ -331,7 +331,8 @@ const FOCUSABLE = 'input:not([disabled]), button:not([disabled]), textarea:not([
  * Вложенная панель (календарь поля даты в меню периода, §6.5 этапа 1.5) рисуется внутри родительской
  * (`data-popover-panel`), а в модальном окне — в самом `<dialog>`: для родительской она «своя» — щелчок и фокус
  * в ней родительскую не закрывают; клавиши, которые вложенная панель уже обработала (Esc, Tab на краю),
- * родительская не трогает.
+ * родительская не трогает; первый и последний элемент для Tab и начальный фокус родительская считает только
+ * по своим элементам.
  * children получает close(returnFocus) — закрыть панель после выбора.
  */
 export function Popover(props: {
@@ -367,7 +368,9 @@ export function Popover(props: {
 
   /** Узел — внутри кнопки или панели (панель не внутри rootRef: она в портале). */
   const inside = (node: Node | null) => !!node && (!!rootRef.current?.contains(node) || !!panelRef.current?.contains(node));
-  const focusable = () => Array.from(panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
+  /** Свой элемент панели, а не вложенной (календарь поля даты): у вложенной панели свой порядок Tab. */
+  const own = (el: Element) => el.closest('[data-popover-panel]') === panelRef.current;
+  const focusable = () => Array.from(panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter(own);
 
   const close = (returnFocus = true) => {
     setOpen(false);
@@ -376,7 +379,7 @@ export function Popover(props: {
 
   useEffect(() => {
     if (!placed) return;
-    const auto = panelRef.current?.querySelector<HTMLElement>('[data-autofocus]');
+    const auto = Array.from(panelRef.current?.querySelectorAll<HTMLElement>('[data-autofocus]') ?? []).find(own);
     (auto ?? focusable()[0])?.focus();
   }, [placed]);
 
@@ -1321,6 +1324,14 @@ Run: `npm run typecheck` → без ошибок.
   await expect(calendar).toBeHidden();
   await expect(periodMenu).toBeVisible();
   await expect(fromButton).toBeFocused();
+  // Tab с последнего элемента календаря (активный день) закрывает тоже только календарь: края Tab меню периода
+  // считаются по его собственным элементам, без элементов вложенной панели
+  await fromButton.click();
+  await expect(activeDay).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(calendar).toBeHidden();
+  await expect(periodMenu).toBeVisible();
+  await expect(fromButton).toBeFocused();
   await fromButton.click();
   await expect(activeDay).toBeFocused();
   await page.keyboard.press('ArrowLeft');
@@ -1412,18 +1423,19 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ### Task 3: Тулбар в одну строку — поиск с кнопкой, «Фильтр · N | ▾», «Ещё ▾» с суммой, ⟳, колонками и выгрузкой
 
 **Files:**
-- Create: `src/client/components/journal/AmountRange.tsx`, `src/client/components/journal/MoreMenu.tsx`, `src/client/components/journal/ColumnsPanel.tsx`, `src/client/components/journal/FilterButton.tsx`
+- Create: `src/client/components/journal/AmountRange.tsx`, `src/client/components/journal/MoreMenu.tsx`, `src/client/components/journal/ColumnsPanel.tsx`, `src/client/components/journal/FilterButton.tsx`, `tests/client/journal-refresh.test.ts`
 - Delete: `src/client/components/journal/ColumnsPicker.tsx`
-- Modify: `src/client/components/icons.tsx`, `src/client/components/journal/SavedFiltersMenu.tsx`, `src/client/components/journal/JournalToolbar.tsx` (целиком), `src/client/pages/JournalPage.tsx`, `e2e/journal.spec.ts`, `e2e/journal-actions.spec.ts`, `e2e/mobile.spec.ts`
+- Modify: `src/client/lib/journal-mutations.ts`, `src/client/components/icons.tsx`, `src/client/components/journal/SavedFiltersMenu.tsx`, `src/client/components/journal/JournalToolbar.tsx` (целиком), `src/client/pages/JournalPage.tsx`, `e2e/journal.spec.ts`, `e2e/journal-actions.spec.ts`, `e2e/mobile.spec.ts`
 
 **Interfaces:**
-- Consumes: `PeriodMenu` (задача 2); `invalidateOperations(companyId: number): Promise<void>` (`lib/journal-mutations.ts`); `focusHeadingSoon(target?: string)`, `isPlainLeftClick(e)`, `pathOf(to: string)` (`lib/focus-heading.ts`); `usePreferences()` (`lib/queries.ts`); `JOURNAL_COLUMNS`, `JOURNAL_COLUMNS_PREF`, `toggleColumn`, `visibleColumns` (`lib/journal-columns.ts`).
+- Consumes: `PeriodMenu` (задача 2); `invalidateOperations(companyId: number): Promise<void>` и `queryClient` (`lib/journal-mutations.ts`, `lib/query.ts`); `focusHeadingSoon(target?: string)`, `isPlainLeftClick(e)`, `pathOf(to: string)` (`lib/focus-heading.ts`); `usePreferences()` (`lib/queries.ts`); `JOURNAL_COLUMNS`, `JOURNAL_COLUMNS_PREF`, `toggleColumn`, `visibleColumns` (`lib/journal-columns.ts`).
 - Produces:
   - `AmountRange(props: { state: JournalUrlState; onChange: (next: JournalUrlState) => void; minorUnits: number })` — поля с именами «Сумма от» и «Сумма до»;
   - `ColumnsPanel()` — флажки колонок (сама читает настройки); экспортирует хук `useInstantPref<T>(key: string, saved: T, failText: string): { value: T; set: (value: T) => void; error: string | null }`;
   - `MoreMenu(props: { companyId: number; state: JournalUrlState; onChange: (next: JournalUrlState) => void; currencySymbol: string; minorUnits: number; exportHref: string; onRefresh: () => Promise<void> })` — кнопка «Ещё», панель «Ещё»;
-  - `FilterButton(props: { count: number; onOpen: () => void; companyId: number; filters: SavedFilter[] | undefined; onApply: (f: SavedFilter) => void })`;
-  - `SavedFiltersMenu(props: { companyId; filters; onApply; onCreate: () => void; buttonClassName?: string })` — кнопка «Быстрые фильтры»;
+  - `refreshOperations(companyId: number): Promise<void>` — ⟳; отклоняется, если журнал перечитать не удалось (`lib/journal-mutations.ts`);
+  - `FilterButton(props: { count: number; onOpen: () => void; canSave: boolean; companyId: number; filters: SavedFilter[] | undefined; onApply: (f: SavedFilter) => void })`;
+  - `SavedFiltersMenu(props: { companyId; filters; onApply; onCreate?: () => void; buttonClassName?: string })` — кнопка «Быстрые фильтры»; без `onCreate` (архивная компания) пустое меню без «Создать новый фильтр»;
   - `JournalToolbar(props: { state; onChange; companyId; baseCurrency; today; filter: ReactNode; onRefresh: () => Promise<void>; mobile?: boolean })`;
   - иконки `SearchIcon`, `FunnelIcon`, `RefreshIcon({ spinning?: boolean })`, `ColumnsIcon`, `DownloadIcon`.
 
@@ -1480,6 +1492,75 @@ export function DownloadIcon() {
 }
 ```
 
+- [ ] **Step 1a: ⟳ reports a failed refetch — `refreshOperations` (test first)**
+
+`tests/client/journal-refresh.test.ts`:
+
+```ts
+import { QueryObserver } from '@tanstack/react-query';
+import { afterEach, describe, expect, it } from 'vitest';
+
+describe('⟳ «Обновить» (§2.5 этапа 1.5)', () => {
+  afterEach(async () => {
+    const { queryClient } = await import('../../src/client/lib/query');
+    queryClient.clear();
+  });
+
+  it('перечитывает активный журнал; удачно — без ошибки', async () => {
+    const { queryClient } = await import('../../src/client/lib/query');
+    const { refreshOperations } = await import('../../src/client/lib/journal-mutations');
+    let calls = 0;
+    const observer = new QueryObserver(queryClient, { queryKey: ['journal', 991, 'q'], queryFn: async () => ++calls, retry: false });
+    const stop = observer.subscribe(() => undefined);
+    await expect.poll(() => calls).toBe(1);
+    await expect(refreshOperations(991)).resolves.toBeUndefined();
+    expect(calls).toBe(2);
+    stop();
+  });
+
+  it('сбой перечитывания журнала не проглатывается — «Ещё» скажет «Не удалось обновить журнал»', async () => {
+    const { queryClient } = await import('../../src/client/lib/query');
+    const { refreshOperations } = await import('../../src/client/lib/journal-mutations');
+    let fail = false;
+    const observer = new QueryObserver(queryClient, {
+      queryKey: ['journal', 992, 'q'],
+      queryFn: async () => {
+        if (fail) throw new Error('сбой сети');
+        return 1;
+      },
+      retry: false,
+    });
+    const stop = observer.subscribe(() => undefined);
+    await expect.poll(() => observer.getCurrentResult().status).toBe('success');
+    fail = true;
+    await expect(refreshOperations(992)).rejects.toThrow('сбой сети');
+    stop();
+  });
+});
+```
+
+Run: `npx vitest run tests/client/journal-refresh.test.ts` → FAIL (`refreshOperations` не экспортируется).
+
+В `src/client/lib/journal-mutations.ts` после функции `invalidateOperations` вставьте:
+
+```ts
+/**
+ * ⟳ «Обновить» (§2.5 этапа 1.5): то же, что после записи, но сбой перечитывания журнала не проглатывается
+ * (`throwOnError`; без него invalidateQueries всегда завершается успешно) — панель «Ещё» скажет
+ * «Не удалось обновить журнал». Загруженные страницы журнала перечитываются на месте.
+ */
+export async function refreshOperations(companyId: number): Promise<void> {
+  const [journal] = await Promise.allSettled([
+    queryClient.invalidateQueries({ queryKey: ['journal', companyId] }, { throwOnError: true }),
+    queryClient.invalidateQueries({ queryKey: ['accounts', companyId] }),
+    queryClient.invalidateQueries({ queryKey: ['companies'] }),
+  ]);
+  if (journal.status === 'rejected') throw journal.reason;
+}
+```
+
+Run: `npx vitest run tests/client/journal-refresh.test.ts` → PASS.
+
 - [ ] **Step 2: `AmountRange`**
 
 `src/client/components/journal/AmountRange.tsx`:
@@ -1518,10 +1599,18 @@ function AmountInput(props: { label: string; placeholder: string; value: number 
     setError(undefined);
     if (minor !== props.value) props.onCommit(minor);
   };
-  // панель «Ещё» закрыли щелчком мимо: поле исчезает раньше, чем браузер пришлёт blur, — набранное применяется здесь
+  // панель «Ещё» закрыли щелчком мимо: поле исчезает раньше, чем браузер пришлёт blur, — набранное применяется здесь.
+  // Только пока путь страницы тот же, что при появлении поля: после перехода (ссылка «Настройки журнала», «Назад»
+  // браузера, смена компании) правка фильтра увела бы уже другую страницу обратно в журнал
   const commitRef = useRef(commit);
   commitRef.current = commit;
-  useEffect(() => () => commitRef.current(), []);
+  const pathAtMount = useRef(window.location.pathname);
+  useEffect(
+    () => () => {
+      if (window.location.pathname === pathAtMount.current) commitRef.current();
+    },
+    [],
+  );
 
   return (
     <div className="w-28">
@@ -1785,7 +1874,8 @@ export function SavedFiltersMenu(props: {
   companyId: number;
   filters: SavedFilter[] | undefined;
   onApply: (f: SavedFilter) => void;
-  onCreate: () => void;
+  /** Не передан (архивная компания: сохранять нечего) — пустое меню без «Создать новый фильтр» и подсказки. */
+  onCreate?: () => void;
   buttonClassName?: string;
 }) {
   return (
@@ -1796,19 +1886,23 @@ export function SavedFiltersMenu(props: {
           {props.filters === undefined ? (
             <p className="text-sm text-muted">Загрузка…</p>
           ) : props.filters.length === 0 ? (
-            <div className="text-sm">
-              <p className="mb-2 text-muted">Сохранённых фильтров пока нет. Задайте условия в окне фильтра и нажмите «Сохранить фильтр».</p>
-              <button
-                type="button"
-                onClick={() => {
-                  close(true);
-                  props.onCreate();
-                }}
-                className="font-semibold text-ink underline"
-              >
-                Создать новый фильтр
-              </button>
-            </div>
+            props.onCreate ? (
+              <div className="text-sm">
+                <p className="mb-2 text-muted">Сохранённых фильтров пока нет. Задайте условия в окне фильтра и нажмите «Сохранить фильтр».</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    close(true);
+                    props.onCreate?.();
+                  }}
+                  className="font-semibold text-ink underline"
+                >
+                  Создать новый фильтр
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm text-muted">Сохранённых фильтров нет.</p>
+            )
           ) : (
             <ul>
               {props.filters.map((f) => (
@@ -1844,9 +1938,16 @@ const partClass = 'inline-flex items-center gap-1.5 py-2 text-sm font-medium tex
 
 /**
  * Составная кнопка «Фильтр · N | ▾» (§5.1 этапа 1.5): левая часть открывает окно фильтра (N — число условий окна),
- * стрелка — «Быстрые фильтры» (сохранённые).
+ * стрелка — «Быстрые фильтры» (сохранённые). canSave = false (архивная компания) — без «Создать новый фильтр».
  */
-export function FilterButton(props: { count: number; onOpen: () => void; companyId: number; filters: SavedFilter[] | undefined; onApply: (f: SavedFilter) => void }) {
+export function FilterButton(props: {
+  count: number;
+  onOpen: () => void;
+  canSave: boolean;
+  companyId: number;
+  filters: SavedFilter[] | undefined;
+  onApply: (f: SavedFilter) => void;
+}) {
   return (
     <div className="inline-flex items-center rounded-lg bg-field">
       <button type="button" aria-haspopup="dialog" onClick={props.onOpen} className={`${partClass} rounded-l-lg px-3`}>
@@ -1854,7 +1955,13 @@ export function FilterButton(props: { count: number; onOpen: () => void; company
         Фильтр{props.count > 0 && ` · ${props.count}`}
       </button>
       <span aria-hidden="true" className="h-5 w-px bg-muted/40" />
-      <SavedFiltersMenu companyId={props.companyId} filters={props.filters} onApply={props.onApply} onCreate={props.onOpen} buttonClassName={`${partClass} rounded-r-lg px-2.5`} />
+      <SavedFiltersMenu
+        companyId={props.companyId}
+        filters={props.filters}
+        onApply={props.onApply}
+        onCreate={props.canSave ? props.onOpen : undefined}
+        buttonClassName={`${partClass} rounded-r-lg px-2.5`}
+      />
     </div>
   );
 }
@@ -2092,7 +2199,7 @@ import { unavailableText } from '../components/journal/SavedFiltersMenu';
 
 `import { btnSecondary, btnSmall, noticeClass } from '../components/ui';` → `import { btnSecondary, noticeClass } from '../components/ui';`
 
-`import { operationErrorText, runBulk, useAssign } from '../lib/journal-mutations';` → `import { invalidateOperations, operationErrorText, runBulk, useAssign } from '../lib/journal-mutations';`
+`import { operationErrorText, runBulk, useAssign } from '../lib/journal-mutations';` → `import { operationErrorText, refreshOperations, runBulk, useAssign } from '../lib/journal-mutations';`
 
 2) Блок тулбара
 
@@ -2138,6 +2245,7 @@ import { unavailableText } from '../components/journal/SavedFiltersMenu';
           <FilterButton
             count={conditions}
             onOpen={() => setFilterOpen(true)}
+            canSave={!readOnly}
             companyId={company.id}
             filters={savedFilters.data}
             onApply={(f) => {
@@ -2146,8 +2254,9 @@ import { unavailableText } from '../components/journal/SavedFiltersMenu';
             }}
           />
         }
-        // ⟳ (§2.5): загруженные страницы перечитываются на месте — таблица не размонтируется, прокрутка остаётся
-        onRefresh={() => invalidateOperations(company.id)}
+        // ⟳ (§2.5): загруженные страницы перечитываются на месте — таблица не размонтируется, прокрутка остаётся;
+        // сбой перечитывания журнала «Ещё» показывает
+        onRefresh={() => refreshOperations(company.id)}
       />
 ```
 
@@ -2376,7 +2485,19 @@ test('«Ещё» → ⟳ «Обновить»: операция с другог�
   await expect(menuButton).toBeFocused();
 ```
 
-2) В тесте «сохранённые фильтры: повреждённый не применяется…» строки
+2) В тесте «архивная компания: журнал только для чтения…» после строки `  await expect(page.getByRole('checkbox')).toHaveCount(0);` вставьте:
+
+```ts
+  // «Быстрые фильтры» архивной компании: сохранять нечего — ни «Создать новый фильтр», ни подсказки про «Сохранить фильтр»
+  await page.getByRole('button', { name: 'Быстрые фильтры' }).click();
+  const quick = page.getByRole('dialog', { name: 'Быстрые фильтры' });
+  await expect(quick).toContainText('Сохранённых фильтров нет.');
+  await expect(quick.getByRole('button', { name: 'Создать новый фильтр' })).toHaveCount(0);
+  await expect(quick).not.toContainText('Сохранить фильтр');
+  await page.keyboard.press('Escape');
+```
+
+3) В тесте «сохранённые фильтры: повреждённый не применяется…» строки
 
 ```ts
   await page.reload();
@@ -2422,14 +2543,14 @@ test('«Ещё» → ⟳ «Обновить»: операция с другог�
 
 - [ ] **Step 10: Run all checks; e2e twice**
 
-Run: `npm test` → PASS, 654. Run: `npm run typecheck` → без ошибок.
+Run: `npm test` → PASS, 656 (654 + 2). Run: `npm run typecheck` → без ошибок.
 Run: `npx playwright test e2e/journal.spec.ts e2e/journal-actions.spec.ts e2e/mobile.spec.ts e2e/dialogs.spec.ts` → PASS.
 Run: `npm run test:e2e` дважды → 70 passed оба раза.
 
 - [ ] **Step 11: Commit**
 
 ```bash
-git add src/client/components/icons.tsx src/client/components/journal src/client/pages/JournalPage.tsx e2e
+git add src/client/lib/journal-mutations.ts src/client/components/icons.tsx src/client/components/journal src/client/pages/JournalPage.tsx tests/client/journal-refresh.test.ts e2e
 git commit -m "feat: тулбар журнала в одну строку — поиск с кнопкой, «Фильтр | ▾» и «Быстрые фильтры», «Ещё» с суммой, ⟳, колонками и выгрузкой
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
@@ -2810,10 +2931,14 @@ function SortHeader(props: { label: string; column: JournalSortKey; sort: Journa
   );
 }
 
-/** Текст ячейки: одна строка с обрезкой и подсказкой title; при «Показывать полностью» — до двух строк. */
+/**
+ * Текст ячейки: одна строка с обрезкой и подсказкой title; при «Показывать полностью» — до двух строк.
+ * Без `block` рядом с `line-clamp-2`: в Tailwind 4 `.block` идёт в CSS после `.line-clamp-2` и перебил бы
+ * `display: -webkit-box` — обрезки по строкам не было бы.
+ */
 function CellText({ text, wrap, width = 'max-w-56' }: { text: string; wrap: boolean; width?: string }) {
   return (
-    <span title={text} className={`block ${width} ${wrap ? 'line-clamp-2 break-words' : 'truncate'}`}>
+    <span title={text} className={`${width} ${wrap ? 'line-clamp-2 break-words' : 'block truncate'}`}>
       {text}
     </span>
   );
@@ -3101,7 +3226,8 @@ Run: `npm run typecheck` → без ошибок. Run: `npm test` → PASS.
   await expect(account(income)).toContainText(/1\s500\s₸/);
   await expect(income).toContainText('Выручка');
   await expect(income).toContainText('Клуб Север');
-  await expect(table(page)).not.toContainText('остаток');
+  // в заголовке «Счёт/остаток» слово есть — проверяем только строки
+  await expect(table(page).locator('tbody')).not.toContainText('остаток');
   // дата в две строки: «4 окт. 2026», ниже «Сегодня 10:32»
   await expect(income.locator('time')).toHaveText(/^\d{1,2} [а-я]+\.? \d{4}Сегодня \d{2}:\d{2}$/);
   // строки одной высоты (§5.2)
@@ -3211,7 +3337,7 @@ Run: `npm run typecheck` → без ошибок. Run: `npm test` → PASS.
 
 - [ ] **Step 7: Run all checks; e2e twice**
 
-Run: `npm test` → PASS, 658 (654 + 4). Run: `npm run typecheck` → без ошибок.
+Run: `npm test` → PASS, 660 (656 + 4). Run: `npm run typecheck` → без ошибок.
 Run: `npx playwright test e2e/journal.spec.ts e2e/journal-actions.spec.ts e2e/operation-form.spec.ts e2e/operation-edit.spec.ts e2e/mobile.spec.ts` → PASS.
 Run: `npm run test:e2e` дважды → 70 passed оба раза.
 
@@ -3519,23 +3645,36 @@ Run: `npm run typecheck` → без ошибок. Run: `npm test` → PASS.
 
 `e2e/journal.spec.ts`, тест ««Ещё»: суммы, ⟳, колонки и выгрузка…»:
 
-1) После строк
+0) После строки с операцией `comment: 'вклад'` (её добавила задача 4) вставьте операцию с длинным комментарием:
 
 ```ts
-    await expect(header('Комментарий')).toHaveCount(0);
-    await expect(table(page)).not.toContainText('Видимый комментарий');
+  const longComment = 'Длинный комментарий для проверки переноса строк в журнале. '.repeat(8).trim();
+  await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: todayAgo(3), accountId: kaspi, amount: 300, comment: longComment });
 ```
 
-(первое вхождение — внутри `try`, сразу после снятия флажка «Комментарий») вставьте:
+1) Перед строкой
 
 ```ts
-    // «Показывать полностью»: длинный текст — до двух строк вместо одной (§5.2)
-    const accountName = bodyRows(page).first().locator('[data-column="account"] [title]');
-    await expect(accountName).toHaveClass(/truncate/);
+    const saved = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/journal.columns') && r.request().method() === 'PUT');
+```
+
+(колонка «Комментарий» ещё видна) вставьте:
+
+```ts
+    // «Показывать полностью»: длинный текст — до двух строк вместо одной (§5.2). Проверяем высоту, а не только класс:
+    // класс без действующего display: -webkit-box ничего не обрезает
+    const comment = bodyRows(page).filter({ hasText: 'Длинный комментарий' }).locator('[data-column="comment"] [title]');
+    const lineHeight = await comment.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+    expect((await comment.boundingBox())!.height).toBeLessThanOrEqual(lineHeight + 1);
     const wrapSaved = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/journal.wrap') && r.request().method() === 'PUT');
     await menu.getByRole('checkbox', { name: 'Показывать полностью' }).check();
     await wrapSaved;
-    await expect(accountName).toHaveClass(/line-clamp-2/);
+    await expect.poll(async () => (await comment.boundingBox())!.height).toBeGreaterThan(lineHeight * 1.5);
+    expect((await comment.boundingBox())!.height).toBeLessThanOrEqual(lineHeight * 2 + 1);
+    await expect(comment).toHaveCSS('display', '-webkit-box');
+    // строки по-прежнему одной высоты (у последней нет нижней границы — допуск 1 px)
+    const heights = await bodyRows(page).evaluateAll((rows) => rows.map((r) => Math.round(r.getBoundingClientRect().height)));
+    expect(Math.max(...heights) - Math.min(...heights), heights.join()).toBeLessThanOrEqual(1);
 ```
 
 2) В `finally` после строки с `journal.columns` добавьте:
@@ -3618,7 +3757,7 @@ Run: `npm run typecheck` → без ошибок. Run: `npm test` → PASS.
 
 - [ ] **Step 6: Run all checks; e2e twice**
 
-Run: `npm test` → PASS, 659 (658 + 1). Run: `npm run typecheck` → без ошибок.
+Run: `npm test` → PASS, 661 (660 + 1). Run: `npm run typecheck` → без ошибок.
 Run: `npx playwright test e2e/journal.spec.ts e2e/dialogs.spec.ts` → PASS.
 Run: `npm run test:e2e` дважды → 70 passed оба раза.
 
@@ -3701,7 +3840,7 @@ Expected: строки `✓ c01-log.png` … и итог `Готово: …\pari
 
 - [ ] **Step 4: Final checks**
 
-Run: `npm test` → PASS, 659. Run: `npm run typecheck` → без ошибок. Run: `npm run test:e2e` → 70 passed.
+Run: `npm test` → PASS, 661. Run: `npm run typecheck` → без ошибок. Run: `npm run test:e2e` → 70 passed.
 
 - [ ] **Step 5: Commit**
 

@@ -8,11 +8,11 @@
 - окно «Фильтры»: «×» в углу без «Отмены», поля — выпадающие мультивыборы с поиском и счётчиком в порядке Finmap, «Недоступный элемент» для неизвестных id (§5.6);
 - сценарии «Указать» и «Фильтры» в визуальной сверке и итоговый прогон `npm run shots:ux`.
 
-**Предусловие:** выполнен план [1.5-2a](2026-10-10-stage1_5-plan2a-journal-toolbar-table.md): тулбар в одну строку («Фильтр · N | ▾», «Быстрые фильтры», «Ещё»), `Calendar`/`DateField`, вложенные панели `Popover`, таблица по §5.2 (ячейки с `data-column`, кнопка строки с `data-row-open`, флажок «Выбрать все» с `data-select-all`), токен `income-strong`, «Показывать полностью». Ожидаемо на старте: `npm test` — 659 тестов (+1 пропущен), `npm run test:e2e` — 70.
+**Предусловие:** выполнен план [1.5-2a](2026-10-10-stage1_5-plan2a-journal-toolbar-table.md): тулбар в одну строку («Фильтр · N | ▾», «Быстрые фильтры», «Ещё»), `Calendar`/`DateField`, вложенные панели `Popover`, таблица по §5.2 (ячейки с `data-column`, кнопка строки с `data-row-open`, флажок «Выбрать все» с `data-select-all`), токен `income-strong`, «Показывать полностью». Ожидаемо на старте: `npm test` — 661 тест (+1 пропущен), `npm run test:e2e` — 70.
 
 **Architecture:**
 - **«Указать».** Плашка в ячейке — простая кнопка `AssignChip`; окно `AssignDialog` на `Modal` (ширина 480 px) с нынешним `ComboSelect` формы операции и кнопкой «Сохранить». Список и подпись поля — чистые функции `assignOptions` и `assignLabel` в `lib/journal-assign.ts` (те же правила, что в форме: категории только вида операции, контрагенты подходящего типа первыми). Сохранение — прежняя мутация `useAssign` (оптимистично, с `version`, откат и сообщение при 409). Фокус после «Сохранить» ставит новое свойство `Modal.returnFocus` — на кнопку открытия операции в той же строке; Esc и «×» возвращают его на плашку.
-- **Полоса действий** — `BulkBar` в новом свойстве `JournalTable.bulkBar`: лежит поверх строки заголовков (`absolute`), строка заголовков остаётся в таблице для программ чтения, её кнопки на это время выходят из порядка Tab. Итог выделения — чистая функция `selectionTotals` (`lib/journal-bulk.ts`). «Изменить данные» — окно `BulkEditDialog` с тремя `ComboSelect` («Не менять» — пустое значение); действия — `bulkEditActions`, по очереди существующими `POST …/bulk`, итог — `bulkEditSummary`.
+- **Полоса действий** — `BulkBar` в новом свойстве `JournalTable.bulkBar`: лежит поверх строки заголовков (`absolute`) и в одну строку той же высоты (`h-12`, без переноса; длинный итог обрезается, полный — в `title`). Она стоит вне контейнера горизонтальной прокрутки таблицы: при узком окне (768–1200 px) таблица шириной от 56rem уезжает вбок, а полоса остаётся на месте и видна целиком. Вариант `sticky left-0` внутри прокрутки отвергнут: ему нужна ширина видимой области, а её пришлось бы измерять скриптом. Строка заголовков остаётся в таблице для программ чтения, её кнопки на это время выходят из порядка Tab. Итог выделения — чистая функция `selectionTotals` (`lib/journal-bulk.ts`); для программ чтения его объявляет постоянная живая область страницы (`#selection-totals`), которая есть и до выделения. «Изменить данные» — окно `BulkEditDialog` на странице (а не в полосе: полоса исчезает вместе с выделением, а открытый `<dialog>` нельзя просто убрать) с тремя `ComboSelect` («Не менять» — пустое значение); действия — `bulkEditActions`, по очереди существующими `POST …/bulk`, итог — `bulkEditSummary`.
 - **Окно «Фильтры».** Варианты, выбранное и переключение для каждого поля — чистые функции в новом `lib/journal-filter-dialog.ts` (ключи вида `type:income`, `category:12`, `none`, `5`). Компонент `MultiSelectField` — кнопка поля (подпись со счётчиком и значение) и панель `Popover` с поиском и флажками. Адрес и смысл фильтра не меняются.
 
 **Tech Stack:** как в этапе 1. Новых пакетов нет.
@@ -27,9 +27,9 @@
 
 1. **Поле в окне «Указать»** — нынешний `ComboSelect` формы (кнопка, по нажатию — список с поиском). Ввод в само поле и «+ Создать» первым пунктом придут с §6.6 в плане 1.5-3 и подхватятся окном без правок. Подпись поля контрагента — `COUNTERPARTY_TYPE_SINGULAR` («Сотрудник», «Собственник», …); переименования §6.4 («Владелец», «Тип налога») делает план 1.5-3.
 2. **Фокус после «Указать»** — `Modal.returnFocus`: функция, которую окно вызывает при закрытии; если она вернула элемент на странице, фокус встаёт на него, иначе — прежнее правило (кнопка-открыватель, а если её нет — `<h1>`). Если строка после сохранения ушла из выборки, фокус переходит на кнопку строки, занявшей её место, а если строк нет — на заголовок «Журнал» (как в плане 5c).
-3. **Полоса действий** лежит поверх строки заголовков; заголовки остаются в DOM, их кнопки получают `tabindex="-1"`, пока полоса видна. Подтверждение удаления остаётся в полосе, как сейчас («как сейчас» в §5.5). Общий чекбокс — кнопка `role="checkbox"` с `aria-checked="mixed"` и именем «Снять выделение»; после неё фокус — на флажке «Выбрать все загруженные операции».
+3. **Полоса действий** лежит поверх строки заголовков, в одну строку той же высоты и вне горизонтальной прокрутки таблицы (см. «Architecture»); заголовки остаются в DOM, их кнопки получают `tabindex="-1"`, пока полоса видна. Подтверждение удаления остаётся в полосе, как сейчас («как сейчас» в §5.5); пока оно на экране, «Изменить данные» и итог скрыты, вопрос при нехватке места обрезается (полный — в `title`), кнопки «Да, удалить» и «Отмена» видны всегда. Общий чекбокс — кнопка `role="checkbox"` с `aria-checked="mixed"` и именем «Снять выделение»; после неё фокус — на флажке «Выбрать все загруженные операции». Итог для программ чтения — в постоянной живой области страницы: первая же сумма объявляется. Окно «Изменить данные» живёт на странице; если выделение опустело при открытом окне (другой фильтр, строки ушли), окно закрывается, фокус — на флажке «Выбрать все», а если таблицы нет — на заголовке.
 4. **Итог «Изменить данные»:** «Категория: изменено 2, пропущено 2. Проект: изменено 3, пропущено 1»; если полей несколько, причины пропуска подписаны полем: «Категория: Разбитая операция — измените её в форме — 1». Сбой запроса — «Проект: ошибка — {сообщение}», следующие поля — «Контрагент: не выполнено». После «Сохранить» окно закрывается сразу, фокус — на «Изменить данные» (она `aria-disabled`, пока идут запросы).
-5. **`MultiSelectField`** — панель с поиском и обычными флажками, а не `PickerList`: `PickerList` — список одного выбора (`listbox` с `aria-activedescendant`), для множественного выбора флажки проще и привычнее программам чтения. Esc закрывает только панель, окно остаётся.
+5. **`MultiSelectField`** — панель с поиском и обычными флажками, а не `PickerList`: `PickerList` — список одного выбора (`listbox` с `aria-activedescendant`), для множественного выбора флажки проще и привычнее программам чтения. Esc закрывает только панель, окно остаётся. Подпись поля со счётчиком — статичная строка над значением внутри кнопки; плавающая подпись (`Field floating`, §6.3) появится в плане 1.5-3.
 6. **«Недоступный элемент»** — id из адреса, которого нет в справочниках (удалён или из другой компании). Архивный выбранный элемент по-прежнему показывается с пометкой «(архив)».
 7. **Панель справа на телефоне** называется «Период и условия», чтобы не совпадать с окном «Фильтры»; саму панель заменит план 1.5-5 (§8.5).
 
@@ -92,7 +92,7 @@ e2e/journal.spec.ts, journal-actions.spec.ts, mobile.spec.ts, dialogs.spec.ts
 **Files:**
 - Create: `src/client/components/journal/AssignDialog.tsx`
 - Delete: `src/client/components/journal/AssignPicker.tsx`
-- Modify: `src/client/components/Modal.tsx`, `src/client/lib/journal-assign.ts`, `src/client/components/journal/BulkBar.tsx`, `src/client/pages/JournalPage.tsx`, `tests/client/journal-assign.test.ts`, `e2e/journal-actions.spec.ts`
+- Modify: `src/client/components/Modal.tsx`, `src/client/lib/journal-assign.ts`, `src/client/components/journal/BulkBar.tsx`, `src/client/components/journal/JournalTable.tsx`, `src/client/pages/JournalPage.tsx`, `tests/client/journal-assign.test.ts`, `e2e/journal-actions.spec.ts`
 
 **Interfaces:**
 - Consumes: `ComboSelect` (`components/operation/ComboSelect.tsx`: `label`, `listLabel`, `value`, `options`, `emptyLabel`, `placeholder`, `onChange`); `categoryOptions`, `counterpartyOptions`, `preferredCounterpartyType`, `projectOptions` (`lib/operation-options.ts`); `COUNTERPARTY_TYPE_SINGULAR` (`shared/counterparties.ts`); `useAssign` (`lib/journal-mutations.ts`); кнопка строки `[data-row-open]` (план 1.5-2a).
@@ -433,16 +433,22 @@ import { btnDanger, btnSecondary, btnSmall } from '../ui';
 и строки
 
 ```tsx
+  const categoryOptions = [
     ...categoryPickerOptions(props.data.categories.income).map((o) => ({ ...o, label: `Доход: ${o.label}` })),
     ...categoryPickerOptions(props.data.categories.expense).map((o) => ({ ...o, label: `Расход: ${o.label}` })),
+  ];
 ```
 
-замените на
+замените на (локальная переменная переименована: под именем `categoryOptions` она заслонила бы импорт и вызвала бы сама себя — TS2448)
 
 ```tsx
+  const categoryChoices = [
     ...categoryOptions(props.data.categories, 'income', []).map((o) => ({ ...o, label: `Доход: ${o.label}` })),
     ...categoryOptions(props.data.categories, 'expense', []).map((o) => ({ ...o, label: `Расход: ${o.label}` })),
+  ];
 ```
+
+и ниже, в списке «Категория», строку `            options={categoryOptions}` замените на `            options={categoryChoices}`.
 
 - [ ] **Step 5: The journal page opens the dialog**
 
@@ -525,6 +531,28 @@ function focusRowOpen(id: number): void {
           }}
         />
       )}
+```
+
+8) Строку больше никто не фокусирует (фокус после «Указать» — на кнопке строки): в `src/client/components/journal/JournalTable.tsx` строки
+
+```tsx
+              <tr
+                key={item.id}
+                // фокус сюда переводит «Указать» после выбора, если кнопки строки нет
+                tabIndex={-1}
+                data-operation-id={item.id}
+                onClick={props.onOpenOperation ? onRowClick(item) : undefined}
+                className={`border-b border-field outline-none last:border-0 focus:bg-field/60 ${
+```
+
+замените на
+
+```tsx
+              <tr
+                key={item.id}
+                data-operation-id={item.id}
+                onClick={props.onOpenOperation ? onRowClick(item) : undefined}
+                className={`border-b border-field last:border-0 ${
 ```
 
 Run: `npm run typecheck` → без ошибок. Run: `npm test` → PASS.
@@ -627,13 +655,17 @@ test('«Указать»: окно «Редактирование …» с од�
   page.on('request', (r) => {
     if (r.method() === 'PATCH') patches += 1;
   });
-  await projectChip.click();
-  await projectDialog.getByRole('button', { name: /^Проект:/ }).click();
-  await page.getByRole('listbox', { name: 'Проекты' }).getByRole('option', { name: 'Клуб 1' }).click();
-  await expect(projectDialog.getByRole('button', { name: /^Проект:/ })).toHaveAccessibleName('Проект: Клуб 1');
-  await projectDialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
-  await expect(projectDialog).toBeHidden();
-  await expect(projectChip).toBeFocused();
+  // пункт выбран, но не сохранён: и Esc, и «×» закрывают окно без изменений
+  for (const closeWith of ['Escape', 'cross'] as const) {
+    await projectChip.click();
+    await projectDialog.getByRole('button', { name: /^Проект:/ }).click();
+    await page.getByRole('listbox', { name: 'Проекты' }).getByRole('option', { name: 'Клуб 1' }).click();
+    await expect(projectDialog.getByRole('button', { name: /^Проект:/ })).toHaveAccessibleName('Проект: Клуб 1');
+    if (closeWith === 'Escape') await page.keyboard.press('Escape');
+    else await projectDialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+    await expect(projectDialog).toBeHidden();
+    await expect(projectChip).toBeFocused();
+  }
   await expect(row('A')).not.toContainText('Клуб 1');
   expect(patches).toBe(0);
 
@@ -729,7 +761,7 @@ test('«Указать»: два сохранения подряд в одной
 
 - [ ] **Step 7: Run all checks; e2e twice**
 
-Run: `npm test` → PASS, 661 (659 + 2). Run: `npm run typecheck` → без ошибок.
+Run: `npm test` → PASS, 663 (661 + 2). Run: `npm run typecheck` → без ошибок.
 Run: `npx playwright test e2e/journal-actions.spec.ts` → PASS.
 Run: `npm run test:e2e` дважды → 70 passed оба раза.
 
@@ -754,9 +786,10 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Consumes: `AssignData` (задача 1); `ComboSelect`; `categoryOptions`, `counterpartyOptions`, `projectOptions` (`lib/operation-options.ts`); `pluralRu` (`lib/journal-format.ts`); `runBulk`, `operationErrorText` (`lib/journal-mutations.ts`); `bulkSummary`, `BulkResult`, `BulkSummary` (`lib/journal-bulk.ts`); флажок `[data-select-all]` (план 1.5-2a).
 - Produces:
   - `type BulkEditAction`, `interface BulkEditValues { counterpartyId: number | null; categoryId: number | null; projectId: number | null }`, `bulkEditActions(v: BulkEditValues): BulkEditAction[]`, `bulkEditSummary(done, failed, notRun): BulkSummary`, `selectionTotals(items: readonly { type: OperationType; baseAmount: number }[], baseCurrency: string): string` (`lib/journal-bulk.ts`);
-  - `BulkEditDialog(props: { open: boolean; count: number; data: AssignData; onClose: () => void; onSave: (actions: BulkEditAction[]) => void })`;
-  - `BulkBar(props: { items: readonly Pick<JournalItem, 'type' | 'baseAmount'>[]; baseCurrency: string; data: AssignData; pending: boolean; onRun: (action: BulkAction) => Promise<void> | void; onEdit: (actions: BulkEditAction[]) => Promise<void> | void; onClear: () => void })`;
-  - `JournalTableProps.bulkBar?: ReactNode`;
+  - `BulkEditDialog(props: { open: boolean; count: number; data: AssignData; onClose: () => void; onSave: (actions: BulkEditAction[]) => void; returnFocus?: () => HTMLElement | null })`;
+  - `BulkBar(props: { items: readonly Pick<JournalItem, 'type' | 'baseAmount'>[]; baseCurrency: string; pending: boolean; onRun: (action: BulkAction) => Promise<void> | void; onEdit: () => void; onClear: () => void })` — `onEdit` открывает окно страницы;
+  - `JournalTableProps.bulkBar?: ReactNode` — полоса вне горизонтальной прокрутки таблицы;
+  - живая область итога выделения на странице журнала: `<p id="selection-totals" aria-live="polite">`;
   - иконки `PencilIcon`, `TrashIcon`.
 
 - [ ] **Step 1: Write the failing unit tests**
@@ -980,11 +1013,20 @@ function BulkEditForm(props: { count: number; data: AssignData; onSave: (actions
 /**
  * «Изменить данные» (§5.5 этапа 1.5): три необязательных поля — «Контрагент», «Категория» (доходы и расходы
  * группами), «Проект»; «Сохранить» недоступна, пока ничего не выбрано. По «Сохранить» окно закрывается сразу,
- * действия выполняет владелец.
+ * действия выполняет владелец. Окно живёт на странице журнала, а не в полосе действий: полоса исчезает вместе
+ * с выделением, а открытый `<dialog>` нельзя просто убрать со страницы.
  */
-export function BulkEditDialog(props: { open: boolean; count: number; data: AssignData; onClose: () => void; onSave: (actions: BulkEditAction[]) => void }) {
+export function BulkEditDialog(props: {
+  open: boolean;
+  count: number;
+  data: AssignData;
+  onClose: () => void;
+  onSave: (actions: BulkEditAction[]) => void;
+  /** Куда вернуть фокус, если «Изменить данные» уже нет (выделение опустело при открытом окне). */
+  returnFocus?: () => HTMLElement | null;
+}) {
   return (
-    <Modal open={props.open} title="Изменить данные" onClose={props.onClose} className="max-w-[480px]">
+    <Modal open={props.open} title="Изменить данные" onClose={props.onClose} className="max-w-[480px]" returnFocus={props.returnFocus}>
       <BulkEditForm count={props.count} data={props.data} onSave={props.onSave} />
     </Modal>
   );
@@ -997,34 +1039,33 @@ export function BulkEditDialog(props: { open: boolean; count: number; data: Assi
 
 ```tsx
 import { useEffect, useRef, useState } from 'react';
-import type { AssignData } from '../../lib/journal-assign';
-import { BULK_MAX, selectionTotals, type BulkAction, type BulkEditAction } from '../../lib/journal-bulk';
+import { BULK_MAX, selectionTotals, type BulkAction } from '../../lib/journal-bulk';
 import type { JournalItem } from '../../lib/queries';
 import { PencilIcon, TrashIcon } from '../icons';
-import { BulkEditDialog } from './BulkEditDialog';
 
 const barButton =
-  'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-white disabled:opacity-60 aria-disabled:opacity-60';
+  'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-white disabled:opacity-60 aria-disabled:opacity-60';
 
 /**
  * Полоса массовых действий (§5.5 этапа 1.5): пока есть выделение, лежит на месте строки заголовков таблицы,
- * акцентным цветом. Слева — общий чекбокс со знаком минус (снимает выделение), «Изменить данные» (окно с тремя полями)
- * и «Удалить» с подтверждением в полосе; справа — итог выделения по типам в базовой валюте (aria-live).
- * Не больше BULK_MAX операций за раз. Пока действие выполняется, «Изменить данные» только помечена недоступной
- * (aria-disabled): фокус, вернувшийся на неё после окна, не теряется.
+ * акцентным цветом, в одну строку той же высоты (не переносится и не наезжает на первую строку таблицы).
+ * Слева — общий чекбокс со знаком минус (снимает выделение), «Изменить данные» (окно открывает страница)
+ * и «Удалить» с подтверждением в полосе; справа — итог выделения по типам в базовой валюте, длинный обрезается
+ * (полный — в title). Пока на экране подтверждение, «Изменить данные» и итог скрыты; итог для программ чтения
+ * объявляет постоянная живая область страницы. Не больше BULK_MAX операций за раз. Пока действие выполняется,
+ * «Изменить данные» только помечена недоступной (aria-disabled): фокус, вернувшийся на неё после окна, не теряется.
  */
 export function BulkBar(props: {
   /** Выбранные загруженные операции — для итога. */
   items: readonly Pick<JournalItem, 'type' | 'baseAmount'>[];
   baseCurrency: string;
-  data: AssignData;
   pending: boolean;
   onRun: (action: BulkAction) => Promise<void> | void;
-  onEdit: (actions: BulkEditAction[]) => Promise<void> | void;
+  /** «Изменить данные»: окно открывает страница. */
+  onEdit: () => void;
   onClear: () => void;
 }) {
   const [confirm, setConfirm] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
   const deleteRef = useRef<HTMLButtonElement>(null);
   // «Отмена» убирает сфокусированную кнопку: фокус возвращается на «Удалить», как только она снова на месте
   const refocusDelete = useRef(false);
@@ -1038,89 +1079,85 @@ export function BulkBar(props: {
   const count = props.items.length;
   const tooMany = count > BULK_MAX;
   const disabled = props.pending || tooMany;
+  const totals = selectionTotals(props.items, props.baseCurrency);
+  const question = `Удалить выбранные операции (${count})? Отменить можно будет 10 секунд.`;
 
   return (
-    <>
-      <div role="region" aria-label="Действия с выбранными" className="flex min-h-12 flex-wrap items-center gap-2 bg-income-strong px-3 py-1.5 text-white">
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked="mixed"
-          aria-label="Снять выделение"
-          title="Снять выделение"
-          onClick={props.onClear}
-          className="grid size-[18px] shrink-0 place-items-center rounded bg-white text-sm leading-none font-bold text-income-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-        >
-          <span aria-hidden="true">{'\u2212'}</span>
-        </button>
-        {tooMany ? (
-          <span className="text-sm">Не больше {BULK_MAX} операций за раз — снимите часть выделения</span>
-        ) : (
+    <div role="region" aria-label="Действия с выбранными" className="flex h-12 flex-nowrap items-center gap-2 overflow-hidden bg-income-strong px-3 text-white">
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked="mixed"
+        aria-label="Снять выделение"
+        title="Снять выделение"
+        onClick={props.onClear}
+        className="grid size-[18px] shrink-0 place-items-center rounded bg-white text-sm leading-none font-bold text-income-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+      >
+        <span aria-hidden="true">{'\u2212'}</span>
+      </button>
+      {tooMany ? (
+        <span className="min-w-0 truncate text-sm" title={`Не больше ${BULK_MAX} операций за раз — снимите часть выделения`}>
+          Не больше {BULK_MAX} операций за раз — снимите часть выделения
+        </span>
+      ) : (
+        !confirm && (
           <>
             <button
               type="button"
               aria-haspopup="dialog"
               aria-disabled={props.pending || undefined}
               onClick={() => {
-                if (!props.pending) setEditOpen(true);
+                if (!props.pending) props.onEdit();
               }}
               className={barButton}
             >
               <PencilIcon />
               Изменить данные
             </button>
-            {!confirm && (
-              <button ref={deleteRef} type="button" disabled={disabled} onClick={() => setConfirm(true)} className={barButton}>
-                <TrashIcon />
-                Удалить
-              </button>
-            )}
+            <button ref={deleteRef} type="button" disabled={disabled} onClick={() => setConfirm(true)} className={barButton}>
+              <TrashIcon />
+              Удалить
+            </button>
           </>
-        )}
-        {confirm && !tooMany && (
-          <span role="group" aria-label="Подтверждение удаления" className="flex flex-wrap items-center gap-2 text-sm">
-            <span>Удалить выбранные операции ({count})? Отменить можно будет 10 секунд.</span>
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => {
-                // ошибка: полоса остаётся — эффект выше вернёт фокус на «Удалить»; при успехе полосы уже нет (ссылка пуста)
-                refocusDelete.current = true;
-                setConfirm(false);
-                void props.onRun({ action: 'delete' });
-              }}
-              className="rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-expense hover:brightness-95 disabled:opacity-60"
-            >
-              Да, удалить
-            </button>
-            <button
-              type="button"
-              autoFocus
-              onClick={() => {
-                refocusDelete.current = true;
-                setConfirm(false);
-              }}
-              className={barButton}
-            >
-              Отмена
-            </button>
+        )
+      )}
+      {confirm && !tooMany && (
+        <span role="group" aria-label="Подтверждение удаления" className="flex min-w-0 items-center gap-2 text-sm">
+          <span className="min-w-0 truncate" title={question}>
+            {question}
           </span>
-        )}
-        <p aria-live="polite" className="ml-auto text-sm font-semibold">
-          {selectionTotals(props.items, props.baseCurrency)}
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              // ошибка: полоса остаётся — эффект выше вернёт фокус на «Удалить»; при успехе полосы уже нет (ссылка пуста)
+              refocusDelete.current = true;
+              setConfirm(false);
+              void props.onRun({ action: 'delete' });
+            }}
+            className="shrink-0 rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-expense hover:brightness-95 disabled:opacity-60"
+          >
+            Да, удалить
+          </button>
+          <button
+            type="button"
+            autoFocus
+            onClick={() => {
+              refocusDelete.current = true;
+              setConfirm(false);
+            }}
+            className={barButton}
+          >
+            Отмена
+          </button>
+        </span>
+      )}
+      {!confirm && (
+        <p title={totals} className="ml-auto min-w-0 truncate text-sm font-semibold">
+          {totals}
         </p>
-      </div>
-      <BulkEditDialog
-        open={editOpen}
-        count={count}
-        data={props.data}
-        onClose={() => setEditOpen(false)}
-        onSave={(actions) => {
-          setEditOpen(false);
-          void props.onEdit(actions);
-        }}
-      />
-    </>
+      )}
+    </div>
   );
 }
 ```
@@ -1159,7 +1196,7 @@ function SortHeader(props: { label: string; column: JournalSortKey; sort: Journa
   const covered = props.bulkBar !== undefined;
 ```
 
-4) Строки
+4) Полоса — вне контейнера горизонтальной прокрутки: при узком окне таблица уезжает вбок, а полоса остаётся на месте и видна целиком. Строки
 
 ```tsx
     <div className="overflow-x-auto">
@@ -1169,9 +1206,30 @@ function SortHeader(props: { label: string; column: JournalSortKey; sort: Journa
 замените на
 
 ```tsx
-    <div className="relative overflow-x-auto">
+    // полоса действий — вне горизонтальной прокрутки таблицы (§5.5): при узком окне таблица уезжает вбок, полоса — нет
+    <div className="relative">
       {props.bulkBar && <div className="absolute inset-x-0 top-0 z-10">{props.bulkBar}</div>}
+      <div className="overflow-x-auto">
       <table aria-busy={props.busy}
+```
+
+и закрывающие строки в конце компонента
+
+```tsx
+      </table>
+    </div>
+  );
+}
+```
+
+замените на
+
+```tsx
+      </table>
+      </div>
+    </div>
+  );
+}
 ```
 
 5) У флажка «Выбрать все» строку `                  data-select-all=""` замените на
@@ -1191,16 +1249,28 @@ function SortHeader(props: { label: string; column: JournalSortKey; sort: Journa
 
 В `src/client/pages/JournalPage.tsx`:
 
-1) `import { bulkSummary, type BulkAction, type BulkSummary } from '../lib/journal-bulk';` → `import { bulkEditSummary, bulkSummary, type BulkAction, type BulkEditAction, type BulkResult, type BulkSummary } from '../lib/journal-bulk';`
+1) `import { bulkSummary, type BulkAction, type BulkSummary } from '../lib/journal-bulk';` → `import { bulkEditSummary, bulkSummary, selectionTotals, type BulkAction, type BulkEditAction, type BulkResult, type BulkSummary } from '../lib/journal-bulk';`; после строки `import { BulkBar } from '../components/journal/BulkBar';` вставьте `import { BulkEditDialog } from '../components/journal/BulkEditDialog';`.
 
-2) `  const selectedIds = items.filter((i) => selected.has(i.id)).map((i) => i.id);` замените на
+2) После строки `  const [bulkPending, setBulkPending] = useState(false);` вставьте:
+
+```tsx
+  // «Изменить данные» (§5.5): окно живёт на странице, а не в полосе — полоса исчезает вместе с выделением,
+  // а открытый <dialog> нельзя просто убрать со страницы
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  // выделение опустело при открытом окне (другой фильтр, строки ушли из загруженных) — окно закрывается штатно
+  useEffect(() => {
+    if (selected.size === 0) setBulkEditOpen(false);
+  }, [selected]);
+```
+
+3) `  const selectedIds = items.filter((i) => selected.has(i.id)).map((i) => i.id);` замените на
 
 ```tsx
   const selectedItems = items.filter((i) => selected.has(i.id));
   const selectedIds = selectedItems.map((i) => i.id);
 ```
 
-3) После функции `run` (перед комментарием `// сохраняются поля окна поверх ТЕКУЩЕГО фильтра …`) вставьте:
+4) После функции `run` (перед комментарием `// сохраняются поля окна поверх ТЕКУЩЕГО фильтра …`) вставьте:
 
 ```tsx
   // «Изменить данные» (§5.5): по очереди только заполненные поля; упал запрос — следующие не выполняются, итог это показывает
@@ -1226,7 +1296,24 @@ function SortHeader(props: { label: string; column: JournalSortKey; sort: Journa
   };
 ```
 
-4) Удалите блок
+5) После заголовка
+
+```tsx
+      <h1 id={HEADING_ID} tabIndex={-1} className="sr-only">
+        Журнал
+      </h1>
+```
+
+вставьте:
+
+```tsx
+      {/* итог выделения для программ чтения (§5.5): область есть всегда, без выделения пустая — первый итог тоже объявляется */}
+      <p id="selection-totals" aria-live="polite" className="sr-only">
+        {!mobile && selectedItems.length > 0 ? selectionTotals(selectedItems, company.baseCurrency) : ''}
+      </p>
+```
+
+6) Удалите блок
 
 ```tsx
       {!mobile && selectedIds.length > 0 && (
@@ -1234,7 +1321,7 @@ function SortHeader(props: { label: string; column: JournalSortKey; sort: Journa
       )}
 ```
 
-5) В `<JournalTable` строки (строка `onOpenOperation={openOperation}` есть и у `<JournalCards`, поэтому — вместе со следующей)
+7) В `<JournalTable` строки (строка `onOpenOperation={openOperation}` есть и у `<JournalCards`, поэтому — вместе со следующей)
 
 ```tsx
           onOpenOperation={openOperation}
@@ -1251,10 +1338,9 @@ function SortHeader(props: { label: string; column: JournalSortKey; sort: Journa
               <BulkBar
                 items={selectedItems}
                 baseCurrency={company.baseCurrency}
-                data={assignData}
                 pending={bulkPending}
                 onRun={(action) => run(action, selectedIds)}
-                onEdit={(actions) => runEdit(actions, selectedIds)}
+                onEdit={() => setBulkEditOpen(true)}
                 onClear={() => {
                   setSelected(new Set());
                   // полоса исчезла вместе с фокусом — он переходит на флажок «Выбрать все» в открывшейся строке заголовков
@@ -1263,6 +1349,39 @@ function SortHeader(props: { label: string; column: JournalSortKey; sort: Journa
               />
             ) : undefined
           }
+```
+
+8) Окно «Изменить данные» — после блока `<AssignDialog … />` (задача 1). Строки
+
+```tsx
+            assigned.current = { id: item.id, index: items.findIndex((i) => i.id === item.id) };
+          }}
+        />
+      )}
+```
+
+замените на
+
+```tsx
+            assigned.current = { id: item.id, index: items.findIndex((i) => i.id === item.id) };
+          }}
+        />
+      )}
+      {!readOnly && (
+        <BulkEditDialog
+          open={bulkEditOpen}
+          count={selectedIds.length}
+          data={assignData}
+          onClose={() => setBulkEditOpen(false)}
+          onSave={(actions) => {
+            setBulkEditOpen(false);
+            void runEdit(actions, selectedIds);
+          }}
+          // окно закрылось, потому что выделение опустело: «Изменить данные» уже нет — фокус на «Выбрать все»
+          // (если и таблицы нет — Modal поставит фокус на заголовок страницы)
+          returnFocus={() => (selected.size === 0 ? document.querySelector<HTMLElement>('[data-select-all]') : null)}
+        />
+      )}
 ```
 
 Run: `npm run typecheck` → без ошибок. Run: `npm test` → PASS.
@@ -1296,13 +1415,21 @@ test('массовые действия: полоса на месте загол
 ```ts
   // выбрать все загруженные: полоса встаёт на место строки заголовков, справа — итог выделения по типам (§5.5)
   const selectAll = table(page).getByRole('checkbox', { name: 'Выбрать все загруженные операции' });
+  // живая область итога есть до выделения — первая сумма тоже объявляется
+  const liveTotals = page.locator('#selection-totals');
+  await expect(liveTotals).toHaveAttribute('aria-live', 'polite');
+  await expect(liveTotals).toHaveText('');
   await selectAll.check();
   await expect(bar).toContainText(/Доход • 1 платёж • 40\s₸ · Расход • 3 платежа • 60\s₸/);
+  await expect(liveTotals).toHaveText(/Доход • 1 платёж • 40\s₸ · Расход • 3 платежа • 60\s₸/);
   const clear = bar.getByRole('checkbox', { name: 'Снять выделение' });
   await expect(clear).toHaveAttribute('aria-checked', 'mixed');
+  // полоса — ровно на месте строки заголовков: та же высота, на первую строку таблицы не наезжает
+  const headRow = table(page).locator('thead tr');
   const barBox = (await bar.boundingBox())!;
-  const headBox = (await table(page).locator('thead').boundingBox())!;
+  const headBox = (await headRow.boundingBox())!;
   expect(Math.abs(barBox.y - headBox.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(barBox.height - headBox.height)).toBeLessThanOrEqual(1);
   // кнопки строки заголовков под полосой не попадают в порядок Tab
   await expect(selectAll).toHaveAttribute('tabindex', '-1');
 
@@ -1345,11 +1472,31 @@ test('массовые действия: полоса на месте загол
 
 3) Строку `  await expect(bar).toContainText('Выбрано: 1');` замените на `  await expect(bar).toContainText(/Расход • 1 платёж • 10\s₸/);`
 
+4) Строки (первое нажатие «Удалить» в этом тесте)
+
+```ts
+  await bar.getByRole('button', { name: 'Удалить', exact: true }).click();
+  await expect(bar.getByRole('button', { name: 'Отмена' })).toBeFocused();
+```
+
+замените на
+
+```ts
+  await bar.getByRole('button', { name: 'Удалить', exact: true }).click();
+  await expect(bar.getByRole('button', { name: 'Отмена' })).toBeFocused();
+  // подтверждение — в той же одной строке: высота полосы равна высоте строки заголовков, итог на это время скрыт
+  const confirmBox = (await bar.boundingBox())!;
+  const headRowBox = (await table(page).locator('thead tr').boundingBox())!;
+  expect(Math.abs(confirmBox.height - headRowBox.height)).toBeLessThanOrEqual(1);
+  await expect(bar).not.toContainText('платёж');
+  await expect(bar.getByRole('button', { name: 'Да, удалить' })).toBeVisible();
+```
+
 `e2e/mobile.spec.ts`, тест «выделение из широкого окна на телефоне снимается…»: строку `  await expect(bulk).toContainText('Выбрано: 1');` замените на `  await expect(bulk).toContainText('Доход • 1 платёж');`.
 
 - [ ] **Step 8: Run all checks; e2e twice**
 
-Run: `npm test` → PASS, 665 (661 + 4). Run: `npm run typecheck` → без ошибок.
+Run: `npm test` → PASS, 667 (663 + 4). Run: `npm run typecheck` → без ошибок.
 Run: `npx playwright test e2e/journal-actions.spec.ts e2e/mobile.spec.ts` → PASS.
 Run: `npm run test:e2e` дважды → 70 passed оба раза.
 
@@ -2138,7 +2285,11 @@ test('«Готово» в окне «Фильтры» не затирает по
   await dialog.getByRole('button', { name: 'Сохранить фильтр' }).click();
 ```
 
-`e2e/dialogs.spec.ts`: `  const filter = page.getByRole('dialog', { name: 'Фильтр', exact: true });` → `  const filter = page.getByRole('dialog', { name: 'Фильтры', exact: true });`
+`e2e/dialogs.spec.ts`: `  const filter = page.getByRole('dialog', { name: 'Фильтр', exact: true });` → `  const filter = page.getByRole('dialog', { name: 'Фильтры', exact: true });`; в названии теста `окно: «×» закрывает форму и «Фильтр»; …` → `окно: «×» закрывает форму и «Фильтры»; …`; комментарий `  // «Фильтр»: «×» закрывает без применения, фокус — на кнопке «Фильтр»` → `  // окно «Фильтры»: «×» закрывает без применения, фокус — на кнопке «Фильтр»`.
+
+Оставшиеся упоминания окна под старым названием в названиях тестов и комментариях:
+- `e2e/journal-actions.spec.ts`: `test('сохранённые фильтры: сохранить из окна «Фильтр», применить,` → `test('сохранённые фильтры: сохранить из окна «Фильтры», применить,`;
+- `e2e/mobile.spec.ts`: в названии теста `окно «Фильтр» поверх панели` → `окно «Фильтры» поверх панели`; комментарий `  // окно «Фильтр» открывается поверх панели; «Готово» возвращает в панель` → `  // окно «Фильтры» открывается поверх панели; «Готово» возвращает в панель`; комментарий `  // окно «Фильтр» поверх панели: длинное название категории переносится, разделы не шире экрана` → `  // окно «Фильтры» поверх панели: длинное название категории переносится, панель поля не шире экрана`; в комментарии к `expectNoSideScroll` `— форма, «Фильтр», выезжающие панели` → `— форма, «Фильтры», выезжающие панели`.
 
 `e2e/mobile.spec.ts`:
 
@@ -2184,7 +2335,7 @@ test('«Готово» в окне «Фильтры» не затирает по
 
 - [ ] **Step 7: Run all checks; e2e twice**
 
-Run: `npm test` → PASS, 669 (665 + 4). Run: `npm run typecheck` → без ошибок.
+Run: `npm test` → PASS, 671 (667 + 4). Run: `npm run typecheck` → без ошибок.
 Run: `npx playwright test e2e/journal.spec.ts e2e/journal-actions.spec.ts e2e/dialogs.spec.ts e2e/mobile.spec.ts` → PASS.
 Run: `npm run test:e2e` дважды → 70 passed оба раза.
 
@@ -2256,7 +2407,7 @@ Expected: итог `Готово: …\parity\index.html — снято 36 из 3
 
 - [ ] **Step 4: Final checks**
 
-Run: `npm test` → PASS, 669. Run: `npm run typecheck` → без ошибок. Run: `npm run test:e2e` → 70 passed.
+Run: `npm test` → PASS, 671. Run: `npm run typecheck` → без ошибок. Run: `npm run test:e2e` → 70 passed.
 
 - [ ] **Step 5: Commit**
 
@@ -2275,5 +2426,5 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - План 1.5-2 закрывает отложенные 5b №2 (радиокнопки в `Popover` не понадобились — меню периода из кнопок) и 5b №5 («Недоступный элемент»); 5b №3 закрыт ещё в 1.5-1a (балансы) и здесь (⟳ журнала).
 - Следующий план — 1.5-3 «Формы операций»: `ComboSelect` с вводом в поле и «+ Создать» (окна «Указать» и «Изменить данные» подхватят его без правок), `Field floating`, `DateTimeField` на `Calendar` из 1.5-2a, подписи контрагента «Владелец», «Тип налога».
 - Замечания для итогов (followups):
-  - полоса действий лежит поверх строки заголовков: если её содержимое не помещается в одну строку (узкое окно и подтверждение удаления), она закрывает верх первой строки таблицы, пока видна;
+  - полоса действий всегда в одну строку: в узком окне длинный итог и вопрос подтверждения обрезаются (полный текст — в `title`);
   - «Указать» и «Изменить данные» не предлагают «+ Создать» — появится с §6.6 в плане 1.5-3.
