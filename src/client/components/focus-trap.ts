@@ -75,10 +75,20 @@ export function focusPageHeading(): void {
  */
 export function cycleTab(e: KeyboardEvent<HTMLElement>, root: HTMLElement | null): void {
   if (e.key !== 'Tab' || e.defaultPrevented || !root) return;
-  const items = tabbableIn(root);
-  if (items.length === 0) return;
-  const edge = e.shiftKey ? items[0] : items[items.length - 1];
-  if (document.activeElement !== edge) return;
+  const next = tabTarget(tabbableIn(root), document.activeElement, root, e.shiftKey);
+  if (!next) return;
   e.preventDefault();
-  (e.shiftKey ? items[items.length - 1] : items[0])!.focus();
+  next.focus();
+}
+
+/**
+ * Куда перевести фокус при Tab по кругу, или null — оставить Tab браузеру. Краем считается и само окно
+ * (`active === root`: фокус на `<dialog>`, пока форма грузится): Tab — на первый элемент, Shift+Tab — на последний.
+ */
+export function tabTarget<T>(items: T[], active: unknown, root: unknown, shift: boolean): T | null {
+  if (items.length === 0) return null;
+  const first = items[0]!;
+  const last = items[items.length - 1]!;
+  if (active === root || active === (shift ? first : last)) return shift ? last : first;
+  return null;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { tabbable, type TabCandidate } from '../../src/client/components/focus-trap';
+import { tabTarget, tabbable, type TabCandidate } from '../../src/client/components/focus-trap';
 
 const el = (id: string, over: Partial<TabCandidate> = {}): TabCandidate & { id: string } => ({ id, disabled: false, hidden: false, ...over });
 const ids = (list: { id: string }[]) => list.map((c) => c.id);
@@ -42,5 +42,31 @@ describe('tabbable: куда попадает Tab в модальном окне
   it('пропускает элементы вложенного окна (подтверждение поверх формы, окно поверх панели)', () => {
     const list = [el('a'), el('b', { nested: true }), el('c'), el('d', { nested: true })];
     expect(ids(tabbable(list))).toEqual(['a', 'c']);
+  });
+});
+
+describe('tabTarget: куда Tab по кругу переведёт фокус (null — оставить браузеру)', () => {
+  const root = 'root';
+  const items = ['a', 'b', 'c'];
+
+  it('с последнего элемента Tab — на первый, с первого Shift+Tab — на последний', () => {
+    expect(tabTarget(items, 'c', root, false)).toBe('a');
+    expect(tabTarget(items, 'a', root, true)).toBe('c');
+  });
+
+  it('в середине списка браузер ходит сам', () => {
+    expect(tabTarget(items, 'b', root, false)).toBeNull();
+    expect(tabTarget(items, 'b', root, true)).toBeNull();
+    expect(tabTarget(items, 'a', root, false)).toBeNull();
+    expect(tabTarget(items, 'c', root, true)).toBeNull();
+  });
+
+  it('фокус на самом окне (форма ещё грузится): Tab — на первый, Shift+Tab — на последний', () => {
+    expect(tabTarget(items, root, root, false)).toBe('a');
+    expect(tabTarget(items, root, root, true)).toBe('c');
+  });
+
+  it('нет доступных элементов — ничего не делать', () => {
+    expect(tabTarget([], root, root, false)).toBeNull();
   });
 });

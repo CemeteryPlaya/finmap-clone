@@ -64,6 +64,8 @@ export function Modal(props: {
         cycleTab(e, ref.current);
         // Esc, который не обработали внутри (список с поиском закрывается сам и отменяет событие)
         if (e.key !== 'Escape' || !props.onCancel || e.defaultPrevented) return;
+        // Esc во вложенном окне (подтверждение поверх формы) закрывает только его
+        if (e.target instanceof Element && e.target.closest('dialog') !== ref.current) return;
         e.preventDefault();
         props.onCancel();
       }}
@@ -75,10 +77,10 @@ export function Modal(props: {
       onClose={(e) => {
         if (e.target !== e.currentTarget) return;
         props.onClose();
-        // кнопки, с которой открыли окно, уже нет (строку журнала удалили) — фокус на заголовок страницы
+        // кнопки, с которой открыли окно, уже нет (строку журнала удалили) или она не принимает фокус — фокус на заголовок страницы
         const back = opener.current;
         if (back?.isConnected && back !== document.body) back.focus();
-        else focusPageHeading();
+        if (!back?.isConnected || back === document.body || document.activeElement !== back) focusPageHeading();
       }}
       className={`m-auto max-h-[90dvh] w-[calc(100%-2rem)] rounded-3xl bg-card p-0 text-ink shadow-2xl outline-none backdrop:bg-black/40 ${props.className ?? 'max-w-2xl'}`}
     >

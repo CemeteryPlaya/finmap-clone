@@ -90,3 +90,79 @@ test('окно: «×» закрывает форму и «Фильтр»; нач
   await phoneForm.getByRole('button', { name: 'Закрыть', exact: true }).click();
   await expect(phoneForm).toBeHidden();
 });
+
+test('вопрос о несохранённом: вложенное окно, Esc закрывает только его, фокус возвращается; «Больше не спрашивать» сохраняется только по «Закрыть»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Вопрос ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+  const expense = page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true });
+  const form = page.getByRole('dialog', { name: 'Новая операция' });
+  const amount = form.getByRole('textbox', { name: /^Сумма,/ });
+  const question = page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' });
+  const dontAsk = question.getByRole('checkbox', { name: 'Больше не спрашивать' });
+
+  // настройка общая для пользователя admin и остальных e2e: что бы ни случилось, вопрос снова включён
+  try {
+    await expense.click();
+    await expect(amount).toBeFocused();
+    await amount.fill('250');
+
+    // Esc в поле суммы — вопрос поверх формы: текст, флажок, «Отменить | Закрыть», фокус на «Отменить»
+    await amount.press('Escape');
+    await expect(question).toBeVisible();
+    await expect(question).toHaveAccessibleDescription('Закрыть окно? Введённые данные будут потеряны.');
+    await expect(question.getByRole('button')).toHaveText(['Отменить', 'Закрыть']);
+    await expect(question.getByRole('button', { name: 'Отменить' })).toBeFocused();
+    // Tab по кругу внутри вопроса: в форму под ним фокус не уходит
+    for (let i = 0; i < 4; i++) {
+      await page.keyboard.press('Tab');
+      expect(await question.evaluate((d) => d.contains(document.activeElement))).toBe(true);
+    }
+    // Esc закрывает только вопрос: форма открыта, фокус — в сумме, где нажали Esc
+    await page.keyboard.press('Escape');
+    await expect(question).toBeHidden();
+    await expect(form).toBeVisible();
+    await expect(amount).toBeFocused();
+    await expect(amount).toHaveValue('250');
+
+    // флажок отмечен, но «Отменить» — настройка не сохраняется, при следующем вопросе флажок снова пуст
+    await amount.press('Escape');
+    await dontAsk.check();
+    await question.getByRole('button', { name: 'Отменить' }).click();
+    await expect(question).toBeHidden();
+    await amount.press('Escape');
+    await expect(question).toBeVisible();
+    await expect(dontAsk).not.toBeChecked();
+
+    // флажок и «Закрыть» — форма закрывается, настройка сохранена, фокус — на кнопке шапки
+    await dontAsk.check();
+    const saved = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/operationForm.skipCloseConfirm') && r.request().method() === 'PUT');
+    await question.getByRole('button', { name: 'Закрыть' }).click();
+    expect((await saved).request().postDataJSON()).toEqual({ value: true });
+    await expect(form).toBeHidden();
+    await expect(expense).toBeFocused();
+
+    // теперь изменённая форма закрывается сразу — и по Esc, и по «×»
+    await expense.click();
+    await amount.fill('300');
+    await amount.press('Escape');
+    await expect(form).toBeHidden();
+    await expect(question).toHaveCount(0);
+    await expense.click();
+    await amount.fill('300');
+    await form.getByRole('button', { name: 'Закрыть', exact: true }).click();
+    await expect(form).toBeHidden();
+  } finally {
+    await page.request.put('/api/v1/preferences/operationForm.skipCloseConfirm', { data: { value: false }, headers: csrf(page) });
+  }
+
+  // после возврата настройки (новая загрузка страницы) вопрос снова задаётся
+  await page.reload();
+  await expense.click();
+  await amount.fill('5');
+  await amount.press('Escape');
+  await expect(question).toBeVisible();
+  await question.getByRole('button', { name: 'Закрыть' }).click();
+  await expect(form).toBeHidden();
+});

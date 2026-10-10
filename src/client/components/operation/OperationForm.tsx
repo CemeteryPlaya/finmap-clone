@@ -21,10 +21,13 @@ import {
 import { accountOptions, categoryOptions, counterpartyOptions, preferredCounterpartyType, projectOptions, tagOptions } from '../../lib/operation-options';
 import { useMeta } from '../../lib/query';
 import { startSplit } from '../../lib/split';
+import { SKIP_CLOSE_CONFIRM_PREF, skipCloseConfirm } from '../../lib/preferences';
 import {
+  savePreference,
   useAccounts,
   useCategories,
   useCounterparties,
+  usePreferences,
   useProjects,
   useSplitPresets,
   useTags,
@@ -36,6 +39,7 @@ import {
   type SplitPreset,
   type Tag,
 } from '../../lib/queries';
+import { ConfirmDialog } from '../ConfirmDialog';
 import { Field } from '../Field';
 import { Modal } from '../Modal';
 import { Pending } from '../QueryState';
@@ -190,6 +194,10 @@ function OperationEditor(p: {
   const [status, setStatus] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  /** «Больше не спрашивать» (§2.4 этапа 1.5): настройка пользователя; флажок в вопросе — до нажатия «Закрыть». */
+  const prefs = usePreferences();
+  const skipAsk = skipCloseConfirm(prefs.data);
+  const [dontAsk, setDontAsk] = useState(false);
   // блок «Проект, теги, комментарий» раскрыт, если в нём уже что-то есть
   const [more, setMore] = useState(() => readOnly || initial.projectId !== null || initial.tagIds.length > 0 || initial.comment !== '');
   const [refocusAmount, setRefocusAmount] = useState(0);
@@ -204,10 +212,6 @@ function OperationEditor(p: {
   const formRef = useRef<HTMLFormElement>(null);
   const [errorFocus, setErrorFocus] = useState(0);
   const dirty = files.length > 0 || JSON.stringify(draft) !== JSON.stringify(initial);
-  /** Вопрос о несохранённом: фокус на «Продолжить», после ответа — туда, где был. */
-  const continueRef = useRef<HTMLButtonElement>(null);
-  const focusBefore = useRef<HTMLElement | null>(null);
-  const closeAsked = useRef(false);
   /** Только просмотр: поле суммы недоступно, начальный фокус — на «Закрыть». */
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -220,18 +224,6 @@ function OperationEditor(p: {
     });
     return () => cancelAnimationFrame(frame);
   }, [readOnly]);
-
-  useEffect(() => {
-    if (confirmClose) {
-      continueRef.current?.focus();
-      return;
-    }
-    if (!closeAsked.current) return;
-    closeAsked.current = false;
-    // «Отмена», с которой спросили, уже исчезла вместе с кнопками — тогда фокус в поле суммы
-    if (focusBefore.current?.isConnected) focusBefore.current.focus();
-    else setRefocusAmount((n) => n + 1);
-  }, [confirmClose]);
 
   useEffect(() => {
     if (confirmDelete || !deleteAsked.current) return;
@@ -247,15 +239,14 @@ function OperationEditor(p: {
     else setRefocusAmount((n) => n + 1);
   }, [errorFocus]);
 
-  // Esc: пока идёт запрос — ничего (окно закрылось бы, а операция всё равно сохранится); открыто подтверждение
-  // удаления или вопрос — закрыть их; есть несохранённые изменения — спросить; иначе закрыть
+  // Esc и «×»: пока идёт запрос — ничего (окно закрылось бы, а операция всё равно сохранится); открыто подтверждение
+  // удаления — закрыть его; есть несохранённые изменения и вопрос не выключен — спросить (вложенное окно, его Esc
+  // сюда не доходит); иначе закрыть
   p.cancelRef.current = () => {
     if (pending) return;
     if (confirmDelete) setConfirmDelete(false);
-    else if (confirmClose) setConfirmClose(false);
-    else if (dirty) {
-      focusBefore.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      closeAsked.current = true;
+    else if (dirty && !skipAsk) {
+      setDontAsk(false);
       setConfirmClose(true);
     } else p.close();
   };
@@ -499,6 +490,7 @@ function OperationEditor(p: {
   );
 
   return (
+    <>
     <form ref={formRef} onSubmit={onSubmit} noValidate aria-label="Операция" className="grid grid-cols-[minmax(0,1fr)] gap-4">
       {readOnly && <p className={`${noticeClass} mb-0`}>Компания в архиве — изменения недоступны.</p>}
       {/* тип существующей операции не меняется (схема правки) */}
@@ -714,16 +706,6 @@ function OperationEditor(p: {
             Не удалять
           </button>
         </div>
-      ) : confirmClose ? (
-        <div role="group" aria-label="Несохранённые изменения" className="flex flex-wrap items-center gap-2 text-sm">
-          <span>Есть несохранённые изменения. Закрыть без сохранения?</span>
-          <button type="button" onClick={p.close} className={btnSecondary}>
-            Закрыть без сохранения
-          </button>
-          <button type="button" ref={continueRef} onClick={() => setConfirmClose(false)} className={btnPrimary}>
-            Продолжить
-          </button>
-        </div>
       ) : readOnly ? (
         <div className="flex flex-wrap gap-2">
           <button type="button" ref={closeRef} onClick={p.close} className={btnSecondary}>
@@ -758,10 +740,6 @@ function OperationEditor(p: {
               </button>
             </>
           )}
-          {/* пока запрос идёт, «Отмена» и Esc окно не закрывают: операция всё равно сохранилась бы */}
-          <button type="button" onClick={() => p.cancelRef.current()} className={btnSecondary}>
-            Отмена
-          </button>
           {locked && (
             <span id="operation-delete-locked" className="self-center text-sm text-muted">
               Удалить нельзя: {LOCKED_HINT} («{locked.name}»)
@@ -770,6 +748,22 @@ function OperationEditor(p: {
         </div>
       )}
     </form>
+    <ConfirmDialog
+      open={confirmClose}
+      title="Ваши данные не сохранятся"
+      text="Закрыть окно? Введённые данные будут потеряны."
+      confirmLabel="Закрыть"
+      checkbox={{ label: 'Больше не спрашивать', checked: dontAsk, onChange: setDontAsk }}
+      onCancel={() => setConfirmClose(false)}
+      onConfirm={() => {
+        // сбой сохранения настройки не мешает закрыть окно: в следующий раз просто спросят снова
+        if (dontAsk) savePreference(SKIP_CLOSE_CONFIRM_PREF, true).catch(() => undefined);
+        p.close();
+      }}
+      // «×» или поле, с которого спросили, исчезли — фокус в поле суммы
+      onFocusLost={() => setRefocusAmount((n) => n + 1)}
+    />
+    </>
   );
 }
 

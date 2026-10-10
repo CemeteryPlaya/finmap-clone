@@ -420,8 +420,8 @@ test('ширина 390 px: журнал, все разделы настроек,
   // счёт по умолчанию — «Касса_без_пробелов_…»: кнопка списка не растягивает форму
   await expect(newForm(page).getByRole('button', { name: /^Счёт: Касса_без_пробелов/ })).toBeVisible();
   await expectNoSideScroll(page, 'форма операции');
-  const cancel = newForm(page).getByRole('button', { name: 'Отмена', exact: true });
-  expect((await cancel.boundingBox())!.x + (await cancel.boundingBox())!.width).toBeLessThanOrEqual(PHONE.width);
+  const close = newForm(page).getByRole('button', { name: 'Закрыть', exact: true });
+  expect((await close.boundingBox())!.x + (await close.boundingBox())!.width).toBeLessThanOrEqual(PHONE.width);
   await page.keyboard.press('Escape');
   await expect(newForm(page)).toBeHidden();
 

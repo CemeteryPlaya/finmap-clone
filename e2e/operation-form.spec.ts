@@ -123,15 +123,16 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   await amount.blur();
   await expect(dialog).toContainText('Деление на ноль');
 
-  // Esc при несохранённых изменениях спрашивает; второй Esc — продолжить ввод
+  // Esc при несохранённых изменениях — окно «Ваши данные не сохранятся» поверх формы; Esc закрывает только его
   await amount.fill('10');
   await amount.press('Escape');
-  const question = dialog.getByRole('group', { name: 'Несохранённые изменения' });
+  const question = page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' });
   await expect(question).toBeVisible();
-  await expect(question.getByRole('button', { name: 'Продолжить' })).toBeFocused();
+  await expect(question.getByRole('button', { name: 'Отменить' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(question).toBeHidden();
   await expect(dialog).toBeVisible();
+  await expect(amount).toBeFocused();
   // Esc внутри списка с поиском закрывает только список: окно открыто, вопроса нет, фокус на кнопке списка
   await dialog.getByRole('button', { name: /^Категория:/ }).click();
   await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeVisible();
@@ -445,7 +446,7 @@ test('нет курса на дату: «Указать курс на {D}» со
   await expect(alert.getByLabel('Курс CHF к тенге на 15.06.2021')).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('group', { name: 'Несохранённые изменения' })).toHaveCount(0);
+  await expect(page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' })).toHaveCount(0);
   await expect(alert.getByLabel('Курс CHF к тенге на 15.06.2021')).toHaveCount(0);
   await expect(alert.getByRole('button', { name: 'Указать курс на 15.06.2021' })).toBeFocused();
   await alert.getByRole('button', { name: 'Указать курс на 15.06.2021' }).click();

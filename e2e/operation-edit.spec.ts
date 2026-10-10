@@ -175,7 +175,7 @@ test('перевод KZT → USD: новая сумма списания сох�
   await expect(page.getByRole('navigation', { name: 'Счета' }).getByRole('link', { name: /^Касса/ })).toContainText(/₸\s9\s500$/);
 });
 
-test('фокус и закрытие формы: после «Отмена» → «Продолжить» фокус в сумме; пока сохранение идёт, Esc и «Отмена» окно не закрывают', async ({ page }) => {
+test('фокус и закрытие формы: «×» → «Отменить» возвращает фокус на «×»; пока сохранение идёт, Esc и «×» окно не закрывают', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Фокус ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
@@ -188,10 +188,11 @@ test('фокус и закрытие формы: после «Отмена» →
   await expect(amount).toBeFocused();
   await amount.fill('100');
 
-  // кнопка «Отмена», с которой спросили, исчезает вместе с вопросом — фокус возвращается в сумму
-  await dialog.getByRole('button', { name: 'Отмена', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Продолжить' }).click();
-  await expect(amount).toBeFocused();
+  // «×» спрашивает о несохранённом; «Отменить» возвращает фокус на «×»
+  const close = dialog.getByRole('button', { name: 'Закрыть', exact: true });
+  await close.click();
+  await page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' }).getByRole('button', { name: 'Отменить' }).click();
+  await expect(close).toBeFocused();
 
   // ответ сервера задержан: пока запрос идёт, окно не закрывается ни по Esc, ни по «Отмена»
   let release!: () => void;
@@ -203,9 +204,9 @@ test('фокус и закрытие формы: после «Отмена» →
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Сохранить', exact: true })).toBeDisabled();
   await page.keyboard.press('Escape');
-  await dialog.getByRole('button', { name: 'Отмена', exact: true }).click();
+  await close.click();
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('group', { name: 'Несохранённые изменения' })).toHaveCount(0);
+  await expect(page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' })).toHaveCount(0);
   release();
   await expect(dialog).toBeHidden();
   await page.unrouteAll({ behavior: 'ignoreErrors' });
@@ -284,7 +285,7 @@ test('409: «Дублировать» убирает сообщение о ко�
   await expect(copy).toBeVisible();
   await expect(copy.getByRole('alert')).toHaveCount(0);
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Закрыть без сохранения' }).click();
+  await page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' }).getByRole('button', { name: 'Закрыть' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
   // изменили, затем удалили: «Загрузить актуальную» находит удаление — «Закрыть» возвращает фокус на заголовок
