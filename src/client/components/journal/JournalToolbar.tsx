@@ -1,30 +1,19 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { getCurrency } from '../../../shared/currencies';
-import { isValidDate } from '../../../shared/dates';
 import { parseAmount } from '../../../shared/money';
-import {
-  clearFilter,
-  isFiltered,
-  journalApiParams,
-  panelConditionCount,
-  PERIODS,
-  periodRange,
-  SEARCH_MAX,
-  SORT_CHOICES,
-  type JournalUrlState,
-  type PeriodKey,
-} from '../../lib/journal-filter';
+import { clearFilter, isFiltered, journalApiParams, panelConditionCount, SEARCH_MAX, SORT_CHOICES, type JournalUrlState } from '../../lib/journal-filter';
 import { amountInputText } from '../../lib/journal-format';
 import { Drawer } from '../Drawer';
 import { Field } from '../Field';
 import { btnSmall, inputClass } from '../ui';
+import { PeriodMenu } from './PeriodMenu';
 
 /** Пауза поиска: запрос уходит, когда пользователь перестал печатать. */
 export const SEARCH_DEBOUNCE_MS = 300;
 
 const compactInput = inputClass.replace('py-3', 'py-2');
 
-type OptionalKey = 'from' | 'to' | 'q' | 'amountMin' | 'amountMax';
+type OptionalKey = 'q' | 'amountMin' | 'amountMax';
 
 /** Фильтр без необязательных полей keys. */
 function omit(state: JournalUrlState, ...keys: OptionalKey[]): JournalUrlState {
@@ -132,75 +121,10 @@ function AmountInput(props: { label: string; value: number | undefined; minorUni
 }
 
 /**
- * Граница периода. Дата применяется по уходу из поля или Enter, а не на каждое изменение: пока год набирают
- * по цифре, промежуточные даты («0002-…») не уходят в адрес и не меняют границы местами.
- */
-function DateInput(props: { label: string; value: string | undefined; onCommit: (value: string) => void }) {
-  const [text, setText] = useState(props.value ?? '');
-  useEffect(() => setText(props.value ?? ''), [props.value]);
-  const commit = () => {
-    if (text === (props.value ?? '')) return;
-    if (text === '' || isValidDate(text)) props.onCommit(text);
-  };
-  return (
-    <Field label={props.label} className="w-40">
-      {(c) => (
-        <input
-          {...c}
-          type="date"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              commit();
-            }
-          }}
-          className={compactInput}
-        />
-      )}
-    </Field>
-  );
-}
-
-function PeriodPicker({ state, today, onChange }: { state: JournalUrlState; today: string; onChange: (next: JournalUrlState) => void }) {
-  const choose = (period: PeriodKey) => {
-    // «Произвольно» начинается с границ выбранного сейчас периода — их удобно поправить
-    if (period === 'custom') onChange({ ...omit(state, 'from', 'to'), period, ...periodRange(state, today) });
-    else onChange({ ...omit(state, 'from', 'to'), period });
-  };
-  const setBound = (key: 'from' | 'to', value: string) => {
-    onChange(value ? { ...state, period: 'custom', [key]: value } : { ...omit(state, key), period: 'custom' });
-  };
-  return (
-    <>
-      <Field label="Период" className="w-48">
-        {(c) => (
-          <select {...c} value={state.period} onChange={(e) => choose(e.target.value as PeriodKey)} className={compactInput}>
-            {PERIODS.map((p) => (
-              <option key={p.key} value={p.key}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        )}
-      </Field>
-      {state.period === 'custom' && (
-        <>
-          <DateInput label="С" value={state.from} onCommit={(v) => setBound('from', v)} />
-          <DateInput label="По" value={state.to} onCommit={(v) => setBound('to', v)} />
-        </>
-      )}
-    </>
-  );
-}
-
-/**
- * Тулбар журнала (§7): период, поиск, сумма от/до в базовой валюте, выгрузка в Excel по текущему фильтру, сброс.
- * actions — кнопки модалки «Фильтр», сохранённых фильтров и колонок (их добавляют следующие задачи).
- * На телефоне (`mobile`, §7 «Мобильная версия») на виду только поиск и кнопка «Фильтры · N»: остальное,
- * а также сортировка (у карточек нет заголовков колонок) — в панели, выезжающей справа.
+ * Тулбар журнала (§5.1 этапа 1.5): пилюля периода, поиск, сумма от/до в базовой валюте, выгрузка в Excel по
+ * текущему фильтру, сброс. actions — кнопки окна «Фильтр», сохранённых фильтров и колонок.
+ * На телефоне (`mobile`) на виду только поиск и кнопка «Фильтры · N»: остальное, а также сортировка (у карточек
+ * нет заголовков колонок) — в панели, выезжающей справа.
  */
 export function JournalToolbar(props: {
   state: JournalUrlState;
@@ -223,7 +147,7 @@ export function JournalToolbar(props: {
     if (!props.mobile) setPanelOpen(false);
   }, [props.mobile]);
 
-  const period = <PeriodPicker state={state} today={props.today} onChange={onChange} />;
+  const period = <PeriodMenu state={state} today={props.today} onChange={onChange} />;
   const search = <SearchBox key={searchKey} value={state.q ?? ''} onSearch={(q) => onChange(q ? { ...state, q } : omit(state, 'q'))} />;
   const amounts = (
     <>
@@ -268,7 +192,7 @@ export function JournalToolbar(props: {
         </button>
         <Drawer open={panelOpen} title="Фильтры" side="right" onClose={() => setPanelOpen(false)}>
           <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap gap-3">{period}</div>
+            <div>{period}</div>
             <div className="flex flex-wrap gap-3">{amounts}</div>
             <Field label="Сортировка" className="w-48">
               {(c) => (
@@ -298,7 +222,7 @@ export function JournalToolbar(props: {
 
   return (
     <div className="mb-4 flex flex-col gap-3">
-      <div className="flex flex-wrap items-start gap-3">
+      <div className="flex flex-wrap items-end gap-3">
         {period}
         {search}
         {amounts}

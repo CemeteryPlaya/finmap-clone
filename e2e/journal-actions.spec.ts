@@ -49,6 +49,12 @@ const panel = (page: Page) => page.getByRole('navigation', { name: 'Счета' 
 /** Буквы операций в порядке строк журнала: у каждой операции комментарий «операция X». */
 const letters = async (page: Page) => (await bodyRows(page).allInnerTexts()).map((t) => /операция ([A-Z])/.exec(t)?.[1] ?? '?').join('');
 
+/** Период — пункт меню у пилюли (§5.1 этапа 1.5). */
+async function choosePeriod(page: Page, label: string) {
+  await page.getByRole('button', { name: /^Период:/ }).click();
+  await page.getByRole('dialog', { name: 'Период', exact: true }).getByRole('button', { name: label, exact: true }).click();
+}
+
 test('сохранённые фильтры: сохранить из окна «Фильтр», применить, переименовать, удалить; предупреждение о недоступных условиях', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Сохранённые ${Date.now()}`);
@@ -66,7 +72,7 @@ test('сохранённые фильтры: сохранить из окна «
   const menuButton = page.getByRole('button', { name: 'Сохранённые фильтры' });
 
   // период «Сегодня» в тулбаре + доходы в окне → «Сохранить фильтр»
-  await page.getByLabel('Период').selectOption({ label: 'Сегодня' });
+  await choosePeriod(page, 'За сегодня');
   await filterButton.click();
   await dialog.getByRole('checkbox', { name: 'Доход' }).check();
   await dialog.getByRole('button', { name: 'Сохранить фильтр' }).click();
@@ -85,7 +91,7 @@ test('сохранённые фильтры: сохранить из окна «
   await page.getByRole('button', { name: 'Применить фильтр «Доходы за день»' }).click();
   await expect(menuButton).toBeFocused();
   await expect(page).toHaveURL(/from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}&type=income$/);
-  await expect(page.getByLabel('Период')).toHaveValue('custom');
+  await expect(page.getByRole('button', { name: /^Период:/ })).toHaveAccessibleName(/^Период: \d{2}\.\d{2}\.\d{4} – \d{2}\.\d{2}\.\d{4}$/);
   await expect.poll(() => letters(page)).toBe('CA');
 
   // переименовать
@@ -320,9 +326,9 @@ test('массовые действия: категория с итогом и �
   // смена фильтра снимает выделение: действие не уйдёт на строки, которых уже не видно (Review Focus 4)
   await row('A').getByRole('checkbox').check();
   await expect(bar).toContainText('Выбрано: 1');
-  await page.getByLabel('Период').selectOption({ label: 'Вчера' });
+  await choosePeriod(page, 'За вчера');
   await expect(bar).toHaveCount(0);
-  await page.getByLabel('Период').selectOption({ label: 'Всё время' });
+  await choosePeriod(page, 'За все время');
   await expect.poll(() => letters(page)).toBe('DCBA');
   await expect(row('A').getByRole('checkbox')).not.toBeChecked();
   await row('A').getByRole('checkbox').check();
@@ -380,9 +386,9 @@ test('массовые действия: категория с итогом и �
   await expect(page.getByRole('button', { name: 'Отменить' })).toHaveCount(0);
 
   // другой фильтр убирает и итог отмены удаления, как итог остальных действий
-  await page.getByLabel('Период').selectOption({ label: 'Вчера' });
+  await choosePeriod(page, 'За вчера');
   await expect(page.getByRole('status').filter({ hasText: 'Отмена удаления:' })).toHaveCount(0);
-  await page.getByLabel('Период').selectOption({ label: 'Всё время' });
+  await choosePeriod(page, 'За все время');
   await expect.poll(lettersTick).toBe('DCBA');
 
   // удалили и сразу перешли в другую компанию: тост остаётся, «Отменить» возвращает операции той компании, где удаляли

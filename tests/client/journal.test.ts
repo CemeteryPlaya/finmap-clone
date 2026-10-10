@@ -9,8 +9,11 @@ import {
   journalApiParams,
   journalSearch,
   parseJournalSearch,
+  PERIODS,
+  periodLabel,
   periodRange,
   pickDialogFields,
+  withPeriod,
   type JournalUrlState,
 } from '../../src/client/lib/journal-filter';
 import {
@@ -50,6 +53,48 @@ describe('periodRange — периоды тулбара от «сегодня» 
     expect(periodRange({ period: 'yesterday' }, '2026-01-01')).toEqual({ from: '2025-12-31', to: '2025-12-31' });
     expect(periodRange({ period: 'week' }, '2026-03-01')).toEqual({ from: '2026-02-23', to: '2026-03-01' });
     expect(periodRange({ period: 'month' }, '2024-02-29')).toEqual({ from: '2024-02-01', to: '2024-02-29' });
+  });
+});
+
+describe('меню периода (§5.1 этапа 1.5)', () => {
+  it('пункты и порядок как в Finmap; наши «За сегодня» и «За вчера» — перед «Выбрать даты»', () => {
+    expect(PERIODS.map((p) => p.label)).toEqual([
+      'За текущий год',
+      'За предыдущий год',
+      'За текущую неделю',
+      'За прошлую неделю',
+      'За текущий месяц',
+      'За прошлый месяц',
+      'За все время',
+      'За сегодня',
+      'За вчера',
+      'Выбрать даты',
+    ]);
+    expect(PERIODS.map((p) => p.key)).toEqual(['year', 'lastYear', 'week', 'lastWeek', 'month', 'lastMonth', 'all', 'today', 'yesterday', 'custom']);
+  });
+
+  it('«За предыдущий год» — с 1 января по 31 декабря прошлого года; ключ в адресе — lastYear', () => {
+    expect(periodRange({ period: 'lastYear' }, '2026-10-07')).toEqual({ from: '2025-01-01', to: '2025-12-31' });
+    expect(periodRange({ period: 'lastYear' }, '2026-01-01')).toEqual({ from: '2025-01-01', to: '2025-12-31' });
+    expect(parse('period=lastYear').period).toBe('lastYear');
+    expect(journalSearch(state({ period: 'lastYear' })).toString()).toBe('period=lastYear');
+  });
+
+  it('withPeriod: у обычного периода границ нет; «Выбрать даты» — одна или две границы, перепутанные меняются местами (Review Focus 2)', () => {
+    const custom = state({ period: 'custom', from: '2026-10-01', to: '2026-10-05', q: 'аренда' });
+    expect(withPeriod(custom, 'month')).toEqual(state({ period: 'month', q: 'аренда' }));
+    expect(withPeriod(state({}), 'custom', { from: '2026-10-10', to: '2026-10-04' })).toEqual(state({ period: 'custom', from: '2026-10-04', to: '2026-10-10' }));
+    expect(withPeriod(state({}), 'custom', { to: '2026-10-04' })).toEqual(state({ period: 'custom', to: '2026-10-04' }));
+    expect(withPeriod(state({ period: 'today' }), 'custom', {})).toEqual(state({ period: 'custom' }));
+  });
+
+  it('подпись пилюли: пункт меню или даты', () => {
+    expect(periodLabel({ period: 'all' })).toBe('За все время');
+    expect(periodLabel({ period: 'lastYear' })).toBe('За предыдущий год');
+    expect(periodLabel({ period: 'custom', from: '2026-10-04', to: '2026-10-10' })).toBe('04.10.2026 – 10.10.2026');
+    expect(periodLabel({ period: 'custom', from: '2026-10-04' })).toBe('с 04.10.2026');
+    expect(periodLabel({ period: 'custom', to: '2026-10-10' })).toBe('по 10.10.2026');
+    expect(periodLabel({ period: 'custom' })).toBe('Выбрать даты');
   });
 });
 

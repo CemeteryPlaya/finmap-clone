@@ -267,7 +267,7 @@ test('фильтры на телефоне — в панели справа: п�
   await expect(list).toHaveCount(3);
   // на виду — поиск и «Фильтры»; период, суммы и колонки спрятаны
   await expect(page.getByRole('searchbox', { name: 'Поиск' })).toBeVisible();
-  await expect(page.getByRole('combobox', { name: 'Период' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Период:/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Колонки' })).toHaveCount(0);
   const open = page.getByRole('button', { name: /^Фильтры/ });
   await expect(open).toHaveText('Фильтры');
@@ -277,10 +277,15 @@ test('фильтры на телефоне — в панели справа: п�
   // выезжает справа
   await expect.poll(async () => { const b = (await panel.boundingBox())!; return Math.round(b.x + b.width); }).toBe(PHONE.width);
   await expect(panel.getByRole('button', { name: 'Колонки' })).toHaveCount(0);
-  await panel.getByLabel('Период').selectOption('yesterday');
+  // период — то же меню у пилюли, что в широком окне; меню рисуется внутри панели
+  const periodMenu = page.getByRole('dialog', { name: 'Период', exact: true });
+  await panel.getByRole('button', { name: /^Период:/ }).click();
+  await periodMenu.getByRole('button', { name: 'За вчера', exact: true }).click();
   await expect(list).toHaveCount(1);
   await expect(list.first()).toContainText('вчерашний');
-  await panel.getByLabel('Период').selectOption('all');
+  await expect(panel).toBeVisible();
+  await panel.getByRole('button', { name: /^Период:/ }).click();
+  await periodMenu.getByRole('button', { name: 'За все время', exact: true }).click();
   await expect(list).toHaveCount(3);
 
   // сортировка: сначала крупные
@@ -337,7 +342,7 @@ test('фильтры на телефоне — в панели справа: п�
   await expect(panel).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 720 });
   await expect(panel).toBeHidden();
-  await expect(page.getByRole('combobox', { name: 'Период' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Период:/ })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Операции' }).locator('tbody tr')).toHaveCount(1);
   await page.setViewportSize(PHONE);
   await expect(panel).toBeHidden();

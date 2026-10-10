@@ -29,6 +29,8 @@ export function Calendar(props: { value: string | null; today: string; max?: str
     if (!blocked(d)) props.onSelect(d);
   };
   const onKeyDown = (e: KeyboardEvent<HTMLTableCellElement>, d: string) => {
+    // сочетания с Alt/Ctrl/Cmd (Alt+← «назад» и т. п.) — браузеру
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       choose(d);
@@ -37,6 +39,8 @@ export function Calendar(props: { value: string | null; today: string; max?: str
     const next = moveDate(d, e.key, e.shiftKey);
     if (next === null) return;
     e.preventDefault();
+    // Home в понедельник, End в воскресенье: день не меняется — active не обновится, и флаг фокуса «залип» бы
+    if (next === d) return;
     moveFocus.current = true;
     setActive(next);
   };

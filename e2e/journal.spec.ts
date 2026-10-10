@@ -184,35 +184,99 @@ test('тулбар: поиск с паузой, период, сумма от/д
   await page.getByLabel('Поиск').fill('');
   await expect(bodyRows(page)).toHaveCount(3);
 
-  // поиск, набранный прямо перед сменой периода, не затирает период (Review Focus 1)
+  // период — меню у пилюли (§5.1 этапа 1.5): пункты Finmap «За …», наши «За сегодня» и «За вчера»
+  const periodButton = page.getByRole('button', { name: /^Период:/ });
+  const periodMenu = page.getByRole('dialog', { name: 'Период', exact: true });
+  const choosePeriod = async (label: string) => {
+    await periodButton.click();
+    await periodMenu.getByRole('button', { name: label, exact: true }).click();
+    await expect(periodMenu).toBeHidden();
+    await expect(periodButton).toBeFocused();
+  };
+  await expect(periodButton).toHaveAccessibleName('Период: За все время');
+  await periodButton.click();
+  await expect(periodMenu.getByRole('button')).toHaveText([
+    'За текущий год',
+    'За предыдущий год',
+    'За текущую неделю',
+    'За прошлую неделю',
+    'За текущий месяц',
+    'За прошлый месяц',
+    /^За все время/,
+    'За сегодня',
+    'За вчера',
+    'Выбрать даты',
+  ]);
+  await expect(periodMenu.getByRole('button', { name: 'За все время', exact: true })).toHaveAttribute('aria-current', 'true');
+  await expect(periodMenu.getByRole('button', { name: 'За текущий год', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(periodMenu).toBeHidden();
+  await expect(periodButton).toBeFocused();
+
+  // поиск, набранный прямо перед сменой периода, не затирает период (Review Focus 1 плана 5b)
   await page.getByLabel('Поиск').fill('аренда');
-  await page.getByLabel('Период').selectOption({ label: 'Вчера' });
+  await choosePeriod('За вчера');
   await expect(page).toHaveURL(/period=yesterday&q=%D0%B0%D1%80%D0%B5%D0%BD%D0%B4%D0%B0$/);
   await expect(bodyRows(page)).toHaveCount(1);
   await page.getByLabel('Поиск').fill('');
   await expect(page).toHaveURL(/period=yesterday$/);
 
   // период — по календарной дате в APP_TIMEZONE
-  await page.getByLabel('Период').selectOption({ label: 'Вчера' });
-  await expect(page).toHaveURL(/period=yesterday$/);
   await expect(bodyRows(page)).toHaveCount(1);
   await expect(bodyRows(page).first()).toContainText('Аренда за октябрь');
   await expect(bodyRows(page).first().locator('time')).toContainText('вчера');
-  await page.getByLabel('Период').selectOption({ label: 'Сегодня' });
+  await expect(periodButton).toHaveAccessibleName('Период: За вчера');
+  await choosePeriod('За сегодня');
   await expect(bodyRows(page)).toHaveCount(2);
-  // «Произвольно» начинается с границ выбранного периода
-  await page.getByLabel('Период').selectOption({ label: 'Произвольно' });
-  const from = await page.getByLabel('С', { exact: true }).inputValue();
-  expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-  await expect(page.getByLabel('По', { exact: true })).toHaveValue(from);
+  // «За предыдущий год» — новый пункт; операций за прошлый год нет
+  await choosePeriod('За предыдущий год');
+  await expect(page).toHaveURL(/period=lastYear$/);
+  await expect(page.getByText('По этому фильтру операций нет.')).toBeVisible();
+  await choosePeriod('За сегодня');
   await expect(bodyRows(page)).toHaveCount(2);
-  // дата границы применяется по Enter или уходу из поля, а не на каждую набранную цифру
+
+  // «Выбрать даты» начинается с границ выбранного периода; день выбирается в календаре с клавиатуры
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date());
   const yesterday = yesterdayNoon().slice(0, 10);
-  await page.getByLabel('С', { exact: true }).fill(yesterday);
-  await page.getByLabel('С', { exact: true }).press('Enter');
-  await expect(page).toHaveURL(new RegExp(`from=${yesterday}&to=${from}$`));
+  const ru = (d: string) => d.split('-').reverse().join('.');
+  await periodButton.click();
+  await periodMenu.getByRole('button', { name: 'Выбрать даты' }).click();
+  const fromButton = periodMenu.getByRole('button', { name: /^С:/ });
+  await expect(fromButton).toBeFocused();
+  await expect(fromButton).toHaveAccessibleName(`С: ${ru(today)}`);
+  await expect(periodMenu.getByRole('button', { name: /^По:/ })).toHaveAccessibleName(`По: ${ru(today)}`);
+  await fromButton.click();
+  const calendar = page.getByRole('dialog', { name: 'С: календарь' });
+  await expect(calendar.getByRole('grid')).toBeVisible();
+  const activeDay = calendar.locator('[role="gridcell"][tabindex="0"]');
+  await expect(activeDay).toBeFocused();
+  await expect(activeDay).toHaveAttribute('aria-selected', 'true');
+  // Esc в календаре закрывает только его: меню периода остаётся, фокус — на поле «С» (Review Focus 6)
+  await page.keyboard.press('Escape');
+  await expect(calendar).toBeHidden();
+  await expect(periodMenu).toBeVisible();
+  await expect(fromButton).toBeFocused();
+  // Tab с последнего элемента календаря (активный день) закрывает тоже только календарь: края Tab меню периода
+  // считаются по его собственным элементам, без элементов вложенной панели
+  await fromButton.click();
+  await expect(activeDay).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(calendar).toBeHidden();
+  await expect(periodMenu).toBeVisible();
+  await expect(fromButton).toBeFocused();
+  await fromButton.click();
+  await expect(activeDay).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Enter');
+  await expect(calendar).toBeHidden();
+  await expect(fromButton).toHaveAccessibleName(`С: ${ru(yesterday)}`);
+  await expect(fromButton).toBeFocused();
+  await periodMenu.getByRole('button', { name: 'Применить' }).click();
+  await expect(page).toHaveURL(new RegExp(`from=${yesterday}&to=${today}$`));
+  await expect(periodButton).toHaveAccessibleName(`Период: ${ru(yesterday)} – ${ru(today)}`);
   await expect(bodyRows(page)).toHaveCount(3);
-  await page.getByLabel('Период').selectOption({ label: 'Всё время' });
+  await choosePeriod('За все время');
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
   await expect(bodyRows(page)).toHaveCount(3);
 
   // сумма от/до — в базовой валюте компании (по сумме в тенге)

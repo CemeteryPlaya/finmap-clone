@@ -1,17 +1,21 @@
-import { addDays, isValidDate } from '../../shared/dates';
+import { addDays, formatDateRu, isValidDate } from '../../shared/dates';
 import { JOURNAL_LIST_MAX } from '../../shared/schemas/journal';
 
-/** Периоды тулбара журнала (§7). Относительные периоды считаются от «сегодня» в APP_TIMEZONE. */
+/**
+ * Пункты меню периода (§5.1 этапа 1.5) в порядке Finmap; «За сегодня» и «За вчера» — наши, перед «Выбрать даты».
+ * Относительные периоды считаются от «сегодня» в APP_TIMEZONE. Ключи — значения `period` в адресе.
+ */
 export const PERIODS = [
-  { key: 'all', label: 'Всё время' },
-  { key: 'today', label: 'Сегодня' },
-  { key: 'yesterday', label: 'Вчера' },
-  { key: 'week', label: 'Текущая неделя' },
-  { key: 'lastWeek', label: 'Прошлая неделя' },
-  { key: 'month', label: 'Текущий месяц' },
-  { key: 'lastMonth', label: 'Прошлый месяц' },
-  { key: 'year', label: 'Текущий год' },
-  { key: 'custom', label: 'Произвольно' },
+  { key: 'year', label: 'За текущий год' },
+  { key: 'lastYear', label: 'За предыдущий год' },
+  { key: 'week', label: 'За текущую неделю' },
+  { key: 'lastWeek', label: 'За прошлую неделю' },
+  { key: 'month', label: 'За текущий месяц' },
+  { key: 'lastMonth', label: 'За прошлый месяц' },
+  { key: 'all', label: 'За все время' },
+  { key: 'today', label: 'За сегодня' },
+  { key: 'yesterday', label: 'За вчера' },
+  { key: 'custom', label: 'Выбрать даты' },
 ] as const;
 
 export type PeriodKey = (typeof PERIODS)[number]['key'];
@@ -23,7 +27,7 @@ export const OPERATION_TYPES: readonly OperationType[] = ['income', 'expense', '
 
 /**
  * Фильтр журнала в адресной строке. Списки — по возрастанию без повторов; суммы — минимальные единицы
- * базовой валюты компании; from/to — только у периода «Произвольно».
+ * базовой валюты компании; from/to — только у периода «Выбрать даты» (custom).
  */
 export interface JournalUrlState {
   period: PeriodKey;
@@ -194,9 +198,36 @@ export function periodRange(state: Pick<JournalUrlState, 'period' | 'from' | 'to
     }
     case 'year':
       return { from: `${y}-01-01`, to: `${y}-12-31` };
+    case 'lastYear':
+      return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31` };
     case 'custom':
       return { ...(state.from ? { from: state.from } : {}), ...(state.to ? { to: state.to } : {}) };
   }
+}
+
+/**
+ * Фильтр с другим периодом (меню периода, §5.1 этапа 1.5). У обычного периода границ from/to нет. У «Выбрать даты»
+ * границы из range: можно одну; перепутанные меняются местами — журнал не пустеет из-за порядка полей.
+ */
+export function withPeriod(state: JournalUrlState, period: PeriodKey, range: { from?: string; to?: string } = {}): JournalUrlState {
+  const next: JournalUrlState = { ...state, period };
+  delete next.from;
+  delete next.to;
+  if (period !== 'custom') return next;
+  let { from, to } = range;
+  if (from && to && from > to) [from, to] = [to, from];
+  if (from) next.from = from;
+  if (to) next.to = to;
+  return next;
+}
+
+/** Подпись пилюли периода: пункт меню, у своих дат — «04.10.2026 – 10.10.2026», «с 04.10.2026», «по 10.10.2026». */
+export function periodLabel(state: Pick<JournalUrlState, 'period' | 'from' | 'to'>): string {
+  if (state.period !== 'custom') return PERIODS.find((p) => p.key === state.period)?.label ?? '';
+  if (state.from && state.to) return `${formatDateRu(state.from)} – ${formatDateRu(state.to)}`;
+  if (state.from) return `с ${formatDateRu(state.from)}`;
+  if (state.to) return `по ${formatDateRu(state.to)}`;
+  return 'Выбрать даты';
 }
 
 /**
