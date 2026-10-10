@@ -13,3 +13,12 @@ export const JOURNAL_WRAP_PREF = 'journal.wrap';
 export function journalWrap(prefs: Record<string, unknown> | undefined): boolean {
   return prefs?.[JOURNAL_WRAP_PREF] === true;
 }
+
+/**
+ * Текст ошибки «Применить» в «Настройках журнала» (§7.5 этапа 1.5): настройки сохраняются по очереди, на первой
+ * ошибке — стоп. saved — что уже сохранено, failed — что нет (со строчной: «колонки», «вопрос о несохранённом»).
+ */
+export function prefsSaveError(saved: readonly string[], failed: string, message: string): string {
+  const head = saved.length > 0 ? `Сохранено: ${saved.join(', ')}. ` : '';
+  return `${head}Не сохранено: ${failed} — ${message}`;
+}

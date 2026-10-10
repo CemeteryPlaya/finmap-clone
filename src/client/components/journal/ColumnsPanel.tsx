@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { JOURNAL_COLUMNS, JOURNAL_COLUMNS_PREF, toggleColumn, visibleColumns, type JournalColumnId } from '../../lib/journal-columns';
+import { JOURNAL_WRAP_PREF, journalWrap } from '../../lib/preferences';
 import { queryClient } from '../../lib/query';
 import { usePreferences } from '../../lib/queries';
 
@@ -37,10 +38,15 @@ export function useInstantPref<T>(key: string, saved: T, failText: string) {
   return { value: override ? override.value : saved, set, error };
 }
 
-/** Колонки журнала в панели «Ещё» (§5.1, §5.3 этапа 1.5): флажки применяются сразу. Дата и сумма видны всегда. */
+/**
+ * Колонки журнала и «Показывать полностью» в панели «Ещё» (§5.1, §5.3 этапа 1.5): флажки применяются сразу.
+ * Дата и сумма видны всегда.
+ */
 export function ColumnsPanel() {
   const prefs = usePreferences();
   const columns = useInstantPref<JournalColumnId[]>(JOURNAL_COLUMNS_PREF, visibleColumns(prefs.data?.[JOURNAL_COLUMNS_PREF]), 'Не удалось сохранить выбор колонок');
+  const wrap = useInstantPref<boolean>(JOURNAL_WRAP_PREF, journalWrap(prefs.data), 'Не удалось сохранить «Показывать полностью»');
+  const error = columns.error ?? wrap.error;
   return (
     <fieldset>
       <legend className="mb-2 text-sm font-semibold">Колонки</legend>
@@ -58,9 +64,14 @@ export function ColumnsPanel() {
           </label>
         ))}
       </div>
-      {columns.error && (
+      <label className="mt-2 flex items-center gap-2 border-t border-field pt-2 text-sm">
+        <input type="checkbox" checked={wrap.value} onChange={(e) => wrap.set(e.target.checked)} className="size-4 accent-income" />
+        Показывать полностью
+        <span className="text-xs text-muted">(до 2 строк)</span>
+      </label>
+      {error && (
         <p role="alert" className="mt-2 text-xs text-expense">
-          {columns.error}
+          {error}
         </p>
       )}
     </fieldset>

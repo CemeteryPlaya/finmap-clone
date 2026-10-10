@@ -271,6 +271,9 @@ test('«Настройки журнала»: «Применить» только
     await expect(nav.getByRole('link', { name: 'Настройки журнала' })).toHaveAttribute('aria-current', 'page');
     await expect(page.getByRole('checkbox', { name: 'Дата', exact: true })).toBeDisabled();
     await expect(page.getByRole('checkbox', { name: 'Сумма', exact: true })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'Дата сделки', exact: true })).not.toBeChecked();
+    const wrap = page.getByRole('checkbox', { name: 'Показывать полностью (до 2 строк)' });
+    await expect(wrap).not.toBeChecked();
     const ask = page.getByRole('checkbox', { name: 'Спрашивать перед закрытием формы с несохранёнными данными' });
     const apply = page.getByRole('button', { name: 'Применить' });
     await expect(ask).not.toBeChecked();
@@ -286,8 +289,9 @@ test('«Настройки журнала»: «Применить» только
     );
     await ask.check();
     await page.getByRole('checkbox', { name: 'Комментарий', exact: true }).uncheck();
+    await wrap.check();
     await apply.click();
-    await expect(page.getByRole('alert')).toHaveText('Колонки сохранены, но вопрос о несохранённом — нет: Сбой сохранения');
+    await expect(page.getByRole('alert')).toHaveText('Сохранено: колонки, «Показывать полностью». Не сохранено: вопрос о несохранённом — Сбой сохранения');
     await expect(apply).toBeEnabled();
     await expect(apply).toBeFocused();
     await page.unroute(skipUrl);
@@ -301,6 +305,8 @@ test('«Настройки журнала»: «Применить» только
     await nav.getByRole('link', { name: /Назад к журналу/ }).click();
     await expect(page.getByRole('table', { name: 'Операции' }).locator('tbody tr')).toHaveCount(1);
     await expect(page.getByRole('columnheader', { name: 'Комментарий' })).toHaveCount(0);
+    // «Показывать полностью» — название счёта до двух строк
+    await expect(page.getByRole('table', { name: 'Операции' }).locator('[data-column="account"] [title]').first()).toHaveClass(/line-clamp-2/);
     await page.getByRole('banner').getByRole('button', { name: 'Доход', exact: true }).click();
     const amount = page.getByRole('dialog', { name: 'Новая операция' }).getByRole('textbox', { name: /^Сумма,/ });
     await amount.fill('5');
@@ -313,10 +319,12 @@ test('«Настройки журнала»: «Применить» только
     await page.goto(`/c/${cid}/settings/journal`);
     await expect(ask).toBeChecked();
     await expect(page.getByRole('checkbox', { name: 'Комментарий', exact: true })).not.toBeChecked();
+    await expect(wrap).toBeChecked();
     await expect(apply).toBeDisabled();
   } finally {
     await page.unroute(skipUrl);
     await putPref('operationForm.skipCloseConfirm', before['operationForm.skipCloseConfirm'] ?? null);
     await putPref('journal.columns', before['journal.columns'] ?? null);
+    await putPref('journal.wrap', before['journal.wrap'] ?? null);
   }
 });

@@ -3,13 +3,13 @@ import { Pending } from '../../components/QueryState';
 import { alertClass, btnPrimary } from '../../components/ui';
 import { ApiError } from '../../lib/api';
 import { JOURNAL_COLUMNS, JOURNAL_COLUMNS_PREF, toggleColumn, visibleColumns, type JournalColumnId } from '../../lib/journal-columns';
-import { SKIP_CLOSE_CONFIRM_PREF, skipCloseConfirm } from '../../lib/preferences';
+import { JOURNAL_WRAP_PREF, journalWrap, prefsSaveError, SKIP_CLOSE_CONFIRM_PREF, skipCloseConfirm } from '../../lib/preferences';
 import { savePreference, usePreferences } from '../../lib/queries';
 
 /**
- * «Настройки журнала» (§7.5 этапа 1.5), первая версия плана 1.5-1b: видимые колонки журнала и вопрос
- * о несохранённом в форме операции. «Применить» сохраняет всё вместе. «Дата сделки» и «Показывать полностью»
- * добавит план 1.5-2; список колонок в журнале по-прежнему применяется сразу.
+ * «Настройки журнала» (§7.5 этапа 1.5): видимые колонки (в том числе «Дата сделки»), «Показывать полностью
+ * (до 2 строк)» и вопрос о несохранённом в форме операции. «Применить» сохраняет всё вместе; список в «Ещё»
+ * журнала применяется сразу. Окончательный вид страницы — план 1.5-4.
  */
 export function JournalViewSettings() {
   const prefs = usePreferences();
@@ -17,11 +17,18 @@ export function JournalViewSettings() {
   return <JournalViewForm prefs={prefs.data} />;
 }
 
+interface Saved {
+  columns: JournalColumnId[];
+  wrap: boolean;
+  ask: boolean;
+}
+
 function JournalViewForm({ prefs }: { prefs: Record<string, unknown> }) {
   const [columns, setColumns] = useState<JournalColumnId[]>(() => visibleColumns(prefs[JOURNAL_COLUMNS_PREF]));
+  const [wrap, setWrap] = useState(() => journalWrap(prefs));
   const [ask, setAsk] = useState(() => !skipCloseConfirm(prefs));
   // что реально сохранено: от него считается «есть изменения» и после частичного сбоя он отражает правду
-  const [saved, setSaved] = useState({ columns, ask });
+  const [saved, setSaved] = useState<Saved>({ columns, wrap, ask });
   const [pending, setPending] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,9 +36,13 @@ function JournalViewForm({ prefs }: { prefs: Record<string, unknown> }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const refocus = useRef<'status' | 'button' | null>(null);
 
-  const columnsChanged = columns.join() !== saved.columns.join();
-  const askChanged = ask !== saved.ask;
-  const dirty = columnsChanged || askChanged;
+  // только изменённое и по очереди: неизменённая настройка не затирает более новое значение из другой вкладки
+  const changes = [
+    { changed: columns.join() !== saved.columns.join(), name: 'колонки', save: () => savePreference(JOURNAL_COLUMNS_PREF, columns), mark: (s: Saved): Saved => ({ ...s, columns }) },
+    { changed: wrap !== saved.wrap, name: '«Показывать полностью»', save: () => savePreference(JOURNAL_WRAP_PREF, wrap), mark: (s: Saved): Saved => ({ ...s, wrap }) },
+    { changed: ask !== saved.ask, name: 'вопрос о несохранённом', save: () => savePreference(SKIP_CLOSE_CONFIRM_PREF, !ask), mark: (s: Saved): Saved => ({ ...s, ask }) },
+  ].filter((c) => c.changed);
+  const dirty = changes.length > 0;
 
   // кнопка и поля отключены на время сохранения: фокус возвращается сюда, когда оно закончилось
   useEffect(() => {
@@ -44,36 +55,32 @@ function JournalViewForm({ prefs }: { prefs: Record<string, unknown> }) {
     setPending(true);
     setStatus(null);
     setError(null);
-    const fail = (e: unknown) => (e instanceof ApiError ? e.message : 'Ошибка сервера');
-    const done = { ...saved };
-    let ok = false;
+    let done = saved;
+    const savedNames: string[] = [];
+    let ok = true;
     try {
-      // только изменённое: неизменённая настройка не затирает более новое значение из другой вкладки
-      if (columnsChanged) {
+      for (const c of changes) {
         try {
-          await savePreference(JOURNAL_COLUMNS_PREF, columns);
-          done.columns = columns;
+          await c.save();
+          done = c.mark(done);
+          savedNames.push(c.name);
         } catch (e) {
-          setError(`Колонки не сохранены: ${fail(e)}`);
+          ok = false;
+          setError(prefsSaveError(savedNames, c.name, e instanceof ApiError ? e.message : 'Ошибка сервера'));
           return;
         }
       }
-      if (askChanged) {
-        try {
-          await savePreference(SKIP_CLOSE_CONFIRM_PREF, !ask);
-          done.ask = ask;
-        } catch (e) {
-          setError(`${columnsChanged ? 'Колонки сохранены, но вопрос' : 'Вопрос'} о несохранённом — нет: ${fail(e)}`);
-          return;
-        }
-      }
-      ok = true;
       setStatus('Настройки сохранены');
     } finally {
       setSaved(done);
       refocus.current = ok ? 'status' : 'button';
       setPending(false);
     }
+  };
+
+  const edited = () => {
+    setStatus(null);
+    setError(null);
   };
 
   return (
@@ -89,8 +96,7 @@ function JournalViewForm({ prefs }: { prefs: Record<string, unknown> }) {
                 checked={c.fixed || columns.includes(c.id)}
                 disabled={c.fixed}
                 onChange={() => {
-                  setStatus(null);
-                  setError(null);
+                  edited();
                   setColumns((v) => toggleColumn(v, c.id));
                 }}
               />
@@ -100,14 +106,28 @@ function JournalViewForm({ prefs }: { prefs: Record<string, unknown> }) {
         </div>
       </fieldset>
       <fieldset disabled={pending} className="mb-6">
+        <legend className="mb-2 font-semibold">Строки</legend>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={wrap}
+            onChange={(e) => {
+              edited();
+              setWrap(e.target.checked);
+            }}
+          />
+          Показывать полностью (до 2 строк)
+        </label>
+        <p className="mt-1 text-xs text-muted">Без флажка длинные названия и комментарии обрезаются в одну строку, полный текст — в подсказке.</p>
+      </fieldset>
+      <fieldset disabled={pending} className="mb-6">
         <legend className="mb-2 font-semibold">Форма операции</legend>
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
             checked={ask}
             onChange={(e) => {
-              setStatus(null);
-              setError(null);
+              edited();
               setAsk(e.target.checked);
             }}
           />

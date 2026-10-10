@@ -353,6 +353,8 @@ test('«Ещё»: суммы, ⟳, колонки и выгрузка в одн�
   const tree = (await (await page.request.get(`/api/v1/companies/${cid}/categories`)).json()) as { income: { id: number; systemKey: string | null }[] };
   const investment = tree.income.find((c) => c.systemKey === 'investment')!.id;
   await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: todayAgo(2), accountId: kaspi, amount: 200, lines: [{ categoryId: investment, amount: 200 }], comment: 'вклад' });
+  const longComment = 'Длинный комментарий для проверки переноса строк в журнале. '.repeat(8).trim();
+  await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: todayAgo(3), accountId: kaspi, amount: 300, comment: longComment });
   await page.reload();
   const header = (name: string) => table(page).getByRole('columnheader', { name, exact: true });
   await expect(header('Комментарий')).toBeVisible();
@@ -405,6 +407,24 @@ test('«Ещё»: суммы, ⟳, колонки и выгрузка в одн�
     await accrualSaved;
     await expect(table(page).getByRole('columnheader').nth(3)).toHaveText('Дата сделки');
     await expect(bodyRows(page).filter({ hasText: 'Видимый комментарий' }).locator('[data-column="accrualDate"]')).toHaveText('1 сент. 2026');
+    // «Показывать полностью»: длинный текст — до двух строк вместо одной (§5.2). Проверяем высоту, а не только класс:
+    // класс без действующего display: -webkit-box ничего не обрезает
+    const comment = bodyRows(page).filter({ hasText: 'Длинный комментарий' }).locator('[data-column="comment"] [title]');
+    const lineHeight = await comment.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+    expect((await comment.boundingBox())!.height).toBeLessThanOrEqual(lineHeight + 1);
+    const wrapSaved = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/journal.wrap') && r.request().method() === 'PUT');
+    await menu.getByRole('checkbox', { name: 'Показывать полностью' }).check();
+    await wrapSaved;
+    await expect.poll(async () => (await comment.boundingBox())!.height).toBeGreaterThan(lineHeight * 1.5);
+    expect((await comment.boundingBox())!.height).toBeLessThanOrEqual(lineHeight * 2 + 1);
+    // display: Chromium новых версий отдаёт -webkit-box с line-clamp как flow-root, поэтому смотрим на действие обрезки
+    await expect(comment).toHaveCSS('display', /^(-webkit-box|flow-root)$/);
+    await expect(comment).toHaveCSS('overflow', 'hidden');
+    expect(await comment.evaluate((el) => getComputedStyle(el).webkitLineClamp)).toBe('2');
+    expect(await comment.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+    // строки по-прежнему одной высоты (у последней нет нижней границы — допуск 1 px)
+    const heights = await bodyRows(page).evaluateAll((rows) => rows.map((r) => Math.round(r.getBoundingClientRect().height)));
+    expect(Math.max(...heights) - Math.min(...heights), heights.join()).toBeLessThanOrEqual(1);
     const saved = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/journal.columns') && r.request().method() === 'PUT');
     await menu.getByRole('checkbox', { name: 'Комментарий', exact: true }).uncheck();
     await saved;
@@ -443,9 +463,11 @@ test('«Ещё»: суммы, ⟳, колонки и выгрузка в одн�
     await expect(header('Комментарий')).toHaveCount(0);
   } finally {
     await page.request.put('/api/v1/preferences/journal.columns', { data: { value: before['journal.columns'] ?? null }, headers: csrf(page) });
+    await page.request.put('/api/v1/preferences/journal.wrap', { data: { value: before['journal.wrap'] ?? null }, headers: csrf(page) });
   }
   await page.reload();
   await expect(header('Комментарий')).toBeVisible();
+  await expect(bodyRows(page).first().locator('[data-column="account"] [title]')).toHaveClass(/truncate/);
 });
 
 test('«Ещё» → ⟳ «Обновить»: операция с другого компьютера появляется, загруженные страницы и прокрутка сохраняются, балансы обновляются (§2.5)', async ({ page }) => {
