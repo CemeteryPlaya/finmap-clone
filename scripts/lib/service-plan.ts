@@ -106,7 +106,7 @@ export function planInstall(ctx: ServiceContext): ServicePlan {
   }
   if (ctx.platform === 'linux') {
     if (ctx.isRoot) {
-      throw new Error('Не запускайте приложение от root: создайте отдельного пользователя и выполните команду от его имени (README, «Режим vps»).');
+      throw new Error('Не запускайте приложение от root: создайте отдельного пользователя и выполните команду от его имени (README, раздел «vps — свой сервер с Caddy»).');
     }
     const unitPath = p.join(deployDir, `${SERVICE_NAME}.service`);
     const files: ServiceFile[] = [

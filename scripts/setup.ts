@@ -128,5 +128,5 @@ prompt.close();
 console.log('\nГотово. Запуск: npm start');
 console.log(`Адрес: ${config.publicUrl}`);
 if (mode === 'vps') {
-  console.log('Дальше на сервере: npm run service:install — подготовит Caddyfile и systemd-юнит и подскажет команды (README, «Режим vps»).');
+  console.log('Дальше на сервере: npm run service:install — подготовит Caddyfile и systemd-юнит и подскажет команды (README, раздел «vps — свой сервер с Caddy»).');
 }
