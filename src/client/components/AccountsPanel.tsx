@@ -4,11 +4,11 @@ import { formatMoney, MONEY_SCREEN_BEFORE } from '../../shared/money';
 import { groupAccounts } from '../lib/accounts-panel';
 import { focusHeadingSoon } from '../lib/focus-heading';
 import { useIsMobile } from '../lib/media';
-import { savePreference, useAccounts, useBalances, usePreferences, useProjects, type Company } from '../lib/queries';
+import { useAccounts, useBalances, useProjects, type Company } from '../lib/queries';
+import { useSidebarCollapsed } from '../lib/sidebar';
+import { CollapseButton } from './CollapseButton';
 import { Drawer } from './Drawer';
-import { btnIcon, btnSmall } from './ui';
-
-const PREF_KEY = 'sidebar.collapsed';
+import { btnSmall } from './ui';
 
 /**
  * Содержимое левой панели (§7): «Всего на счетах» в базовой валюте и счета по группам с балансами, «+ счёт».
@@ -83,32 +83,15 @@ function AccountsSummary({ company, onNavigate }: { company: Company; onNavigate
 }
 
 /**
- * Левая панель на компьютере (§7): сворачивается, состояние — в настройках пользователя.
- * На узком экране скрыта — там счета выезжают слева по кнопке в шапке (AccountsDrawerButton).
+ * Левая панель на компьютере (§7): сворачивается круглой кнопкой на правой границе (§3.6 этапа 1.5),
+ * состояние — общая с меню настроек настройка пользователя. На узком экране скрыта — там счета выезжают
+ * слева по кнопке в шапке (AccountsDrawerButton).
  */
 export function AccountsPanel({ company }: { company: Company }) {
-  const prefs = usePreferences();
-  // выбор виден сразу; сохраняется в фоне, сбой сохранения не мешает работе
-  const [override, setOverride] = useState<boolean | null>(null);
-  const collapsed = override ?? prefs.data?.[PREF_KEY] === true;
-  const toggle = () => {
-    const next = !collapsed;
-    setOverride(next);
-    savePreference(PREF_KEY, next).catch(() => undefined);
-  };
-
-  // кнопка свёртывания одна и стоит на одном месте в обоих состояниях: фокус не теряется при сворачивании.
-  // Состояние передаёт меняющаяся подпись, aria-expanded не нужен.
+  const { collapsed, toggle } = useSidebarCollapsed();
   return (
-    <nav aria-label="Счета" className={collapsed ? 'hidden shrink-0 md:block' : 'hidden w-64 shrink-0 self-start rounded-3xl bg-card p-4 md:block'}>
-      <button
-        type="button"
-        aria-label={collapsed ? 'Развернуть панель счетов' : 'Свернуть панель счетов'}
-        onClick={toggle}
-        className={`${btnIcon} ${collapsed ? '' : 'float-right ml-2'}`}
-      >
-        <span aria-hidden="true">{collapsed ? '»' : '«'}</span>
-      </button>
+    <nav aria-label="Счета" className={`relative hidden shrink-0 self-start md:block ${collapsed ? 'h-24 w-3' : 'w-64 rounded-3xl bg-card p-4'}`}>
+      <CollapseButton collapsed={collapsed} onToggle={toggle} collapseLabel="Свернуть панель счетов" expandLabel="Развернуть панель счетов" />
       {!collapsed && <AccountsSummary company={company} />}
     </nav>
   );

@@ -289,7 +289,8 @@ function JournalScreen(props: {
     <section>
       {/* ошибка следующей страницы — у «Показать ещё»: плашка с тем же сообщением не нужна */}
       <StaleNotice queries={journal.isFetchNextPageError || !journal.data ? lookupQueries : [...lookupQueries, journal]} />
-      <h1 id={HEADING_ID} tabIndex={-1} className="mb-4 text-2xl font-bold outline-none">
+      {/* заголовок дублировал вкладку «Журнал» (01-M2): виден только программам чтения, фокус после тостов — сюда */}
+      <h1 id={HEADING_ID} tabIndex={-1} className="sr-only">
         Журнал
       </h1>
       <JournalToolbar

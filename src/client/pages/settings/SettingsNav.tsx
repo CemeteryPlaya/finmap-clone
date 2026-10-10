@@ -1,7 +1,9 @@
 import { Link, NavLink } from 'react-router';
+import { CollapseButton } from '../../components/CollapseButton';
 import { journalBackHref, readLastJournal } from '../../lib/last-journal';
 import type { Company } from '../../lib/queries';
 import { settingsGroups } from '../../lib/settings-sections';
+import { useSidebarCollapsed } from '../../lib/sidebar';
 
 const sidebarLink = ({ isActive }: { isActive: boolean }) =>
   `block truncate rounded-xl px-3 py-2 text-sm ${isActive ? 'bg-field font-semibold text-ink' : 'text-muted hover:bg-field hover:text-ink'}`;
@@ -10,15 +12,24 @@ const inlineLink = ({ isActive }: { isActive: boolean }) =>
 
 /**
  * Навигация зоны настроек (§4.1–4.2 этапа 1.5): «← Назад к журналу» и разделы по группам.
- * `sidebar` — слева вместо панели счетов (компьютер); `inline` — строкой над разделом на телефоне
- * (список разделов отдельным экраном — план 1.5-5). Без ролей listitem, status, alert, region: их ищут e2e экранов настроек.
+ * `sidebar` — слева вместо панели счетов (компьютер), сворачивается той же настройкой, что панель счетов (§3.6);
+ * `inline` — строкой над разделом на телефоне (список разделов отдельным экраном — план 1.5-5).
+ * Без ролей listitem, status, alert, region: их ищут e2e экранов настроек.
  */
 export function SettingsNav({ company, variant }: { company: Company; variant: 'sidebar' | 'inline' }) {
   const back = journalBackHref(company.id, readLastJournal(company.id));
-  const sidebar = variant === 'sidebar';
+  const { collapsed, toggle } = useSidebarCollapsed();
+  if (variant === 'inline') {
+    return (
+      <nav aria-label="Разделы настроек" className="mb-6 md:hidden">
+        <SettingsNavBody companyId={company.id} companyName={company.name} back={back} sidebar={false} />
+      </nav>
+    );
+  }
   return (
-    <nav aria-label="Разделы настроек" className={sidebar ? 'hidden w-64 shrink-0 self-start rounded-3xl bg-card p-4 md:block' : 'mb-6 md:hidden'}>
-      <SettingsNavBody companyId={company.id} companyName={company.name} back={back} sidebar={sidebar} />
+    <nav aria-label="Разделы настроек" className={`relative hidden shrink-0 self-start md:block ${collapsed ? 'h-24 w-3' : 'w-64 rounded-3xl bg-card p-4'}`}>
+      <CollapseButton collapsed={collapsed} onToggle={toggle} collapseLabel="Свернуть меню настроек" expandLabel="Развернуть меню настроек" />
+      {!collapsed && <SettingsNavBody companyId={company.id} companyName={company.name} back={back} sidebar />}
     </nav>
   );
 }

@@ -241,3 +241,60 @@ test('баланс и итог в левой панели обновляются
   await expect(panel.getByRole('link', { name: /^Kaspi/ })).toContainText(/₸\s1\s500$/);
   expect(journalRequests).toEqual([]);
 });
+
+test('сворачивание: кнопка на правой границе панели, общая настройка для панели счетов и меню настроек; заголовок «Журнал» — для программ чтения', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Сворачивание ${Date.now()}`);
+  // одна вкладка-пилюля «Журнал»; заголовок страницы есть, но виден только программам чтения
+  await expect(page.getByRole('main').getByRole('link', { name: 'Журнал', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('main').getByRole('link', { name: 'Настройки', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { level: 1, name: 'Журнал' })).toHaveClass(/sr-only/);
+
+  const accounts = page.getByRole('navigation', { name: 'Счета' });
+  const collapseAccounts = accounts.getByRole('button', { name: 'Свернуть панель счетов' });
+  const navBox = (await accounts.boundingBox())!;
+  const buttonBox = (await collapseAccounts.boundingBox())!;
+  expect(buttonBox.x + buttonBox.width).toBeGreaterThan(navBox.x + navBox.width);
+  await expect(collapseAccounts).toHaveAttribute('title', 'Свернуть панель счетов');
+
+  // настройка общая для пользователя admin и остальных e2e: что бы ни случилось, она должна остаться «развёрнуто»
+  try {
+    await page.goto(`/c/${cid}/settings/tags`);
+    const menu = page.getByRole('navigation', { name: 'Разделы настроек' });
+    const saved = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/sidebar.collapsed') && r.request().method() === 'PUT');
+    await menu.getByRole('button', { name: 'Свернуть меню настроек' }).click();
+    expect((await saved).request().postDataJSON()).toEqual({ value: true });
+    await expect(menu.getByRole('button', { name: 'Развернуть меню настроек' })).toBeFocused();
+    await expect(menu.getByRole('link', { name: 'Теги' })).toHaveCount(0);
+
+    // та же настройка: в журнале свёрнута панель счетов (и после перезагрузки)
+    await page.goto(`/c/${cid}/log`);
+    await expect(accounts.getByRole('button', { name: 'Развернуть панель счетов' })).toBeVisible();
+    const restored = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/sidebar.collapsed') && r.request().method() === 'PUT');
+    await accounts.getByRole('button', { name: 'Развернуть панель счетов' }).click();
+    await restored;
+    await expect(accounts.getByRole('button', { name: 'Свернуть панель счетов' })).toBeFocused();
+    await page.goto(`/c/${cid}/settings/tags`);
+    await expect(menu.getByRole('link', { name: 'Теги' })).toBeVisible();
+
+    // переход внутри приложения (без перезагрузки) пересоздаёт панели: свёрнутость берётся из настройки, а не из состояния панели
+    await page.goto(`/c/${cid}/log`);
+    const collapsed = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/sidebar.collapsed') && r.request().method() === 'PUT');
+    await accounts.getByRole('button', { name: 'Свернуть панель счетов' }).click();
+    await collapsed;
+    await page.getByRole('banner').getByRole('button', { name: 'Настройки', exact: true }).click();
+    await page.getByRole('dialog').getByRole('link', { name: 'Профиль' }).click();
+    await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/profile$`));
+    await expect(menu.getByRole('button', { name: 'Развернуть меню настроек' })).toBeVisible();
+    await expect(menu.getByRole('link', { name: 'Теги' })).toHaveCount(0);
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
+    await expect(accounts.getByRole('button', { name: 'Развернуть панель счетов' })).toBeVisible();
+    await expect(accounts.getByText('Всего на счетах')).toHaveCount(0);
+  } finally {
+    await page.request.put('/api/v1/preferences/sidebar.collapsed', {
+      data: { value: false },
+      headers: { origin: new URL(page.url()).origin, 'x-requested-with': 'fetch' },
+    });
+  }
+});
