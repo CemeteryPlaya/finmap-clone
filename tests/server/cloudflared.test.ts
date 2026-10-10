@@ -2,13 +2,15 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { checkCloudflaredPath, cloudflaredArgs, cloudflaredTarget, ensureCloudflared, platformKey } from '../../scripts/lib/cloudflared';
 
 const body = Buffer.from('fake-binary');
 const sha = crypto.createHash('sha256').update(body).digest('hex');
 const pins = (hash: string) => ({ version: '1', assets: { [platformKey()]: { url: 'https://example/bin', sha256: hash } } });
 const fakeFetch = (async () => new Response(body)) as typeof fetch;
+
+afterEach(() => vi.restoreAllMocks());
 
 describe('ensureCloudflared', () => {
   it('скачивает, проверяет SHA-256 и кладёт в binDir', async () => {
@@ -41,6 +43,22 @@ describe('ensureCloudflared', () => {
     const custom = path.join(os.tmpdir(), 'my-cloudflared');
     fs.writeFileSync(custom, 'x');
     await expect(ensureCloudflared({ binDir: 'unused', pins: pins(sha), customPath: custom })).resolves.toBe(custom);
+  });
+
+  it('CLOUDFLARED_PATH, указывающий на папку, отклоняется с понятным сообщением', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-cfdir-'));
+    await expect(ensureCloudflared({ binDir: 'unused', pins: pins(sha), customPath: dir })).rejects.toThrow(/CLOUDFLARED_PATH: Это не файл/);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('сбой записи не оставляет ни cloudflared, ни временного файла', async () => {
+    const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-bin-'));
+    vi.spyOn(fs, 'renameSync').mockImplementation(() => {
+      throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' });
+    });
+    await expect(ensureCloudflared({ binDir, pins: pins(sha), customPath: null, fetchImpl: fakeFetch })).rejects.toThrow(/ENOSPC/);
+    vi.restoreAllMocks();
+    expect(fs.readdirSync(binDir)).toEqual([]);
   });
 
   it('без закреплённых сборок (unpinned) и без customPath просит указать CLOUDFLARED_PATH', async () => {

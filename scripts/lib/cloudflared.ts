@@ -42,8 +42,9 @@ export async function ensureCloudflared(o: {
   fetchImpl?: typeof fetch;
 }): Promise<string> {
   if (o.customPath) {
-    if (!fs.existsSync(o.customPath)) throw new Error(`CLOUDFLARED_PATH не найден: ${o.customPath}`);
-    return o.customPath;
+    const checked = checkCloudflaredPath(o.customPath);
+    if (!checked.ok) throw new Error(`CLOUDFLARED_PATH: ${checked.message}`);
+    return checked.path;
   }
   const asset = o.pins.assets[platformKey()];
   if (!asset) throw new Error(`Нет закреплённой сборки cloudflared для платформы ${platformKey()}. Укажите CLOUDFLARED_PATH.`);
@@ -59,7 +60,14 @@ export async function ensureCloudflared(o: {
     throw new Error(`SHA-256 cloudflared не совпадает (ожидалось ${asset.sha256}, получено ${actual}). Файл отклонён.`);
   }
   fs.mkdirSync(o.binDir, { recursive: true });
-  fs.writeFileSync(target, buf, { mode: 0o755 });
+  // Через временный файл: оборванная запись не оставит битый cloudflared под рабочим именем.
+  const tmp = `${target}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tmp, buf, { mode: 0o755 });
+    fs.renameSync(tmp, target);
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
   return target;
 }
 

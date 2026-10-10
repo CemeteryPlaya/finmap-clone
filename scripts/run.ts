@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { acquireExclusiveLock, isLockHeld, isPortFree, LockHeldError } from '../src/server/lock';
-import { cloudflaredArgs, cloudflaredTarget } from './lib/cloudflared';
+import { checkCloudflaredPath, cloudflaredArgs, cloudflaredTarget } from './lib/cloudflared';
 import { needsClientBuild } from './lib/client-build';
 import { connectWithRetry, errorText, isFatalNgrokError, maskSecret } from './lib/ngrok';
 import { createFileLog, createLineSplitter, loadConfigOrLog, logStartupError, runFiles, serverExitAction, takeStopRequest } from './lib/run-files';
@@ -99,10 +99,19 @@ if (isLockHeld(config.lockPath)) {
 
 let cloudflaredBin = '';
 if (config.deployMode === 'cloudflare') {
-  cloudflaredBin = config.cloudflaredPath ?? cloudflaredTarget(config.binDir);
-  if (!fs.existsSync(cloudflaredBin)) {
-    logError(`cloudflared не найден (${cloudflaredBin}). Запустите npm run setup или укажите CLOUDFLARED_PATH.`);
-    process.exit(1);
+  if (config.cloudflaredPath) {
+    const checked = checkCloudflaredPath(config.cloudflaredPath);
+    if (!checked.ok) {
+      logError(`CLOUDFLARED_PATH: ${checked.message}`);
+      process.exit(1);
+    }
+    cloudflaredBin = checked.path;
+  } else {
+    cloudflaredBin = cloudflaredTarget(config.binDir);
+    if (!fs.existsSync(cloudflaredBin)) {
+      logError(`cloudflared не найден (${cloudflaredBin}). Запустите npm run setup или укажите CLOUDFLARED_PATH.`);
+      process.exit(1);
+    }
   }
 }
 

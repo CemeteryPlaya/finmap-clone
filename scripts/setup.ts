@@ -8,6 +8,7 @@ import { AppError } from '../src/server/errors';
 import { createAuditService } from '../src/server/modules/audit/service';
 import { createBackupService } from '../src/server/modules/backup/service';
 import { createUsersService } from '../src/server/modules/users/service';
+import { appRunning, appRunningMessage } from './lib/app-running';
 import { checkCloudflaredPath, ensureCloudflared, type Pins } from './lib/cloudflared';
 import { ENV_TEMPLATE, normalizeHost, parseEnv, updateEnvText, writeEnvFileSecure } from './lib/env-file';
 import { createPrompt } from './lib/prompt';
@@ -92,6 +93,13 @@ if (mode === 'cloudflare') {
       console.log(checked.message);
     }
   }
+}
+
+const running = await appRunning(config);
+if (running) {
+  prompt.close();
+  console.error(appRunningMessage(running, config.port));
+  process.exit(1);
 }
 
 const dbExisted = fs.existsSync(config.dbPath);
