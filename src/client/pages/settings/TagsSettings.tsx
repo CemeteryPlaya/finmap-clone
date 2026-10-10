@@ -11,7 +11,6 @@ import { api, type ApiError } from '../../lib/api';
 import { queryClient } from '../../lib/query';
 import { useTags } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
-import { SettingsNav } from './SettingsNav';
 
 type Action = { path: string; method: 'POST' | 'DELETE' };
 
@@ -64,7 +63,6 @@ export function TagsSettings() {
 
   return (
     <section>
-      <SettingsNav companyId={company.id} />
       <StaleNotice queries={[tags]} />
       <h1 className="mb-4 text-2xl font-bold">Теги</h1>
       {readOnly && <p className={noticeClass}>Компания в архиве — изменения недоступны.</p>}

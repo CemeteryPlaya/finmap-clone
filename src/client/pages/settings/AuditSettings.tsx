@@ -8,7 +8,6 @@ import { ACTION_LABELS, COMPANY_ENTITIES, diffRows, ENTITY_LABELS, SYSTEM_ENTITI
 import { useMeta } from '../../lib/query';
 import { useAuditFeed, useUsers, type AuditEntry } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
-import { SettingsNav } from './SettingsNav';
 
 type Scope = 'company' | 'system';
 
@@ -81,7 +80,6 @@ export function AuditSettings() {
 
   return (
     <section>
-      <SettingsNav companyId={company.id} />
       <StaleNotice queries={[feed]} />
       <h1 className="mb-4 text-2xl font-bold">История действий</h1>
       <div role="group" aria-label="Лента событий" className="mb-4 flex flex-wrap gap-2">

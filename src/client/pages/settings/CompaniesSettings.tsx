@@ -9,7 +9,6 @@ import { api, type ApiError } from '../../lib/api';
 import { queryClient } from '../../lib/query';
 import { useCompanies, type Company } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
-import { SettingsNav } from './SettingsNav';
 
 function CompanyRow({ c, currentId }: { c: Company; currentId: number }) {
   const navigate = useNavigate();
@@ -103,10 +102,9 @@ export function CompaniesSettings() {
   if (!companies.data) return <Pending queries={[companies]} />;
   return (
     <section>
-      <SettingsNav companyId={company.id} />
       <StaleNotice queries={[companies]} />
       <div className="mb-4 flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold">Компании</h1>
+        <h1 className="text-2xl font-bold">Мои компании</h1>
         <Link to="/companies/new" className={btnPrimary}>
           Добавить компанию
         </Link>

@@ -145,7 +145,9 @@ test('шаблон разделения: сохранить можно толь�
     await expect(page.getByRole('listitem').filter({ hasText: name })).toBeVisible();
   }
 
-  await section(page, 'Шаблоны разделения').click();
+  await section(page, 'Проекты').click();
+  await page.getByRole('navigation', { name: 'Проекты и шаблоны' }).getByRole('link', { name: 'Шаблоны разделения' }).click();
+  await expect(page).toHaveURL(/\/settings\/projects\/split-presets$/);
   await page.getByRole('button', { name: 'Добавить шаблон' }).click();
   await page.getByLabel('Название шаблона').fill('Аренда пополам');
   await page.getByLabel('Проект, строка 1').selectOption({ label: 'Клуб 1' });
@@ -187,4 +189,63 @@ test('переименование проекта переименовывает
   await expect(group.getByRole('listitem').first()).toContainText('Касса Клуб Б');
   await group.getByRole('button', { name: 'Ниже: Касса Клуб Б' }).click();
   await expect(group.getByRole('listitem').first()).toContainText('Kaspi Клуб Б');
+});
+
+test('зона настроек: разделы по группам, без панели счетов и вкладок; адреса и перенаправления; «← Назад к журналу» с фильтром', async ({ page }) => {
+  await login(page);
+  const name = `ТОО Зона ${Date.now()}`;
+  const cid = await createCompany(page, name);
+  const other = await createCompany(page, `ТОО Зона 2 ${Date.now()}`);
+
+  // журнал с фильтром → настройки без раздела → контрагенты
+  await page.goto(`/c/${cid}/log?period=month`);
+  await expect(page.getByRole('heading', { name: 'Журнал' })).toBeAttached();
+  await page.goto(`/c/${cid}/settings`);
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/counterparties$`));
+  await expect(page.getByRole('navigation', { name: 'Счета' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Журнал', exact: true })).toHaveCount(0);
+
+  const nav = page.getByRole('navigation', { name: 'Разделы настроек' });
+  await expect(nav.getByRole('link')).toHaveText([
+    /Назад к журналу/,
+    'Профиль',
+    'Мои компании',
+    'Контрагенты',
+    'Счета',
+    'Категории',
+    'Проекты',
+    'Теги',
+    'Пользователи',
+    'Фиксированные курсы валют',
+    'Резервное копирование',
+  ]);
+  await expect(nav).toContainText(name);
+  await expect(nav.getByRole('link', { name: 'Контрагенты' })).toHaveAttribute('aria-current', 'page');
+
+  // общий для экземпляра раздел — серая строка
+  await nav.getByRole('link', { name: 'Пользователи' }).click();
+  await expect(page.getByRole('main')).toContainText('Общие для всех компаний');
+
+  // старый адрес шаблонов разделения — вкладка раздела «Проекты»
+  await page.goto(`/c/${cid}/settings/split-presets`);
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/projects/split-presets$`));
+  await expect(page.getByRole('heading', { level: 1, name: 'Шаблоны разделения' })).toBeVisible();
+  await expect(nav.getByRole('link', { name: 'Проекты' })).toHaveAttribute('aria-current', 'page');
+  await page.getByRole('navigation', { name: 'Проекты и шаблоны' }).getByRole('link', { name: 'Проекты' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/projects$`));
+  // история действий — по прежнему адресу, но не в навигации
+  await page.goto(`/c/${cid}/settings/audit`);
+  await expect(page.getByRole('heading', { level: 1, name: 'История действий' })).toBeVisible();
+  await expect(nav.getByRole('link', { name: 'История действий' })).toHaveCount(0);
+  // неизвестный раздел
+  await page.goto(`/c/${cid}/settings/nope`);
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/counterparties$`));
+
+  // «← Назад к журналу» — тот же фильтр
+  await nav.getByRole('link', { name: /Назад к журналу/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?period=month$`));
+  // у другой компании журнал запомнился без фильтра
+  await page.goto(`/c/${other}/settings/tags`);
+  await nav.getByRole('link', { name: /Назад к журналу/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${other}/log$`));
 });

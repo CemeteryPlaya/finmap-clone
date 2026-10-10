@@ -8,7 +8,7 @@ import { api, type ApiError } from '../../lib/api';
 import { queryClient, useMe } from '../../lib/query';
 import { useUsers, type AppUser } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
-import { SettingsNav } from './SettingsNav';
+import { SHARED_NOTE } from '../../lib/settings-sections';
 
 const badge = 'ml-2 rounded-full bg-field px-2 py-0.5 text-xs font-normal text-muted';
 const invalidateUsers = () =>
@@ -197,7 +197,6 @@ export function UsersSettings() {
 
   return (
     <section>
-      <SettingsNav companyId={company.id} />
       <StaleNotice queries={[users]} />
       <div className="mb-2 flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold">Пользователи</h1>
@@ -207,6 +206,7 @@ export function UsersSettings() {
           </button>
         )}
       </div>
+      <p className="mb-1 text-sm font-medium text-muted">{SHARED_NOTE}</p>
       <p className="mb-4 text-sm text-muted">Все пользователи видят все компании. Сброс пароля и отключение сразу завершают сеансы пользователя.</p>
       {creating && (
         <div className="mb-6">

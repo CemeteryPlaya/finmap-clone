@@ -106,7 +106,7 @@ test('история: события компании с именем польз
   await page.getByRole('button', { name: 'Сохранить' }).click();
   await expect(page.getByRole('listitem').filter({ hasText: 'Аренда зала' })).toBeVisible();
 
-  await section(page, 'История действий').click();
+  await page.goto(`/c/${cid}/settings/audit`);
   const first = page.getByRole('listitem').first();
   await expect(first).toContainText('Админ');
   await expect(first).toContainText('Изменение');

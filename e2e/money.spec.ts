@@ -91,7 +91,7 @@ test('курсы: валюта без курса — предупреждени�
   await expect(panel.getByRole('link', { name: /^Евро-счёт/ })).toContainText(/€\s10$/);
 
   await page.getByRole('link', { name: 'Настройки' }).click();
-  await section(page, 'Курсы').click();
+  await section(page, 'Фиксированные курсы валют').click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/rates$`));
 
   // фиксированный курс компании
@@ -104,14 +104,22 @@ test('курсы: валюта без курса — предупреждени�
   const fixedRow = fixed.getByRole('listitem').filter({ hasText: 'EUR' });
   await expect(fixedRow).toContainText('1 EUR = 500 KZT');
   await expect(fixedRow).toContainText('с 01.01.2020, бессрочно');
+  // итог — в левой панели журнала: «← Назад к журналу», проверка, и обратно к курсам
+  const back = page.getByRole('navigation', { name: 'Разделы настроек' }).getByRole('link', { name: /Назад к журналу/ });
+  await back.click();
   await expect(panel).not.toContainText('недоступен');
   await expect(panel).toContainText(/Всего на счетах\s*₸\s5\s000(?![\s\d])/);
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/rates$`));
 
   await fixedRow.getByRole('button', { name: 'Изменить' }).click();
   await fixedRow.getByLabel('Курс 1 EUR').fill('510');
   await fixedRow.getByRole('button', { name: 'Сохранить' }).click();
   await expect(fixedRow).toContainText('1 EUR = 510 KZT');
+  await back.click();
   await expect(panel).toContainText(/Всего на счетах\s*₸\s5\s100(?![\s\d])/);
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/rates$`));
 
   // ручной курс на дату: добавить, изменить, удалить
   const manual = page.getByRole('region', { name: 'Ручные курсы на дату' });
@@ -179,13 +187,16 @@ test('смена базовой валюты обновляет итог в ле
   const cid = await createCompany(page, name);
   await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 100000 });
 
-  await page.goto(`/c/${cid}/settings/companies`);
+  await page.reload();
   const panel = page.getByRole('navigation', { name: 'Счета' });
   await expect(panel).toContainText(/Всего на счетах\s*₸\s1\s000(?![\s\d])/);
+  await page.goto(`/c/${cid}/settings/companies`);
   const row = page.getByRole('listitem').filter({ has: page.locator(`input[value="${name}"]`) });
   await row.getByLabel('Базовая валюта').selectOption('USD');
   await row.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(row.getByRole('button', { name: 'Сохранить' })).toBeDisabled();
   // курса USD в свежей базе нет: итог в тенге больше не показывается
+  await page.getByRole('navigation', { name: 'Разделы настроек' }).getByRole('link', { name: /Назад к журналу/ }).click();
   await expect(panel).toContainText('курс USD недоступен');
   await expect(panel).not.toContainText(/Всего на счетах\s*₸\s1\s000(?![\s\d])/);
 });

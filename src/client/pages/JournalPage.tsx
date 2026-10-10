@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useOutletContext, useSearchParams } from 'react-router';
+import { useLocation, useOutletContext, useSearchParams } from 'react-router';
 import { todayInTimezone } from '../../shared/dates';
 import { AssignPicker } from '../components/journal/AssignPicker';
 import { BulkBar } from '../components/journal/BulkBar';
@@ -31,6 +31,7 @@ import {
 import { uniqueById } from '../lib/journal-format';
 import { bulkSummary, type BulkAction, type BulkSummary } from '../lib/journal-bulk';
 import { operationErrorText, runBulk, useAssign } from '../lib/journal-mutations';
+import { rememberJournal } from '../lib/last-journal';
 import { useIsMobile } from '../lib/media';
 import { queryClient, useMeta } from '../lib/query';
 import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useSavedFilters, useTags, type CategoryTree, type Company } from '../lib/queries';
@@ -140,6 +141,9 @@ function JournalScreen(props: {
   const meta = useMeta();
   const prefs = usePreferences();
   const [params, setParams] = useSearchParams();
+  // «← Назад к журналу» в настройках возвращает сюда с тем же фильтром (§4.1 этапа 1.5)
+  const location = useLocation();
+  useEffect(() => rememberJournal(company.id, location.search), [company.id, location.search]);
   const state = useMemo(() => parseJournalSearch(params), [params]);
   const timeZone = meta.data?.timezone;
   const today = timeZone ? todayInTimezone(timeZone) : null;

@@ -11,7 +11,7 @@ import { api, type ApiError } from '../../lib/api';
 import { queryClient } from '../../lib/query';
 import { useFixedRates, useManualRates } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
-import { SettingsNav } from './SettingsNav';
+import { SHARED_NOTE } from '../../lib/settings-sections';
 
 /** Курс для показа — с десятичной запятой, как его вводят. */
 const showRate = (rate: string) => rate.replace('.', ',');
@@ -268,6 +268,7 @@ function ManualRatesSection() {
       <h2 id="manual-rates-title" className="mb-1 text-xl font-bold">
         Ручные курсы на дату
       </h2>
+      <p className="mb-1 text-sm font-medium text-muted">{SHARED_NOTE}</p>
       <p className="mb-4 text-sm text-muted">
         Курс к тенге на дату — общий для всех компаний. Если на дату курса нет, берётся ближайший предыдущий, не старше 7 дней. Курсы, загруженные автоматически (например, демо-набором), здесь не показываются; на такую дату ручной курс добавить нельзя.
       </p>
@@ -422,8 +423,7 @@ export function RatesSettings() {
   const { company } = useOutletContext<CompanyOutletContext>();
   return (
     <section>
-      <SettingsNav companyId={company.id} />
-      <h1 className="mb-4 text-2xl font-bold">Курсы валют</h1>
+      <h1 className="mb-4 text-2xl font-bold">Фиксированные курсы валют</h1>
       <FixedRatesSection
         key={company.id}
         companyId={company.id}

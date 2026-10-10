@@ -13,7 +13,6 @@ import { moveWithinGroup } from '../../lib/order';
 import { queryClient } from '../../lib/query';
 import { useAccounts, useProjects, type Account } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
-import { SettingsNav } from './SettingsNav';
 
 type Action = { path: string; method: 'POST' | 'DELETE'; body?: unknown };
 
@@ -106,7 +105,6 @@ export function AccountsSettings() {
 
   return (
     <section>
-      <SettingsNav companyId={company.id} />
       <StaleNotice queries={[accounts, projects]} />
       <div className="mb-4 flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold">Счета</h1>

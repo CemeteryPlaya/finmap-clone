@@ -11,7 +11,6 @@ import { parentChoices, planMove, planShift, type MovePlan } from '../../lib/cat
 import { queryClient } from '../../lib/query';
 import { useCategories, type CategoryNode } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
-import { SettingsNav } from './SettingsNav';
 
 type Kind = 'income' | 'expense';
 type Action = { path: string; method: 'POST' | 'PATCH' | 'DELETE'; body?: unknown };
@@ -244,7 +243,6 @@ export function CategoriesSettings() {
 
   return (
     <section>
-      <SettingsNav companyId={company.id} />
       <StaleNotice queries={[categories]} />
       <h1 className="mb-2 text-2xl font-bold">Категории</h1>
       <p className="mb-4 text-sm text-muted">

@@ -12,7 +12,6 @@ import { api, type ApiError } from '../../lib/api';
 import { queryClient } from '../../lib/query';
 import { useCounterparties } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
-import { SettingsNav } from './SettingsNav';
 
 type Tab = 'all' | CounterpartyType;
 type Action = { path: string; method: 'POST' | 'DELETE' };
@@ -128,7 +127,6 @@ export function CounterpartiesSettings() {
 
   return (
     <section>
-      <SettingsNav companyId={company.id} />
       <StaleNotice queries={[counterparties]} />
       <h1 className="mb-4 text-2xl font-bold">Контрагенты</h1>
       {readOnly && <p className={noticeClass}>Компания в архиве — изменения недоступны.</p>}

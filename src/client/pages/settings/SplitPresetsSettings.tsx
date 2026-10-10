@@ -11,7 +11,7 @@ import { api, type ApiError } from '../../lib/api';
 import { queryClient } from '../../lib/query';
 import { useCategories, useProjects, useSplitPresets, type CategoryNode, type CategoryTree, type Project, type SplitLine, type SplitPreset } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
-import { SettingsNav } from './SettingsNav';
+import { ProjectsTabs } from './ProjectsTabs';
 
 type Kind = 'income' | 'expense';
 type Action = { path: string; method: 'POST' | 'DELETE' };
@@ -294,7 +294,7 @@ export function SplitPresetsSettings() {
 
   return (
     <section>
-      <SettingsNav companyId={company.id} />
+      <ProjectsTabs companyId={company.id} />
       <StaleNotice queries={[presets, categories, projects]} />
       <div className="mb-4 flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold">Шаблоны разделения</h1>

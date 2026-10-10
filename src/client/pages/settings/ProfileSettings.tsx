@@ -7,7 +7,6 @@ import { btnPrimary, inputClass } from '../../components/ui';
 import { api, type ApiError } from '../../lib/api';
 import { queryClient, useMe, type Me } from '../../lib/query';
 import type { CompanyOutletContext } from '../CompanyLayout';
-import { SettingsNav } from './SettingsNav';
 
 const card = 'space-y-4 rounded-2xl border border-field p-4';
 
@@ -113,7 +112,6 @@ export function ProfileSettings() {
   if (!me.data) return <Pending queries={[me]} />;
   return (
     <section>
-      <SettingsNav companyId={company.id} />
       <h1 className="mb-4 text-2xl font-bold">Профиль</h1>
       <div className="grid max-w-4xl gap-6 lg:grid-cols-2">
         <NameCard key={me.data.user.id} user={me.data.user} />

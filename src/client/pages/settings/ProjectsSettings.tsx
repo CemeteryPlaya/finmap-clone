@@ -11,7 +11,7 @@ import { moveWithinGroup } from '../../lib/order';
 import { queryClient } from '../../lib/query';
 import { useProjects, useTemplates, type Project, type TemplateInfo } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
-import { SettingsNav } from './SettingsNav';
+import { ProjectsTabs } from './ProjectsTabs';
 
 type Action = { path: string; method: 'POST' | 'DELETE'; body?: unknown };
 
@@ -102,7 +102,7 @@ export function ProjectsSettings() {
 
   return (
     <section>
-      <SettingsNav companyId={company.id} />
+      <ProjectsTabs companyId={company.id} />
       <StaleNotice queries={[projects, templates]} />
       <div className="mb-4 flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold">Проекты</h1>

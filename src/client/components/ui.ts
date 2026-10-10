@@ -8,3 +8,10 @@ export const btnIcon = 'rounded-lg bg-field px-2.5 py-1.5 text-sm font-semibold 
 export const btnClose = `${btnIcon} shrink-0 max-md:flex max-md:size-11 max-md:items-center max-md:justify-center max-md:p-0`;
 export const alertClass = 'mb-4 rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense';
 export const noticeClass = 'mb-4 rounded-xl bg-field px-4 py-3 text-sm text-muted';
+
+/**
+ * Белая карточка содержимого страницы компании (журнал, раздел настроек). На телефоне снизу — место под панель
+ * «Доход», «Расход», «Перевод»; длинные слова без пробелов переносятся, выпадающие списки не шире своего блока.
+ */
+export const mainCardClass =
+  'min-h-[calc(100dvh-5rem)] min-w-0 flex-1 rounded-t-3xl bg-card p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] max-md:[overflow-wrap:anywhere] max-md:[&_select]:max-w-full md:p-8';

@@ -17,6 +17,7 @@ import { ProfileSettings } from './pages/settings/ProfileSettings';
 import { UsersSettings } from './pages/settings/UsersSettings';
 import { AuditSettings } from './pages/settings/AuditSettings';
 import { BackupSettings } from './pages/settings/BackupSettings';
+import { SettingsLayout, SettingsRedirect } from './pages/settings/SettingsLayout';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -32,19 +33,27 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="log" replace /> },
           { path: 'log', element: <JournalPage /> },
-          { path: 'settings', element: <Navigate to="projects" replace /> },
-          { path: 'settings/projects', element: <ProjectsSettings /> },
-          { path: 'settings/accounts', element: <AccountsSettings /> },
-          { path: 'settings/categories', element: <CategoriesSettings /> },
-          { path: 'settings/counterparties', element: <CounterpartiesSettings /> },
-          { path: 'settings/tags', element: <TagsSettings /> },
-          { path: 'settings/split-presets', element: <SplitPresetsSettings /> },
-          { path: 'settings/rates', element: <RatesSettings /> },
-          { path: 'settings/companies', element: <CompaniesSettings /> },
-          { path: 'settings/users', element: <UsersSettings /> },
-          { path: 'settings/profile', element: <ProfileSettings /> },
-          { path: 'settings/audit', element: <AuditSettings /> },
-          { path: 'settings/backup', element: <BackupSettings /> },
+          {
+            path: 'settings',
+            element: <SettingsLayout />,
+            children: [
+              { index: true, element: <SettingsRedirect section="counterparties" /> },
+              { path: 'profile', element: <ProfileSettings /> },
+              { path: 'companies', element: <CompaniesSettings /> },
+              { path: 'counterparties', element: <CounterpartiesSettings /> },
+              { path: 'accounts', element: <AccountsSettings /> },
+              { path: 'categories', element: <CategoriesSettings /> },
+              { path: 'projects', element: <ProjectsSettings /> },
+              { path: 'projects/split-presets', element: <SplitPresetsSettings /> },
+              { path: 'split-presets', element: <SettingsRedirect section="projects/split-presets" /> },
+              { path: 'tags', element: <TagsSettings /> },
+              { path: 'users', element: <UsersSettings /> },
+              { path: 'rates', element: <RatesSettings /> },
+              { path: 'backup', element: <BackupSettings /> },
+              { path: 'audit', element: <AuditSettings /> },
+              { path: '*', element: <SettingsRedirect section="counterparties" /> },
+            ],
+          },
         ],
       },
       { path: '*', element: <Navigate to="/" replace /> },

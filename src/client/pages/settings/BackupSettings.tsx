@@ -8,7 +8,7 @@ import { formatBytes } from '../../lib/audit-format';
 import { queryClient, useMeta } from '../../lib/query';
 import { useBackupStatus } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
-import { SettingsNav } from './SettingsNav';
+import { SHARED_NOTE } from '../../lib/settings-sections';
 
 export function BackupSettings() {
   const { company } = useOutletContext<CompanyOutletContext>();
@@ -27,9 +27,9 @@ export function BackupSettings() {
 
   return (
     <section>
-      <SettingsNav companyId={company.id} />
       <StaleNotice queries={[status]} />
-      <h1 className="mb-2 text-2xl font-bold">Резервная копия</h1>
+      <h1 className="mb-2 text-2xl font-bold">Резервное копирование</h1>
+      <p className="mb-1 text-sm font-medium text-muted">{SHARED_NOTE}</p>
       <p className="mb-4 max-w-2xl text-sm text-muted">
         Архив содержит базу и вложения всех компаний. Автокопия делается каждый день в 04:00 и при запуске, если последней больше суток.
       </p>

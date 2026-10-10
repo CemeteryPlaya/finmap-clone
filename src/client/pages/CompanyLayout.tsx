@@ -1,10 +1,11 @@
 import { useEffect } from 'react';
-import { Navigate, NavLink, Outlet, useParams } from 'react-router';
+import { Navigate, NavLink, Outlet, useMatch, useParams } from 'react-router';
 import { AccountsDrawerButton, AccountsPanel } from '../components/AccountsPanel';
 import { AppHeader } from '../components/AppHeader';
 import { CompanySwitcher } from '../components/CompanySwitcher';
 import { LoadError } from '../components/LoadError';
 import { NewOperationButtons, OperationFormHost } from '../components/operation/OperationFormHost';
+import { mainCardClass } from '../components/ui';
 import { savePreference, useCompanies, usePreferences, type Company } from '../lib/queries';
 
 export interface CompanyOutletContext {
@@ -16,6 +17,8 @@ const tab = ({ isActive }: { isActive: boolean }) =>
 
 export function CompanyLayout() {
   const { companyId } = useParams();
+  // зона настроек (§4.1 этапа 1.5): слева навигация разделов вместо панели счетов, вкладок нет
+  const inSettings = useMatch('/c/:companyId/settings/*') !== null;
   const companies = useCompanies();
   const prefs = usePreferences();
   const company = companies.data?.find((c) => String(c.id) === companyId);
@@ -49,21 +52,24 @@ export function CompanyLayout() {
           profileHref={`/c/${company.id}/settings/profile`}
         />
         <div className="flex items-start gap-4 md:mx-4">
-          <AccountsPanel company={company} />
-          {/* на телефоне снизу — место под закреплённую панель «Доход», «Расход», «Перевод»; длинные слова
-              без пробелов (названия, значения в истории) переносятся, а выпадающие списки не шире своего блока —
-              страница не растягивается вбок */}
-          <main className="min-h-[calc(100dvh-5rem)] min-w-0 flex-1 rounded-t-3xl bg-card p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] max-md:[overflow-wrap:anywhere] max-md:[&_select]:max-w-full md:p-8">
-            <nav className="mb-6 flex gap-2">
-              <NavLink to={`/c/${company.id}/log`} className={tab}>
-                Журнал
-              </NavLink>
-              <NavLink to={`/c/${company.id}/settings`} className={tab}>
-                Настройки
-              </NavLink>
-            </nav>
+          {inSettings ? (
             <Outlet context={{ company } satisfies CompanyOutletContext} />
-          </main>
+          ) : (
+            <>
+              <AccountsPanel company={company} />
+              <main className={mainCardClass}>
+                <nav className="mb-6 flex gap-2">
+                  <NavLink to={`/c/${company.id}/log`} className={tab}>
+                    Журнал
+                  </NavLink>
+                  <NavLink to={`/c/${company.id}/settings`} className={tab}>
+                    Настройки
+                  </NavLink>
+                </nav>
+                <Outlet context={{ company } satisfies CompanyOutletContext} />
+              </main>
+            </>
+          )}
         </div>
         {!company.archivedAt && <NewOperationButtons placement="bottom" />}
       </div>

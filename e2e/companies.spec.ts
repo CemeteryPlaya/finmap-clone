@@ -52,6 +52,8 @@ test('проекты по шаблонам: клуб и общий', async ({ pa
   const cid = await createCompany(page, companyName);
 
   await page.getByRole('link', { name: 'Настройки' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/counterparties$`));
+  await page.getByRole('navigation', { name: 'Разделы настроек' }).getByRole('link', { name: 'Проекты' }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/projects$`));
 
   await page.getByRole('button', { name: 'Добавить проект' }).click();
@@ -83,7 +85,7 @@ test('проекты по шаблонам: клуб и общий', async ({ pa
   expect(after).toHaveLength(2);
 
   // переименование компании на экране «Компании»
-  await page.getByRole('link', { name: 'Компании' }).click();
+  await page.getByRole('navigation', { name: 'Разделы настроек' }).getByRole('link', { name: 'Мои компании' }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/companies$`));
   const renamed = `ТОО Клубы переим ${Date.now()}`;
   const companyRow = page.getByRole('listitem').filter({ has: page.locator(`input[value="${companyName}"]`) });
