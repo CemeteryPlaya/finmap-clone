@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { ensureDataDir } from '../src/server/data-dir';
 import { acquireExclusiveLock, isLockHeld, isPortFree, LockHeldError } from '../src/server/lock';
 import { checkCloudflaredPath, cloudflaredArgs, cloudflaredTarget } from './lib/cloudflared';
 import { needsClientBuild } from './lib/client-build';
@@ -55,7 +56,7 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) {
 process.stderr.on('error', () => {});
 
 try {
-  fs.mkdirSync(config.dataDir, { recursive: true });
+  ensureDataDir(config.dataDir);
   fs.mkdirSync(config.logsDir, { recursive: true });
 } catch (e) {
   logStartupError(process.env, `Не удалось создать папку данных: ${(e as Error).message}`);

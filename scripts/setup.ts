@@ -1,6 +1,10 @@
+import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { loadConfig } from '../src/server/config';
+import { ensureDataDir } from '../src/server/data-dir';
 import { openDb } from '../src/server/db/client';
 import { migrateWithBackup } from '../src/server/db/migrate';
 import { seedCurrencies } from '../src/server/db/seed';
@@ -12,6 +16,8 @@ import { appRunning, appRunningMessage } from './lib/app-running';
 import { checkCloudflaredPath, ensureCloudflared, type Pins } from './lib/cloudflared';
 import { ENV_TEMPLATE, normalizeHost, parseEnv, updateEnvText, writeEnvFileSecure } from './lib/env-file';
 import { createPrompt } from './lib/prompt';
+import { icaclsRestrictArgs } from './lib/windows-acl';
+import { windowsUserId } from './lib/windows-task';
 
 const prompt = createPrompt();
 const ENV_FILE = '.env';
@@ -69,7 +75,7 @@ if (mode === 'cloudflare') {
 writeEnvFileSecure(ENV_FILE, updateEnvText(envText, updates));
 process.loadEnvFile(ENV_FILE);
 const config = loadConfig();
-fs.mkdirSync(config.dataDir, { recursive: true });
+ensureDataDir(config.dataDir);
 
 if (mode === 'cloudflare') {
   try {
@@ -91,6 +97,22 @@ if (mode === 'cloudflare') {
         break;
       }
       console.log(checked.message);
+    }
+  }
+}
+
+// Windows: папка проекта может наследовать «Пользователи: чтение» и «Прошедшие проверку: изменение»
+// (например, если она прямо на C:\). Закрываем data\ и файл настроек (секреты, токены) — после
+// последней записи файла настроек: запись через временный файл возвращает унаследованные права.
+if (process.platform === 'win32') {
+  const user = windowsUserId(process.env, os.userInfo().username);
+  for (const [target, kind] of [
+    [config.dataDir, 'dir'],
+    [path.resolve(ENV_FILE), 'file'],
+  ] as const) {
+    const r = spawnSync('icacls', icaclsRestrictArgs(target, user, kind), { stdio: 'ignore' });
+    if (r.status !== 0) {
+      console.warn(`Внимание: не удалось закрыть ${target} от других пользователей Windows (icacls, код ${r.status ?? '—'}).`);
     }
   }
 }

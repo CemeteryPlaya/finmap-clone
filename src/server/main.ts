@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import type { FastifyInstance, FastifyServerOptions } from 'fastify';
 import { buildApp } from './app';
 import type { Config } from './config';
+import { ensureDataDir } from './data-dir';
 import { openDb, type Sqlite } from './db/client';
 import { migrateWithBackup } from './db/migrate';
 import { seedCurrencies } from './db/seed';
@@ -40,7 +41,8 @@ export interface StartOptions {
 }
 
 export async function startServer(config: Config, opts: StartOptions = {}): Promise<RunningServer> {
-  for (const d of [config.dataDir, config.uploadsDir, config.backupsDir, config.logsDir]) fs.mkdirSync(d, { recursive: true });
+  ensureDataDir(config.dataDir);
+  for (const d of [config.uploadsDir, config.backupsDir, config.logsDir]) fs.mkdirSync(d, { recursive: true });
   // Живой PID с чужим bootTime: перезагрузка (PID занят другим процессом) или скачок часов при
   // работающем приложении. Во втором случае порт занят — тогда lock не перехватываем.
   const state = lockState(config.lockPath, opts.isNode);
