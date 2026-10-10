@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 async function login(page: Page) {
   await page.goto('/login');
@@ -88,19 +88,29 @@ test('сценарий 3 §10: доход, расход на два проект
   // журнал: новые сверху, у каждой строки — остаток после операции по своему счёту
   await expect(bodyRows(page)).toHaveCount(3);
   const [transfer, expense, income] = [bodyRows(page).nth(0), bodyRows(page).nth(1), bodyRows(page).nth(2)];
+  const account = (row: Locator) => row.locator('[data-column="account"]');
+  await expect(table(page).getByRole('columnheader', { name: 'Счёт/остаток', exact: true })).toBeVisible();
   await expect(transfer).toContainText(/500\s₸/);
   await expect(transfer).toContainText(/→ 1\s\$/);
-  await expect(transfer).toContainText(/Касса\s*остаток 700\s₸/);
-  await expect(transfer).toContainText(/Валютный\s*остаток 1\s\$/);
+  // «Счёт/остаток» (§5.2 этапа 1.5): у перевода оба счёта и оба остатка, слова «остаток» нет
+  await expect(account(transfer)).toContainText('Касса → Валютный');
+  await expect(account(transfer)).toContainText(/700\s₸\s*→\s*1\s\$/);
   await expect(expense).toContainText(/\u2212300\s₸/);
-  await expect(expense).toContainText(/остаток 1\s200\s₸/);
+  await expect(account(expense)).toContainText(/1\s200\s₸/);
   await expect(expense).toContainText('Аренда');
   await expect(expense).toContainText('2 проекта');
   await expect(income).toContainText(/\+500\s₸/);
-  await expect(income).toContainText(/остаток 1\s500\s₸/);
+  await expect(account(income)).toContainText(/1\s500\s₸/);
   await expect(income).toContainText('Выручка');
   await expect(income).toContainText('Клуб Север');
-  await expect(income.locator('time')).toContainText('сегодня');
+  // в заголовке «Счёт/остаток» слово есть — проверяем только строки
+  await expect(table(page).locator('tbody')).not.toContainText('остаток');
+  // дата в две строки: «4 окт. 2026», ниже «Сегодня 10:32»
+  await expect(income.locator('time')).toHaveText(/^\d{1,2} [а-я]+\.? \d{4}Сегодня \d{2}:\d{2}$/);
+  // строки одной высоты (§5.2)
+  const heights = await bodyRows(page).evaluateAll((rows) => rows.map((r) => Math.round(r.getBoundingClientRect().height)));
+  // у последней строки нет нижней границы — допуск 1 px
+  expect(Math.max(...heights) - Math.min(...heights), heights.join()).toBeLessThanOrEqual(1);
 
   // подсказка разбиения — при наведении и при фокусе с клавиатуры
   await expense.getByText('2 проекта').hover();
@@ -229,7 +239,7 @@ test('тулбар: поиск с паузой, период, сумма от/д
   // период — по календарной дате в APP_TIMEZONE
   await expect(bodyRows(page)).toHaveCount(1);
   await expect(bodyRows(page).first()).toContainText('Аренда за октябрь');
-  await expect(bodyRows(page).first().locator('time')).toContainText('вчера');
+  await expect(bodyRows(page).first().locator('time')).toContainText(/Вчера \d{2}:\d{2}/);
   await expect(periodButton).toHaveAccessibleName('Период: За вчера');
   await choosePeriod('За сегодня');
   await expect(bodyRows(page)).toHaveCount(2);
@@ -338,10 +348,24 @@ test('«Ещё»: суммы, ⟳, колонки и выгрузка в одн�
   await login(page);
   const cid = await createCompany(page, `ТОО Колонки ${Date.now()}`);
   const kaspi = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
-  await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: todayAgo(1), accountId: kaspi, amount: 100, comment: 'Видимый комментарий' });
+  await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: todayAgo(1), accountId: kaspi, amount: 100, accrualDate: '2026-09-01', comment: 'Видимый комментарий' });
+  // системная категория «Инвестиции» — с бейджем «системная» (§5.2)
+  const tree = (await (await page.request.get(`/api/v1/companies/${cid}/categories`)).json()) as { income: { id: number; systemKey: string | null }[] };
+  const investment = tree.income.find((c) => c.systemKey === 'investment')!.id;
+  await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: todayAgo(2), accountId: kaspi, amount: 200, lines: [{ categoryId: investment, amount: 200 }], comment: 'вклад' });
   await page.reload();
   const header = (name: string) => table(page).getByRole('columnheader', { name, exact: true });
   await expect(header('Комментарий')).toBeVisible();
+  // «Счёт/остаток»; «Дата сделки» без настройки выключена (§5.3, Review Focus 5)
+  await expect(header('Счёт/остаток')).toBeVisible();
+  await expect(header('Дата сделки')).toHaveCount(0);
+  // бейдж «системная» — у системной категории
+  const investmentCategory = bodyRows(page).filter({ hasText: 'вклад' }).locator('[data-column="category"]');
+  await expect(investmentCategory).toContainText('Инвестиции');
+  await expect(investmentCategory).toContainText('системная');
+  // стрелка сортировки — только у активной колонки; «↕» у «Суммы» скрыта до наведения
+  await expect(table(page).getByRole('columnheader', { name: /Дата/ }).first().locator('[aria-hidden="true"]')).toHaveText('↓');
+  await expect(table(page).getByRole('columnheader', { name: /Сумма/ }).locator('[aria-hidden="true"]')).toHaveCSS('opacity', '0');
   const more = page.getByRole('button', { name: 'Ещё', exact: true });
   const menu = page.getByRole('dialog', { name: 'Ещё', exact: true });
   const before = (await (await page.request.get('/api/v1/preferences')).json()).preferences as Record<string, unknown>;
@@ -375,6 +399,12 @@ test('«Ещё»: суммы, ⟳, колонки и выгрузка в одн�
     await expect(columns).toHaveAttribute('aria-expanded', 'true');
     await expect(menu.getByRole('checkbox', { name: 'Дата', exact: true })).toBeDisabled();
     await expect(menu.getByRole('checkbox', { name: 'Сумма', exact: true })).toBeDisabled();
+    // «Дата сделки» включается здесь же и встаёт третьей колонкой
+    const accrualSaved = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/journal.columns') && r.request().method() === 'PUT');
+    await menu.getByRole('checkbox', { name: 'Дата сделки' }).check();
+    await accrualSaved;
+    await expect(table(page).getByRole('columnheader').nth(3)).toHaveText('Дата сделки');
+    await expect(bodyRows(page).filter({ hasText: 'Видимый комментарий' }).locator('[data-column="accrualDate"]')).toHaveText('1 сент. 2026');
     const saved = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/journal.columns') && r.request().method() === 'PUT');
     await menu.getByRole('checkbox', { name: 'Комментарий', exact: true }).uncheck();
     await saved;
@@ -408,7 +438,8 @@ test('«Ещё»: суммы, ⟳, колонки и выгрузка в одн�
     await expect(page.getByRole('checkbox', { name: 'Комментарий', exact: true })).not.toBeChecked();
 
     await page.goto(`/c/${cid}/log`);
-    await expect(header('Счёт')).toBeVisible();
+    await expect(header('Счёт/остаток')).toBeVisible();
+    await expect(header('Дата сделки')).toBeVisible();
     await expect(header('Комментарий')).toHaveCount(0);
   } finally {
     await page.request.put('/api/v1/preferences/journal.columns', { data: { value: before['journal.columns'] ?? null }, headers: csrf(page) });

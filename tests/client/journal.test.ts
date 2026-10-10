@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toggleColumn, visibleColumns } from '../../src/client/lib/journal-columns';
+import { JOURNAL_COLUMNS, toggleColumn, visibleColumns } from '../../src/client/lib/journal-columns';
 import {
   applyDialogFields,
   clearFilter,
@@ -18,8 +18,10 @@ import {
 } from '../../src/client/lib/journal-filter';
 import {
   amountInputText,
+  categoryLookup,
   dayLabel,
   dayOf,
+  journalDateParts,
   lineDimension,
   pluralRu,
   projectShare,
@@ -27,6 +29,7 @@ import {
   splitLabel,
   timeLabel,
 } from '../../src/client/lib/journal-format';
+import type { CategoryNode, CategoryTree } from '../../src/client/lib/queries';
 
 const parse = (qs: string) => parseJournalSearch(new URLSearchParams(qs));
 const state = (patch: Partial<JournalUrlState>): JournalUrlState => ({ ...EMPTY_JOURNAL_STATE, ...patch });
@@ -214,6 +217,42 @@ describe('форматирование строк журнала', () => {
     expect(dayLabel('2026-10-05', '2026-10-07')).toBe('05.10.2026');
   });
 
+  it('дата в журнале в две строки: «4 окт. 2026» и время; сегодня и вчера — с префиксом; граница суток по Алматы (§5.2 этапа 1.5)', () => {
+    const tz = 'Asia/Almaty';
+    // 05:30 UTC = 10:30 по Алматы
+    expect(journalDateParts('2026-10-07T05:30:00.000Z', tz, '2026-10-07')).toEqual({ date: '7 окт. 2026', time: 'Сегодня 10:30' });
+    expect(journalDateParts('2026-10-06T05:30:00.000Z', tz, '2026-10-07')).toEqual({ date: '6 окт. 2026', time: 'Вчера 10:30' });
+    expect(journalDateParts('2026-10-04T05:30:00.000Z', tz, '2026-10-07')).toEqual({ date: '4 окт. 2026', time: '10:30' });
+    // 23:30 6 октября по Алматы — ещё вчера; 00:30 7 октября — уже сегодня
+    expect(journalDateParts('2026-10-06T18:30:00.000Z', tz, '2026-10-07')).toEqual({ date: '6 окт. 2026', time: 'Вчера 23:30' });
+    expect(journalDateParts('2026-10-06T19:30:00.000Z', tz, '2026-10-07')).toEqual({ date: '7 окт. 2026', time: 'Сегодня 00:30' });
+  });
+
+  it('справочник категорий журнала: «Родитель → Дочерняя» и собственный systemKey — бейдж только у самой системной (§5.2, §10.3)', () => {
+    const node = (id: number, name: string, systemKey: string | null, children: CategoryNode[] = []): CategoryNode => ({
+      id,
+      companyId: 1,
+      kind: 'expense',
+      parentId: null,
+      name,
+      systemKey,
+      effectiveSystemKey: systemKey,
+      templateRef: null,
+      orderIndex: 0,
+      archivedAt: null,
+      children,
+    });
+    const tree: CategoryTree = {
+      income: [node(1, 'Выручка', null)],
+      expense: [node(10, 'Зарплата', 'salary', [{ ...node(11, 'Администраторы', null), parentId: 10, effectiveSystemKey: 'salary' }])],
+    };
+    expect([...categoryLookup(tree)]).toEqual([
+      [1, { name: 'Выручка', systemKey: null }],
+      [10, { name: 'Зарплата', systemKey: 'salary' }],
+      [11, { name: 'Зарплата → Администраторы', systemKey: null }],
+    ]);
+  });
+
   it('множественное число и подпись разбитой операции', () => {
     expect([1, 2, 4, 5, 11, 12, 14, 21, 22, 25, 101, 111].map((n) => pluralRu(n, 'а', 'б', 'в')).join('')).toBe('аббввввабвав');
     expect(splitLabel(2, 'category')).toBe('2 категории');
@@ -257,16 +296,21 @@ describe('форматирование строк журнала', () => {
 });
 
 describe('видимые колонки журнала', () => {
-  it('нет настройки — все; неизвестные отбрасываются; дата и сумма всегда видны; порядок постоянный', () => {
+  it('нет настройки — все, кроме «Даты сделки»; неизвестные отбрасываются; дата и сумма всегда видны; порядок постоянный (Review Focus 5)', () => {
     expect(visibleColumns(undefined)).toEqual(['date', 'amount', 'account', 'counterparty', 'category', 'project', 'comment']);
     expect(visibleColumns('мусор')).toHaveLength(7);
     expect(visibleColumns(['comment', 'bogus', 3, 'account'])).toEqual(['date', 'amount', 'account', 'comment']);
     expect(visibleColumns([])).toEqual(['date', 'amount']);
+    // массив, сохранённый до плана 1.5-2, «Дату сделки» не знает — она выключена; включённая — третья
+    expect(visibleColumns(['account', 'counterparty', 'category', 'project', 'comment'])).not.toContain('accrualDate');
+    expect(visibleColumns(['comment', 'accrualDate'])).toEqual(['date', 'amount', 'accrualDate', 'comment']);
+    expect(JOURNAL_COLUMNS.map((c) => c.label)).toEqual(['Дата', 'Сумма', 'Дата сделки', 'Счёт/остаток', 'Контрагент', 'Категория', 'Проект', 'Комментарий']);
   });
 
   it('переключение колонки; дату и сумму выключить нельзя', () => {
     expect(toggleColumn(['date', 'amount', 'account', 'comment'], 'comment')).toEqual(['date', 'amount', 'account']);
     expect(toggleColumn(['date', 'amount', 'comment'], 'project')).toEqual(['date', 'amount', 'project', 'comment']);
     expect(toggleColumn(['date', 'amount'], 'date')).toEqual(['date', 'amount']);
+    expect(toggleColumn(['date', 'amount', 'account'], 'accrualDate')).toEqual(['date', 'amount', 'accrualDate', 'account']);
   });
 });

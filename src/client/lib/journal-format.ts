@@ -1,6 +1,7 @@
-import { addDays, formatDateRu } from '../../shared/dates';
+import { addDays, formatDateRu, formatDateShortRu } from '../../shared/dates';
 import { formatAmount, formatMoney, MONEY_SCREEN } from '../../shared/money';
 import type { OperationType } from './journal-filter';
+import type { CategoryTree } from './queries';
 
 const dayFormatters = new Map<string, Intl.DateTimeFormat>();
 
@@ -31,6 +32,32 @@ export function timeLabel(iso: string, timeZone: string): string {
     timeFormatters.set(timeZone, fmt);
   }
   return fmt.format(new Date(iso));
+}
+
+/**
+ * Дата операции в таблице журнала (§5.2 этапа 1.5): первая строка — «4 окт. 2026», вторая — время «10:32»,
+ * для сегодня и вчера — «Сегодня 10:32», «Вчера 10:32» (сама дата остаётся). Всё — в поясе приложения.
+ */
+export function journalDateParts(iso: string, timeZone: string, today: string): { date: string; time: string } {
+  const day = dayOf(iso, timeZone);
+  const prefix = day === today ? 'Сегодня ' : day === addDays(today, -1) ? 'Вчера ' : '';
+  return { date: formatDateShortRu(day), time: `${prefix}${timeLabel(iso, timeZone)}` };
+}
+
+/** Категория в ячейке журнала: название и собственный systemKey (бейдж «системная» — только у самой системной категории). */
+export interface CategoryInfo {
+  name: string;
+  systemKey: string | null;
+}
+
+/** Категории плоским списком для ячеек: «Родитель», «Родитель → Дочерняя» (§5.2, §10.3 этапа 1.5). */
+export function categoryLookup(tree: CategoryTree): Map<number, CategoryInfo> {
+  const map = new Map<number, CategoryInfo>();
+  for (const node of [...tree.income, ...tree.expense]) {
+    map.set(node.id, { name: node.name, systemKey: node.systemKey });
+    for (const child of node.children) map.set(child.id, { name: `${node.name} → ${child.name}`, systemKey: child.systemKey });
+  }
+  return map;
 }
 
 /** Русское множественное число: 1 категория, 2 категории, 5 категорий, 11 категорий, 21 категория. */

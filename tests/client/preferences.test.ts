@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SKIP_CLOSE_CONFIRM_PREF, skipCloseConfirm } from '../../src/client/lib/preferences';
+import { JOURNAL_WRAP_PREF, journalWrap, SKIP_CLOSE_CONFIRM_PREF, skipCloseConfirm } from '../../src/client/lib/preferences';
 
 describe('настройка «Больше не спрашивать» (§2.4, §10.2 этапа 1.5)', () => {
   it('ключ настройки пользователя', () => {
@@ -11,5 +11,14 @@ describe('настройка «Больше не спрашивать» (§2.4, 
     for (const v of [false, 'true', 1, null, {}, []]) expect(skipCloseConfirm({ [SKIP_CLOSE_CONFIRM_PREF]: v }), String(v)).toBe(false);
     expect(skipCloseConfirm({})).toBe(false);
     expect(skipCloseConfirm(undefined)).toBe(false);
+  });
+});
+
+describe('«Показывать полностью» (§5.2, §10.2 этапа 1.5)', () => {
+  it('ключ journal.wrap; только true включает, прочее — по умолчанию (выключено)', () => {
+    expect(JOURNAL_WRAP_PREF).toBe('journal.wrap');
+    expect(journalWrap({ [JOURNAL_WRAP_PREF]: true })).toBe(true);
+    for (const v of [false, 'true', 1, null, {}]) expect(journalWrap({ [JOURNAL_WRAP_PREF]: v }), String(v)).toBe(false);
+    expect(journalWrap(undefined)).toBe(false);
   });
 });

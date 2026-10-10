@@ -26,8 +26,8 @@ const lookups: JournalLookups = {
     [2, account(2, 'Валютный', 'USD')],
   ]),
   categories: new Map([
-    [10, 'Аренда'],
-    [11, 'Зарплата → Администраторы'],
+    [10, { name: 'Аренда', systemKey: null }],
+    [11, { name: 'Зарплата → Администраторы', systemKey: null }],
   ]),
   projects: new Map([[20, 'Клуб Север']]),
   counterparties: new Map([[30, 'ТОО Ромашка']]),

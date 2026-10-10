@@ -28,28 +28,19 @@ import {
   type DialogFields,
   type JournalUrlState,
 } from '../lib/journal-filter';
-import { uniqueById } from '../lib/journal-format';
+import { categoryLookup, uniqueById } from '../lib/journal-format';
 import { bulkSummary, type BulkAction, type BulkSummary } from '../lib/journal-bulk';
 import { operationErrorText, refreshOperations, runBulk, useAssign } from '../lib/journal-mutations';
 import { rememberJournal } from '../lib/last-journal';
+import { journalWrap } from '../lib/preferences';
 import { useIsMobile } from '../lib/media';
 import { queryClient, useMeta } from '../lib/query';
-import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useSavedFilters, useTags, type CategoryTree, type Company } from '../lib/queries';
+import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useSavedFilters, useTags, type Company } from '../lib/queries';
 import type { CompanyOutletContext } from './CompanyLayout';
 
 /** Фокус на строку операции (у строки tabIndex=-1 и data-operation-id). */
 function focusRow(id: number): void {
   requestAnimationFrame(() => document.querySelector<HTMLElement>(`tr[data-operation-id="${id}"]`)?.focus());
-}
-
-/** Категории плоским списком для ячеек: «Родитель», «Родитель → Дочерняя». */
-function categoryNames(tree: CategoryTree): Map<number, string> {
-  const names = new Map<number, string>();
-  for (const node of [...tree.income, ...tree.expense]) {
-    names.set(node.id, node.name);
-    for (const child of node.children) names.set(child.id, `${node.name} → ${child.name}`);
-  }
-  return names;
 }
 
 /** id заголовка «Журнал»: на него уходит фокус, когда закрывается тост. */
@@ -226,7 +217,7 @@ function JournalScreen(props: {
     if (!accounts.data || !categories.data || !projects.data || !counterparties.data) return null;
     return {
       accounts: new Map(accounts.data.map((a) => [a.id, a])),
-      categories: categoryNames(categories.data),
+      categories: categoryLookup(categories.data),
       projects: new Map(projects.data.map((p) => [p.id, p.name])),
       counterparties: new Map(counterparties.data.map((c) => [c.id, c.name])),
     };
@@ -420,6 +411,7 @@ function JournalScreen(props: {
         <JournalTable
           items={items}
           columns={columns}
+          wrap={journalWrap(prefs.data)}
           lookups={lookups}
           baseCurrency={company.baseCurrency}
           timeZone={timeZone}

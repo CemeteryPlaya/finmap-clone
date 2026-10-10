@@ -5,3 +5,11 @@ export const SKIP_CLOSE_CONFIRM_PREF = 'operationForm.skipCloseConfirm';
 export function skipCloseConfirm(prefs: Record<string, unknown> | undefined): boolean {
   return prefs?.[SKIP_CLOSE_CONFIRM_PREF] === true;
 }
+
+/** «Показывать полностью» (§5.2, §10.2 этапа 1.5): длинный текст в ячейках журнала — до двух строк. */
+export const JOURNAL_WRAP_PREF = 'journal.wrap';
+
+/** Показывать полностью. Значение неизвестного вида — по умолчанию (в одну строку). */
+export function journalWrap(prefs: Record<string, unknown> | undefined): boolean {
+  return prefs?.[JOURNAL_WRAP_PREF] === true;
+}

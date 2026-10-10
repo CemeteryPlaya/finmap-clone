@@ -31,7 +31,7 @@ export function journalCardText(
   let title = 'Перевод';
   if (item.type !== 'transfer') {
     const d = lineDimension(item.lines, 'categoryId');
-    title = d.kind === 'many' ? splitLabel(d.count, 'category') : d.id === null ? 'Без категории' : (lookups.categories.get(d.id) ?? '…');
+    title = d.kind === 'many' ? splitLabel(d.count, 'category') : d.id === null ? 'Без категории' : (lookups.categories.get(d.id)?.name ?? '…');
   }
 
   const counterparty = item.counterpartyId === null ? null : (lookups.counterparties.get(item.counterpartyId) ?? '…');

@@ -37,7 +37,8 @@ export function AssignPicker(props: { item: JournalItem; field: AssignField; dat
       listLabel={LIST_LABELS[props.field]}
       options={options}
       onPick={props.onPick}
-      buttonClassName="rounded-lg px-2 py-1 text-sm font-medium text-income hover:bg-field"
+      // плашка «Указать» (§5.2 этапа 1.5): видна всегда; текст income-strong — контраст 4,7:1 на светло-зелёном
+      buttonClassName="rounded-md bg-income-soft px-2 py-0.5 text-xs font-medium text-income-strong hover:brightness-95"
     />
   );
 }

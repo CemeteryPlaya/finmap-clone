@@ -77,7 +77,7 @@ test('правка из журнала: клик по строке и с кла�
   await expect(rows(page).first()).toContainText('новый');
 
   // с клавиатуры: кнопка в ячейке даты, Enter
-  const open = table(page).getByRole('button', { name: /^Открыть операцию: сегодня/ });
+  const open = table(page).getByRole('button', { name: /^Открыть операцию: \d{1,2} \S+ \d{4}, Сегодня/ });
   await open.focus();
   await page.keyboard.press('Enter');
   dialog = editForm(page);

@@ -343,7 +343,7 @@ test('массовые действия: категория с итогом и �
   await expect(row('A').getByRole('checkbox')).not.toBeChecked();
   await row('A').getByRole('checkbox').check();
   await row('D').getByRole('checkbox').check();
-  await expect(row('A').getByRole('checkbox')).toHaveAccessibleName(/^Выбрать операцию: сегодня \d{2}:\d{2}, \u221210\s₸, операция A$/);
+  await expect(row('A').getByRole('checkbox')).toHaveAccessibleName(/^Выбрать операцию: \d{1,2} \S+ \d{4}, Сегодня \d{2}:\d{2}, \u221210\s₸, операция A$/);
   await expect(row('D').getByRole('checkbox')).toHaveAccessibleName(/, \+40\s₸, операция D$/);
   await page.clock.pauseAt(new Date(Date.now() + 1000));
   // время стоит: react-query и счётчики двигаются только вместе с часами — поэтому проверки подталкивают их на 100 мс

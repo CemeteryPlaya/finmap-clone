@@ -355,13 +355,14 @@ test('сценарий 3 §10 через форму: доход, расход н
   // журнал: остатки после каждой операции; у расхода — «2 проекта», у перевода — остатки обоих счетов
   const rows = table(page).locator('tbody tr');
   await expect(rows).toHaveCount(3);
-  await expect(rows.filter({ hasText: 'Выручка' })).toContainText(/остаток 1\s500\s₸/);
+  // «Счёт/остаток» (§5.2 этапа 1.5): остаток без слова «остаток», у перевода — оба
+  const accountCell = (row: Locator) => row.locator('[data-column="account"]');
+  await expect(accountCell(rows.filter({ hasText: 'Выручка' }))).toContainText(/1\s500\s₸/);
   const rent = rows.filter({ hasText: 'Аренда' });
   await expect(rent).toContainText('2 проекта');
-  await expect(rent).toContainText(/остаток 1\s200\s₸/);
+  await expect(accountCell(rent)).toContainText(/1\s200\s₸/);
   const transfer = rows.filter({ hasText: 'Валютный' });
-  await expect(transfer).toContainText(/остаток 700\s₸/);
-  await expect(transfer).toContainText(/остаток 1\s\$/);
+  await expect(accountCell(transfer)).toContainText(/700\s₸\s*→\s*1\s\$/);
 });
 
 test('«+ Создать „…“» прямо из формы: контрагент с типом под категорию, категория, проект, тег; тег из архива — ошибка', async ({ page }) => {
@@ -462,6 +463,6 @@ test('нет курса на дату: «Указать курс на {D}» со
   await expect(dialog).toBeVisible();
   await alert.getByRole('button', { name: 'Повторить' }).click();
   await expect(dialog).toBeHidden();
-  const row = table(page).locator('tbody tr').filter({ hasText: '15.06.2021' });
+  const row = table(page).locator('tbody tr').filter({ hasText: '15 июн. 2021' });
   await expect(row).toContainText(/5\s605\s₸/);
 });

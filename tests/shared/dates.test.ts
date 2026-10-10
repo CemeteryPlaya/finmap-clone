@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, formatDateRu, formatDateTime, formatDateTimeSec, isValidDate, startOfDayUtc, todayInTimezone, zoneOffsetMs } from '../../src/shared/dates';
+import { addDays, formatDateRu, formatDateShortRu, formatDateTime, formatDateTimeSec, isValidDate, startOfDayUtc, todayInTimezone, zoneOffsetMs } from '../../src/shared/dates';
 
 describe('todayInTimezone', () => {
   it('возвращает календарную дату в указанном поясе', () => {
@@ -76,5 +76,26 @@ describe('formatDateTimeSec', () => {
   it('дата и время до секунд в поясе приложения', () => {
     expect(formatDateTimeSec('2026-10-04T05:32:15.000Z', 'Asia/Almaty')).toBe('04.10.2026, 10:32:15');
     expect(formatDateTimeSec('2026-10-04T19:00:01.000Z', 'Asia/Almaty')).toBe('05.10.2026, 00:00:01');
+  });
+});
+
+describe('formatDateShortRu', () => {
+  it('«4 окт. 2026»: число без нуля, сокращения месяцев как в Finmap, без «г.» (§2.3 этапа 1.5)', () => {
+    const months = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+    expect(months.map((m) => formatDateShortRu(`2026-${m}-04`))).toEqual([
+      '4 янв. 2026',
+      '4 февр. 2026',
+      '4 мар. 2026',
+      '4 апр. 2026',
+      '4 мая 2026',
+      '4 июн. 2026',
+      '4 июл. 2026',
+      '4 авг. 2026',
+      '4 сент. 2026',
+      '4 окт. 2026',
+      '4 нояб. 2026',
+      '4 дек. 2026',
+    ]);
+    expect(formatDateShortRu('2026-10-31')).toBe('31 окт. 2026');
   });
 });

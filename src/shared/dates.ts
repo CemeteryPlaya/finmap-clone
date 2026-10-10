@@ -21,6 +21,15 @@ export function formatDateRu(value: string): string {
   return `${d}.${m}.${y}`;
 }
 
+/** Сокращения месяцев, как в Finmap (§2.3 этапа 1.5): «4 окт. 2026», «4 мая 2026». */
+const SHORT_MONTHS = ['янв.', 'февр.', 'мар.', 'апр.', 'мая', 'июн.', 'июл.', 'авг.', 'сент.', 'окт.', 'нояб.', 'дек.'];
+
+/** `YYYY-MM-DD` → «4 окт. 2026»: число без нуля, без «г.» (журнал, «Дата сделки»). */
+export function formatDateShortRu(value: string): string {
+  const [y, m, d] = value.split('-');
+  return `${Number(d)} ${SHORT_MONTHS[Number(m) - 1]} ${y}`;
+}
+
 /** Момент времени → «ДД.ММ.ГГГГ, ЧЧ:ММ» в заданном часовом поясе (APP_TIMEZONE из /meta). */
 export function formatDateTime(iso: string, timeZone: string): string {
   return new Intl.DateTimeFormat('ru-RU', {

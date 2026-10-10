@@ -11,6 +11,7 @@
   --color-muted: #6b7280;
   --color-income: #0f9d6b;
   --color-income-soft: #dff5ec;
+  --color-income-strong: #0b7a53; /* текст на income-soft (плашка «Указать», «системная») — 4,7:1; фон полосы действий под белым текстом — 5,4:1 */
   --color-expense: #e2553f;
   --color-expense-soft: #fde7e2;
   --color-transfer: #5b6270;
