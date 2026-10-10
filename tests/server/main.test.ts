@@ -5,7 +5,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isWildcardHost, startServer } from '../../src/server/main';
-import { currentBootTime, LockHeldError } from '../../src/server/lock';
+import { currentBootTime, LockHeldError, LockSuspectError } from '../../src/server/lock';
 import { testConfig } from '../helpers/test-app';
 
 let dir = '';
@@ -36,6 +36,42 @@ describe('startServer', () => {
     fs.mkdirSync(config.dataDir, { recursive: true });
     fs.writeFileSync(config.lockPath, String(process.ppid));
     await expect(startServer(config, { logger: false, handleSignals: false, isNode: () => true })).rejects.toBeInstanceOf(LockHeldError);
+  });
+
+  it('скачок часов: живой lock с другим bootTime и занятый порт — второй экземпляр не стартует, lock не тронут', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-main-'));
+    const blocker = net.createServer();
+    await new Promise<void>((r) => blocker.listen(0, '127.0.0.1', r));
+    try {
+      const port = (blocker.address() as net.AddressInfo).port;
+      const config = testConfig(dir, { PORT: String(port) });
+      fs.mkdirSync(config.dataDir, { recursive: true });
+      const suspect = JSON.stringify({ pid: process.ppid, bootTime: currentBootTime() - 3600 });
+      fs.writeFileSync(config.lockPath, suspect);
+      const err = await startServer(config, { logger: false, handleSignals: false, isNode: () => true }).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(LockSuspectError);
+      expect(err).toBeInstanceOf(LockHeldError);
+      expect((err as Error).message).toContain(`Порт ${port} занят`);
+      expect(fs.readFileSync(config.lockPath, 'utf8')).toBe(suspect);
+    } finally {
+      await new Promise<void>((r) => blocker.close(() => r()));
+    }
+  });
+
+  it('после перезагрузки: живой lock с другим bootTime и свободный порт — lock перехватывается', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-main-'));
+    const config = testConfig(dir, { PORT: '0' });
+    fs.mkdirSync(config.dataDir, { recursive: true });
+    fs.writeFileSync(config.lockPath, JSON.stringify({ pid: process.ppid, bootTime: currentBootTime() - 3600 }));
+    const s = await startServer(config, { logger: false, handleSignals: false, isNode: () => true });
+    try {
+      expect((JSON.parse(fs.readFileSync(config.lockPath, 'utf8')) as { pid: number }).pid).toBe(process.pid);
+    } finally {
+      await s.stop();
+    }
   });
 
   it('lock с PID чужого процесса (не node) не мешает старту', async () => {

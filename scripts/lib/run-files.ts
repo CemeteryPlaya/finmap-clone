@@ -2,6 +2,7 @@ import { StringDecoder } from 'node:string_decoder';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, type Config } from '../../src/server/config';
+import { EXIT_LOCK_HELD, EXIT_LOCK_SUSPECT } from '../../src/server/exit-codes';
 import { SUPERVISOR_LOCK_FILE } from '../../src/server/lock';
 
 /** Служебные файлы супервизора в папке данных. */
@@ -114,4 +115,14 @@ export function createLineSplitter(
       pending = '';
     },
   };
+}
+
+/**
+ * Что делать супервизору после выхода сервера: 3 — приложение уже запущено другим процессом (остановиться);
+ * 4 — порт занят, а lock из прошлой загрузки (повторять с паузой: порт может освободиться); остальное — перезапуск.
+ */
+export function serverExitAction(code: number | null): 'stop' | 'retry-port-busy' | 'restart' {
+  if (code === EXIT_LOCK_HELD) return 'stop';
+  if (code === EXIT_LOCK_SUSPECT) return 'retry-port-busy';
+  return 'restart';
 }

@@ -6,11 +6,11 @@ import { openDb, type Sqlite } from './db/client';
 import { migrateWithBackup } from './db/migrate';
 import { seedCurrencies } from './db/seed';
 import { startScheduler } from './jobs/scheduler';
-import { acquireLock, type IsNodeProcess } from './lock';
+import { acquireLock, isPortFree, lockState, LockSuspectError, type IsNodeProcess } from './lock';
 import { createLoggerOptions } from './logger';
 import { createBackupService } from './modules/backup/service';
 
-export const EXIT_LOCK_HELD = 3;
+export { EXIT_LOCK_HELD, EXIT_LOCK_SUSPECT } from './exit-codes';
 
 /** Адрес, при котором сервер слушает все интерфейсы ('' Fastify трактует как '::'). */
 export function isWildcardHost(host: string): boolean {
@@ -41,6 +41,12 @@ export interface StartOptions {
 
 export async function startServer(config: Config, opts: StartOptions = {}): Promise<RunningServer> {
   for (const d of [config.dataDir, config.uploadsDir, config.backupsDir, config.logsDir]) fs.mkdirSync(d, { recursive: true });
+  // Живой PID с чужим bootTime: перезагрузка (PID занят другим процессом) или скачок часов при
+  // работающем приложении. Во втором случае порт занят — тогда lock не перехватываем.
+  const state = lockState(config.lockPath, opts.isNode);
+  if (state.kind === 'suspect' && !(await isPortFree(config.host, config.port))) {
+    throw new LockSuspectError(state.pid, config.lockPath, config.port);
+  }
   const releaseLock = acquireLock(config.lockPath, opts.isNode);
   const exit = opts.exit ?? ((code: number) => process.exit(code));
 

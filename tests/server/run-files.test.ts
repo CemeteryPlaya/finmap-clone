@@ -9,6 +9,7 @@ import {
   loadConfigOrLog,
   logStartupError,
   runFiles,
+  serverExitAction,
   takeStopRequest,
 } from '../../scripts/lib/run-files';
 
@@ -150,5 +151,14 @@ describe('createLineSplitter', () => {
     s.push(Buffer.from('yy'));
     s.flush();
     expect(lines).toEqual(['x'.repeat(25), 'yy']);
+  });
+});
+
+describe('супервизор после выхода сервера', () => {
+  it('3 — приложение уже запущено (стоп); 4 — порт занят чужой программой (повтор с паузой); остальное — перезапуск', () => {
+    expect(serverExitAction(3)).toBe('stop');
+    expect(serverExitAction(4)).toBe('retry-port-busy');
+    expect(serverExitAction(1)).toBe('restart');
+    expect(serverExitAction(null)).toBe('restart');
   });
 });

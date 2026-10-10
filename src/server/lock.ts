@@ -21,6 +21,21 @@ export class LockHeldError extends Error {
   }
 }
 
+/**
+ * В app.lock живой PID из другой загрузки системы, и порт приложения занят. Это либо скачок часов при
+ * работающем приложении, либо после перезагрузки порт занят чужой программой (а PID достался другому
+ * процессу). Супервизор в этом случае не сдаётся, а повторяет запуск с паузой.
+ */
+export class LockSuspectError extends LockHeldError {
+  constructor(pid: number, lockPath: string, port: number) {
+    super(pid, lockPath);
+    this.message =
+      `Порт ${port} занят, а в файле блокировки ${lockPath} — живой процесс PID ${pid} из прошлой загрузки системы. ` +
+      'Либо приложение уже запущено (сдвинулись часы), либо порт занят другой программой.';
+    this.name = 'LockSuspectError';
+  }
+}
+
 /** Время загрузки системы, в секундах Unix. */
 export function currentBootTime(): number {
   return Math.round((Date.now() - os.uptime() * 1000) / 1000);

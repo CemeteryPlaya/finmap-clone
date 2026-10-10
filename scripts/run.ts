@@ -1,11 +1,10 @@
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { acquireExclusiveLock, isLockHeld, isPortFree, LockHeldError } from '../src/server/lock';
-import { EXIT_LOCK_HELD } from '../src/server/main';
 import { cloudflaredArgs, cloudflaredTarget } from './lib/cloudflared';
 import { needsClientBuild } from './lib/client-build';
 import { connectWithRetry, errorText, isFatalNgrokError, maskSecret } from './lib/ngrok';
-import { createFileLog, createLineSplitter, loadConfigOrLog, logStartupError, runFiles, takeStopRequest } from './lib/run-files';
+import { createFileLog, createLineSplitter, loadConfigOrLog, logStartupError, runFiles, serverExitAction, takeStopRequest } from './lib/run-files';
 import { createSupervisor, type ChildLike } from './lib/supervise';
 
 try {
@@ -141,10 +140,14 @@ supervisor.supervise(
   {
     ipc: true,
     onExit: (code) => {
-      if (code === EXIT_LOCK_HELD) {
+      const action = serverExitAction(code);
+      if (action === 'stop') {
         logError(`Приложение уже запущено другим процессом (файл блокировки ${config.lockPath}). Супервизор завершает работу.`);
         void supervisor.shutdown(1);
         return false;
+      }
+      if (action === 'retry-port-busy') {
+        logError(`Порт ${config.port} занят другой программой; сервер будет запущен, когда порт освободится.`);
       }
       return true;
     },
