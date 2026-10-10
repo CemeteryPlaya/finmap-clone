@@ -272,6 +272,17 @@ describe('acquireExclusiveLock (блокировка супервизора)', (
     expect(fs.readdirSync(dir).filter((f) => f.includes('.tmp'))).toEqual([]);
   });
 
+  it('G2: файл с нашим PID и чужим token, который этот процесс не держит (остался от прошлого запуска), — перехват', async () => {
+    fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, bootTime: currentBootTime(), token: 'old' }));
+    const release = await acquireExclusiveLock(lock, { portBusy: free, isNode, token: 'mine' });
+    expect((JSON.parse(fs.readFileSync(lock, 'utf8')) as { token: string }).token).toBe('mine');
+    // пока мы держим блокировку, тот же файл с нашим PID — занято
+    await expect(acquireExclusiveLock(lock, { portBusy: free, isNode, token: 'third' })).rejects.toBeInstanceOf(LockHeldError);
+    release();
+    expect(fs.existsSync(lock)).toBe(false);
+    expect(fs.readdirSync(dir).filter((f) => f.includes('.stale'))).toEqual([]);
+  });
+
   it('пустой/битый файл моложе 5 с — его пишут прямо сейчас: занято; старый — перехватывается', async () => {
     fs.writeFileSync(lock, '');
     await expect(acquireExclusiveLock(lock, { portBusy: free })).rejects.toBeInstanceOf(LockHeldError);

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ensureDataDir } from '../../src/server/data-dir';
-import { icaclsRestrictArgs } from '../../scripts/lib/windows-acl';
+import { icaclsRestrictArgs, projectOutsideProfile } from '../../scripts/lib/windows-acl';
 
 let dir = '';
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -70,5 +70,20 @@ describe('icaclsRestrictArgs (Windows: папка данных и файл на�
       '*S-1-5-18:F',
       '*S-1-5-32-544:F',
     ]);
+  });
+});
+
+describe('projectOutsideProfile (предупреждение setup)', () => {
+  const home = String.raw`C:\Users\Ivan`;
+  it('внутри профиля (в том числе без учёта регистра и с косой чертой в конце) — false', () => {
+    expect(projectOutsideProfile(String.raw`C:\Users\Ivan\Учёт\finmap-clone`, home)).toBe(false);
+    expect(projectOutsideProfile(String.raw`c:\users\IVAN\Учёт`, home)).toBe(false);
+    expect(projectOutsideProfile(home, `${home}\\`)).toBe(false);
+  });
+
+  it('вне профиля — true: корень диска, другой диск, папка с тем же началом имени', () => {
+    expect(projectOutsideProfile(String.raw`C:\finmap-clone`, home)).toBe(true);
+    expect(projectOutsideProfile(String.raw`D:\Users\Ivan\x`, home)).toBe(true);
+    expect(projectOutsideProfile(String.raw`C:\Users\Ivan2\x`, home)).toBe(true);
   });
 });

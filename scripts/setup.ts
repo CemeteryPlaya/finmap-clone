@@ -16,7 +16,7 @@ import { appRunning, appRunningMessage } from './lib/app-running';
 import { checkCloudflaredPath, ensureCloudflared, type Pins } from './lib/cloudflared';
 import { ENV_TEMPLATE, normalizeHost, parseEnv, updateEnvText, writeEnvFileSecure } from './lib/env-file';
 import { createPrompt } from './lib/prompt';
-import { icaclsRestrictArgs } from './lib/windows-acl';
+import { icaclsRestrictArgs, projectOutsideProfile } from './lib/windows-acl';
 import { windowsUserId } from './lib/windows-task';
 
 const prompt = createPrompt();
@@ -77,34 +77,11 @@ process.loadEnvFile(ENV_FILE);
 const config = loadConfig();
 ensureDataDir(config.dataDir);
 
-if (mode === 'cloudflare') {
-  try {
-    const pins = JSON.parse(fs.readFileSync('scripts/cloudflared-pins.json', 'utf8')) as Pins;
-    const p = await ensureCloudflared({ binDir: config.binDir, pins, customPath: config.cloudflaredPath });
-    console.log(`cloudflared готов: ${p}`);
-  } catch (e) {
-    console.log((e as Error).message);
-    for (;;) {
-      const custom = (await prompt.ask('Путь к cloudflared (CLOUDFLARED_PATH), Enter — пропустить')).trim();
-      if (!custom) {
-        console.log('cloudflared не настроен: укажите CLOUDFLARED_PATH в настройках и повторите npm run setup до запуска.');
-        break;
-      }
-      const checked = checkCloudflaredPath(custom);
-      if (checked.ok) {
-        writeEnvFileSecure(ENV_FILE, updateEnvText(fs.readFileSync(ENV_FILE, 'utf8'), { CLOUDFLARED_PATH: checked.path }));
-        console.log(`CLOUDFLARED_PATH сохранён: ${checked.path}`);
-        break;
-      }
-      console.log(checked.message);
-    }
-  }
-}
-
 // Windows: папка проекта может наследовать «Пользователи: чтение» и «Прошедшие проверку: изменение»
-// (например, если она прямо на C:\). Закрываем data\ и файл настроек (секреты, токены) — после
-// последней записи файла настроек: запись через временный файл возвращает унаследованные права.
-if (process.platform === 'win32') {
+// (например, если она прямо на C:\). Закрываем data\ и файл настроек (секреты, токены). Вызывается после
+// каждой записи файла настроек: запись через временный файл возвращает унаследованные права.
+function applySettingsAcl(): void {
+  if (process.platform !== 'win32') return;
   const user = windowsUserId(process.env, os.userInfo().username);
   for (const [target, kind] of [
     [config.dataDir, 'dir'],
@@ -117,11 +94,64 @@ if (process.platform === 'win32') {
   }
 }
 
+if (process.platform === 'win32' && projectOutsideProfile(process.cwd(), os.homedir())) {
+  console.warn(
+    `Внимание: папка проекта находится вне профиля пользователя (${path.resolve(process.cwd())}). ` +
+      'Другие пользователи Windows могут изменить программу и через неё прочитать данные. ' +
+      'Перенесите проект в %USERPROFILE%\\Учёт (README, «Установка на ПК клуба»).',
+  );
+}
+
+// Приложение работает: базу и cloudflared не трогаем. Настройки уже сохранены — закрываем их и выходим.
 const running = await appRunning(config);
 if (running) {
+  applySettingsAcl();
   prompt.close();
   console.error(appRunningMessage(running, config.port));
   process.exit(1);
+}
+
+if (mode === 'cloudflare') {
+  await setupCloudflared();
+}
+applySettingsAcl();
+
+async function setupCloudflared(): Promise<void> {
+  const tryEnsure = async (customPath: string | null): Promise<boolean> => {
+    try {
+      const pins = JSON.parse(fs.readFileSync('scripts/cloudflared-pins.json', 'utf8')) as Pins;
+      const p = await ensureCloudflared({ binDir: config.binDir, pins, customPath });
+      console.log(`cloudflared готов: ${p}`);
+      return true;
+    } catch (e) {
+      console.log((e as Error).message);
+      return false;
+    }
+  };
+  if (await tryEnsure(config.cloudflaredPath ?? null)) return;
+  const hadCustom = Boolean(config.cloudflaredPath);
+  const hint = hadCustom
+    ? 'Путь к cloudflared (CLOUDFLARED_PATH), Enter — убрать свой путь и скачать закреплённую версию'
+    : 'Путь к cloudflared (CLOUDFLARED_PATH), Enter — пропустить';
+  for (;;) {
+    const custom = (await prompt.ask(hint)).trim();
+    if (!custom) {
+      if (hadCustom) {
+        writeEnvFileSecure(ENV_FILE, updateEnvText(fs.readFileSync(ENV_FILE, 'utf8'), { CLOUDFLARED_PATH: '' }));
+        console.log('CLOUDFLARED_PATH убран из настроек.');
+        if (await tryEnsure(null)) return;
+      }
+      console.log('cloudflared не настроен: укажите CLOUDFLARED_PATH в настройках и повторите npm run setup до запуска.');
+      return;
+    }
+    const checked = checkCloudflaredPath(custom);
+    if (checked.ok) {
+      writeEnvFileSecure(ENV_FILE, updateEnvText(fs.readFileSync(ENV_FILE, 'utf8'), { CLOUDFLARED_PATH: checked.path }));
+      console.log(`CLOUDFLARED_PATH сохранён: ${checked.path}`);
+      return;
+    }
+    console.log(checked.message);
+  }
 }
 
 const dbExisted = fs.existsSync(config.dbPath);

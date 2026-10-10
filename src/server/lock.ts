@@ -251,13 +251,18 @@ function readRaw(p: string): string | null {
  * переименованием, и если унесли не то, что оценивали (его успел заменить другой процесс), он
  * возвращается. Снятие удаляет файл, только если в нём наш token.
  */
+/** Пути блокировок, которые этот процесс держит прямо сейчас (заполняется при захвате, очищается при снятии). */
+const heldHere = new Set<string>();
+
 export async function acquireExclusiveLock(
   lockPath: string,
   o: { portBusy: () => Promise<boolean>; token?: string; isNode?: IsNodeProcess },
 ): Promise<() => void> {
   const token = o.token ?? crypto.randomUUID();
   const isNode = o.isNode ?? processImageIsNode;
+  const key = path.resolve(lockPath);
   const release = () => {
+    heldHere.delete(key);
     try {
       const data = JSON.parse(fs.readFileSync(lockPath, 'utf8')) as { token?: unknown };
       if (data.token === token) fs.rmSync(lockPath, { force: true });
@@ -266,13 +271,19 @@ export async function acquireExclusiveLock(
     }
   };
   for (let attempt = 0; attempt < 5; attempt++) {
-    if (writeExclusive(lockPath, token)) return release;
+    if (writeExclusive(lockPath, token)) {
+      heldHere.add(key);
+      return release;
+    }
     const raw = readRaw(lockPath);
     if (raw === null) continue; // исчез между попытками
     // Пустой/битый файл, который только что появился: его пишет другой процесс (или старая версия) — занято.
     if (readLock(lockPath) === null && isFresh(lockPath)) throw new LockHeldError(0, lockPath);
-    // Свой PID с чужим token — второй захват в этом же процессе: занято.
-    const state = stateOf(readLock(lockPath), false, isNode);
+    // Свой PID с чужим token: если этот процесс держит блокировку — второй захват, занято; иначе файл
+    // остался от прошлого процесса, которому достался тот же PID (выход из системы, быстрый запуск) — устарел.
+    const info = readLock(lockPath);
+    const leftoverOwn = info !== null && info.pid === process.pid && !heldHere.has(key);
+    const state = leftoverOwn ? ({ kind: 'free' } as LockState) : stateOf(info, false, isNode);
     if (state.kind === 'held' || (state.kind === 'suspect' && (await o.portBusy()))) {
       throw new LockHeldError(state.pid, lockPath);
     }

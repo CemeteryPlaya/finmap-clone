@@ -9,7 +9,7 @@ afterEach(() => {
   for (const r of roots.splice(0)) fs.rmSync(r, { recursive: true, force: true });
 });
 
-const DIRS = ['src/client', 'src/client/pages', 'src/shared', 'dist/client'];
+const DIRS = ['src/client', 'src/client/pages', 'src/shared', 'src/templates', 'dist/client'];
 
 function tree() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-cb-'));
@@ -66,5 +66,17 @@ describe('needsClientBuild', () => {
       touch(path.join(root, file), 3000);
       expect(needsClientBuild(root)).toBe(true);
     }
+  });
+
+  it('изменённый шаблон (src/templates) — пересборка: форма проекта берёт из него схему параметров', () => {
+    const root = tree();
+    touch(path.join(root, 'src/client/main.tsx'), 1000);
+    touch(path.join(root, 'src/templates/club.ts'), 1000);
+    touch(path.join(root, 'dist/client/index.html'), 2000);
+    ageDirs(root, 1000);
+    expect(needsClientBuild(root)).toBe(false);
+    touch(path.join(root, 'src/templates/club.ts'), 3000);
+    ageDirs(root, 1000);
+    expect(needsClientBuild(root)).toBe(true);
   });
 });

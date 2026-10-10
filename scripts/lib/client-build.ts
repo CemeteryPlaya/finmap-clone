@@ -1,8 +1,22 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** Файлы и папки, от которых зависит сборка интерфейса. */
-const INPUTS = ['src/client', 'src/shared', 'vite.config.ts', 'package-lock.json', 'tsconfig.json'];
+/**
+ * Файлы и папки, от которых зависит сборка интерфейса. Явный список (по импортам src/client):
+ * - src/client — сам интерфейс;
+ * - src/shared — деньги, даты, валюты: импортируются в интерфейсе;
+ * - src/templates — ProjectForm берёт схему параметров бизнес-шаблона (иначе форма проверяет по старой схеме);
+ * - vite.config.ts, tsconfig.json, package-lock.json, package.json — настройки сборки и зависимости.
+ */
+const INPUTS = [
+  'src/client',
+  'src/shared',
+  'src/templates',
+  'vite.config.ts',
+  'tsconfig.json',
+  'package.json',
+  'package-lock.json',
+];
 
 /** Новейшее время изменения: у папки учитывается и её собственное (удаление и переименование файлов меняют его). */
 function newestMtime(p: string): number {

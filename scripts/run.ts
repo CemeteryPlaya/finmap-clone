@@ -157,7 +157,9 @@ supervisor.supervise(
         return false;
       }
       if (action === 'retry-port-busy') {
-        logError(`Порт ${config.port} занят другой программой; сервер будет запущен, когда порт освободится.`);
+        logError(
+          `Порт ${config.port} занят, а файл блокировки сервера остался от прошлого запуска; сервер будет запущен, когда порт освободится.`,
+        );
       }
       return true;
     },
@@ -195,7 +197,12 @@ if (config.deployMode === 'ngrok') {
     });
     if (listener) logInfo(`Публичный адрес: ${listener.url()}`);
   } catch (e) {
+    // Туннель не открылся окончательно — останавливаем только его: приложение остаётся доступным на этом компьютере.
     logError(`Не удалось открыть туннель ngrok: ${maskSecret(errorText(e), secret)}`);
-    await supervisor.shutdown(1);
+    const localHost = ['0.0.0.0', '::', ''].includes(config.host) ? 'localhost' : config.host;
+    logError(
+      `Туннель ngrok остановлен; приложение доступно на этом компьютере: http://${localHost}:${config.port}. ` +
+        'Исправьте настройки ngrok и перезапустите приложение.',
+    );
   }
 }
