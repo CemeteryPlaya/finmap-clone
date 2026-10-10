@@ -132,7 +132,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     sessionSecret: e.SESSION_SECRET,
     allowedOrigins: [...new Set(origins)],
     backupKeep: e.BACKUP_KEEP,
-    backupCopyDir: e.BACKUP_COPY_DIR,
+    // Относительный путь — от папки проекта (рабочая папка npm start и задачи автозапуска).
+    backupCopyDir: e.BACKUP_COPY_DIR ? path.resolve(e.BACKUP_COPY_DIR) : null,
     ratesSource: e.RATES_SOURCE,
     dataDir,
     dbPath: path.join(dataDir, 'app.db'),

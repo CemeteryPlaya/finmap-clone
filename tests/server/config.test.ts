@@ -100,6 +100,11 @@ describe('loadConfig', () => {
     expect(c.publicUrl).toBe('https://fin.example.kz');
   });
 
+  it('BACKUP_COPY_DIR: относительный путь — от папки проекта', () => {
+    expect(loadConfig({ ...base, BACKUP_COPY_DIR: 'copies' }).backupCopyDir).toBe(path.resolve('copies'));
+    expect(loadConfig({ ...base, BACKUP_COPY_DIR: '' }).backupCopyDir).toBeNull();
+  });
+
   it('учитывает DATA_DIR для всех путей данных', () => {
     const c = loadConfig({ ...base, DATA_DIR: 'tmp/x' });
     expect(c.dbPath).toBe(path.resolve('tmp/x', 'app.db'));

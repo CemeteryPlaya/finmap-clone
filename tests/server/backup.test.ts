@@ -70,6 +70,61 @@ describe('backup', () => {
     fs.rmSync(copyDir, { recursive: true, force: true });
   });
 
+  it('BACKUP_COPY_DIR нет (флешка отключена) — бэкап создан, папка не создаётся, предупреждение в журнале и статусе', () => {
+    const missing = path.join(os.tmpdir(), `fc-copy-missing-${process.pid}-${Date.now()}`, 'backups');
+    const { config, sqlite } = setup('fc-backup-', { BACKUP_COPY_DIR: missing });
+    const logs: { msg: string; err?: unknown }[] = [];
+    const svc = createBackupService({ sqlite, config, log: (msg, err) => logs.push({ msg, err }) });
+    const file = svc.create('daily');
+    expect(fs.existsSync(file)).toBe(true);
+    expect(fs.existsSync(missing)).toBe(false);
+    expect(svc.status().lastCopyError).toMatch(/не найдена/);
+    expect(logs.some((l) => /Не удалось скопировать бэкап/.test(l.msg) && l.err instanceof Error)).toBe(true);
+  });
+
+  it('после восстановления папки следующий бэкап копируется и ошибка сбрасывается', () => {
+    const copyParent = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-copy-later-'));
+    const copyDir = path.join(copyParent, 'backups');
+    const { svc, clock } = setup('fc-backup-', { BACKUP_COPY_DIR: copyDir });
+    svc.create('daily');
+    expect(svc.status().lastCopyError).not.toBeNull();
+    fs.mkdirSync(copyDir);
+    clock.advance(60_000);
+    svc.create('daily');
+    expect(svc.status().lastCopyError).toBeNull();
+    expect(fs.readdirSync(copyDir).filter((f) => f.endsWith('.zip'))).toHaveLength(1);
+    fs.rmSync(copyParent, { recursive: true, force: true });
+  });
+
+  it('нет прав на запись в BACKUP_COPY_DIR — бэкап создан, ошибка в статусе, сервер не падает', () => {
+    const copyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-copy-ro-'));
+    const { svc } = setup('fc-backup-', { BACKUP_COPY_DIR: copyDir });
+    vi.spyOn(fs, 'copyFileSync').mockImplementation(() => {
+      throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+    });
+    expect(() => svc.create('daily')).not.toThrow();
+    vi.restoreAllMocks();
+    expect(svc.list()).toHaveLength(1);
+    expect(svc.status().lastCopyError).toMatch(/EACCES/);
+    fs.rmSync(copyDir, { recursive: true, force: true });
+  });
+
+  it('ротация в BACKUP_COPY_DIR не трогает чужие файлы', () => {
+    const copyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-copy-own-'));
+    fs.writeFileSync(path.join(copyDir, 'отчёт.xlsx'), 'x');
+    fs.writeFileSync(path.join(copyDir, 'backup-old.zip'), 'x');
+    const { svc, clock } = setup('fc-backup-', { BACKUP_COPY_DIR: copyDir });
+    for (let i = 0; i < 5; i++) {
+      svc.create('daily');
+      clock.advance(60_000);
+    }
+    const files = fs.readdirSync(copyDir);
+    expect(files).toContain('отчёт.xlsx');
+    expect(files).toContain('backup-old.zip');
+    expect(files.filter((f) => /^backup-\d{8}-\d{6}\.zip$/.test(f))).toHaveLength(3);
+    fs.rmSync(copyDir, { recursive: true, force: true });
+  });
+
   it('два бэкапа в одну секунду не перезаписывают друг друга', () => {
     const { svc } = setup();
     const a = svc.create('manual');

@@ -40,6 +40,14 @@ function listArchives(dir: string): BackupInfo[] {
     .sort((a, b) => b.file.localeCompare(a.file, 'en', { numeric: true }));
 }
 
+function isDirectory(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 function prune(dir: string, keep: number): void {
   for (const info of listArchives(dir).slice(keep)) fs.rmSync(info.path, { force: true });
 }
@@ -113,7 +121,11 @@ export function createBackupService(d: {
 
       if (config.backupCopyDir) {
         try {
-          fs.mkdirSync(config.backupCopyDir, { recursive: true });
+          // Папку не создаём: отключённая флешка или несмонтированный диск дали бы «успешную» копию
+          // на системный диск. Нет папки — предупреждение в журнале и на экране «Резервная копия».
+          if (!isDirectory(config.backupCopyDir)) {
+            throw new Error(`папка ${config.backupCopyDir} не найдена — подключите диск или создайте папку`);
+          }
           copyAtomic(target, path.join(config.backupCopyDir, path.basename(target)), at);
           prune(config.backupCopyDir, config.backupKeep);
           lastCopyError = null;

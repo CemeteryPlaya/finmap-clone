@@ -11,7 +11,8 @@ if (!fs.existsSync(config.dbPath)) {
 }
 const { sqlite } = openDb(config.dbPath);
 try {
-  const file = createBackupService({ sqlite, config, log: (m) => console.log(m) }).create('manual');
+  const log = (m: string, e?: unknown) => (e ? console.warn(`Внимание: ${m}: ${(e as Error).message}`) : console.log(m));
+  const file = createBackupService({ sqlite, config, log }).create('manual');
   console.log(`Готово: ${file}`);
 } finally {
   sqlite.close();
