@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { DeployMode } from '../../src/server/config';
 import { SERVICE_NAME, renderCaddyfile, renderSystemdUnit } from './deploy-files';
-import { encodeTaskXml, renderTaskXml, schtasksCreateArgs, schtasksDeleteArgs } from './windows-task';
+import { encodeTaskXml, renderTaskXml, schtasksCreateArgs, schtasksDeleteArgs, schtasksQueryArgs } from './windows-task';
 
 export interface ServiceContext {
   platform: NodeJS.Platform;
@@ -31,13 +31,17 @@ export interface ServiceContext {
  * без «--» — тогда npm забирает флаг себе и передаёт его как npm_config_dry_run=true.
  */
 export function isDryRun(argv: string[], env: Record<string, string | undefined>): boolean {
-  return argv.includes('--dry-run') || ['true', '1'].includes((env.npm_config_dry_run ?? '').toLowerCase());
+  return argv.includes('--dry-run') || ['true', '1'].includes((env.npm_config_dry_run ?? '').trim().toLowerCase());
 }
 
 /** Пути записи для песочницы systemd: папка приложения, данные вне её и (необязательно) папка копий бэкапов. */
 export function readWritePaths(ctx: Pick<ServiceContext, 'appDir' | 'dataDir' | 'backupCopyDir'>): string[] {
-  const inside = (p: string) => p === ctx.appDir || p.startsWith(`${ctx.appDir}/`);
-  return [ctx.appDir, ...(inside(ctx.dataDir) ? [] : [ctx.dataDir]), ...(ctx.backupCopyDir ? [`-${ctx.backupCopyDir}`] : [])];
+  // Только POSIX-пути (systemd бывает на Linux); хвостовые слэши не мешают сравнению.
+  const norm = (p: string) => path.posix.normalize(p).replace(/(?<=.)\/+$/, '');
+  const app = norm(ctx.appDir);
+  const data = norm(ctx.dataDir);
+  const inside = data === app || data.startsWith(`${app}/`);
+  return [ctx.appDir, ...(inside ? [] : [ctx.dataDir]), ...(ctx.backupCopyDir ? [`-${ctx.backupCopyDir}`] : [])];
 }
 
 export interface ServiceFile {
@@ -48,6 +52,8 @@ export interface ServiceFile {
 }
 
 export interface ServicePlan {
+  /** Проверка перед командами: если она завершилась ненулём, выполнять нечего (сообщение, код 0). */
+  check?: { cmd: string; args: string[]; absentMessage: string };
   files: ServiceFile[];
   commands: { cmd: string; args: string[] }[];
   /** Что сказать пользователю после выполнения. */
@@ -127,7 +133,7 @@ export function planInstall(ctx: ServiceContext): ServicePlan {
       files.push({ path: caddyPath, text: renderCaddyfile({ publicUrl: ctx.publicUrl, host: ctx.host, port: ctx.port }) });
       notes.push(
         'Caddy (если на сервере нет других сайтов; иначе добавьте блок из файла в свой Caddyfile):',
-        `  sudo cp ${shq(caddyPath)} /etc/caddy/Caddyfile`,
+        `  sudo cp --backup=numbered ${shq(caddyPath)} /etc/caddy/Caddyfile`,
         '  sudo systemctl reload caddy',
       );
     }
@@ -140,6 +146,7 @@ export function planInstall(ctx: ServiceContext): ServicePlan {
 export function planUninstall(ctx: ServiceContext): ServicePlan {
   if (ctx.platform === 'win32') {
     return {
+      check: { cmd: 'schtasks', args: schtasksQueryArgs(), absentMessage: 'Задача автозапуска не найдена — удалять нечего.' },
       files: [],
       commands: [{ cmd: 'schtasks', args: schtasksDeleteArgs() }],
       notes: ['Автозапуск выключен. Если приложение сейчас работает, остановите его: npm run stop'],
@@ -158,4 +165,48 @@ export function planUninstall(ctx: ServiceContext): ServicePlan {
     };
   }
   throw unsupported(ctx.platform);
+}
+
+export interface ApplyDeps {
+  writeFile: (file: string, bytes: Buffer) => void;
+  mkdir: (dir: string) => void;
+  /** Запускает команду; при quiet вывод скрыт, иначе виден в консоли (сообщения schtasks в кодировке консоли). */
+  exec: (cmd: string, args: string[], opts: { quiet: boolean }) => { status: number | null; error?: Error };
+  log: (line: string) => void;
+}
+
+/** Выполняет план (или только печатает при dryRun) и возвращает код завершения процесса. */
+export function applyServicePlan(plan: ServicePlan, dryRun: boolean, deps: ApplyDeps, dirname: (p: string) => string): number {
+  if (dryRun) {
+    deps.log('Проверка без изменений (--dry-run).');
+    for (const f of plan.files) deps.log(`\n--- файл ${f.path}${f.utf16 ? ' (UTF-16)' : ''} ---\n${f.text}`);
+    if (plan.check) deps.log(`\nПроверка: ${plan.check.cmd} ${plan.check.args.join(' ')}`);
+    for (const c of plan.commands) deps.log(`\nКоманда: ${c.cmd} ${c.args.join(' ')}`);
+    deps.log(`\nПосле выполнения:\n${plan.notes.join('\n')}`);
+    return 0;
+  }
+  if (plan.check) {
+    const r = deps.exec(plan.check.cmd, plan.check.args, { quiet: true });
+    if (r.status !== 0) {
+      deps.log(plan.check.absentMessage);
+      return 0;
+    }
+  }
+  for (const f of plan.files) {
+    deps.mkdir(dirname(f.path));
+    deps.writeFile(f.path, serviceFileBytes(f));
+  }
+  for (const c of plan.commands) {
+    const r = deps.exec(c.cmd, c.args, { quiet: false });
+    if (r.status !== 0) {
+      deps.log(
+        r.error
+          ? `Не удалось запустить ${c.cmd}: ${r.error.message}`
+          : `Не удалось выполнить ${c.cmd} (код ${r.status}). Если выше написано «Отказано в доступе», запустите окно команд от имени администратора.`,
+      );
+      return 1;
+    }
+  }
+  deps.log(plan.notes.join('\n'));
+  return 0;
 }

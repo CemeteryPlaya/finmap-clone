@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isDryRun, planInstall, planUninstall, readWritePaths, serviceFileBytes, type ServiceContext } from '../../scripts/lib/service-plan';
+import { applyServicePlan, isDryRun, planInstall, planUninstall, readWritePaths, serviceFileBytes, type ApplyDeps, type ServiceContext } from '../../scripts/lib/service-plan';
 
 const win: ServiceContext = {
   platform: 'win32',
@@ -66,7 +66,7 @@ describe('service:install — Linux', () => {
     const notes = plan.notes.join('\n');
     expect(notes).toContain("sudo cp '/opt/finmap-clone/data/deploy/finmap-clone.service' /etc/systemd/system/finmap-clone.service");
     expect(notes).toContain('sudo systemctl enable --now finmap-clone');
-    expect(notes).toContain("sudo cp '/opt/finmap-clone/data/deploy/Caddyfile' /etc/caddy/Caddyfile");
+    expect(notes).toContain("sudo cp --backup=numbered '/opt/finmap-clone/data/deploy/Caddyfile' /etc/caddy/Caddyfile");
   });
 
   it('вне режима vps Caddyfile не нужен', () => {
@@ -118,4 +118,83 @@ describe('песочница systemd и проверка без изменени
     expect(isDryRun([], { npm_config_dry_run: '' })).toBe(false);
     expect(isDryRun([], {})).toBe(false);
   });
+
+  it('--dry-run: значения 1, TRUE, True тоже включают проверку; false и пустое — нет', () => {
+    for (const v of ['1', 'TRUE', 'True']) expect(isDryRun([], { npm_config_dry_run: v })).toBe(true);
+    expect(isDryRun([], { npm_config_dry_run: 'false' })).toBe(false);
+    expect(isDryRun([], { npm_config_dry_run: '' })).toBe(false);
+  });
+
+  it('папка данных с хвостовым слэшем всё равно внутри папки приложения', () => {
+    expect(readWritePaths({ appDir: '/opt/app', dataDir: '/opt/app/data/', backupCopyDir: null })).toEqual(['/opt/app']);
+    expect(readWritePaths({ appDir: '/opt/app/', dataDir: '/opt/app/data', backupCopyDir: null })).toEqual(['/opt/app/']);
+    expect(readWritePaths({ appDir: '/opt/app', dataDir: '/opt/app-data/', backupCopyDir: null })).toEqual(['/opt/app', '/opt/app-data/']);
+  });
 });
+
+function fakeDeps(execStatus: (cmd: string, args: string[]) => number = () => 0) {
+  const calls: string[] = [];
+  const logs: string[] = [];
+  const deps: ApplyDeps = {
+    writeFile: (file) => void calls.push(`write ${file}`),
+    mkdir: (dir) => void calls.push(`mkdir ${dir}`),
+    exec: (cmd, args, { quiet }) => {
+      calls.push(`exec${quiet ? '(quiet)' : ''} ${cmd} ${args.join(' ')}`);
+      return { status: execStatus(cmd, args) };
+    },
+    log: (line) => void logs.push(line),
+  };
+  return { calls, logs, deps };
+}
+const dir = (p: string) => p.slice(0, p.lastIndexOf('\\'));
+
+describe('выполнение плана', () => {
+  it('--dry-run: ничего не пишет и не запускает, только печатает план', () => {
+    for (const plan of [planInstall(win), planUninstall(win)]) {
+      const { calls, logs, deps } = fakeDeps();
+      expect(applyServicePlan(plan, true, deps, dir)).toBe(0);
+      expect(calls).toEqual([]);
+      expect(logs[0]).toContain('Проверка без изменений');
+      expect(logs.join('\n')).toContain('Команда: schtasks');
+    }
+    expect(fakeDepsPrint(planUninstall(win))).toContain('Проверка: schtasks /Query /TN finmap-clone');
+  });
+
+  it('без --dry-run: папка, файл, команда — по порядку', () => {
+    const { calls, deps } = fakeDeps();
+    const plan = planInstall(win);
+    expect(applyServicePlan(plan, false, deps, dir)).toBe(0);
+    expect(calls).toEqual([
+      'mkdir C:\\club\\finmap-clone\\data\\deploy',
+      'write C:\\club\\finmap-clone\\data\\deploy\\finmap-clone-task.xml',
+      'exec schtasks /Create /TN finmap-clone /XML C:\\club\\finmap-clone\\data\\deploy\\finmap-clone-task.xml /F',
+    ]);
+  });
+
+  it('uninstall без задачи: сообщение и код 0, удаление не запускается', () => {
+    const { calls, logs, deps } = fakeDeps((_c, args) => (args[0] === '/Query' ? 1 : 0));
+    expect(applyServicePlan(planUninstall(win), false, deps, dir)).toBe(0);
+    expect(calls).toEqual(['exec(quiet) schtasks /Query /TN finmap-clone']);
+    expect(logs).toEqual(['Задача автозапуска не найдена — удалять нечего.']);
+  });
+
+  it('uninstall с задачей: проверка, затем удаление', () => {
+    const { calls, deps } = fakeDeps();
+    expect(applyServicePlan(planUninstall(win), false, deps, dir)).toBe(0);
+    expect(calls).toEqual(['exec(quiet) schtasks /Query /TN finmap-clone', 'exec schtasks /Delete /TN finmap-clone /F']);
+  });
+
+  it('ошибка schtasks: одна строка с кодом и подсказкой про «Отказано в доступе», код 1', () => {
+    const { logs, deps } = fakeDeps(() => 5);
+    expect(applyServicePlan(planInstall(win), false, deps, dir)).toBe(1);
+    expect(logs).toEqual([
+      'Не удалось выполнить schtasks (код 5). Если выше написано «Отказано в доступе», запустите окно команд от имени администратора.',
+    ]);
+  });
+});
+
+function fakeDepsPrint(plan: ReturnType<typeof planInstall>): string {
+  const { logs, deps } = fakeDeps();
+  applyServicePlan(plan, true, deps, dir);
+  return logs.join('\n');
+}

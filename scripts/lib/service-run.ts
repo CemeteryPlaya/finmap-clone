@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { loadConfig } from '../../src/server/config';
-import { isDryRun, planInstall, planUninstall, serviceFileBytes, type ServiceContext, type ServicePlan } from './service-plan';
+import { applyServicePlan, isDryRun, planInstall, planUninstall, type ServiceContext, type ServicePlan } from './service-plan';
 import { windowsUserId } from './windows-task';
 
 /** Контекст текущей машины для service:install / service:uninstall. Не тестируется — только чтение окружения. */
@@ -29,10 +29,7 @@ export function currentServiceContext(): ServiceContext {
   };
 }
 
-/**
- * Выполняет план: пишет файлы, запускает команды, печатает подсказки.
- * С --dry-run только печатает, что было бы сделано (ничего не пишет и не регистрирует).
- */
+/** Выполняет план текущей машины; с --dry-run только печатает, что было бы сделано. */
 export function runServicePlan(kind: 'install' | 'uninstall', argv: string[]): void {
   const dryRun = isDryRun(argv, process.env);
   let plan: ServicePlan;
@@ -43,28 +40,16 @@ export function runServicePlan(kind: 'install' | 'uninstall', argv: string[]): v
     console.error((e as Error).message);
     process.exit(1);
   }
-
-  if (dryRun) {
-    console.log('Проверка без изменений (--dry-run).');
-    for (const f of plan.files) console.log(`\n--- файл ${f.path}${f.utf16 ? ' (UTF-16)' : ''} ---\n${f.text}`);
-    for (const c of plan.commands) console.log(`\nКоманда: ${c.cmd} ${c.args.join(' ')}`);
-    console.log(`\nПосле выполнения:\n${plan.notes.join('\n')}`);
-    return;
-  }
-
-  for (const f of plan.files) {
-    fs.mkdirSync(path.dirname(f.path), { recursive: true });
-    fs.writeFileSync(f.path, serviceFileBytes(f));
-  }
-  for (const c of plan.commands) {
-    const r = spawnSync(c.cmd, c.args, { stdio: 'inherit' });
-    if (r.status !== 0) {
-      console.error(
-        `Команда ${c.cmd} завершилась с ошибкой${r.error ? `: ${r.error.message}` : ''}. ` +
-          'Если Windows пишет «Отказано в доступе», откройте терминал от имени администратора и повторите.',
-      );
-      process.exit(1);
-    }
-  }
-  console.log(plan.notes.join('\n'));
+  const code = applyServicePlan(
+    plan,
+    dryRun,
+    {
+      writeFile: (file, bytes) => fs.writeFileSync(file, bytes),
+      mkdir: (dir) => void fs.mkdirSync(dir, { recursive: true }),
+      exec: (cmd, args, { quiet }) => spawnSync(cmd, args, { stdio: quiet ? 'ignore' : 'inherit' }),
+      log: (line) => console.log(line),
+    },
+    path.dirname,
+  );
+  if (code !== 0) process.exit(code);
 }

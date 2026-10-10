@@ -85,7 +85,7 @@ export function renderTaskXml(o: { userId: string; workingDirectory: string; com
 
 /** schtasks /XML ждёт файл в UTF-16 LE с BOM (как при экспорте из Планировщика). */
 export function encodeTaskXml(xml: string): Buffer {
-  return Buffer.from(`﻿${xml}`, 'utf16le');
+  return Buffer.from(`\uFEFF${xml}`, 'utf16le');
 }
 
 export function schtasksCreateArgs(xmlPath: string, name = SERVICE_NAME): string[] {
@@ -94,4 +94,8 @@ export function schtasksCreateArgs(xmlPath: string, name = SERVICE_NAME): string
 
 export function schtasksDeleteArgs(name = SERVICE_NAME): string[] {
   return ['/Delete', '/TN', name, '/F'];
+}
+
+export function schtasksQueryArgs(name = SERVICE_NAME): string[] {
+  return ['/Query', '/TN', name];
 }
