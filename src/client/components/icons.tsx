@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 /** Иконки шапки (§3.1 этапа 1.5): только рисунок, имя кнопке даёт `aria-label`. */
 export function GearIcon() {
   return (
@@ -15,5 +17,25 @@ export function HistoryIcon() {
       <polyline points="3 3 3 9 9 9" />
       <polyline points="12 7 12 12 15 14" />
     </svg>
+  );
+}
+
+/** Иконки журнала (§5 этапа 1.5): рисунок 16 px; имя кнопке даёт `aria-label` или текст рядом. */
+function Svg({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      {children}
+    </svg>
+  );
+}
+
+export function CalendarIcon() {
+  return (
+    <Svg>
+      <rect x="3" y="4" width="18" height="18" rx="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </Svg>
   );
 }
