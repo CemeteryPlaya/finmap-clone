@@ -1,4 +1,6 @@
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { uninstallServiceContext } from '../../scripts/lib/service-run';
 import { applyServicePlan, isDryRun, planInstall, planUninstall, readWritePaths, serviceFileBytes, type ApplyDeps, type ServiceContext } from '../../scripts/lib/service-plan';
 
 const win: ServiceContext = {
@@ -88,6 +90,19 @@ describe('service:install — Linux', () => {
     const notes = planUninstall(linux).notes.join('\n');
     expect(notes).toContain('sudo systemctl disable --now finmap-clone');
     expect(notes).toContain('sudo rm /etc/systemd/system/finmap-clone.service');
+  });
+});
+
+describe('F6: service:uninstall при сломанных настройках', () => {
+  const broken = { PUBLIC_URL: 'не адрес', DEPLOY_MODE: 'вообще-другое', PORT: 'abc', DATA_DIR: 'my-data' };
+
+  it('контекст удаления строится без проверки настроек (нет SESSION_SECRET, плохой PUBLIC_URL)', () => {
+    const ctx = uninstallServiceContext(broken, 'win32');
+    expect(ctx.dataDir).toBe(path.resolve('my-data'));
+    expect(ctx.port).toBe(3000);
+    expect(planUninstall(ctx).commands).toEqual([{ cmd: 'schtasks', args: ['/Delete', '/TN', 'finmap-clone', '/F'] }]);
+    const notes = planUninstall(uninstallServiceContext(broken, 'linux')).notes.join('\n');
+    expect(notes).toContain('sudo systemctl disable --now finmap-clone');
   });
 });
 

@@ -4,11 +4,38 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadConfig } from '../../src/server/config';
 import { applyServicePlan, isDryRun, planInstall, planUninstall, type ServiceContext, type ServicePlan } from './service-plan';
+import { lenientRunConfig } from './run-files';
 import { windowsUserId } from './windows-task';
 
-/** Контекст текущей машины для service:install / service:uninstall. Не тестируется — только чтение окружения. */
+/**
+ * Контекст для service:uninstall: без проверки настроек (сломанные настройки не должны мешать
+ * снять автозапуск). Удалению нужны только платформа и пути; остальное — значения по умолчанию.
+ */
+export function uninstallServiceContext(
+  env: Record<string, string | undefined>,
+  platform: NodeJS.Platform = process.platform,
+): ServiceContext {
+  const lenient = lenientRunConfig(env);
+  return {
+    platform,
+    appDir: process.cwd(),
+    dataDir: lenient.dataDir,
+    nodePath: process.execPath,
+    npmCli: env.npm_execpath,
+    user: '',
+    isRoot: false,
+    appName: '',
+    deployMode: 'local',
+    publicUrl: '',
+    host: lenient.host,
+    port: lenient.port,
+    systemRoot: env.SystemRoot ?? 'C:\\Windows',
+    backupCopyDir: null,
+  };
+}
+
+/** Контекст текущей машины для service:install. Не тестируется — только чтение окружения. */
 export function currentServiceContext(): ServiceContext {
-  if (fs.existsSync('.env')) process.loadEnvFile('.env');
   const config = loadConfig();
   const username = os.userInfo().username;
   return {
@@ -34,8 +61,8 @@ export function runServicePlan(kind: 'install' | 'uninstall', argv: string[]): v
   const dryRun = isDryRun(argv, process.env);
   let plan: ServicePlan;
   try {
-    const ctx = currentServiceContext();
-    plan = kind === 'install' ? planInstall(ctx) : planUninstall(ctx);
+    if (fs.existsSync('.env')) process.loadEnvFile('.env');
+    plan = kind === 'install' ? planInstall(currentServiceContext()) : planUninstall(uninstallServiceContext(process.env));
   } catch (e) {
     console.error((e as Error).message);
     process.exit(1);

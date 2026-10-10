@@ -70,12 +70,16 @@ export async function stopApp(d: StopDeps): Promise<StopResult> {
 }
 
 /**
- * Можно ли принудительно завершить PID: он держит живую блокировку этой загрузки системы (held)
- * либо образ процесса подтверждён как node. Подозрительная блокировка с неопознанным образом
- * (null) могла достаться чужому процессу.
+ * Можно ли принудительно завершить PID: образ подтверждён как node, либо PID держит живую блокировку
+ * этой загрузки системы (held), а образ проверить не удалось (null). Образ, проверенный как «не node»,
+ * не трогаем никогда (PID мог достаться чужому процессу). Подозрительная блокировка с null — тоже нет.
  */
 export function canForceKillFor(locks: LockState[], isNode: IsNodeProcess): (pid: number) => boolean {
-  return (pid) => locks.some((l) => l.kind === 'held' && l.pid === pid) || isNode(pid) === true;
+  return (pid) => {
+    const image = isNode(pid);
+    if (image !== null) return image;
+    return locks.some((l) => l.kind === 'held' && l.pid === pid);
+  };
 }
 
 /** Команда принудительного завершения дерева процессов; на POSIX — null (используется SIGKILL). */

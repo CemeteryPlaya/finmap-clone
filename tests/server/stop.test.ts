@@ -108,7 +108,7 @@ describe('npm run stop', () => {
     expect(forceKillCommand('linux', 4242)).toBeNull();
   });
 
-  it('canForceKillFor: held — да; suspect+node — да; suspect+null/false и чужой PID с null — нет', () => {
+  it('canForceKillFor: held+null — да; node — да; held+не node — никогда; suspect+null/false и чужой PID с null — нет', () => {
     const held: { kind: 'held'; pid: number } = { kind: 'held', pid: 1 };
     const suspect: { kind: 'suspect'; pid: number } = { kind: 'suspect', pid: 2 };
     const locks = [{ kind: 'free' as const }, held, suspect];
@@ -117,5 +117,8 @@ describe('npm run stop', () => {
     expect(canForceKillFor(locks, () => null)(2)).toBe(false);
     expect(canForceKillFor(locks, () => false)(2)).toBe(false);
     expect(canForceKillFor(locks, () => null)(9)).toBe(false);
+    expect(canForceKillFor(locks, () => false)(1)).toBe(false);
+    expect(canForceKillFor(locks, () => true)(1)).toBe(true);
+    expect(canForceKillFor(locks, () => true)(9)).toBe(true);
   });
 });

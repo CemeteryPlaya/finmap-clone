@@ -121,8 +121,12 @@ function isStale(info: LockInfo): boolean {
   return !isPidAlive(info.pid);
 }
 
-function heldByOther(info: LockInfo | null): info is LockInfo {
-  return info !== null && info.pid !== process.pid && !isStale(info);
+/**
+ * Занято другим процессом: жив, из этой загрузки системы и образ не опровергнут как «не node»
+ * (PID мог достаться чужому процессу и без перезагрузки — например, после выхода из системы).
+ */
+function heldByOther(info: LockInfo | null, isNode: IsNodeProcess): info is LockInfo {
+  return info !== null && info.pid !== process.pid && !isStale(info) && isNode(info.pid) !== false;
 }
 
 /** Блокировка супервизора в папке данных (npm start, npm run stop, restore). */
@@ -136,14 +140,22 @@ export const SUPERVISOR_LOCK_FILE = 'supervisor.lock';
  */
 export type LockState = { kind: 'free' } | { kind: 'held'; pid: number } | { kind: 'suspect'; pid: number };
 
-function stateOf(info: LockInfo | null, ownIsFree: boolean): LockState {
+/**
+ * Живой PID, образ которого проверен и не node, — не приложение (PID переиспользован), lock устарел.
+ * null (проверить не удалось) состояние не меняет. Свой PID не проверяем.
+ */
+function stateOf(info: LockInfo | null, ownIsFree: boolean, isNode: IsNodeProcess): LockState {
   if (info === null || !isPidAlive(info.pid)) return { kind: 'free' };
-  if (info.pid === process.pid && ownIsFree) return { kind: 'free' };
+  if (info.pid === process.pid) {
+    if (ownIsFree) return { kind: 'free' };
+  } else if (isNode(info.pid) === false) {
+    return { kind: 'free' };
+  }
   return isStale(info) ? { kind: 'suspect', pid: info.pid } : { kind: 'held', pid: info.pid };
 }
 
-export function lockState(lockPath: string): LockState {
-  return stateOf(readLock(lockPath), true);
+export function lockState(lockPath: string, isNode: IsNodeProcess = processImageIsNode): LockState {
+  return stateOf(readLock(lockPath), true, isNode);
 }
 
 /** Порт свободен: удалось начать и закончить прослушивание. */
@@ -157,17 +169,17 @@ export function isPortFree(host: string, port: number): Promise<boolean> {
 }
 
 /**
- * Процесс lock работает: held, либо suspect при занятом порте приложения (скачок часов) и образе,
- * который не опровергнут как «не node» (PID мог достаться чужому процессу после перезагрузки).
+ * Процесс lock работает: held, либо suspect при занятом порте приложения (скачок часов).
+ * PID с образом, проверенным как «не node», считается чужим (lock устарел) в обоих случаях.
  */
 export async function lockRunningPid(
   lockPath: string,
   portBusy: () => Promise<boolean>,
   isNode: IsNodeProcess = processImageIsNode,
 ): Promise<number | null> {
-  const s = lockState(lockPath);
+  const s = lockState(lockPath, isNode);
   if (s.kind === 'held') return s.pid;
-  if (s.kind === 'suspect' && (await portBusy()) && isNode(s.pid) !== false) return s.pid;
+  if (s.kind === 'suspect' && (await portBusy())) return s.pid;
   return null;
 }
 
@@ -245,11 +257,8 @@ export async function acquireExclusiveLock(
     // Пустой/битый файл, который только что появился: его пишет другой процесс (или старая версия) — занято.
     if (readLock(lockPath) === null && isFresh(lockPath)) throw new LockHeldError(0, lockPath);
     // Свой PID с чужим token — второй захват в этом же процессе: занято.
-    const state = stateOf(readLock(lockPath), false);
-    if (
-      state.kind === 'held' ||
-      (state.kind === 'suspect' && (await o.portBusy()) && isNode(state.pid) !== false)
-    ) {
+    const state = stateOf(readLock(lockPath), false, isNode);
+    if (state.kind === 'held' || (state.kind === 'suspect' && (await o.portBusy()))) {
       throw new LockHeldError(state.pid, lockPath);
     }
     const aside = `${lockPath}.${token}.stale`;
@@ -273,13 +282,13 @@ export async function acquireExclusiveLock(
   throw new LockHeldError(readLockPid(lockPath) ?? 0, lockPath);
 }
 
-export function isLockHeld(lockPath: string): boolean {
-  return heldByOther(readLock(lockPath));
+export function isLockHeld(lockPath: string, isNode: IsNodeProcess = processImageIsNode): boolean {
+  return heldByOther(readLock(lockPath), isNode);
 }
 
-export function acquireLock(lockPath: string): () => void {
+export function acquireLock(lockPath: string, isNode: IsNodeProcess = processImageIsNode): () => void {
   const info = readLock(lockPath);
-  if (heldByOther(info)) throw new LockHeldError(info.pid, lockPath);
+  if (heldByOther(info, isNode)) throw new LockHeldError(info.pid, lockPath);
   fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, bootTime: currentBootTime() }));
   return () => {
     if (readLockPid(lockPath) === process.pid) fs.rmSync(lockPath, { force: true });

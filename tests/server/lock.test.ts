@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   acquireExclusiveLock,
   acquireLock,
@@ -31,8 +31,8 @@ describe('lock', () => {
 
   it('второй экземпляр не стартует, пока жив процесс-владелец', () => {
     fs.writeFileSync(lock, String(process.ppid)); // живой процесс (родитель vitest-воркера)
-    expect(isLockHeld(lock)).toBe(true);
-    expect(() => acquireLock(lock)).toThrow(LockHeldError);
+    expect(isLockHeld(lock, isNode)).toBe(true);
+    expect(() => acquireLock(lock, isNode)).toThrow(LockHeldError);
   });
 
   it('перехватывает устаревший lock мёртвого процесса', () => {
@@ -53,10 +53,10 @@ describe('lock', () => {
 
   it('lock живого PID с текущим bootTime блокирует запуск; сообщение называет файл lock', () => {
     fs.writeFileSync(lock, JSON.stringify({ pid: process.ppid, bootTime: currentBootTime() }));
-    expect(isLockHeld(lock)).toBe(true);
+    expect(isLockHeld(lock, isNode)).toBe(true);
     let err: unknown;
     try {
-      acquireLock(lock);
+      acquireLock(lock, isNode);
     } catch (e) {
       err = e;
     }
@@ -100,13 +100,13 @@ describe('lockState: скачок часов и перезагрузка', () =>
     fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, bootTime: currentBootTime() }));
     expect(lockState(lock)).toEqual({ kind: 'free' });
     fs.writeFileSync(lock, live());
-    expect(lockState(lock)).toEqual({ kind: 'held', pid: process.ppid });
+    expect(lockState(lock, isNode)).toEqual({ kind: 'held', pid: process.ppid });
   });
 
   it('живой PID с другим bootTime — suspect; работает он, только если порт приложения занят', async () => {
     fs.writeFileSync(lock, live(-3600));
-    expect(lockState(lock)).toEqual({ kind: 'suspect', pid: process.ppid });
-    expect(isLockHeld(lock)).toBe(false);
+    expect(lockState(lock, isNode)).toEqual({ kind: 'suspect', pid: process.ppid });
+    expect(isLockHeld(lock, isNode)).toBe(false);
     expect(await lockRunningPid(lock, busy, isNode)).toBe(process.ppid);
     expect(await lockRunningPid(lock, free, isNode)).toBeNull();
     fs.writeFileSync(lock, live());
@@ -119,9 +119,38 @@ describe('lockState: скачок часов и перезагрузка', () =>
     expect(await lockRunningPid(lock, busy, unknownImage)).toBe(process.ppid);
   });
 
-  it('R1: held доверяем без проверки образа', async () => {
+  it('F1: held с образом, проверенным как не node (PID переиспользован), — free, как и мёртвый PID', async () => {
     fs.writeFileSync(lock, live());
-    expect(await lockRunningPid(lock, free, notNode)).toBe(process.ppid);
+    expect(lockState(lock, notNode)).toEqual({ kind: 'free' });
+    expect(await lockRunningPid(lock, free, notNode)).toBeNull();
+    fs.writeFileSync(lock, live(-3600));
+    expect(lockState(lock, notNode)).toEqual({ kind: 'free' });
+  });
+
+  it('F1: образ не определён (null) — held остаётся held, suspect остаётся suspect', async () => {
+    fs.writeFileSync(lock, live());
+    expect(lockState(lock, unknownImage)).toEqual({ kind: 'held', pid: process.ppid });
+    expect(await lockRunningPid(lock, free, unknownImage)).toBe(process.ppid);
+    fs.writeFileSync(lock, live(-3600));
+    expect(lockState(lock, unknownImage)).toEqual({ kind: 'suspect', pid: process.ppid });
+  });
+
+  it('F1: свой PID не проверяется инспектором', () => {
+    fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, bootTime: currentBootTime() }));
+    const spy = vi.fn(() => false);
+    expect(lockState(lock, spy)).toEqual({ kind: 'free' });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('F1: app.lock с held и не-node PID — isLockHeld false, acquireLock берёт', () => {
+    fs.writeFileSync(lock, live());
+    expect(isLockHeld(lock, notNode)).toBe(false);
+    const release = acquireLock(lock, notNode);
+    expect(readLockPid(lock)).toBe(process.pid);
+    release();
+    fs.writeFileSync(lock, live());
+    expect(isLockHeld(lock, unknownImage)).toBe(true);
+    expect(() => acquireLock(lock, unknownImage)).toThrow(LockHeldError);
   });
 });
 
@@ -165,8 +194,21 @@ describe('acquireExclusiveLock (блокировка супервизора)', (
 
   it('живой владелец из этой загрузки — LockHeldError, файл не тронут', async () => {
     fs.writeFileSync(lock, live());
-    await expect(acquireExclusiveLock(lock, { portBusy: free })).rejects.toBeInstanceOf(LockHeldError);
+    await expect(acquireExclusiveLock(lock, { portBusy: free, isNode })).rejects.toBeInstanceOf(LockHeldError);
     expect(fs.readFileSync(lock, 'utf8')).toBe(live());
+  });
+
+  it('F1: held, но PID принадлежит не node (переиспользован) — блокировка перехватывается', async () => {
+    fs.writeFileSync(lock, live());
+    const release = await acquireExclusiveLock(lock, { portBusy: free, isNode: notNode, token: 'mine' });
+    expect((JSON.parse(fs.readFileSync(lock, 'utf8')) as { token: string }).token).toBe('mine');
+    release();
+    expect(fs.readdirSync(dir).filter((f) => f.includes('.stale'))).toEqual([]);
+  });
+
+  it('F1: held и образ не определён (null) — занято', async () => {
+    fs.writeFileSync(lock, live());
+    await expect(acquireExclusiveLock(lock, { portBusy: free, isNode: unknownImage })).rejects.toBeInstanceOf(LockHeldError);
   });
 
   it('скачок часов: другой bootTime и занятый порт — занято, файл не тронут', async () => {

@@ -32,6 +32,20 @@ const logError = (m: string) => {
 
 const supervisor = createSupervisor({ exit: (code) => process.exit(code), logError });
 
+// Сбой самого супервизора (не сервера) без консоли иначе не оставит следа. Обработчик 'exit' ниже
+// всё равно снимает блокировку и завершает детей.
+const onSupervisorCrash = (err: unknown) => {
+  const text = err instanceof Error ? (err.stack ?? err.message) : String(err);
+  logError(`Сбой супервизора: ${text}`);
+  try {
+    void supervisor.shutdown(1).catch(() => process.exit(1));
+  } catch {
+    process.exit(1);
+  }
+};
+process.on('uncaughtException', onSupervisorCrash);
+process.on('unhandledRejection', onSupervisorCrash);
+
 // Обработчики сигналов — до любых await. Консольное событие (Ctrl+C, Ctrl+Break, закрытие окна)
 // в Windows уже доставлено всем процессам консоли, поэтому детей там не убиваем.
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) {
