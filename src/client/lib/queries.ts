@@ -90,11 +90,19 @@ export interface Balances {
   total: CompanyTotal;
 }
 
+/**
+ * Недорогие запросы обновляются при возврате на вкладку браузера (§2.5 этапа 1.5), не чаще раза в 30 с.
+ * Журнал сам не перезапрашивается (общая настройка refetchOnWindowFocus: false): бесконечная прокрутка
+ * перезапросила бы все загруженные страницы — его обновляет кнопка ⟳.
+ */
+const REFRESH_ON_FOCUS = { refetchOnWindowFocus: true, staleTime: 30_000 } as const;
+
 /** Ключ — продолжение ключа счетов: обновление ['accounts', cid] обновляет и балансы. */
 export function useBalances(companyId: number) {
   return useQuery<Balances, ApiError>({
     queryKey: ['accounts', companyId, 'balances'],
     queryFn: () => api<Balances>(`/companies/${companyId}/balances`),
+    ...REFRESH_ON_FOCUS,
   });
 }
 
@@ -110,6 +118,7 @@ export function useCompaniesSummary(enabled: boolean) {
     queryKey: ['companies', 'summary'],
     queryFn: async () => (await api<{ companies: CompanySummary[] }>('/companies/summary')).companies,
     enabled,
+    ...REFRESH_ON_FOCUS,
   });
 }
 

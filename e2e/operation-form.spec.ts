@@ -70,8 +70,8 @@ test('доход, расход и перевод KZT → USD через форм
   await expect(amount).toHaveValue('2000');
   await amount.press('Enter');
   await expect(dialog).toBeHidden();
-  await expect(table(page).locator('tbody tr').filter({ hasText: 'Выручка' })).toContainText(/\+2\s000,00\s₸/);
-  await expect(panel(page).getByRole('link', { name: /^Касса/ })).toContainText(/3\s000,00\s₸/);
+  await expect(table(page).locator('tbody tr').filter({ hasText: 'Выручка' })).toContainText(/\+2\s000\s₸/);
+  await expect(panel(page).getByRole('link', { name: /^Касса/ })).toContainText(/₸\s3\s000$/);
 
   // расход с комментарием из свёрнутого блока; сумма — невычисленное выражение, «Сохранить» нажимают сразу
   dialog = await openForm(page, 'Расход');
@@ -86,7 +86,7 @@ test('доход, расход и перевод KZT → USD через форм
   await expect(dialog).toBeHidden();
   const rent = table(page).locator('tbody tr').filter({ hasText: 'Аренда' });
   await expect(rent).toContainText('за октябрь');
-  await expect(rent).toContainText(/300,00\s₸/);
+  await expect(rent).toContainText(/300\s₸/);
 
   // перевод в другую валюту: «Сумма зачисления» и вычисленный курс
   dialog = await openForm(page, 'Перевод');
@@ -98,9 +98,9 @@ test('доход, расход и перевод KZT → USD через форм
   await expect(dialog.getByText('Курс: 1 USD = 500 KZT')).toBeVisible();
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog).toBeHidden();
-  await expect(panel(page).getByRole('link', { name: /^Касса/ })).toContainText(/2\s200,00\s₸/);
-  await expect(panel(page).getByRole('link', { name: /^Валютный/ })).toContainText(/1,00\s\$/);
-  await expect(panel(page)).toContainText(/Всего на счетах\s*2\s700,00\s₸/);
+  await expect(panel(page).getByRole('link', { name: /^Касса/ })).toContainText(/₸\s2\s200$/);
+  await expect(panel(page).getByRole('link', { name: /^Валютный/ })).toContainText(/\$\s1$/);
+  await expect(panel(page)).toContainText(/Всего на счетах\s*₸\s2\s700(?![\s\d])/);
 });
 
 test('ошибки у полей, Esc с вопросом о несохранённом, «Сохранить и создать похожий», контрагенты под категорию «Зарплата»', async ({ page }) => {
@@ -184,8 +184,8 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   await expect(dialog).toBeHidden();
   const rows = table(page).locator('tbody tr').filter({ hasText: 'ТОО Ромашка' });
   await expect(rows).toHaveCount(2);
-  await expect(rows.filter({ hasText: 'первый' })).toContainText(/100,00/);
-  await expect(rows.filter({ hasNotText: 'первый' })).toContainText(/200,00/);
+  await expect(rows.filter({ hasText: 'первый' })).toContainText(/100\s₸/);
+  await expect(rows.filter({ hasNotText: 'первый' })).toContainText(/200\s₸/);
 
   // без изменений Esc закрывает сразу; фокус возвращается на кнопку шапки
   await openForm(page, 'Доход');
@@ -248,14 +248,14 @@ test('«Разделить» в процентах на два проекта; �
   await expect(dialog).toBeVisible();
   await line2.getByLabel('Доля, %').fill('40');
   await expect(split.getByRole('status').first()).toHaveText('Распределено полностью');
-  await expect(line1).toContainText(/= 600,00\s₸/);
-  await expect(line2).toContainText(/= 400,00\s₸/);
+  await expect(line1).toContainText(/= 600\s₸/);
+  await expect(line2).toContainText(/= 400\s₸/);
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog).toBeHidden();
   const row = table(page).locator('tbody tr').first();
   await expect(row).toContainText('Аренда');
   await expect(row).toContainText('2 проекта');
-  await expect(row).toContainText(/1\s000,00\s₸/);
+  await expect(row).toContainText(/1\s000\s₸/);
 
   // шаблон: категория «Свет» в архиве — отброшена с предупреждением, её строка остаётся с проектом
   dialog = await openForm(page, 'Расход');
@@ -347,20 +347,20 @@ test('сценарий 3 §10 через форму: доход, расход н
   await expect(dialog).toBeHidden();
 
   // левая панель: 1 000 + 500 - 300 - 500 = 700 ₸ и 1 $ (= 500 ₸ по курсу компании)
-  await expect(panel(page).getByRole('link', { name: /^Касса/ })).toContainText(/700,00\s₸/);
-  await expect(panel(page).getByRole('link', { name: /^Валютный/ })).toContainText(/1,00\s\$/);
-  await expect(panel(page)).toContainText(/Всего на счетах\s*1\s200,00\s₸/);
+  await expect(panel(page).getByRole('link', { name: /^Касса/ })).toContainText(/₸\s700$/);
+  await expect(panel(page).getByRole('link', { name: /^Валютный/ })).toContainText(/\$\s1$/);
+  await expect(panel(page)).toContainText(/Всего на счетах\s*₸\s1\s200(?![\s\d])/);
 
   // журнал: остатки после каждой операции; у расхода — «2 проекта», у перевода — остатки обоих счетов
   const rows = table(page).locator('tbody tr');
   await expect(rows).toHaveCount(3);
-  await expect(rows.filter({ hasText: 'Выручка' })).toContainText(/остаток 1\s500,00\s₸/);
+  await expect(rows.filter({ hasText: 'Выручка' })).toContainText(/остаток 1\s500\s₸/);
   const rent = rows.filter({ hasText: 'Аренда' });
   await expect(rent).toContainText('2 проекта');
-  await expect(rent).toContainText(/остаток 1\s200,00\s₸/);
+  await expect(rent).toContainText(/остаток 1\s200\s₸/);
   const transfer = rows.filter({ hasText: 'Валютный' });
-  await expect(transfer).toContainText(/остаток 700,00\s₸/);
-  await expect(transfer).toContainText(/остаток 1,00\s\$/);
+  await expect(transfer).toContainText(/остаток 700\s₸/);
+  await expect(transfer).toContainText(/остаток 1\s\$/);
 });
 
 test('«+ Создать „…“» прямо из формы: контрагент с типом под категорию, категория, проект, тег; тег из архива — ошибка', async ({ page }) => {
@@ -462,5 +462,5 @@ test('нет курса на дату: «Указать курс на {D}» со
   await alert.getByRole('button', { name: 'Повторить' }).click();
   await expect(dialog).toBeHidden();
   const row = table(page).locator('tbody tr').filter({ hasText: '15.06.2021' });
-  await expect(row).toContainText(/5\s605,00\s₸/);
+  await expect(row).toContainText(/5\s605\s₸/);
 });

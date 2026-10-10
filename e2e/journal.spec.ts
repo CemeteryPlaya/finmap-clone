@@ -81,32 +81,32 @@ test('сценарий 3 §10: доход, расход на два проект
 
   await page.reload();
   // левая панель: 1000 + 500 - 300 - 500 = 700 ₸; $1 по курсу 500 — итог 1200 ₸
-  await expect(panel(page).getByRole('link', { name: /^Касса/ })).toContainText(/700,00\s₸/);
-  await expect(panel(page).getByRole('link', { name: /^Валютный/ })).toContainText(/1,00\s\$/);
-  await expect(panel(page)).toContainText(/Всего на счетах\s*1\s200,00\s₸/);
+  await expect(panel(page).getByRole('link', { name: /^Касса/ })).toContainText(/₸\s700$/);
+  await expect(panel(page).getByRole('link', { name: /^Валютный/ })).toContainText(/\$\s1$/);
+  await expect(panel(page)).toContainText(/Всего на счетах\s*₸\s1\s200(?![\s\d])/);
 
   // журнал: новые сверху, у каждой строки — остаток после операции по своему счёту
   await expect(bodyRows(page)).toHaveCount(3);
   const [transfer, expense, income] = [bodyRows(page).nth(0), bodyRows(page).nth(1), bodyRows(page).nth(2)];
-  await expect(transfer).toContainText(/500,00\s₸/);
-  await expect(transfer).toContainText(/→ 1,00\s\$/);
-  await expect(transfer).toContainText(/Касса\s*остаток 700,00\s₸/);
-  await expect(transfer).toContainText(/Валютный\s*остаток 1,00\s\$/);
-  await expect(expense).toContainText(/\u2212300,00\s₸/);
-  await expect(expense).toContainText(/остаток 1\s200,00\s₸/);
+  await expect(transfer).toContainText(/500\s₸/);
+  await expect(transfer).toContainText(/→ 1\s\$/);
+  await expect(transfer).toContainText(/Касса\s*остаток 700\s₸/);
+  await expect(transfer).toContainText(/Валютный\s*остаток 1\s\$/);
+  await expect(expense).toContainText(/\u2212300\s₸/);
+  await expect(expense).toContainText(/остаток 1\s200\s₸/);
   await expect(expense).toContainText('Аренда');
   await expect(expense).toContainText('2 проекта');
-  await expect(income).toContainText(/\+500,00\s₸/);
-  await expect(income).toContainText(/остаток 1\s500,00\s₸/);
+  await expect(income).toContainText(/\+500\s₸/);
+  await expect(income).toContainText(/остаток 1\s500\s₸/);
   await expect(income).toContainText('Выручка');
   await expect(income).toContainText('Клуб Север');
   await expect(income.locator('time')).toContainText('сегодня');
 
   // подсказка разбиения — при наведении и при фокусе с клавиатуры
   await expense.getByText('2 проекта').hover();
-  await expect(page.getByRole('tooltip')).toContainText(/Аренда · Клуб Юг — 200,00\s₸/);
+  await expect(page.getByRole('tooltip')).toContainText(/Аренда · Клуб Юг — 200\s₸/);
   await expense.getByText('2 проекта').focus();
-  await expect(expense.getByText('2 проекта')).toHaveAccessibleDescription(/Аренда · Клуб Север — 100,00\s₸/);
+  await expect(expense.getByText('2 проекта')).toHaveAccessibleDescription(/Аренда · Клуб Север — 100\s₸/);
   await expect(page.getByRole('tooltip')).toBeVisible();
   // Esc прячет подсказку, фокус остаётся (WCAG 1.4.13)
   await page.keyboard.press('Escape');
@@ -135,25 +135,25 @@ test('клик по счёту в левой панели фильтрует ж�
   await panel(page).getByRole('link', { name: /^Наличные/ }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?account=${cash}$`));
   await expect(bodyRows(page)).toHaveCount(1);
-  await expect(bodyRows(page).first()).toContainText(/\u221299,00\s₸/);
+  await expect(bodyRows(page).first()).toContainText(/\u221299\s₸/);
 
   await panel(page).getByRole('link', { name: /^Kaspi/ }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?account=${kaspi}$`));
   await expect(bodyRows(page)).toHaveCount(50);
-  // по дате новые сверху: последняя внесённая — 55,00 ₸
-  await expect(bodyRows(page).first()).toContainText(/\+55,00\s₸/);
+  // по дате новые сверху: последняя внесённая — 55 ₸
+  await expect(bodyRows(page).first()).toContainText(/\+55\s₸/);
 
   // сортировка по сумме: по возрастанию, затем по убыванию; фильтр по счёту сохраняется, адрес — тоже
   const amountHeader = table(page).getByRole('columnheader', { name: /Сумма/ });
   await amountHeader.getByRole('button').click();
   await expect(amountHeader).toHaveAttribute('aria-sort', 'descending');
-  await expect(bodyRows(page).first()).toContainText(/\+55,00\s₸/);
+  await expect(bodyRows(page).first()).toContainText(/\+55\s₸/);
   await amountHeader.getByRole('button').click();
   await expect(amountHeader).toHaveAttribute('aria-sort', 'ascending');
-  await expect(bodyRows(page).first()).toContainText(/\+1,00\s₸/);
+  await expect(bodyRows(page).first()).toContainText(/\+1\s₸/);
   await expect(page).toHaveURL(new RegExp(`account=${kaspi}&sort=amount&order=asc$`));
   await page.reload();
-  await expect(bodyRows(page).first()).toContainText(/\+1,00\s₸/);
+  await expect(bodyRows(page).first()).toContainText(/\+1\s₸/);
   await expect(table(page).getByRole('columnheader', { name: /Дата/ })).not.toHaveAttribute('aria-sort', /.+/);
 });
 
@@ -171,7 +171,7 @@ test('тулбар: поиск с паузой, период, сумма от/д
   await page.reload();
   await expect(bodyRows(page)).toHaveCount(3);
   // валюта счёта не базовая — под суммой сумма в тенге: $2 × 500 = 1000 ₸
-  await expect(bodyRows(page).filter({ hasText: /\u22122,00\s\$/ })).toContainText(/1\s000,00\s₸/);
+  await expect(bodyRows(page).filter({ hasText: /\u22122\s\$/ })).toContainText(/1\s000\s₸/);
 
   // поиск — без учёта регистра и «ё», запрос уходит после паузы и попадает в адрес
   await page.getByLabel('Поиск').fill('ЕЛКА');

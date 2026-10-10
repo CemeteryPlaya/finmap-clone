@@ -49,8 +49,29 @@ export function allocate(total: number, weights: number[]): number[] {
   return parts.map((p) => Number(p));
 }
 
-/** Сумма с символом валюты: «1 500,50 ₸» — неразрывный пробел не даёт символу уехать на другую строку. */
-export function formatMoney(minor: number, currency: string): string {
+/** Как показывать сумму на экране (§2.2 этапа 1.5). */
+export interface MoneyFormat {
+  /** Символ валюты перед суммой («₸ 114 997») или после («114 997 ₸», по умолчанию). */
+  symbol?: 'before' | 'after';
+  /** Нулевые копейки не показывать: «1 500 ₸», но «1 500,50 ₸». */
+  trimZeroMinor?: boolean;
+}
+
+/** Журнал, карточки, форма, подсказки разбиения: символ после суммы, без нулевых копеек. */
+export const MONEY_SCREEN: MoneyFormat = { trimZeroMinor: true };
+/** Левая панель, итоги компаний, история действий: «₸ 114 997», «\u2212₸ 1 378». */
+export const MONEY_SCREEN_BEFORE: MoneyFormat = { symbol: 'before', trimZeroMinor: true };
+
+/**
+ * Сумма с символом валюты: «1 500,50 ₸» — неразрывный пробел не даёт символу уехать на другую строку.
+ * Минус (U+2212) всегда в самом начале: «\u22121 378 ₸», «\u2212₸ 1 378». Поля ввода и Excel эту функцию не используют.
+ */
+export function formatMoney(minor: number, currency: string, opts: MoneyFormat = {}): string {
   const c = getCurrency(currency);
-  return `${formatAmount(minor, c.minorUnits)}\u00A0${c.symbol}`;
+  let amount = formatAmount(Math.abs(minor), c.minorUnits);
+  if (opts.trimZeroMinor && c.minorUnits > 0 && Math.abs(minor) % 10 ** c.minorUnits === 0) {
+    amount = amount.slice(0, -(c.minorUnits + 1));
+  }
+  const sign = minor < 0 ? '\u2212' : '';
+  return opts.symbol === 'before' ? `${sign}${c.symbol}\u00A0${amount}` : `${sign}${amount}\u00A0${c.symbol}`;
 }

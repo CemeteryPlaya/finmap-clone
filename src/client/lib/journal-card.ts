@@ -1,4 +1,4 @@
-import { formatMoney } from '../../shared/money';
+import { formatMoney, MONEY_SCREEN } from '../../shared/money';
 import type { JournalLookups } from '../components/journal/JournalTable';
 import { dayLabel, dayOf, lineDimension, signedMoney, splitLabel, timeLabel } from './journal-format';
 import type { JournalItem } from './queries';
@@ -39,9 +39,9 @@ export function journalCardText(
 
   let extra: string | null = null;
   if (item.type === 'transfer' && toAccount && toAccount.currency !== currency && item.toAmount !== null) {
-    extra = `→ ${formatMoney(item.toAmount, toAccount.currency)}`;
+    extra = `→ ${formatMoney(item.toAmount, toAccount.currency, MONEY_SCREEN)}`;
   } else if (currency !== ctx.baseCurrency) {
-    extra = formatMoney(item.baseAmount, ctx.baseCurrency);
+    extra = formatMoney(item.baseAmount, ctx.baseCurrency, MONEY_SCREEN);
   }
 
   return {

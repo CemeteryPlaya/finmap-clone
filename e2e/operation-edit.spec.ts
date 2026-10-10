@@ -86,7 +86,7 @@ test('правка из журнала: клик по строке и с кла�
   await amount.fill('300+50');
   await amount.press('Enter');
   await expect(dialog).toBeHidden();
-  await expect(rows(page).first()).toContainText(/350,00\s₸/);
+  await expect(rows(page).first()).toContainText(/350\s₸/);
   await expect(open).toBeFocused();
 
   // «Дублировать»: новая операция с теми же значениями; закрыть без сохранения — с вопросом
@@ -170,9 +170,9 @@ test('перевод KZT → USD: новая сумма списания сох�
   expect((await patch).postDataJSON()).toEqual({ version: 1, amount: 50000, toAmount: 10000 });
   await expect(dialog).toBeHidden();
   const row = table(page).locator('tbody tr').first();
-  await expect(row).toContainText(/500,00\s₸/);
-  await expect(row).toContainText(/100,00\s\$/);
-  await expect(page.getByRole('navigation', { name: 'Счета' }).getByRole('link', { name: /^Касса/ })).toContainText(/9\s500,00\s₸/);
+  await expect(row).toContainText(/500\s₸/);
+  await expect(row).toContainText(/100\s\$/);
+  await expect(page.getByRole('navigation', { name: 'Счета' }).getByRole('link', { name: /^Касса/ })).toContainText(/₸\s9\s500$/);
 });
 
 test('фокус и закрытие формы: после «Отмена» → «Продолжить» фокус в сумме; пока сохранение идёт, Esc и «Отмена» окно не закрывают', async ({ page }) => {
@@ -243,7 +243,7 @@ test('409: операцию изменили в другом окне — «За
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog).toBeHidden();
   const edited = rows(page).filter({ hasText: 'чужая правка' });
-  await expect(edited).toContainText(/150,00\s₸/);
+  await expect(edited).toContainText(/150\s₸/);
 
   // операцию удалили, пока форма открыта
   await rows(page).filter({ hasText: 'вторая' }).getByText('вторая').click();
@@ -316,7 +316,7 @@ test('операция только с файлом: блок «Проект, т
   expect(up.status(), await up.text()).toBeLessThan(300);
   await page.reload();
 
-  await rows(page).first().getByText(/70,00/).first().click();
+  await rows(page).first().getByText(/70\s₸/).first().click();
   const dialog = editForm(page);
   await expect(dialog.getByRole('button', { name: 'Проект, теги, комментарий, файл' })).toHaveAttribute('aria-expanded', 'true');
   await expect(dialog.getByRole('link', { name: 'чек.png' })).toBeVisible();

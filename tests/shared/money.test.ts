@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allocate, formatAmount, formatMoney, parseAmount } from '../../src/shared/money';
+import { allocate, formatAmount, formatMoney, MONEY_SCREEN, MONEY_SCREEN_BEFORE, parseAmount } from '../../src/shared/money';
 
 describe('parseAmount', () => {
   it('запятая или точка, пробелы, знак минус → минимальные единицы', () => {
@@ -71,9 +71,32 @@ describe('allocate — метод наибольшего остатка', () => 
 });
 
 describe('formatMoney', () => {
-  it('сумма с символом валюты через неразрывный пробел', () => {
+  it('без настроек — как раньше: копейки всегда, символ после суммы через неразрывный пробел', () => {
     expect(formatMoney(150050, 'KZT')).toBe('1\u202F500,50\u00A0₸');
     expect(formatMoney(-500, 'USD')).toBe('\u22125,00\u00A0$');
     expect(formatMoney(1000, 'JPY')).toBe('1\u202F000\u00A0¥');
+  });
+
+  it('trimZeroMinor: нулевые копейки не показываются, ненулевые — полностью (каждая сумма отдельно)', () => {
+    expect(formatMoney(150000, 'KZT', MONEY_SCREEN)).toBe('1\u202F500\u00A0₸');
+    expect(formatMoney(150050, 'KZT', MONEY_SCREEN)).toBe('1\u202F500,50\u00A0₸');
+    expect(formatMoney(150005, 'KZT', MONEY_SCREEN)).toBe('1\u202F500,05\u00A0₸');
+    expect(formatMoney(0, 'KZT', MONEY_SCREEN)).toBe('0\u00A0₸');
+    expect(formatMoney(-500, 'USD', MONEY_SCREEN)).toBe('\u22125\u00A0$');
+    expect(formatMoney(-550, 'USD', MONEY_SCREEN)).toBe('\u22125,50\u00A0$');
+  });
+
+  it('валюты без дробной части и с тремя знаками', () => {
+    expect(formatMoney(1000, 'JPY', MONEY_SCREEN)).toBe('1\u202F000\u00A0¥');
+    expect(formatMoney(12000, 'KWD', MONEY_SCREEN)).toBe('12\u00A0KD');
+    expect(formatMoney(12500, 'KWD', MONEY_SCREEN)).toBe('12,500\u00A0KD');
+  });
+
+  it('символ перед суммой: «₸ 114 997», отрицательная — «\u2212₸ 1 378»', () => {
+    expect(formatMoney(11499700, 'KZT', MONEY_SCREEN_BEFORE)).toBe('₸\u00A0114\u202F997');
+    expect(formatMoney(-137800, 'KZT', MONEY_SCREEN_BEFORE)).toBe('\u2212₸\u00A01\u202F378');
+    expect(formatMoney(-50050, 'KZT', MONEY_SCREEN_BEFORE)).toBe('\u2212₸\u00A0500,50');
+    expect(formatMoney(0, 'KZT', MONEY_SCREEN_BEFORE)).toBe('₸\u00A00');
+    expect(formatMoney(-500, 'USD', { symbol: 'before' })).toBe('\u2212$\u00A05,00');
   });
 });

@@ -1,5 +1,5 @@
 import { addDays, formatDateRu } from '../../shared/dates';
-import { formatAmount, formatMoney } from '../../shared/money';
+import { formatAmount, formatMoney, MONEY_SCREEN } from '../../shared/money';
 import type { OperationType } from './journal-filter';
 
 const dayFormatters = new Map<string, Intl.DateTimeFormat>();
@@ -80,7 +80,7 @@ export function projectShare(lines: readonly LineLike[], projectIds: readonly nu
 /** Сумма со знаком по типу: доход «+1 500,00 ₸», расход «-1 500,00 ₸», перевод без знака. */
 export function signedMoney(type: OperationType, minor: number, currency: string): string {
   const sign = type === 'income' ? '+' : type === 'expense' ? '\u2212' : '';
-  return `${sign}${formatMoney(minor, currency)}`;
+  return `${sign}${formatMoney(minor, currency, MONEY_SCREEN)}`;
 }
 
 /** Минимальные единицы → текст поля ввода: «1500», «1500,5», «0,05» (без разрядов и лишних нулей). */

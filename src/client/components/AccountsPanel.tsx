@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { formatMoney } from '../../shared/money';
+import { formatMoney, MONEY_SCREEN_BEFORE } from '../../shared/money';
 import { groupAccounts } from '../lib/accounts-panel';
 import { useIsMobile } from '../lib/media';
 import { savePreference, useAccounts, useBalances, usePreferences, useProjects, type Company } from '../lib/queries';
@@ -27,7 +27,7 @@ function AccountsSummary({ company, onNavigate }: { company: Company; onNavigate
     <>
       <div className="mb-3 min-w-0">
         <p className="text-xs text-muted">Всего на счетах</p>
-        <p className="truncate text-xl font-bold tabular-nums">{total ? formatMoney(total.amount, total.currency) : balances.error ? '—' : '…'}</p>
+        <p className="truncate text-xl font-bold tabular-nums">{total ? formatMoney(total.amount, total.currency, MONEY_SCREEN_BEFORE) : balances.error ? '—' : '…'}</p>
         {total?.unavailable.map((code) => (
           <p key={code} className="text-xs text-expense">
             курс {code} недоступен
@@ -64,7 +64,7 @@ function AccountsSummary({ company, onNavigate }: { company: Company; onNavigate
               >
                 <span className="truncate">{a.name}</span>
                 <span className={`shrink-0 tabular-nums ${balance !== undefined && balance < 0 ? 'text-expense' : ''}`}>
-                  {balance === undefined ? '…' : formatMoney(balance, a.currency)}
+                  {balance === undefined ? '…' : formatMoney(balance, a.currency, MONEY_SCREEN_BEFORE)}
                 </span>
               </Link>
             );

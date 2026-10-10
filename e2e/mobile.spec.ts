@@ -71,9 +71,9 @@ test('счета на телефоне выезжают слева: итог и 
   await expect(open).toHaveAttribute('aria-expanded', 'false');
   await open.click();
   const drawer = page.getByRole('dialog', { name: 'Счета' });
-  await expect(drawer).toContainText(/Всего на счетах\s*1\s200,00\s₸/);
-  await expect(drawer.getByRole('link', { name: /^Kaspi/ })).toContainText(/1\s000,00\s₸/);
-  await expect(drawer.getByRole('link', { name: /^Сейф/ })).toContainText(/200,00\s₸/);
+  await expect(drawer).toContainText(/Всего на счетах\s*₸\s1\s200(?![\s\d])/);
+  await expect(drawer.getByRole('link', { name: /^Kaspi/ })).toContainText(/₸\s1\s000$/);
+  await expect(drawer.getByRole('link', { name: /^Сейф/ })).toContainText(/₸\s200$/);
   // у левого края, справа виден затемнённый фон
   await expect.poll(async () => Math.round((await drawer.boundingBox())!.x)).toBe(0);
   expect((await drawer.boundingBox())!.width).toBeLessThan(PHONE.width - 40);
@@ -164,7 +164,7 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   await expect(page.getByRole('table', { name: 'Операции' })).toHaveCount(0);
   await expect(page.getByRole('checkbox')).toHaveCount(0);
   const card = cards(page).getByRole('listitem').first();
-  await expect(card).toContainText(/\u22122\s500,00\s₸/);
+  await expect(card).toContainText(/\u22122\s500\s₸/);
   await expect(card).toContainText('Аренда');
   await expect(card).toContainText('Касса');
   await expect(card).toContainText(/сегодня \d\d:\d\d/);
@@ -185,7 +185,7 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   await edit.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(edit).toBeHidden();
   await expect(cards(page).getByRole('listitem')).toHaveCount(1);
-  await expect(card).toContainText(/\u22121\s250,00\s₸/);
+  await expect(card).toContainText(/\u22121\s250\s₸/);
   // фокус вернулся на карточку, с которой открыли форму
   await expect(card.getByRole('button')).toBeFocused();
 });

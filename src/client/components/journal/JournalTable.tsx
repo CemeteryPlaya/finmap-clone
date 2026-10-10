@@ -1,5 +1,5 @@
 import type { MouseEvent, ReactNode } from 'react';
-import { formatMoney } from '../../../shared/money';
+import { formatMoney, MONEY_SCREEN } from '../../../shared/money';
 import { canAssign, type AssignField } from '../../lib/journal-assign';
 import { JOURNAL_COLUMNS, type JournalColumnId } from '../../lib/journal-columns';
 import type { JournalSortKey, JournalSortOrder } from '../../lib/journal-filter';
@@ -69,7 +69,7 @@ function lineHint(item: JournalItem, lookups: JournalLookups, currency: string):
   return item.lines.map((l) => {
     const category = l.categoryId === null ? 'без категории' : (lookups.categories.get(l.categoryId) ?? '…');
     const project = l.projectId === null ? 'без проекта' : (lookups.projects.get(l.projectId) ?? '…');
-    return `${category} · ${project} — ${formatMoney(l.amount, currency)}`;
+    return `${category} · ${project} — ${formatMoney(l.amount, currency, MONEY_SCREEN)}`;
   });
 }
 
@@ -85,7 +85,7 @@ function AccountLine({ account, balance }: { account: Account | undefined; balan
     <span className="block">
       <span className="block truncate">{account?.name ?? '…'}</span>
       {account && balance !== null && (
-        <span className={`block text-xs tabular-nums ${balance < 0 ? 'text-expense' : 'text-muted'}`}>остаток {formatMoney(balance, account.currency)}</span>
+        <span className={`block text-xs tabular-nums ${balance < 0 ? 'text-expense' : 'text-muted'}`}>остаток {formatMoney(balance, account.currency, MONEY_SCREEN)}</span>
       )}
     </span>
   );
@@ -176,10 +176,10 @@ export function JournalTable(props: JournalTableProps) {
                     {signedMoney(item.type, item.amount, currency)}
                   </span>
                   {item.type === 'transfer' && toAccount && toAccount.currency !== currency && item.toAmount !== null && (
-                    <span className="block text-xs text-transfer">→ {formatMoney(item.toAmount, toAccount.currency)}</span>
+                    <span className="block text-xs text-transfer">→ {formatMoney(item.toAmount, toAccount.currency, MONEY_SCREEN)}</span>
                   )}
-                  {currency !== props.baseCurrency && <span className="block text-xs text-muted">{formatMoney(item.baseAmount, props.baseCurrency)}</span>}
-                  {share !== null && <span className="block text-xs text-muted">доля проекта: {formatMoney(share, currency)}</span>}
+                  {currency !== props.baseCurrency && <span className="block text-xs text-muted">{formatMoney(item.baseAmount, props.baseCurrency, MONEY_SCREEN)}</span>}
+                  {share !== null && <span className="block text-xs text-muted">доля проекта: {formatMoney(share, currency, MONEY_SCREEN)}</span>}
                 </span>
               ),
               account: (

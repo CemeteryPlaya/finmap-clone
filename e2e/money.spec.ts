@@ -37,9 +37,9 @@ test('левая панель: балансы и итог, переход в ж�
 
   await page.reload();
   const panel = page.getByRole('navigation', { name: 'Счета' });
-  await expect(panel).toContainText(/Всего на счетах\s*1\s500,00\s₸/);
-  await expect(panel.getByRole('link', { name: /^Kaspi/ })).toContainText(/1\s300,00\s₸/);
-  await expect(panel.getByRole('link', { name: /^Сейф/ })).toContainText(/200,00\s₸/);
+  await expect(panel).toContainText(/Всего на счетах\s*₸\s1\s500(?![\s\d])/);
+  await expect(panel.getByRole('link', { name: /^Kaspi/ })).toContainText(/₸\s1\s300$/);
+  await expect(panel.getByRole('link', { name: /^Сейф/ })).toContainText(/₸\s200$/);
   await expect(panel).toContainText('Общие');
 
   await panel.getByRole('link', { name: /^Kaspi/ }).click();
@@ -47,7 +47,7 @@ test('левая панель: балансы и итог, переход в ж�
 
   // переключатель: у компании — её итог
   await page.getByRole('button', { name: /Сменить компанию/ }).click();
-  await expect(page.getByRole('menuitem', { name })).toContainText(/1\s500,00\s₸/);
+  await expect(page.getByRole('menuitem', { name })).toContainText(/₸\s1\s500$/);
   await page.keyboard.press('Escape');
 
   // настройка общая для пользователя admin и остальных e2e: что бы ни случилось, она должна остаться «развёрнуто»
@@ -87,8 +87,8 @@ test('курсы: валюта без курса — предупреждени�
   const panel = page.getByRole('navigation', { name: 'Счета' });
   // Review Focus 1: валюта без курса не входит в итог, под итогом — предупреждение
   await expect(panel).toContainText('курс EUR недоступен');
-  await expect(panel).toContainText(/Всего на счетах\s*0,00\s₸/);
-  await expect(panel.getByRole('link', { name: /^Евро-счёт/ })).toContainText(/10,00\s€/);
+  await expect(panel).toContainText(/Всего на счетах\s*₸\s0(?![\s\d])/);
+  await expect(panel.getByRole('link', { name: /^Евро-счёт/ })).toContainText(/€\s10$/);
 
   await page.getByRole('link', { name: 'Настройки' }).click();
   await section(page, 'Курсы').click();
@@ -105,13 +105,13 @@ test('курсы: валюта без курса — предупреждени�
   await expect(fixedRow).toContainText('1 EUR = 500 KZT');
   await expect(fixedRow).toContainText('с 01.01.2020, бессрочно');
   await expect(panel).not.toContainText('недоступен');
-  await expect(panel).toContainText(/Всего на счетах\s*5\s000,00\s₸/);
+  await expect(panel).toContainText(/Всего на счетах\s*₸\s5\s000(?![\s\d])/);
 
   await fixedRow.getByRole('button', { name: 'Изменить' }).click();
   await fixedRow.getByLabel('Курс 1 EUR').fill('510');
   await fixedRow.getByRole('button', { name: 'Сохранить' }).click();
   await expect(fixedRow).toContainText('1 EUR = 510 KZT');
-  await expect(panel).toContainText(/Всего на счетах\s*5\s100,00\s₸/);
+  await expect(panel).toContainText(/Всего на счетах\s*₸\s5\s100(?![\s\d])/);
 
   // ручной курс на дату: добавить, изменить, удалить
   const manual = page.getByRole('region', { name: 'Ручные курсы на дату' });
@@ -181,11 +181,50 @@ test('смена базовой валюты обновляет итог в ле
 
   await page.goto(`/c/${cid}/settings/companies`);
   const panel = page.getByRole('navigation', { name: 'Счета' });
-  await expect(panel).toContainText(/Всего на счетах\s*1\s000,00\s₸/);
+  await expect(panel).toContainText(/Всего на счетах\s*₸\s1\s000(?![\s\d])/);
   const row = page.getByRole('listitem').filter({ has: page.locator(`input[value="${name}"]`) });
   await row.getByLabel('Базовая валюта').selectOption('USD');
   await row.getByRole('button', { name: 'Сохранить' }).click();
   // курса USD в свежей базе нет: итог в тенге больше не показывается
   await expect(panel).toContainText('курс USD недоступен');
-  await expect(panel).not.toContainText(/Всего на счетах\s*1\s000,00\s₸/);
+  await expect(panel).not.toContainText(/Всего на счетах\s*₸\s1\s000(?![\s\d])/);
+});
+
+test('отрицательный баланс с копейками в панели: «\u2212₸ 500,50»; копейки показываются, только если не нулевые', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Минус ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: minuteAgo(), accountId: kaspi, amount: 50050 });
+  await page.reload();
+  const panel = page.getByRole('navigation', { name: 'Счета' });
+  await expect(panel.getByRole('link', { name: /^Kaspi/ })).toContainText(/\u2212₸\s500,50$/);
+  await expect(panel).toContainText(/Всего на счетах\s*\u2212₸\s500,50(?![\s\d])/);
+  // в журнале — ₸ после суммы, копейки ненулевые — видны
+  await expect(page.getByRole('table', { name: 'Операции' }).locator('tbody tr').first()).toContainText(/\u2212500,50\s₸/);
+});
+
+test('баланс и итог в левой панели обновляются при возврате на вкладку, журнал сам не перезапрашивается (§2.5)', async ({ page }) => {
+  // часы подменены: «прошло 30 с» — без настоящего ожидания
+  await page.clock.install();
+  await login(page);
+  const cid = await createCompany(page, `ТОО Фокус ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 100000 })).account.id;
+  await page.reload();
+  const panel = page.getByRole('navigation', { name: 'Счета' });
+  await expect(panel).toContainText(/Всего на счетах\s*₸\s1\s000(?![\s\d])/);
+
+  // другой пользователь внёс доход, пока вкладка была в фоне
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minuteAgo(), accountId: kaspi, amount: 50000 });
+  await page.clock.fastForward(31_000);
+  const journalRequests: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/operations?')) journalRequests.push(r.url());
+  });
+  // возврат на вкладку: TanStack Query слушает visibilitychange
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange', { bubbles: true })));
+  await expect(panel).toContainText(/Всего на счетах\s*₸\s1\s500(?![\s\d])/);
+  await expect(panel.getByRole('link', { name: /^Kaspi/ })).toContainText(/₸\s1\s500$/);
+  expect(journalRequests).toEqual([]);
 });

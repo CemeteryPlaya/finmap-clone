@@ -80,7 +80,7 @@ describe('карточка операции в журнале на телефо�
       title: 'Аренда',
       account: 'Касса',
       details: 'ТОО Ромашка · за октябрь',
-      amount: '\u22122 500,00 ₸',
+      amount: '\u22122 500 ₸',
       extra: null,
       date: 'сегодня 10:30',
     });
@@ -92,7 +92,7 @@ describe('карточка операции в журнале на телефо�
       paidAt: '2026-10-06T03:00:00.000Z',
       lines: [line(10, 20, 100000), line(11, 20, 150000, 1)],
     });
-    expect(plain(journalCardText(split, lookups, ctx))).toMatchObject({ title: '2 категории', amount: '+2 500,00 ₸', date: 'вчера 08:00', details: null });
+    expect(plain(journalCardText(split, lookups, ctx))).toMatchObject({ title: '2 категории', amount: '+2 500 ₸', date: 'вчера 08:00', details: null });
     const none = item({ paidAt: '2026-10-01T13:15:00.000Z', lines: [line(null, 20, 250000)] });
     expect(journalCardText(none, lookups, ctx)).toMatchObject({ title: 'Без категории', date: '01.10.2026 18:15' });
   });
@@ -102,14 +102,14 @@ describe('карточка операции в журнале на телефо�
     expect(plain(journalCardText(transfer, lookups, ctx))).toMatchObject({
       title: 'Перевод',
       account: 'Касса → Валютный',
-      amount: '500,00 ₸',
-      extra: '→ 1,00 $',
+      amount: '500 ₸',
+      extra: '→ 1 $',
     });
   });
 
   it('счёт не в базовой валюте — вторая строка в базовой; неизвестные справочники — «…»', () => {
     const usd = item({ accountId: 2, amount: 100, baseAmount: 50000, counterpartyId: 99, lines: [line(77, null, 100)] });
-    expect(plain(journalCardText(usd, lookups, ctx))).toMatchObject({ title: '…', account: 'Валютный', amount: '\u22121,00 $', extra: '500,00 ₸', details: '…' });
+    expect(plain(journalCardText(usd, lookups, ctx))).toMatchObject({ title: '…', account: 'Валютный', amount: '\u22121 $', extra: '500 ₸', details: '…' });
     expect(journalCardText(item({ accountId: 5 }), lookups, ctx).account).toBe('…');
   });
 });

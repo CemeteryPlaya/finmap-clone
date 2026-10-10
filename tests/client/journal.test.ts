@@ -201,7 +201,7 @@ describe('форматирование строк журнала', () => {
 
   it('сумма со знаком по типу и текст поля суммы', () => {
     expect(signedMoney('income', 150050, 'KZT')).toBe('+1\u202F500,50\u00A0₸');
-    expect(signedMoney('expense', 500, 'USD')).toBe('\u22125,00\u00A0$');
+    expect(signedMoney('expense', 500, 'USD')).toBe('\u22125\u00A0$');
     expect(signedMoney('transfer', 1000, 'JPY')).toBe('1\u202F000\u00A0¥');
     expect(amountInputText(150000, 2)).toBe('1500');
     expect(amountInputText(150050, 2)).toBe('1500,5');

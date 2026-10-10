@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { switchCompanyPath } from '../lib/company-path';
-import { formatMoney } from '../../shared/money';
+import { formatMoney, MONEY_SCREEN_BEFORE } from '../../shared/money';
 import { useCompaniesSummary, type Company } from '../lib/queries';
 
 const companyItemClass =
@@ -127,7 +127,7 @@ export function CompanySwitcher({ current, companies }: { current: Company; comp
                 <span className="truncate">{c.name}</span>
                 {t && (
                   <span className="shrink-0 text-xs font-normal tabular-nums text-muted">
-                    {formatMoney(t.amount, t.currency)}
+                    {formatMoney(t.amount, t.currency, MONEY_SCREEN_BEFORE)}
                     {t.unavailable.length > 0 && ` · без ${t.unavailable.join(', ')}`}
                   </span>
                 )}

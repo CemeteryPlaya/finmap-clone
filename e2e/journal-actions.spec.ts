@@ -284,7 +284,7 @@ test('массовые действия: категория с итогом и �
   const bar = page.getByRole('region', { name: 'Действия с выбранными' });
   const kaspiLink = panel(page).getByRole('link', { name: /^Kaspi/ });
   // 1000 - 10 - 20 - 30 + 40 = 980 ₸
-  await expect(kaspiLink).toContainText(/980,00\s₸/);
+  await expect(kaspiLink).toContainText(/₸\s980$/);
 
   // выбрать все загруженные → «Категория»: расходы с одной строкой меняются, разбитая и доход пропущены с причинами
   await table(page).getByRole('checkbox', { name: 'Выбрать все загруженные операции' }).check();
@@ -327,8 +327,8 @@ test('массовые действия: категория с итогом и �
   await expect(row('A').getByRole('checkbox')).not.toBeChecked();
   await row('A').getByRole('checkbox').check();
   await row('D').getByRole('checkbox').check();
-  await expect(row('A').getByRole('checkbox')).toHaveAccessibleName(/^Выбрать операцию: сегодня \d{2}:\d{2}, \u221210,00\s₸, операция A$/);
-  await expect(row('D').getByRole('checkbox')).toHaveAccessibleName(/, \+40,00\s₸, операция D$/);
+  await expect(row('A').getByRole('checkbox')).toHaveAccessibleName(/^Выбрать операцию: сегодня \d{2}:\d{2}, \u221210\s₸, операция A$/);
+  await expect(row('D').getByRole('checkbox')).toHaveAccessibleName(/, \+40\s₸, операция D$/);
   await page.clock.pauseAt(new Date(Date.now() + 1000));
   // время стоит: react-query и счётчики двигаются только вместе с часами — поэтому проверки подталкивают их на 100 мс
   const lettersTick = async () => {
@@ -353,7 +353,7 @@ test('массовые действия: категория с итогом и �
   // тост уже объявил удаление, и пропусков нет — итог «Удаление: изменено 2…» не повторяет его
   await expect(page.getByRole('status').filter({ hasText: 'Удаление:' })).toHaveCount(0);
   await expect.poll(lettersTick).toBe('CB');
-  await settled(() => expect(kaspiLink).toContainText(/950,00\s₸/));
+  await settled(() => expect(kaspiLink).toContainText(/₸\s950$/));
 
   // «Отменить»: первый запрос восстановления сервер отклоняет — ошибка с «Повторить» (операции не потеряны), повтор проходит
   let restoreFailed = false;
@@ -376,7 +376,7 @@ test('массовые действия: категория с итогом и �
   await expect(failure).toHaveCount(0);
   await page.unroute(bulkUrl);
   await expect.poll(lettersTick).toBe('DCBA');
-  await settled(() => expect(kaspiLink).toContainText(/980,00\s₸/));
+  await settled(() => expect(kaspiLink).toContainText(/₸\s980$/));
   await expect(page.getByRole('button', { name: 'Отменить' })).toHaveCount(0);
 
   // другой фильтр убирает и итог отмены удаления, как итог остальных действий
@@ -407,7 +407,7 @@ test('массовые действия: категория с итогом и �
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
   await expect.poll(lettersTick).toBe('DCBA');
   await settled(() => expect(page.getByRole('status').filter({ hasText: 'Отмена удаления:' })).toContainText('Отмена удаления: изменено 1, пропущено 0'));
-  await settled(() => expect(kaspiLink).toContainText(/980,00\s₸/));
+  await settled(() => expect(kaspiLink).toContainText(/₸\s980$/));
 
   // тост сам исчезает через 10 секунд
   await row('B').getByRole('checkbox').check();

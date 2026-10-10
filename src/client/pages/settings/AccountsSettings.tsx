@@ -1,9 +1,8 @@
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useOutletContext } from 'react-router';
-import { getCurrency } from '../../../shared/currencies';
 import { formatDateRu } from '../../../shared/dates';
-import { formatAmount } from '../../../shared/money';
+import { formatMoney, MONEY_SCREEN } from '../../../shared/money';
 import { AccountForm, type AccountFormValues } from '../../components/AccountForm';
 import { ConfirmDelete } from '../../components/ConfirmDelete';
 import { Pending, StaleNotice } from '../../components/QueryState';
@@ -146,7 +145,6 @@ export function AccountsSettings() {
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted">{g.title}</h2>
           <ul className="space-y-2">
             {g.items.map((a) => {
-              const cur = getCurrency(a.currency);
               return (
                 <li key={a.id} className={`rounded-2xl border border-field p-4 ${a.archivedAt ? 'opacity-60' : ''}`}>
                   {editingId === a.id ? (
@@ -173,7 +171,7 @@ export function AccountsSettings() {
                           {a.archivedAt && <span className="ml-2 rounded-full bg-field px-2 py-0.5 text-xs text-muted">В архиве</span>}
                         </div>
                         <div className="text-sm text-muted">
-                          Остаток на {formatDateRu(a.openedAt)}: {formatAmount(a.startingBalance, cur.minorUnits)} {cur.symbol}
+                          Остаток на {formatDateRu(a.openedAt)}: {formatMoney(a.startingBalance, a.currency, MONEY_SCREEN)}
                         </div>
                       </div>
                       {!readOnly &&

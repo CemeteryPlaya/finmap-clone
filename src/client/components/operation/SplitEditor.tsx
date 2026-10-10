@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { formatBp } from '../../../shared/percent';
-import { formatMoney } from '../../../shared/money';
+import { formatMoney, MONEY_SCREEN } from '../../../shared/money';
 import { api, ApiError } from '../../lib/api';
 import { categoryOptions, projectOptions } from '../../lib/operation-options';
 import { queryClient } from '../../lib/query';
@@ -87,8 +87,8 @@ export function SplitEditor(props: {
         ? 'Распределено полностью'
         : split.mode === 'amount'
           ? result.left > 0
-            ? `Не распределено: ${formatMoney(result.left, props.currency)}`
-            : `Распределено больше суммы на ${formatMoney(-result.left, props.currency)}`
+            ? `Не распределено: ${formatMoney(result.left, props.currency, MONEY_SCREEN)}`
+            : `Распределено больше суммы на ${formatMoney(-result.left, props.currency, MONEY_SCREEN)}`
           : result.left > 0
             ? `Не распределено: ${formatBp(result.left)} %`
             : `Распределено больше 100 % на ${formatBp(-result.left)} %`;
@@ -215,7 +215,7 @@ export function SplitEditor(props: {
             <Field
               label="Доля, %"
               error={line.value.trim() !== '' ? (result.errors[i] ?? undefined) : undefined}
-              hint={result.amounts[i] != null ? `= ${formatMoney(result.amounts[i]!, props.currency)}` : undefined}
+              hint={result.amounts[i] != null ? `= ${formatMoney(result.amounts[i]!, props.currency, MONEY_SCREEN)}` : undefined}
             >
               {(c) => <input {...c} inputMode="decimal" autoComplete="off" value={line.value} onChange={(e) => setLine(i, { value: e.target.value })} className={inputClass} />}
             </Field>
