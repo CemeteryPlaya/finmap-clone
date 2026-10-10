@@ -5,7 +5,7 @@ import { EXIT_LOCK_HELD } from '../src/server/main';
 import { cloudflaredArgs, cloudflaredTarget } from './lib/cloudflared';
 import { needsClientBuild } from './lib/client-build';
 import { connectWithRetry, errorText, isFatalNgrokError, maskSecret } from './lib/ngrok';
-import { createFileLog, loadConfigOrLog, logStartupError, runFiles, takeStopRequest } from './lib/run-files';
+import { createFileLog, createLineSplitter, loadConfigOrLog, logStartupError, runFiles, takeStopRequest } from './lib/run-files';
 import { createSupervisor, type ChildLike } from './lib/supervise';
 
 try {
@@ -38,15 +38,26 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) {
   process.on(sig, () => void supervisor.shutdown(0, { fromConsole: true }));
 }
 
-fs.mkdirSync(config.dataDir, { recursive: true });
-fs.mkdirSync(config.logsDir, { recursive: true });
+// Сломанная консоль (автозапуск без окна) не должна ронять супервизор при пересылке stderr сервера.
+process.stderr.on('error', () => {});
+
+try {
+  fs.mkdirSync(config.dataDir, { recursive: true });
+  fs.mkdirSync(config.logsDir, { recursive: true });
+} catch (e) {
+  logStartupError(process.env, `Не удалось создать папку данных: ${(e as Error).message}`);
+  process.exit(1);
+}
 // Блокировка супервизора: атомарное создание; чужой bootTime (скачок часов) при занятом порте — занято.
 const portBusy = async () => !(await isPortFree(config.host, config.port));
 let releaseSupervisorLock = () => {};
 try {
   releaseSupervisorLock = await acquireExclusiveLock(files.supervisorLock, { portBusy });
 } catch (e) {
-  if (!(e instanceof LockHeldError)) throw e;
+  if (!(e instanceof LockHeldError)) {
+    logError(`Не удалось взять блокировку супервизора: ${(e as Error).message}`);
+    process.exit(1);
+  }
   logError(`Приложение уже запущено (супервизор PID ${e.pid}). Остановите его командой npm run stop и повторите.`);
   process.exit(1);
 }
@@ -105,18 +116,13 @@ supervisor.supervise(
     const child = spawn(process.execPath, ['--import', 'tsx', 'src/server/index.ts'], {
       stdio: ['inherit', 'inherit', 'pipe', 'ipc'],
     });
-    let pending = '';
+    const splitter = createLineSplitter((line) => fileLog(`[server] ${line}`));
     child.stderr?.on('data', (chunk: Buffer) => {
       process.stderr.write(chunk);
-      const lines = (pending + chunk.toString('utf8')).split(/\r?\n/);
-      pending = lines.pop() ?? '';
-      for (const line of lines) if (line.trim()) fileLog(`[server] ${line}`);
+      splitter.push(chunk);
     });
-    child.stderr?.on('end', () => {
-      if (pending.trim()) fileLog(`[server] ${pending}`);
-      pending = '';
-    });
-    return child as unknown as ChildLike;
+    child.stderr?.on('end', () => splitter.flush());
+    return child as ChildLike;
   },
   {
     ipc: true,

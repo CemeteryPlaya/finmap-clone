@@ -1,3 +1,4 @@
+import { StringDecoder } from 'node:string_decoder';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, type Config } from '../../src/server/config';
@@ -81,4 +82,36 @@ export function loadConfigOrLog(env: Record<string, string | undefined>, now?: (
     logStartupError(env, `Приложение не запущено: ${(e as Error).message}`, now);
     return null;
   }
+}
+
+/**
+ * Построчный разбор потока байт: UTF-8 символ, разрезанный между кусками, декодируется верно;
+ * пустые строки пропускаются; накопленный без перевода строки текст длиннее maxPending выдаётся как строка.
+ */
+export function createLineSplitter(
+  onLine: (line: string) => void,
+  maxPending = 64 * 1024,
+): { push(chunk: Buffer): void; flush(): void } {
+  const decoder = new StringDecoder('utf8');
+  let pending = '';
+  const emit = (line: string) => {
+    if (line.trim()) onLine(line);
+  };
+  const take = (text: string) => {
+    const lines = (pending + text).split('\n');
+    pending = lines.pop() ?? '';
+    for (const line of lines) emit(line.endsWith('\r') ? line.slice(0, -1) : line);
+    if (pending.length > maxPending) {
+      emit(pending);
+      pending = '';
+    }
+  };
+  return {
+    push: (chunk) => take(decoder.write(chunk)),
+    flush: () => {
+      take(decoder.end());
+      emit(pending.endsWith('\r') ? pending.slice(0, -1) : pending);
+      pending = '';
+    },
+  };
 }
