@@ -857,3 +857,48 @@ test('калькулятор по иконке в поле суммы: кноп�
   await expect(dialog).toBeVisible();
   await expect(calc).toBeFocused();
 });
+
+test('калькулятор не вычисляет недописанное выражение при открытии; Esc без «=» — вычисляет, ошибка у поля', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Калькулятор2 ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+
+  const dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Касса');
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  const calc = dialog.getByRole('button', { name: 'Калькулятор' });
+  const panel = page.getByRole('dialog', { name: 'Калькулятор' });
+
+  // «5+» не вычисляется при переходе в калькулятор, панель показывает набранное; дописали «2» и «=» — 7
+  await amount.click();
+  await page.keyboard.type('5+');
+  await calc.click();
+  await expect(panel).toBeVisible();
+  await expect(amount).not.toHaveAttribute('aria-invalid', 'true');
+  await expect(amount).toHaveValue('5+');
+  await expect(panel.locator('output')).toHaveText('5+');
+  await panel.getByRole('button', { name: '2', exact: true }).click();
+  await panel.getByRole('button', { name: 'Вычислить' }).click();
+  await expect(panel).toBeHidden();
+  await expect(amount).toHaveValue('7');
+  await expect(amount).not.toHaveAttribute('aria-invalid', 'true');
+
+  // верное «2+3» тоже не сворачивается до открытия; Esc без «=» вычисляет его
+  await amount.fill('2+3');
+  await calc.click();
+  await expect(amount).toHaveValue('2+3');
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await expect(amount).toHaveValue('5');
+
+  // Esc с недописанным выражением — ошибка у поля
+  await amount.fill('5+');
+  await calc.click();
+  await expect(panel).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await expect(amount).toHaveAttribute('aria-invalid', 'true');
+  await expect(amount).toHaveValue('5+');
+  await expect(dialog).toBeVisible();
+});

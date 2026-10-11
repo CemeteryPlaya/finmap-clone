@@ -53,6 +53,8 @@ export function Popover(props: {
    * вернувшийся на неё после выбора, не теряется, пока идёт начатое действие.
    */
   inactive?: boolean;
+  /** Панель закрылась (любым способом: выбор, Esc, щелчок мимо, уход фокуса). */
+  onClose?: () => void;
   children: (close: (returnFocus?: boolean) => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -75,6 +77,13 @@ export function Popover(props: {
     setOpen(false);
     if (returnFocus) buttonRef.current?.focus();
   };
+
+  // сообщаем о закрытии после того, как оно произошло (не при первом показе)
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !open) props.onClose?.();
+    wasOpen.current = open;
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!placed) return;

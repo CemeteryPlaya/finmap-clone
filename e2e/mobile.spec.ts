@@ -170,6 +170,21 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   await expect(amount).toHaveValue('1000×3\u2212500');
   await amount.blur();
   await expect(amount).toHaveValue('2500');
+  // калькулятор на телефоне: панель открывается, показывает выражение, 44 px и целиком в видимой области; Esc закрывает
+  await dialog.getByRole('button', { name: 'Калькулятор' }).click();
+  const calcPanel = page.getByRole('dialog', { name: 'Калькулятор' });
+  await expect(calcPanel).toBeVisible();
+  await expect(calcPanel.locator('output')).toHaveText('2500');
+  const key = (await calcPanel.getByRole('button', { name: '7', exact: true }).boundingBox())!;
+  expect(key.width).toBeGreaterThanOrEqual(44);
+  expect(key.height).toBeGreaterThanOrEqual(44);
+  const pb = (await calcPanel.boundingBox())!;
+  expect(pb.y).toBeGreaterThanOrEqual(0);
+  expect(pb.y + pb.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  await page.keyboard.press('Escape');
+  await expect(calcPanel).toBeHidden();
+  await expect(dialog).toBeVisible();
+  await expect(amount).toHaveValue('2500');
   await dialog.getByRole('button', { name: 'Добавить расход' }).click();
   await expect(dialog).toBeHidden();
 
@@ -508,6 +523,8 @@ test('архивная компания: форма операции тольк�
     await expect(view.getByRole('button', { name, exact: true })).toHaveCount(0);
   }
   await expect(view.getByLabel('Добавить файл')).toHaveCount(0);
+  // калькулятора в поле суммы нет (форма только для просмотра)
+  await expect(view.getByRole('button', { name: 'Калькулятор' })).toHaveCount(0);
   // R3: поле суммы недоступно — фокус сразу на «×», а не на самом окне; другой кнопки закрытия в форме нет
   await expect(view.getByRole('button', { name: 'Закрыть', exact: true })).toHaveCount(1);
   await expect(view.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();

@@ -40,6 +40,7 @@ export function AmountField(props: {
   calculator?: boolean;
 }) {
   const ref = useRef<HTMLInputElement>(null);
+  const calcBox = useRef<HTMLDivElement>(null);
   const [calcError, setCalcError] = useState<string | null>(null);
   /** Куда поставить курсор после вставки оператора — сразу после отрисовки нового значения. */
   const caret = useRef<number | null>(null);
@@ -122,12 +123,17 @@ export function AmountField(props: {
               props.onChange(e.target.value);
               setCalcError(null);
             }}
-            onBlur={evaluate}
+            onBlur={(e) => {
+              // фокус ушёл на иконку калькулятора или в его панель: выражение не вычисляется, его доработает калькулятор
+              const to = e.relatedTarget as Element | null;
+              if (to && (calcBox.current?.contains(to) || to.closest('[data-popover-panel]'))) return;
+              evaluate();
+            }}
             // сумма — крупная, как раньше (text-lg): размер — отдельно от floatingControlBase
             className={`${floatingControlBase} text-lg font-semibold tabular-nums ${props.calculator && !props.disabled ? 'pr-14' : ''}`}
           />
           {props.calculator && !props.disabled && (
-            <div className="absolute top-1/2 right-2 -translate-y-1/2">
+            <div ref={calcBox} className="absolute top-1/2 right-1.5 -translate-y-1/2">
               <CalculatorPopover
                 value={props.value}
                 onChange={(text) => {
@@ -135,6 +141,7 @@ export function AmountField(props: {
                   setCalcError(null);
                 }}
                 onEquals={evaluate}
+                onClose={evaluate}
               />
             </div>
           )}
