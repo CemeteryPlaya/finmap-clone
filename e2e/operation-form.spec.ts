@@ -441,6 +441,16 @@ test('«+ Создать „…“» прямо из формы: контраг�
   await expect(category).toHaveAttribute('aria-activedescendant', createId!);
   await category.press('Enter');
   await expect(category).toHaveValue('Интернет');
+  // Tab в поле выделяет название целиком: символ, совпавший с первой буквой названия, не теряется — список отфильтрован по «И»
+  await page.keyboard.press('Shift+Tab');
+  await expect(category).not.toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(category).toBeFocused();
+  await page.keyboard.type('И');
+  await expect(category).toHaveValue('И');
+  await expect(dialog.getByRole('option', { name: /^Интернет/ })).toBeVisible();
+  await category.press('Escape');
+  await expect(category).toHaveValue('Интернет');
   // такое название уже есть (без учёта регистра) — «Создать» не предлагается
   // (замена всего названия: открываем список — запрос тогда весь набранный текст, а не разница с «Интернет»)
   await category.click();

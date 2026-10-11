@@ -46,16 +46,24 @@ function AssignForm(props: { companyId: number; request: AssignRequest; data: As
   const { item, field } = props.request;
   const [value, setValue] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // создание идёт: повторный Enter или нажатие не создают второй раз
+  const creating = useRef(false);
   // список строится один раз на окно, а не на каждую перерисовку журнала; новый элемент справочника его обновит
   const options = useMemo(() => assignOptions(item, field, props.data), [item, field, props.data]);
   /** «+ Создать „…“» (§5.4, §6.6): элемент создаётся и выбирается в поле; операция меняется только по «Сохранить». */
-  const create = async (name: string) => {
+  const create = async (name: string): Promise<boolean> => {
+    if (creating.current) return true;
+    creating.current = true;
     setError(null);
     const c = assignCreate(item, field, props.data.categories);
     try {
       setValue(await createFromForm(props.companyId, c.what, name, { kind: c.kind, counterpartyType: c.counterpartyType }));
+      return true;
     } catch (e) {
       setError(`Не удалось создать «${name}»: ${e instanceof ApiError ? (e.fields?.name ?? e.message) : 'Ошибка сервера'}`);
+      return false;
+    } finally {
+      creating.current = false;
     }
   };
   return (
@@ -75,7 +83,7 @@ function AssignForm(props: { companyId: number; request: AssignRequest; data: As
           setError(null);
           setValue(id);
         }}
-        onCreate={(name) => void create(name)}
+        onCreate={create}
         createNoun={ASSIGN_CREATE_NOUNS[field]}
       />
       {error && (

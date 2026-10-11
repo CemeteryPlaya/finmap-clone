@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { initialActive, pickerItems, typedQuery, type PickerItem, type PickerOption } from '../lib/picker';
+import { initialActive, pickerItems, pickQuery, type PickerItem, type PickerOption } from '../lib/picker';
 import { PickerListbox, pickerItemId } from './SearchPicker';
 import { useFloating } from './useFloating';
 
@@ -14,7 +14,8 @@ export interface ComboListOptions {
   text: string;
   onPick: (id: number) => void;
   /** «+ Создать»: с ним в списке есть пункт создания. */
-  onCreate?: (name: string) => void;
+  /** Вернувший обещание с `false` (создать не удалось) — поле снова открывается с набранным названием. */
+  onCreate?: (name: string) => void | Promise<boolean>;
   /** Что создаёт «+ Создать»: «категорию». Обязательно вместе с onCreate. */
   createNoun?: string;
 }
@@ -51,7 +52,7 @@ export interface ComboList {
  * и фильтрует его (без учёта регистра и «ё»); ↓ и нажатие открывают; Enter выбирает активный пункт, а в закрытом
  * поле открывает список (форму не отправляет); Esc закрывает только список (окно клавишу не видит); Tab, нажатие
  * вне поля и списка и уход из поля закрывают список без смены значения; нажатие внутри открытого поля его не закрывает. При открытом списке поле пустое, выбранное — в подсказке поля:
- * печатают с чистого поля. Правка закрытого поля с выбранным значением начинает новый запрос (разница между новым значением и показанным названием). Активный пункт при открытии — выбранный, после печати — первый найденный.
+ * печатают с чистого поля. Правка закрытого поля с выбранным значением начинает новый запрос (введённое, если всё название выделено, иначе разница с показанным названием). Активный пункт при открытии — выбранный, после печати — первый найденный.
  * «+ Создать категорию» без названия оставляет список открытым, фокус — в поле с подсказкой «Введите название».
  */
 export function useComboList(o: ComboListOptions): ComboList {
@@ -63,6 +64,8 @@ export function useComboList(o: ComboListOptions): ComboList {
   const anchorRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // всё ли название было выделено перед вводом (Tab в поле): тогда введённое — запрос целиком
+  const allSelected = useRef(false);
   const style = useFloating(open, anchorRef, listRef, 'left', true);
   const noun = o.onCreate ? (o.createNoun ?? '') : undefined;
   const items = pickerItems(o.options, open ? query : '', noun);
@@ -91,12 +94,32 @@ export function useComboList(o: ComboListOptions): ComboList {
         return;
       }
       close();
-      o.onCreate?.(it.name);
+      const name = it.name;
+      const created = o.onCreate?.(name);
+      // не удалось создать — набранное название остаётся в поле, чтобы его поправить
+      if (created instanceof Promise) {
+        void created.then((ok) => {
+          if (ok === false) {
+            search(name);
+            inputRef.current?.focus();
+          }
+        });
+      }
       return;
     }
     close();
     o.onPick(it.option.id);
   };
+
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    const remember = () => {
+      allSelected.current = input.value !== '' && input.selectionStart === 0 && input.selectionEnd === input.value.length;
+    };
+    input.addEventListener('beforeinput', remember);
+    return () => input.removeEventListener('beforeinput', remember);
+  });
 
   // нажатие мышью вне поля и списка закрывает список (уход фокуса закрывает его через onBlur)
   useEffect(() => {
@@ -142,7 +165,8 @@ export function useComboList(o: ComboListOptions): ComboList {
     placeholder: open ? (naming ? 'Введите название' : o.text || undefined) : undefined,
     onChange: (e) => {
       // закрытое поле с выбранным значением: запрос — правка относительно показанного названия, а не название со вставкой
-      search(!open && o.text !== '' ? typedQuery(o.text, e.target.value) : e.target.value);
+      const ev = e.nativeEvent as InputEvent;
+      search(!open && o.text !== '' ? pickQuery({ shown: o.text, next: e.target.value, data: ev.data ?? null, inputType: ev.inputType ?? '', selectedAll: allSelected.current }) : e.target.value);
     },
     // нажатие только открывает: нажатие внутри открытого поля (поставить курсор) не закрывает список и не сбрасывает набранное
     onClick: () => {

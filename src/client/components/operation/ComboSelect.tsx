@@ -21,7 +21,8 @@ export function ComboSelect(props: {
   /** Пункт пустого значения в списке: «Без категории». null — пустого значения нет (счёт). */
   emptyLabel: string | null;
   onChange: (id: number | null) => void;
-  onCreate?: (name: string) => void;
+  /** Вернувший обещание с `false` — создать не удалось: набранное название остаётся в поле. */
+  onCreate?: (name: string) => void | Promise<boolean>;
   /** Что создаёт «+ Создать»: «категорию», «контрагента», «проект». Обязательно вместе с onCreate. */
   createNoun?: string;
   error?: string;

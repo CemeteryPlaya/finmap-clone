@@ -57,3 +57,17 @@ export function typedQuery(shown: string, next: string): string {
   while (tail < max - head && shown[shown.length - 1 - tail] === next[next.length - 1 - tail]) tail++;
   return next.slice(head, next.length - tail);
 }
+
+/**
+ * Запрос закрытого поля с выбранным значением по событию ввода. Всё название выделено (Tab в поле, «выделить всё»)
+ * и вводится текст — запрос он сам (по разнице «А» поверх «Аренда» потерялась бы). Обычная вставка текста — `data`.
+ * Остальное — удаление, вырезание, перекомпоновка клавиатуры телефона (у неё `data` пуст или несёт всё слово) —
+ * разница с названием (`typedQuery`).
+ */
+export function pickQuery(e: { shown: string; next: string; data: string | null; inputType: string; selectedAll: boolean }): string {
+  const insert = e.inputType.startsWith('insert');
+  const composing = e.inputType === 'insertCompositionText';
+  if (insert && e.selectedAll) return composing ? e.next : (e.data ?? e.next);
+  if (insert && !composing && e.data !== null) return e.data;
+  return typedQuery(e.shown, e.next);
+}

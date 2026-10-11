@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createItemLabel, initialActive, pickerItems, typedQuery, type PickerOption } from '../../src/client/lib/picker';
+import { createItemLabel, initialActive, pickerItems, pickQuery, typedQuery, type PickerOption } from '../../src/client/lib/picker';
 
 const options: PickerOption[] = [
   { id: 0, label: 'Без категории' },
@@ -68,5 +68,31 @@ describe('typedQuery — запрос из разницы между показ�
   });
   it('повторяющиеся символы не дают наложения префикса и суффикса: «аа» → «ааа» даёт «а»', () => {
     expect(typedQuery('аа', 'ааа')).toBe('а');
+  });
+});
+
+describe('pickQuery — запрос закрытого поля по событию ввода', () => {
+  const base = { shown: 'Аренда', selectedAll: false, data: null as string | null, inputType: 'insertText' };
+  it('всё название выделено (Tab в поле) и напечатан символ: «А» и «а» — запрос, а не пустота', () => {
+    expect(pickQuery({ ...base, next: 'А', data: 'А', selectedAll: true })).toBe('А');
+    expect(pickQuery({ ...base, next: 'а', data: 'а', selectedAll: true })).toBe('а');
+  });
+  it('вставка поверх выделенного названия: «интернет» поверх «Интернет» — всё вставленное', () => {
+    expect(pickQuery({ shown: 'Интернет', next: 'интернет', data: 'интернет', inputType: 'insertFromPaste', selectedAll: true })).toBe('интернет');
+    expect(pickQuery({ shown: 'Интернет', next: 'интернет', data: null, inputType: 'insertFromPaste', selectedAll: true })).toBe('интернет');
+  });
+  it('перекомпоновка клавиатуры телефона без data — разница с названием', () => {
+    expect(pickQuery({ ...base, next: 'Арендаи', inputType: 'insertCompositionText' })).toBe('и');
+    expect(pickQuery({ ...base, next: 'Арендаи', data: 'Арендаи', inputType: 'insertCompositionText' })).toBe('и');
+  });
+  it('Backspace и вырезание — пустой запрос', () => {
+    expect(pickQuery({ ...base, next: 'Арен', inputType: 'deleteContentBackward' })).toBe('');
+    expect(pickQuery({ ...base, next: '', inputType: 'deleteByCut', selectedAll: true })).toBe('');
+  });
+  it('печать в конец без выделения — напечатанный символ', () => {
+    expect(pickQuery({ ...base, next: 'Арендаа', data: 'а' })).toBe('а');
+  });
+  it('без inputType и data — разница', () => {
+    expect(pickQuery({ shown: 'Аренда', next: 'Арендаи', data: null, inputType: '', selectedAll: false })).toBe('и');
   });
 });
