@@ -104,29 +104,68 @@ test('категории: вложение, «Перенести в…», пер
     .toBe(true);
 });
 
-test('контрагенты по вкладкам и поиск', async ({ page }) => {
+test('контрагенты: подменю типов в порядке Finmap, «Мои контрагенты» по умолчанию, окно с типом, поиск, порядок в своей вкладке', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Контрагенты ${Date.now()}`);
   await page.goto(`/c/${cid}/settings/counterparties`);
+  const main = page.getByRole('main');
+  const types = main.getByRole('navigation', { name: 'Типы контрагентов' });
+  await expect(types.getByRole('link')).toHaveText([/^Инвесторы/, /^Кредиторы/, /^Заёмщики/, /^Сотрудники/, /^Владельцы/, /^Типы налогов/, /^Мои контрагенты/]);
+  await expect(types.getByRole('link', { name: /^Мои контрагенты/ })).toHaveAttribute('aria-current', 'page');
 
-  await page.getByLabel('Тип', { exact: true }).selectOption('supplier');
-  await page.getByLabel('Название контрагента').fill('ИП Иванов');
-  await page.getByLabel('Комментарий').fill('аренда зала');
-  await page.getByRole('button', { name: 'Добавить' }).click();
-  const panel = page.getByRole('tabpanel');
-  await expect(panel.getByRole('listitem')).toHaveCount(1);
-  await page.getByLabel('Тип', { exact: true }).selectOption('employee');
-  await page.getByLabel('Название контрагента').fill('Пётр Админов');
-  await page.getByRole('button', { name: 'Добавить' }).click();
-  await expect(panel.getByRole('listitem')).toHaveCount(2);
+  // «Мои»: тип — переключателем в окне, по умолчанию «Клиент»
+  await main.getByRole('button', { name: 'Добавить контрагента' }).click();
+  const created = page.getByRole('dialog', { name: 'Новый контрагент' });
+  await expect(created.getByRole('radio', { name: 'Клиент' })).toBeChecked();
+  await created.getByLabel('Название').fill('ИП Иванов');
+  await created.getByLabel('Комментарий').fill('аренда зала');
+  await created.getByRole('radio', { name: 'Поставщик' }).check();
+  await created.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(created).toBeHidden();
+  const my = main.getByRole('list', { name: 'Мои контрагенты' });
+  await expect(my.getByRole('listitem')).toHaveText([/ИП Иванов\s*Поставщик · аренда зала/]);
 
-  await page.getByRole('tab', { name: /Поставщики/ }).click();
-  await expect(panel.getByRole('listitem')).toHaveCount(1);
-  await expect(panel).toContainText('ИП Иванов');
-  await page.getByRole('tab', { name: /Все/ }).click();
-  await page.getByLabel('Поиск').fill('петр'); // регистр и «ё» не важны
-  await expect(panel.getByRole('listitem')).toHaveCount(1);
-  await expect(panel).toContainText('Пётр Админов');
+  // «Сотрудники»: своя кнопка и заголовок окна, тип — по вкладке
+  await types.getByRole('link', { name: /^Сотрудники/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/counterparties\\?type=employee$`));
+  const staffDialog = page.getByRole('dialog', { name: 'Новый сотрудник' });
+  for (const name of ['Пётр Админов', 'Анна Кассир']) {
+    await main.getByRole('button', { name: 'Добавить сотрудника' }).click();
+    await expect(staffDialog.getByRole('radio')).toHaveCount(0);
+    await staffDialog.getByLabel('Название').fill(name);
+    await staffDialog.getByRole('button', { name: 'Сохранить' }).click();
+    await expect(staffDialog).toBeHidden();
+  }
+  const staff = main.getByRole('list', { name: 'Сотрудники' });
+  await expect(staff.getByRole('listitem')).toHaveText([/Пётр Админов/, /Анна Кассир/]);
+  await expect(types.getByRole('link', { name: /^Сотрудники/ })).toContainText('2');
+
+  // порядок — в своей вкладке; «Мои» в общем порядке остаются на месте (Review Focus 1)
+  const all = async () =>
+    ((await (await page.request.get(`/api/v1/companies/${cid}/counterparties`)).json()).counterparties as { name: string; type: string }[]).map((c) => `${c.type}:${c.name}`);
+  await staff.getByRole('button', { name: 'Переместить Анна Кассир', exact: true }).focus();
+  await page.keyboard.press('Alt+ArrowUp');
+  await expect(staff.getByRole('listitem')).toHaveText([/Анна Кассир/, /Пётр Админов/]);
+  await expect.poll(all).toEqual(['supplier:ИП Иванов', 'employee:Анна Кассир', 'employee:Пётр Админов']);
+
+  // поиск без учёта регистра и «ё»
+  await main.getByRole('searchbox', { name: 'Поиск' }).fill('петр');
+  await expect(staff.getByRole('listitem')).toHaveText([/Пётр Админов/]);
+
+  // ✎ в «Моих» — окно «Контрагент», тип меняется; поиск — и по комментарию
+  await types.getByRole('link', { name: /^Мои контрагенты/ }).click();
+  await main.getByRole('searchbox', { name: 'Поиск' }).fill('ЗАЛА');
+  await expect(my.getByRole('listitem')).toHaveText([/ИП Иванов/]);
+  await my.getByRole('button', { name: 'Изменить ИП Иванов', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: 'Контрагент', exact: true });
+  await edit.getByRole('radio', { name: 'Клиент' }).check();
+  await edit.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(edit).toBeHidden();
+  await expect(my.getByRole('listitem')).toHaveText([/ИП Иванов\s*Клиент · аренда зала/]);
+
+  // неверный тип в адресе — «Мои контрагенты»
+  await page.goto(`/c/${cid}/settings/counterparties?type=nope`);
+  await expect(types.getByRole('link', { name: /^Мои контрагенты/ })).toHaveAttribute('aria-current', 'page');
 });
 
 test('шаблон разделения: сохранить можно только при 100%', async ({ page }) => {
