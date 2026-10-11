@@ -43,7 +43,7 @@ interface Scenario {
 
 const banner = (p: Page) => p.getByRole('banner');
 const table = (p: Page) => p.getByRole('table', { name: 'Операции' });
-const newForm = (p: Page) => p.getByRole('dialog', { name: 'Новая операция' });
+const newForm = (p: Page) => p.getByRole('dialog', { name: /^Новый (доход|расход|перевод)$/ });
 
 const openForm = (label: 'Доход' | 'Расход' | 'Перевод') => async (p: Page) => {
   await banner(p).getByRole('button', { name: label, exact: true }).click();
@@ -85,7 +85,7 @@ const SCENARIOS: Scenario[] = [
     path: 'log',
     act: async (p) => {
       await table(p).getByRole('button', { name: /^Открыть операцию/ }).first().click();
-      await p.getByRole('dialog', { name: 'Изменить операцию' }).getByRole('textbox', { name: /^Сумма,/ }).waitFor();
+      await p.getByRole('dialog', { name: /^(Доход|Расход|Перевод)$/ }).getByRole('textbox', { name: /^Сумма,/ }).waitFor();
     },
   },
   { ours: 'c06-income.png', finmap: '06-income.png', path: 'log', act: openForm('Доход') },
@@ -95,10 +95,10 @@ const SCENARIOS: Scenario[] = [
     path: 'log',
     act: async (p) => {
       await openForm('Доход')(p);
-      await newForm(p).getByRole('button', { name: /^Проект, теги, комментарий/ }).click();
+      await newForm(p).getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
     },
   },
-  { ours: 'c08-income-account-dd.png', finmap: '08-income-account-dd.png', path: 'log', act: formList('Счёт') },
+  { ours: 'c08-income-account-dd.png', finmap: '08-income-account-dd.png', path: 'log', act: formList('На счёт') },
   { ours: 'c09-income-category-dd.png', finmap: '09-income-category-dd.png', path: 'log', act: formList('Категория') },
   {
     ours: 'c09b-category-typed.png',
@@ -119,7 +119,7 @@ const SCENARIOS: Scenario[] = [
     act: async (p) => {
       // «+ Создать проект» — первым пунктом пустого запроса
       await openForm('Доход')(p);
-      await newForm(p).getByRole('button', { name: /^Проект, теги, комментарий/ }).click();
+      await newForm(p).getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
       await newForm(p).getByRole('combobox', { name: 'Проект', exact: true }).click();
       await p.getByRole('listbox').first().waitFor();
     },
@@ -231,7 +231,7 @@ const SCENARIOS: Scenario[] = [
     path: 'log',
     act: async (p) => {
       await p.getByRole('list', { name: 'Операции' }).getByRole('button').first().click();
-      await p.getByRole('dialog', { name: 'Изменить операцию' }).getByRole('textbox', { name: /^Сумма,/ }).waitFor();
+      await p.getByRole('dialog', { name: /^(Доход|Расход|Перевод)$/ }).getByRole('textbox', { name: /^Сумма,/ }).waitFor();
     },
   },
   {
