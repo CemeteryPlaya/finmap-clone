@@ -254,6 +254,24 @@ const SCENARIOS: Scenario[] = [
   { ours: 'c28c-my-counterparties.png', finmap: '28c-my-counterparties.png', path: 'settings/counterparties?type=my' },
   { ours: 'c29-settings-Счета.png', finmap: '29-settings-Счета.png', path: 'settings/accounts' },
   { ours: 'c30-settings-Категории.png', finmap: '30-settings-Категории.png', path: 'settings/categories' },
+  { ours: 'c30-settings-categories-full.png', finmap: '30-settings-categories-full.png', path: 'settings/categories?tab=system-expense' },
+  { ours: 'c31-cat-my-expense.png', finmap: '31-cat-my-expense.png', path: 'settings/categories?tab=my-expense' },
+  {
+    ours: 'c31b-cat-row-hover.png',
+    finmap: '31b-cat-row-hover.png',
+    path: 'settings/categories?tab=my-expense',
+    // наведение только подсвечивает строку: «+» и ✎ видны всегда (03-№22)
+    act: (p) => p.getByRole('main').getByRole('list', { name: 'Мои категории расхода' }).getByRole('listitem').nth(1).hover(),
+  },
+  {
+    ours: 'c31c-cat-add.png',
+    finmap: '31c-cat-add.png',
+    path: 'settings/categories?tab=my-expense',
+    act: async (p) => {
+      await p.getByRole('main').getByRole('button', { name: 'Добавить категорию' }).click();
+      await p.getByRole('dialog', { name: 'Новая категория' }).waitFor();
+    },
+  },
   { ours: 'c31-settings-Проекты.png', finmap: '31-settings-Проекты.png', path: 'settings/projects' },
   { ours: 'c32-settings-Теги.png', finmap: '32-settings-Теги.png', path: 'settings/tags' },
   { ours: 'c33-settings-Пользователи.png', finmap: '33-settings-Пользователи.png', path: 'settings/users' },
