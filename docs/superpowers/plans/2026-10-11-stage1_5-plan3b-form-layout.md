@@ -34,7 +34,7 @@
 
 1. **Главная кнопка (§6.9):** доход — `bg-income`, расход — `bg-expense`, текст тёмный (`text-ink`, как в Finmap: 5,3:1 и 4,6:1); перевод — `bg-chrome`, текст белый. Белый текст на `income`/`expense` дал бы 3,4–3,6:1 — меньше AA.
 2. **«Удалить платёж» (§6.7, строка 6):** `ConfirmDialog` «Удалить платёж?», текст «Операция будет удалена из журнала и итогов.», «Отменить | Удалить» (красная). Пока идёт запрос, обе кнопки недоступны; ошибка — сообщением формы, фокус возвращается на строку. Операция на архивном счёте — строка `aria-disabled` с подсказкой «Удалить нельзя: счёт в архиве («…»)» и остаётся в порядке Tab.
-3. **Подтверждения в «Разделить»** — `ConfirmDialog`: «Сменить способ деления?» / «Значения строк будут сброшены.» / «Отменить | Сбросить значения» и «Применить шаблон «…»?» / «Строки будут заменены шаблоном, значения сброшены.» / «Отменить | Применить». Кнопка «Отменить разбиение» внутри разбиения убрана: её роль — строка «Отменить разделение».
+3. **Подтверждения в «Разделить»** — `ConfirmDialog`: «Сменить способ деления?» / «Значения строк будут сброшены.» / «Отменить | Сбросить значения» и «Применить шаблон «…»?» / «Строки будут заменены шаблоном, значения сброшены.» / «Отменить | Применить». Кнопка «Отменить разбиение» внутри разбиения убрана: её роль — строка «Отменить разделение». Фокус после подтверждения — по §11: туда, откуда спросили (переключатель способа, «Применить шаблон»); если этого элемента уже нет — в поле суммы, как у остальных подтверждений формы.
 4. **«Дата сделки отличается»:** нажатие ставит дату сделки равной дате оплаты и заменяет строку полем «Дата сделки» (фокус — на нём) с кнопкой «✕» «Убрать дату сделки» (фокус — обратно на строку). ⓘ — подсказка при наведении и описание строки для программ чтения.
 5. **Начальный фокус (§6.2):** у новой операции — первое пустое обязательное поле: счёт (у перевода сначала «Со счёта», затем «На счёт»), иначе сумма; при правке — сумма. Элемент, на который фокус поставило само окно при открытии, считается «ничьим».
 6. **Последний счёт (§6.2, §10.2):** запоминается после успешного создания операции (не при выборе в поле и не при правке) — так в памяти только счёт, на который действительно вносили. Ключ `fc.lastAccount.<userId>.<cid>`, значение `{ income?, expense?, transferFrom?, transferTo? }`; повреждённое значение — пусто.
@@ -112,7 +112,7 @@ e2e/operation-form.spec.ts, operation-edit.spec.ts, dialogs.spec.ts, mobile.spec
   - `markInitialFocus(el: HTMLElement): void`, `isInitialFocus(el: unknown): boolean` (`focus-trap.ts`); `isFreeFocus(el: Element | null): boolean`, `useAutoFocus(ref: RefObject<HTMLElement | null>, enabled: boolean | undefined): void` (`components/useAutoFocus.ts`);
   - `actionRowClass`, `ActionRow(props: { icon: ReactNode; label: string; onClick: () => void; expanded?: boolean; danger?: boolean; disabledHint?: string; info?: string; muted?: boolean; buttonRef?: Ref<HTMLButtonElement> })` (`components/operation/ActionRow.tsx`) — план 1.5-3c строит на `actionRowClass` строку «Зарплата за …»;
   - `DateField` — новые свойства `floating?: boolean`, `error?: string`;
-  - `SplitEditor` — свойство `onCancel` удалено;
+  - `SplitEditor` — свойство `onCancel` удалено, добавлено `onFocusLost?: () => void` (куда вернуть фокус после подтверждения, если его элемента нет);
   - в `OperationForm.tsx` у `OperationEditor` — константа `paidDateField` (поле даты оплаты) и строки-действия в `rows`; план 1.5-3c заменяет `paidDateField` на `DateTimeField` и строку «Дата сделки» — на «Зарплата за …» у зарплаты.
 
 - [ ] **Step 1: Write the failing unit tests**
@@ -353,7 +353,18 @@ const floatingDateButtonClass =
 ```
 
 3) строку `    <Field label={props.label} className={props.className}>` замените на `    <Field label={props.label} className={props.className} floating={props.floating} filled={shown !== null} error={props.error}>`;
-4) строку `              <span className={shown ? '' : 'text-muted'}>{shown ?? 'Не выбрана'}</span>` замените на `              <span className={`truncate ${shown ? '' : 'text-muted'}`}>{shown ?? (props.floating ? '' : 'Не выбрана')}</span>`;
+4) строку
+
+```tsx
+              <span className={shown ? '' : 'text-muted'}>{shown ?? 'Не выбрана'}</span>
+```
+
+замените на
+
+```tsx
+              <span className={`truncate ${shown ? '' : 'text-muted'}`}>{shown ?? (props.floating ? '' : 'Не выбрана')}</span>
+```
+
 5) строку `          buttonClassName={dateButtonClass}` замените на `          buttonClassName={props.floating ? floatingDateButtonClass : dateButtonClass}`.
 
 - [ ] **Step 6: `ActionRow`**
@@ -436,6 +447,13 @@ export function ActionRow(props: {
   onCancel: () => void;
 ```
 
+   и после строки `  onCreateProject?: (name: string, key: number) => void;` вставьте
+
+```ts
+  /** Элемент, с которого спросили подтверждение, исчез: куда вернуть фокус (форма — в поле суммы, §11). */
+  onFocusLost?: () => void;
+```
+
 3) блок подтверждения в разметке
 
 ```tsx
@@ -504,8 +522,8 @@ export function ActionRow(props: {
           if (confirm?.kind === 'mode') switchMode(confirm.mode);
           else if (confirm?.kind === 'preset') apply(confirm.preset);
         }}
-        // переключатель или кнопка шаблона исчезли — фокус на «+ Строка»
-        onFocusLost={() => sectionRef.current?.querySelector<HTMLElement>('[data-add-line]')?.focus()}
+        // переключатель или кнопка шаблона исчезли (или фокус был ничей) — как у всех подтверждений формы (§11): в поле суммы
+        onFocusLost={props.onFocusLost}
       />
 ```
 
@@ -1209,6 +1227,7 @@ function OperationEditor(p: {
                 error={errors.lines}
                 onCreateCategory={createLine('categoryId')}
                 onCreateProject={createLine('projectId')}
+                onFocusLost={() => setRefocusAmount((n) => n + 1)}
               />
             ) : (
               <ComboSelect
@@ -1379,7 +1398,7 @@ function TagsField(props: { tags: Tag[]; value: number[]; onChange: (ids: number
 }
 ```
 
-Run: `npm run typecheck` → без ошибок (`grep -rn "onCancel=" src/client/components/operation/OperationForm.tsx` — у `SplitEditor` его нет).
+Run: `npm run typecheck` → без ошибок. `grep -n "onCancel=" src/client/components/operation/OperationForm.tsx` → ровно 3 совпадения: `Modal` и два `ConfirmDialog` (вопрос о закрытии, «Удалить платёж?»); у `<SplitEditor` свойства `onCancel` нет.
 
 - [ ] **Step 9: E2E — `e2e/operation-form.spec.ts`**
 
@@ -1446,7 +1465,7 @@ const submit = (scope: Locator) => scope.getByRole('button', { name: /^(Доба
   await expect(accrualRow).toBeFocused();
 ```
 
-в части перевода после строки `  dialog = await openForm(page, 'Перевод');` вставьте
+в части перевода (тест «доход, расход и перевод…»: строка `  dialog = await openForm(page, 'Перевод');`, за которой идёт `  await expect(dialog.getByRole('textbox', { name: /^Сумма зачисления/ })).toHaveCount(0);`) между этими двумя строками вставьте
 
 ```ts
   // у перевода дата — первой, затем «Со счёта», «На счёт», сумма; значка «Валюта» нет (§6.2)
@@ -1616,13 +1635,14 @@ const submit = (scope: Locator) => scope.getByRole('button', { name: /^(Доба
 - `const newForm = (page: Page) => page.getByRole('dialog', { name: 'Новая операция' });` → `const newForm = (page: Page) => page.getByRole('dialog', { name: /^Новый (доход|расход|перевод)$/ });`
 - `await expect(newForm(page).getByRole('radio', { name: 'Перевод' })).toBeChecked();` → `await expect(page.getByRole('dialog', { name: 'Новый перевод', exact: true })).toBeVisible();`
 - `await expect(newForm(page).getByRole('radio', { name: 'Расход' })).toBeChecked();` → `await expect(page.getByRole('dialog', { name: 'Новый расход', exact: true })).toBeVisible();`
+- название теста `test('форма «Новая операция» с «Расход»: Tab и Shift+Tab ходят по кругу, фокус не покидает окно', …` → `test('форма «Новый расход»: Tab и Shift+Tab ходят по кругу, фокус не покидает окно', …` (иначе проверка ниже найдёт старое имя в названии)
 - в тесте «сценарий 4 §10…» `await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();` → `await dialog.getByRole('button', { name: 'Добавить расход' }).click();`; `const edit = page.getByRole('dialog', { name: 'Изменить операцию' });` → `const edit = page.getByRole('dialog', { name: 'Расход', exact: true });`; `await edit.getByRole('button', { name: 'Сохранить', exact: true }).click();` → `await edit.getByRole('button', { name: 'Сохранить изменения' }).click();`
 - в тесте «ширина 390 px…» `newForm(page).getByRole('button', { name: 'Проект, теги, комментарий' })` → `newForm(page).getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' })`; `newForm(page).getByRole('combobox', { name: 'Счёт', exact: true })` → `newForm(page).getByRole('combobox', { name: 'Со счёта', exact: true })`;
 - в тесте «архивная компания…» `const view = page.getByRole('dialog', { name: 'Изменить операцию' });` → `const view = page.getByRole('dialog', { name: 'Расход', exact: true });`; строку `  for (const name of ['Сохранить', 'Сохранить и создать похожий', 'Дублировать', 'Удалить']) {` → `  for (const name of ['Сохранить изменения', 'Добавить и создать похожий', 'Дублировать платёж', 'Удалить платёж']) {`; `await expect(view.getByRole('button', { name: 'Сохранить', exact: true })).toHaveCount(0);` → `await expect(view.getByRole('button', { name: 'Сохранить изменения' })).toHaveCount(0);`
 
 `e2e/service-screens.spec.ts`: `const form = page.getByRole('dialog', { name: 'Изменить операцию' });` → `const form = page.getByRole('dialog', { name: 'Доход', exact: true });`
 
-Проверьте, что старых имён не осталось: `grep -rn "Новая операция\|Изменить операцию\|Проект, теги, комментарий'\|'Оставить как есть'" e2e` → пусто.
+Проверьте, что старых имён не осталось: `grep -rn "Новая операция\|Изменить операцию\|Проект, теги, комментарий'\|'Оставить как есть'" e2e` → пусто (в том числе в названиях тестов).
 
 - [ ] **Step 12: Full check and commit**
 
@@ -1878,9 +1898,40 @@ Run: `npx vitest run tests/client/last-account.test.ts tests/client/operation-fo
 
 4) В `duplicate` строку `    setInitial(emptyDraft(copy.type, today, firstAccount));` замените на `    setInitial(emptyDraft(copy.type, today, remembered.accountId, remembered.toAccountId));`.
 
-5) В `accountField` у `<ComboSelect` после строки `      hint={lockHint}` вставьте `      autoFocus={focusField === key}`.
+5) В `accountField` строки
 
-6) В `amountField` строку `      autoFocus` замените на `      autoFocus={focusField === 'amount'}`.
+```tsx
+      error={errors[key]}
+      disabled={!!locked}
+      hint={lockHint}
+    />
+```
+
+замените на
+
+```tsx
+      error={errors[key]}
+      disabled={!!locked}
+      hint={lockHint}
+      autoFocus={focusField === key}
+    />
+```
+
+
+6) В `amountField` строки
+
+```tsx
+      autoFocus
+      refocusSignal={refocusAmount}
+```
+
+замените на
+
+```tsx
+      autoFocus={focusField === 'amount'}
+      refocusSignal={refocusAmount}
+```
+
 
 Run: `npm run typecheck` → без ошибок; `grep -n "firstAccount" src/client/components/operation/OperationForm.tsx` → пусто.
 
@@ -1897,9 +1948,51 @@ Run: `npm run typecheck` → без ошибок; `grep -n "firstAccount" src/cl
   await expect(field(dialog, 'На счёт')).toBeFocused();
 ```
 
-  в части расхода после строки `  dialog = await openForm(page, 'Расход');` вставьте `  await pick(page, 'Со счёта', 'Касса');`;
-- тест «ошибки у полей…»: после строки `  const dialog = await openForm(page, 'Расход');` вставьте `  await pick(page, 'Со счёта', 'Касса');`;
-- тест «„Разделить“ в процентах…»: после первой строки `  let dialog = await openForm(page, 'Расход');` вставьте `  await pick(page, 'Со счёта', 'Касса');` (второе открытие расхода в этом тесте — уже с запомненной «Кассой»);
+  в части расхода строки
+
+```ts
+  dialog = await openForm(page, 'Расход');
+  await pick(page, 'Категория', 'Аренда');
+```
+
+  замените на
+
+```ts
+  dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Касса');
+  await pick(page, 'Категория', 'Аренда');
+```
+
+- тест «ошибки у полей…»: строки
+
+```ts
+  const dialog = await openForm(page, 'Расход');
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+```
+
+  замените на
+
+```ts
+  const dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Касса');
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+```
+
+- тест «„Разделить“ в процентах…»: строки
+
+```ts
+  let dialog = await openForm(page, 'Расход');
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('1000');
+```
+
+  замените на (второе открытие расхода в этом тесте — уже с запомненной «Кассой»)
+
+```ts
+  let dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Касса');
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('1000');
+```
+
 - тест «сценарий 3 §10…»: строки
 
 ```ts
@@ -1943,8 +2036,36 @@ Run: `npm run typecheck` → без ошибок; `grep -n "firstAccount" src/cl
   await expect(field(dialog, 'Со счёта')).toBeFocused();
 ```
 
-- тест «„+ Создать „…“» прямо из формы…»: после строки `  const dialog = await openForm(page, 'Расход');` вставьте `  await pick(page, 'Со счёта', 'Касса');`;
-- тест «нет курса на дату…»: после строки `  const dialog = await openForm(page, 'Расход');` вставьте `  await pick(page, 'Со счёта', 'Франки');`.
+- тест «„+ Создать „…“» прямо из формы…»: строки
+
+```ts
+  const dialog = await openForm(page, 'Расход');
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('700');
+```
+
+  замените на
+
+```ts
+  const dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Касса');
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('700');
+```
+
+- тест «нет курса на дату…»: строки
+
+```ts
+  const dialog = await openForm(page, 'Расход');
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('10');
+```
+
+  замените на
+
+```ts
+  const dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Франки');
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('10');
+```
+
 - в конец файла добавьте тест:
 
 ```ts
@@ -1953,7 +2074,8 @@ test('последний счёт и фокус при открытии: пус�
   const cid = await createCompany(page, `ТОО Последний счёт ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
   await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
-  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 100000 })).account.id;
+  // стартовый остаток 100 ₸ = расход ниже: в архив счёт уходит только с нулевым балансом (accounts/service.ts, 422)
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 10000 })).account.id;
   await page.reload();
 
   // счёт не выбирался — поле пустое, как в Finmap, и фокус на нём
@@ -1978,7 +2100,7 @@ test('последний счёт и фокус при открытии: пус�
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
 
-  // запомненный счёт ушёл в архив — поле снова пустое (Review Focus 4)
+  // запомненный счёт ушёл в архив (баланс: 100 ₸ стартовых минус расход 100 ₸ = 0) — поле снова пустое (Review Focus 4)
   await apiPost(page, `${base}/accounts/${kaspi}/archive`, {});
   await page.reload();
   dialog = await openForm(page, 'Расход');
@@ -2105,13 +2227,15 @@ test('последний счёт и фокус при открытии: пус�
   выбранный счёт делает форму изменённой, поэтому ниже в этом тесте строки
 
 ```ts
+  expect((await close.boundingBox())!.x + (await close.boundingBox())!.width).toBeLessThanOrEqual(PHONE.width);
   await page.keyboard.press('Escape');
   await expect(newForm(page)).toBeHidden();
 ```
 
-  (сразу после проверки положения «×») замените на
+  замените на
 
 ```ts
+  expect((await close.boundingBox())!.x + (await close.boundingBox())!.width).toBeLessThanOrEqual(PHONE.width);
   await page.keyboard.press('Escape');
   await page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' }).getByRole('button', { name: 'Закрыть' }).click();
   await expect(newForm(page)).toBeHidden();

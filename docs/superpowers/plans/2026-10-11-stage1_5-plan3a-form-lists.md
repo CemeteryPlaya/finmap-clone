@@ -32,17 +32,20 @@
 
 1. **План 1.5-3 разбит на три части:** 3a — списки и подписи (этот план), 3b — раскладка окна, строки-действия, главная кнопка, последний счёт, теги и файлы, 3c — дата и время, «Зарплата за {месяц}», калькулятор. Каждая часть заканчивается сверкой `shots:ux`.
 2. **Место «+ Создать» (§6.6):** при пустом запросе — первым пунктом («+ Создать категорию», как на снимке Finmap `11`), с текстом — после найденных («+ Создать „аре“», как на `09b`), если такого названия ещё нет. Активный пункт при открытии — выбранный, иначе первый вариант (не «+ Создать»): Enter после печати выбирает первый найденный, а не создаёт. Пункт «+ Создать категорию» без названия оставляет список открытым и фокус в поле с подсказкой «Введите название».
-3. **Поле со списком (§6.6, §11):** при открытом списке поле пустое, выбранное значение — в подсказке поля (печатать начинают с чистого поля); при закрытом — название выбранного. Нажатие на поле открывает и закрывает список; Enter в закрытом поле открывает список (форму не отправляет); Esc закрывает только список; Tab и уход из поля закрывают список без смены значения. Пункт «Без категории» («Без контрагента», «Без проекта», «Не менять») остаётся в списке.
+3. **Поле со списком (§6.6, §11):** при открытом списке поле пустое, выбранное значение — в подсказке поля (печатать начинают с чистого поля); при закрытом — название выбранного. Нажатие на поле только открывает список: нажатие внутри уже открытого поля (поставить курсор) его не закрывает и набранное не сбрасывает; закрывают список выбор пункта, Esc, Tab, нажатие вне поля и списка и уход фокуса. Enter в закрытом поле открывает список (форму не отправляет). `aria-controls` у поля есть всегда — id списка (ARIA 1.2 допускает ссылку на свёрнутый список). Пункт «Без категории» («Без контрагента», «Без проекта», «Не менять») остаётся в списке.
 4. **Бейдж «системная» и символ валюты в пунктах — только для глаз** (`aria-hidden`): доступное имя пункта — название, как его ищут и выбирают.
 5. **«+ Создать» в окне «Указать» (§5.4)** — есть (те же правила создания, что в форме: категория — вида операции, контрагент — типа под системную категорию, иначе «Клиент» у дохода и «Поставщик» у расхода); созданное выбирается в поле, сохраняет «Сохранить». В «Изменить данные» «+ Создать» нет: категория там общая для доходов и расходов, вид созданной был бы неоднозначен.
 6. **`Field floating`** — у полей со списком, суммы, «Доли, %» в разбиении и комментария. `MultiSelectField` окна «Фильтры» не меняется: подпись со счётчиком у него уже внутри кнопки. `DateField` получает плавающий вариант в плане 1.5-3b (для «Даты сделки»).
+7. **Плавающая подпись — свой токен `label` (#5b6270):** 5,4:1 на `bg-field` (#edf1f5) — AA и для мелкой (12 px) подписи заполненного поля; прежний `text-muted` (#6b7280) на `bg-field` даёт 4,26:1.
+8. **«Не менять» в окне «Изменить данные»:** пустое поле показывает «Не менять» подсказкой (свойство `emptyText` у `ComboSelect`, подпись при этом всегда мелкая сверху), как было до плана; бейдж «системная» в списке категорий этого окна теперь тоже виден — так же, как в форме.
+9. **Символ валюты у выбранного счёта:** закрытое поле счёта показывает название и справа символ валюты («Касса … ₸», символ — только для глаз, значение поля — «Касса»). Неизвестный код валюты (справочник валют отстал от данных) — вместо символа сам код, без исключения.
 
 ## Global Constraints
 
 - **Принцип (§1):** «расположение и приёмы как в Finmap, внешний вид свой; где наше лучше — оставляем». Оставляем: выражения в сумме, RateFix, группы «{Тип}» и «Остальные» в списке контрагентов. **Мёртвых кнопок нет.**
 - **Комбобокс (§6.6, §11):** ARIA 1.2 combobox — `input role="combobox"`, `aria-expanded`, `aria-controls`, `aria-activedescendant`, `role="listbox"`/`option`; печать сразу открывает список и фильтрует без учёта регистра и «ё»; ↓ открывает; Enter выбирает; Esc закрывает только список; Tab закрывает без смены значения; при открытии активен выбранный пункт (решение 6a R1). Список шириной с поле, пункты `py-3 text-base`. У счёта справа символ валюты (`PickerOption.suffix`), «(KZT)» в названии нет; у системных категорий — бейдж «системная» (`PickerOption.badge`).
 - **«+ Создать» (§6.6):** пустой запрос — «+ Создать категорию / контрагента / проект / тег»; есть текст — «+ Создать „{текст}“». Что создаётся — по правилам плана 6a.
-- **Плавающие подписи (§6.3):** подпись внутри поля, высота около 56 px (`h-14`); пустое — подпись как подсказка, заполненное — мелкая сверху; подпись связана с полем `<label for>`. Пустое значение не пишется текстом «Без категории», «Без контрагента», «Без проекта».
+- **Плавающие подписи (§6.3):** подпись внутри поля, высота около 56 px (`h-14`); пустое — подпись как подсказка, заполненное — мелкая сверху; подпись связана с полем `<label for>`. Пустое значение не пишется текстом «Без категории», «Без контрагента», «Без проекта». Цвет подписи — токен `label` (#5b6270, 5,4:1 на `bg-field`). Сумма остаётся крупной (`text-lg font-semibold`).
 - **Подпись контрагента (§6.4):** нет системной категории — «Мой контрагент»; `employee` — «Сотрудник»; `owner` — «Владелец»; `investor` — «Инвестор»; `creditor` — «Кредитор»; `borrower` — «Заёмщик»; `tax` — «Тип налога». В `shared/counterparties.ts`: «Собственник/Собственники» → «Владелец/Владельцы», «Налоговые» → «Типы налогов», «Налоговый орган» → «Тип налога».
 - **Сохраняются контракты планов 6a/6b/7 и 1.5-1a:** автофокус суммы при открытии (в том числе при повторном открытии с данными в кэше), `refocusSignal`, `<fieldset disabled={pending || readOnly}>`, «Загрузить актуальную» при 409, RateFix, фокус после действий с файлами, архивная форма только для чтения (фокус на «×»), вопрос о закрытии `ConfirmDialog` с «Больше не спрашивать», форма на весь экран телефона с липкой шапкой и «×» 44 px.
 - **Деньги:** на экране — `formatMoney(…, MONEY_SCREEN)`; поля ввода — `amountInputText`.
@@ -206,6 +209,8 @@ import {
       { id: 1, label: 'Касса', suffix: '₸' },
       { id: 2, label: 'Старый (в архиве)', suffix: '$' },
     ]);
+    // неизвестный код валюты — вместо символа сам код, без исключения
+    expect(accountOptions([account(3, 'Странный', 'XYZ')], null)).toEqual([{ id: 3, label: 'Странный', suffix: 'XYZ' }]);
 ```
 
 3) Перед `it('эффективный systemKey дочерней категории …` вставьте:
@@ -330,7 +335,7 @@ import type { Account, CategoryNode, CategoryTree, Counterparty, Project, Tag } 
 
 ```ts
 import { COUNTERPARTY_TYPE_LABELS, COUNTERPARTY_TYPE_SINGULAR } from '../../shared/counterparties';
-import { getCurrency } from '../../shared/currencies';
+import { getCurrency, isKnownCurrency } from '../../shared/currencies';
 import { SYSTEM_CATEGORIES, type CounterpartyType } from '../../shared/system-categories';
 import type { PickerOption } from './picker';
 import type { Account, CategoryNode, CategoryTree, Counterparty, Project, Tag } from './queries';
@@ -361,9 +366,12 @@ export function categoryOptions(tree: CategoryTree, kind: 'income' | 'expense', 
 /** Бейдж системной категории в списках (§6.6 этапа 1.5) — тот же текст, что в журнале. */
 export const SYSTEM_BADGE = 'системная';
 
+/** Символ валюты для пункта; неизвестный код (справочник валют отстал от данных) — сам код, а не исключение. */
+const currencySymbol = (code: string) => (isKnownCurrency(code) ? getCurrency(code).symbol : code);
+
 /** Счета: название, символ валюты — справа в пункте (§6.6 этапа 1.5: «(KZT)» в названии нет). */
 export function accountOptions(accounts: readonly Account[], selected: number | null): PickerOption[] {
-  return accounts.filter((a) => keep(a, [selected])).map((a) => ({ id: a.id, label: mark(a.name, a), suffix: getCurrency(a.currency).symbol }));
+  return accounts.filter((a) => keep(a, [selected])).map((a) => ({ id: a.id, label: mark(a.name, a), suffix: currencySymbol(a.currency) }));
 }
 
 /** Бейдж «системная» — у категории с собственным systemKey (у дочерних системной его нет, как в журнале). */
@@ -441,7 +449,7 @@ Run: `npx vitest run tests/client/picker.test.ts tests/client/operation-options.
 
 - [ ] **Step 7: Full check and commit**
 
-Run: `npm test` → PASS (672 + 5 новых). Run: `npm run typecheck`. Run: `npm run test:e2e` дважды → все проходят оба раза.
+Run: `npm test` → PASS (672 + 6 новых: 4 в `picker.test.ts`, 2 в `operation-options.test.ts`). Run: `npm run typecheck`. Run: `npm run test:e2e` дважды → все проходят оба раза.
 
 ```bash
 git add src/client/lib/picker.ts tests/client/picker.test.ts src/client/components/SearchPicker.tsx src/shared/counterparties.ts src/client/lib/operation-options.ts src/client/lib/journal-assign.ts tests/client/operation-options.test.ts e2e/operation-form.spec.ts e2e/operation-edit.spec.ts
@@ -455,7 +463,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ### Task 2: Плавающие подписи `Field floating`; список с «+ Создать» первым, бейджем и символом валюты
 
 **Files:**
-- Modify: `src/client/components/ui.ts`, `src/client/components/Field.tsx`, `src/client/components/SearchPicker.tsx`, `src/client/components/operation/ComboSelect.tsx`, `src/client/components/operation/AmountField.tsx`, `src/client/components/operation/SplitEditor.tsx`, `src/client/components/operation/OperationForm.tsx`, `tests/client/picker-list.test.ts`, `e2e/operation-form.spec.ts`, `e2e/journal-actions.spec.ts`
+- Modify: `src/client/styles.css`, `src/client/components/ui.ts`, `src/client/components/Field.tsx`, `src/client/components/SearchPicker.tsx`, `src/client/components/operation/ComboSelect.tsx`, `src/client/components/operation/AmountField.tsx`, `src/client/components/operation/SplitEditor.tsx`, `src/client/components/operation/OperationForm.tsx`, `tests/client/picker-list.test.ts`, `e2e/operation-form.spec.ts`, `e2e/journal-actions.spec.ts`
 
 **Interfaces:**
 - Consumes: `pickerItems`, `createItemLabel`, `initialActive`, `PickerItem`, `PickerOption` (задача 1).
@@ -530,15 +538,23 @@ describe('PickerList: «+ Создать», бейдж и символ валю�
 
 Run: `npx vitest run tests/client/picker-list.test.ts` → FAIL (название не в `<span>`, нет «+ Создать счёт», бейджа и символа).
 
-- [ ] **Step 2: Classes in `ui.ts`**
+- [ ] **Step 2: Label colour token, classes in `ui.ts`**
+
+В `src/client/styles.css` в блоке `@theme` после строки `  --color-muted: #6b7280;` вставьте
+
+```css
+  --color-label: #5b6270; /* плавающая подпись поля и подсказка в нём: 5,4:1 на field (#edf1f5); muted там — 4,26:1, меньше AA */
+```
 
 В `src/client/components/ui.ts` после строки `export const inputClass = …` вставьте:
 
 ```ts
 /**
  * Поле с плавающей подписью (§6.3 этапа 1.5): высота 56 px, место под мелкую подпись сверху. Подпись рисует `Field floating`.
+ * `floatingControlBase` — без размера шрифта (у суммы он свой, `text-lg`): два размера в одном классе Tailwind не перекрывают друг друга надёжно.
  */
-export const floatingControlClass = 'block h-14 w-full rounded-xl bg-field px-4 pt-5 pb-1 text-base outline-none focus:ring-2 focus:ring-focus disabled:opacity-60';
+export const floatingControlBase = 'block h-14 w-full rounded-xl bg-field px-4 pt-5 pb-1 outline-none placeholder:text-label focus:ring-2 focus:ring-focus disabled:opacity-60';
+export const floatingControlClass = `${floatingControlBase} text-base`;
 /** Многострочное поле с плавающей подписью (комментарий). */
 export const floatingTextareaClass = 'block w-full rounded-xl bg-field px-4 pt-6 pb-2 text-base outline-none focus:ring-2 focus:ring-focus disabled:opacity-60';
 /** Бейдж «системная» (§5.2, §6.6 этапа 1.5): текст income-strong на income-soft — 4,7:1. */
@@ -561,9 +577,10 @@ export interface FieldControlProps {
 /**
  * Плавающая подпись (§6.3 этапа 1.5): пустое поле без фокуса — подпись на месте значения, как подсказка; поле
  * с значением (`data-filled`) или в фокусе — мелкая подпись сверху. Нажатие на подпись проходит в поле (pointer-events-none).
+ * Цвет — `text-label` (5,4:1 на bg-field): мелкая подпись 12 px тоже проходит AA.
  */
 const floatingLabelClass =
-  'pointer-events-none absolute top-1/2 left-4 z-[1] max-w-[calc(100%-3.5rem)] -translate-y-1/2 truncate text-base text-muted transition-all group-focus-within/field:top-2 group-focus-within/field:translate-y-0 group-focus-within/field:text-xs group-data-[filled]/field:top-2 group-data-[filled]/field:translate-y-0 group-data-[filled]/field:text-xs';
+  'pointer-events-none absolute top-1/2 left-4 z-[1] max-w-[calc(100%-3.5rem)] -translate-y-1/2 truncate text-base text-label transition-all group-focus-within/field:top-2 group-focus-within/field:translate-y-0 group-focus-within/field:text-xs group-data-[filled]/field:top-2 group-data-[filled]/field:translate-y-0 group-data-[filled]/field:text-xs';
 
 /**
  * Подпись, подсказка и ошибка поля, связанные с элементом ввода: label for, aria-invalid, aria-describedby.
@@ -931,7 +948,7 @@ export function SearchPicker(props: {
 - [ ] **Step 6: `AmountField` with a floating label**
 
 В `src/client/components/operation/AmountField.tsx`:
-1) строку `import { inputClass } from '../ui';` замените на `import { floatingControlClass } from '../ui';`;
+1) строку `import { inputClass } from '../ui';` замените на `import { floatingControlBase } from '../ui';`;
 2) блок `return (` … `);` компонента целиком замените на:
 
 ```tsx
@@ -979,7 +996,8 @@ export function SearchPicker(props: {
             setCalcError(null);
           }}
           onBlur={evaluate}
-          className={`${floatingControlClass} font-semibold tabular-nums`}
+          // сумма — крупная, как раньше (text-lg): размер — отдельно от floatingControlBase
+          className={`${floatingControlBase} text-lg font-semibold tabular-nums`}
         />
       )}
     </Field>
@@ -1014,7 +1032,7 @@ Run: `npx vitest run tests/client/picker-list.test.ts` → PASS. Run: `npm run t
 Run: `npm test` → PASS (+2 новых). Run: `npm run typecheck`. Run: `npm run test:e2e` дважды → все проходят оба раза.
 
 ```bash
-git add src/client/components/ui.ts src/client/components/Field.tsx src/client/components/SearchPicker.tsx src/client/components/operation/ComboSelect.tsx src/client/components/operation/AmountField.tsx src/client/components/operation/SplitEditor.tsx src/client/components/operation/OperationForm.tsx tests/client/picker-list.test.ts e2e/operation-form.spec.ts e2e/journal-actions.spec.ts
+git add src/client/styles.css src/client/components/ui.ts src/client/components/Field.tsx src/client/components/SearchPicker.tsx src/client/components/operation/ComboSelect.tsx src/client/components/operation/AmountField.tsx src/client/components/operation/SplitEditor.tsx src/client/components/operation/OperationForm.tsx tests/client/picker-list.test.ts e2e/operation-form.spec.ts e2e/journal-actions.spec.ts
 git commit -m "feat: плавающие подписи полей; списки с «+ Создать» первым, бейджем «системная» и символом валюты
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
@@ -1026,14 +1044,14 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 **Files:**
 - Create: `src/client/components/ComboList.tsx`
-- Modify: `src/client/components/useFloating.ts`, `src/client/components/operation/ComboSelect.tsx`, `src/client/components/operation/OperationForm.tsx`, `src/client/components/operation/SplitEditor.tsx`, `src/client/components/journal/AssignDialog.tsx`, `e2e/operation-form.spec.ts`, `e2e/operation-edit.spec.ts`, `e2e/journal-actions.spec.ts`, `e2e/mobile.spec.ts`
+- Modify: `src/client/components/useFloating.ts`, `src/client/components/operation/ComboSelect.tsx`, `src/client/components/operation/OperationForm.tsx`, `src/client/components/operation/SplitEditor.tsx`, `src/client/components/journal/AssignDialog.tsx`, `src/client/components/journal/BulkEditDialog.tsx`, `e2e/operation-form.spec.ts`, `e2e/operation-edit.spec.ts`, `e2e/journal-actions.spec.ts`, `e2e/mobile.spec.ts`
 
 **Interfaces:**
 - Consumes: `pickerItems`, `initialActive`, `PickerItem`, `PickerOption` (задача 1); `PickerListbox`, `pickerItemId`, `Field` с `floating`/`filled`/`boxRef`, `floatingControlClass` (задача 2); `counterpartyLabel` (задача 1).
 - Produces:
   - `useFloating(open, anchorRef, floatingRef, align = 'left', matchWidth = false)` — с `matchWidth` панель шириной с якорь;
   - `interface ComboListOptions { listLabel: string; options: readonly PickerOption[]; selectedId: number | null; text: string; onPick: (id: number) => void; onCreate?: (name: string) => void; createNoun?: string }`, `interface ComboList { open: boolean; inputProps: ComboInputProps; anchorRef: RefObject<HTMLDivElement | null>; list: ReactNode }`, `useComboList(o: ComboListOptions): ComboList` (`components/ComboList.tsx`) — план 1.5-3b строит на нём поле тегов;
-  - `ComboSelect` — те же свойства, что раньше (`placeholder` больше не используется и удаляется из типа); доступное имя поля — подпись (`combobox` «Категория»), значение — название выбранного (`toHaveValue`).
+  - `ComboSelect` — те же свойства, что раньше (`placeholder` удаляется из типа), плюс `emptyText?: string` (подсказка пустого закрытого поля); доступное имя поля — подпись (`combobox` «Категория»), значение — название выбранного (`toHaveValue`); у выбранного счёта справа символ валюты (`suffix`, только для глаз).
 
 - [ ] **Step 1: `useFloating` — width of the anchor**
 
@@ -1098,7 +1116,7 @@ export function useFloating(
 `src/client/components/ComboList.tsx`:
 
 ```tsx
-import { useId, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { initialActive, pickerItems, type PickerItem, type PickerOption } from '../lib/picker';
 import { PickerListbox, pickerItemId } from './SearchPicker';
@@ -1124,7 +1142,8 @@ export interface ComboInputProps {
   ref: RefObject<HTMLInputElement | null>;
   role: 'combobox';
   'aria-expanded': boolean;
-  'aria-controls': string | undefined;
+  /** Всегда id списка — и у свёрнутого (ARIA 1.2 это допускает). */
+  'aria-controls': string;
   'aria-autocomplete': 'list';
   'aria-activedescendant': string | undefined;
   autoComplete: 'off';
@@ -1148,8 +1167,8 @@ export interface ComboList {
 /**
  * Поле со списком (§6.6, §11 этапа 1.5; ARIA 1.2 combobox): поле — само поле ввода. Печать открывает список
  * и фильтрует его (без учёта регистра и «ё»); ↓ и нажатие открывают; Enter выбирает активный пункт, а в закрытом
- * поле открывает список (форму не отправляет); Esc закрывает только список (окно клавишу не видит); Tab и уход
- * из поля закрывают список без смены значения. При открытом списке поле пустое, выбранное — в подсказке поля:
+ * поле открывает список (форму не отправляет); Esc закрывает только список (окно клавишу не видит); Tab, нажатие
+ * вне поля и списка и уход из поля закрывают список без смены значения; нажатие внутри открытого поля его не закрывает. При открытом списке поле пустое, выбранное — в подсказке поля:
  * печатают с чистого поля. Активный пункт при открытии — выбранный, после печати — первый найденный.
  * «+ Создать категорию» без названия оставляет список открытым, фокус — в поле с подсказкой «Введите название».
  */
@@ -1197,6 +1216,18 @@ export function useComboList(o: ComboListOptions): ComboList {
     o.onPick(it.option.id);
   };
 
+  // нажатие мышью вне поля и списка закрывает список (уход фокуса закрывает его через onBlur)
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (ev: MouseEvent) => {
+      const target = ev.target as Node;
+      if (anchorRef.current?.contains(target) || listRef.current?.contains(target)) return;
+      close();
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
@@ -1221,7 +1252,7 @@ export function useComboList(o: ComboListOptions): ComboList {
     ref: inputRef,
     role: 'combobox',
     'aria-expanded': open,
-    'aria-controls': open ? listId : undefined,
+    'aria-controls': listId,
     'aria-autocomplete': 'list',
     'aria-activedescendant': current ? pickerItemId(listId, current) : undefined,
     autoComplete: 'off',
@@ -1232,7 +1263,10 @@ export function useComboList(o: ComboListOptions): ComboList {
       // список закрыт, в поле — выбранное значение, курсор после него: запросом считается только напечатанное
       search(!open && o.text !== '' && raw.startsWith(o.text) ? raw.slice(o.text.length) : raw);
     },
-    onClick: () => (open ? close() : show()),
+    // нажатие только открывает: нажатие внутри открытого поля (поставить курсор) не закрывает список и не сбрасывает набранное
+    onClick: () => {
+      if (!open) show();
+    },
     onKeyDown,
     onBlur: close,
   };
@@ -1300,6 +1334,8 @@ export function ComboSelect(props: {
   error?: string;
   hint?: string;
   disabled?: boolean;
+  /** Подсказка пустого закрытого поля («Не менять» в окне «Изменить данные»); с ней подпись всегда мелкая сверху. */
+  emptyText?: string;
   className?: string;
 }) {
   const selected = props.options.find((o) => o.id === props.value);
@@ -1315,6 +1351,7 @@ export function ComboSelect(props: {
     onCreate: props.onCreate,
     createNoun: props.createNoun,
   });
+  const suffix = combo.open ? undefined : selected?.suffix;
   return (
     <Field
       label={props.label}
@@ -1322,12 +1359,24 @@ export function ComboSelect(props: {
       hint={props.hint}
       className={props.className}
       floating
-      filled={combo.open || text !== ''}
+      filled={combo.open || text !== '' || props.emptyText !== undefined}
       boxRef={combo.anchorRef}
     >
       {(control) => (
         <>
-          <input {...control} {...combo.inputProps} disabled={props.disabled} className={`${floatingControlClass} truncate pr-10`} />
+          <input
+            {...control}
+            {...combo.inputProps}
+            placeholder={combo.inputProps.placeholder ?? (text === '' ? props.emptyText : undefined)}
+            disabled={props.disabled}
+            className={`${floatingControlClass} truncate ${suffix ? 'pr-16' : 'pr-10'}`}
+          />
+          {/* символ валюты выбранного счёта — справа в закрытом поле, только для глаз (значение поля — название) */}
+          {suffix && (
+            <span aria-hidden="true" className="pointer-events-none absolute top-1/2 right-10 -translate-y-1/2 text-muted">
+              {suffix}
+            </span>
+          )}
           <span aria-hidden="true" className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-muted">
             ▾
           </span>
@@ -1350,6 +1399,8 @@ export function ComboSelect(props: {
 3) у поля контрагента строку `            label="Контрагент"` замените на `            label={counterpartyLabel(p.data.categories, mainCategory)}` (подпись по системной категории, §6.4).
 
 В `src/client/components/journal/AssignDialog.tsx` у `<ComboSelect` удалите строку `        placeholder="Выберите"`.
+
+В `src/client/components/journal/BulkEditDialog.tsx` у всех трёх `<ComboSelect` (контрагент, категория, проект) после `emptyLabel="Не менять"` добавьте `emptyText="Не менять"` (решение 8: пустое поле по-прежнему читается «Не менять»; бейдж «системная» в списке категорий окна теперь тоже виден). Для двух однострочных вызовов это правка внутри строки: `emptyLabel="Не менять" onChange={set('categoryId')}` → `emptyLabel="Не менять" emptyText="Не менять" onChange={set('categoryId')}` и `emptyLabel="Не менять" onChange={set('projectId')}` → `emptyLabel="Не менять" emptyText="Не менять" onChange={set('projectId')}`; у многострочного (контрагент) после строки `        emptyLabel="Не менять"` вставьте `        emptyText="Не менять"`.
 
 В `src/client/components/operation/SplitEditor.tsx` в эффекте фокуса строк строку
 
@@ -1398,6 +1449,13 @@ async function pick(page: Page, label: string, option: string, scope: Locator = 
 ```ts
   // Esc при открытом списке закрывает только список: окно открыто, вопроса нет, фокус остаётся в поле (Review Focus 3)
   const category = field(dialog, 'Категория');
+  await category.click();
+  await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeVisible();
+  // нажатие внутри открытого поля его не закрывает; нажатие вне поля и списка (на заголовок окна) — закрывает
+  await category.click();
+  await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeVisible();
+  await dialog.getByRole('heading').click();
+  await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeHidden();
   await category.click();
   await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeVisible();
   await page.keyboard.press('Escape');
@@ -1636,6 +1694,18 @@ async function pick(page: Page, label: string, option: string, scope: Locator = 
 - остальные два места `await projectDialog.getByRole('button', { name: /^Проект:/ }).click();` → `await projectDialog.getByRole('combobox', { name: 'Проект', exact: true }).click();`
 - `await counterpartyDialog.getByRole('button', { name: /^Мой контрагент:/ }).click();` → `await counterpartyDialog.getByRole('combobox', { name: 'Мой контрагент', exact: true }).click();`
 
+- помощник `assignVia` (в начале файла; его вызывают 4 места теста «„Указать“: два сохранения подряд…») — строку
+
+```ts
+  await dialog.locator('button[aria-haspopup="dialog"]').click();
+```
+
+  замените на
+
+```ts
+  await dialog.getByRole('combobox').click();
+```
+
 Тесты «массовые действия…» и «„Изменить данные“ в фильтре „Без категории“…»:
 - `await editDialog.getByRole('button', { name: /^Категория:/ }).click();` (2 места) → `await editDialog.getByRole('combobox', { name: 'Категория', exact: true }).click();`
 - `await editDialog.getByRole('button', { name: /^Проект:/ }).click();` → `await editDialog.getByRole('combobox', { name: 'Проект', exact: true }).click();`
@@ -1650,7 +1720,7 @@ Expected: всё проходит. Тест «нет курса на дату» 
 Run: `npm test` → PASS. Run: `npm run typecheck`. Run: `npm run test:e2e` дважды → все проходят оба раза.
 
 ```bash
-git add src/client/components/ComboList.tsx src/client/components/useFloating.ts src/client/components/operation/ComboSelect.tsx src/client/components/operation/OperationForm.tsx src/client/components/operation/SplitEditor.tsx src/client/components/journal/AssignDialog.tsx e2e/operation-form.spec.ts e2e/operation-edit.spec.ts e2e/journal-actions.spec.ts e2e/mobile.spec.ts
+git add src/client/components/ComboList.tsx src/client/components/useFloating.ts src/client/components/operation/ComboSelect.tsx src/client/components/operation/OperationForm.tsx src/client/components/operation/SplitEditor.tsx src/client/components/journal/AssignDialog.tsx src/client/components/journal/BulkEditDialog.tsx e2e/operation-form.spec.ts e2e/operation-edit.spec.ts e2e/journal-actions.spec.ts e2e/mobile.spec.ts
 git commit -m "feat: поле со списком — ввод прямо в поле, список шириной с поле, подпись контрагента по категории
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"

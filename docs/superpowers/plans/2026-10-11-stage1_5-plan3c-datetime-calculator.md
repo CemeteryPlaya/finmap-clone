@@ -33,7 +33,10 @@
 3. **Ошибки времени** — у поля даты (`errors.paidAt`): «Это время ещё не наступило» (§2.3) и «Укажите время в виде ЧЧ:ММ» (повреждённый черновик). Сервер по-прежнему пропускает до конца текущего дня (инвариант 6).
 4. **Правка:** поле показывает время операции (`paidTime` из `paidAt`), но оно не «задано руками»: при той же дате `paidAt` не уходит (если минуты совпали — тоже), при смене даты — прежнее время суток с секундами. Время, изменённое руками, — `ЧЧ:ММ:00`.
 5. **«Зарплата за {месяц}»:** месяц в именительном падеже со строчной («Зарплата за сентябрь»); если год месяца не совпадает с годом даты оплаты — с годом («Зарплата за декабрь 2025»). Без даты сделки — месяц даты оплаты, текст приглушён. Панель: год «‹ ›», 12 месяцев (выбранный отмечен `aria-pressed`), «Как дата оплаты». Строка показывается при эффективном `systemKey = salary` у категории операции (у разбитой — у первой строки).
-6. **Калькулятор:** иконка — в поле суммы (у суммы перевода тоже), у «Суммы зачисления» и сумм строк разбиения её нет. Панель: строка выражения (то же значение, что в поле) и кнопки 7 8 9 ÷ / 4 5 6 × / 1 2 3 «минус» / 0 , = + / ( ) C ⌫; минус — U+2212, как у ряда операторов. Выражение длиннее `CALC_MAX_LENGTH` не растёт. «=» закрывает панель и при ошибке — ошибка видна у поля. Подсказка поля суммы — «Можно писать выражения: 1500+250*2» (у заблокированной суммы вместо неё — «счёт в архиве»).
+6. **Сохранённый момент при правке (§2.3, Review Focus 1):** если время не задано руками и дата не менялась, `buildBody` отдаёт `paidAt` операции как есть — с секундами и без ограничения «не позже сейчас» (сохранённое время может быть позже «сейчас» этого устройства: часы другого компьютера). Если дату перенесли на сегодня, а прежнее время суток ещё не наступило, поле показывает то время, которое сохранится, — «сейчас» (`shownPaidTime`).
+7. **Арифметика времени** (`paidAtFor`: начало суток + часы и минуты) верна для поясов без перехода на летнее время — `Asia/Almaty` такой (с 01.03.2024 UTC+5 круглый год); смещение берётся на дату операции.
+8. **Архивная компания:** у зарплаты в форме только для чтения видна строка «Зарплата за …» (недоступная), калькулятора и его подсказки у суммы нет.
+9. **Калькулятор:** иконка — в поле суммы (у суммы перевода тоже), у «Суммы зачисления» и сумм строк разбиения её нет. Панель: строка выражения (то же значение, что в поле) и кнопки 7 8 9 ÷ / 4 5 6 × / 1 2 3 «минус» / 0 , = + / ( ) C ⌫; минус — U+2212, как у ряда операторов. Выражение длиннее `CALC_MAX_LENGTH` не растёт. «=» закрывает панель и при ошибке — ошибка видна у поля. Подсказка поля суммы — «Можно писать выражения: 1500+250*2» (у заблокированной суммы вместо неё — «счёт в архиве»).
 
 ## Global Constraints
 
@@ -206,14 +209,15 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ### Task 2: Правила времени в черновике формы — `paidTime`, `paidAtFor`, `buildBody`, `patchBody`
 
 **Files:**
-- Modify: `src/client/lib/operation-form.ts`, `src/client/lib/operation-edit.ts`, `tests/client/operation-form.test.ts`, `tests/client/operation-edit.test.ts`
+- Modify: `src/client/lib/operation-form.ts`, `src/client/lib/operation-edit.ts`, `src/client/components/operation/OperationForm.tsx`, `tests/client/operation-form.test.ts`, `tests/client/operation-edit.test.ts`
 
 **Interfaces:**
 - Consumes: `timeOfDay`, `parseTimeInput` (задача 1); `dayOf` (`lib/journal-format.ts`).
 - Produces:
   - `OperationDraft.paidTime: string` («ЧЧ:ММ»; пусто — «живое» время новой операции), `OperationDraft.paidTimeSet: boolean` (время задано руками);
   - `paidAtFor(date: string, ref: Date, now: Date, timeZone: string, time?: string): string`;
-  - `buildBody` — ошибки `paidAt`: «Это время ещё не наступило», «Укажите время в виде ЧЧ:ММ»;
+  - `DraftContext.originalPaidAt?: string` — `paidAt` правимой операции; `buildBody` при той же дате и времени, не заданном руками, отдаёт его без изменений; ошибки `paidAt`: «Это время ещё не наступило», «Укажите время в виде ЧЧ:ММ»;
+  - `shownPaidTime(draft: Pick<OperationDraft, 'paidDate' | 'paidTime' | 'paidTimeSet'>, nowTime: string, today: string, originalDate: string | null): string` — время, которое показывает поле (то, что сохранится);
   - `similarDraft` переносит время, заданное руками; `duplicateDraft` — «сегодня» и живое время; `draftFromOperation` — `paidTime` из `paidAt`, `paidTimeSet: false`; `patchBody` сравнивает дату и минуты.
 
 - [ ] **Step 1: Write the failing tests**
@@ -241,6 +245,30 @@ describe('время оплаты (§2.3 этапа 1.5)', () => {
     expect(body(draft({ amount: '1', paidTime: '10:30', paidTimeSet: true })).paidAt).toBe('2026-10-07T05:30:00.000Z');
     expect(errors(draft({ amount: '1', paidTime: '10:31', paidTimeSet: true }))).toEqual({ paidAt: 'Это время ещё не наступило' });
     expect(errors(draft({ amount: '1', paidTime: '25:00', paidTimeSet: true }))).toEqual({ paidAt: 'Укажите время в виде ЧЧ:ММ' });
+  });
+
+  it('правка: та же дата, время не трогали — paidAt операции как есть, даже если он позже «сейчас» (Review Focus 1)', () => {
+    const later = '2026-10-07T10:00:00.250Z'; // 15:00 по Алматы — позже NOW (10:30)
+    const d = draft({ amount: '1', paidDate: '2026-10-07', paidTime: '15:00' });
+    expect(buildBody(d, { ...ctx, timeOfDayFrom: new Date(later), originalPaidAt: later })).toMatchObject({ ok: true, body: { paidAt: later } });
+    // дату перенесли — прежнее время суток, но не позже «сейчас»
+    const moved = draft({ amount: '1', paidDate: '2026-10-07', paidTime: '18:15' });
+    expect(buildBody(moved, { ...ctx, timeOfDayFrom: new Date('2026-10-05T13:15:42.250Z'), originalPaidAt: '2026-10-05T13:15:42.250Z' })).toMatchObject({
+      ok: true,
+      body: { paidAt: NOW.toISOString() },
+    });
+  });
+
+  it('время в поле — то, что сохранится (shownPaidTime)', () => {
+    const edit = { paidDate: '2026-10-05', paidTime: '18:15', paidTimeSet: false };
+    expect(shownPaidTime({ paidDate: '2026-10-07', paidTime: '', paidTimeSet: false }, '10:30', '2026-10-07', null)).toBe('10:30');
+    expect(shownPaidTime(edit, '10:30', '2026-10-07', '2026-10-05')).toBe('18:15');
+    // перенос на сегодня, время ещё не наступило — сохранится «сейчас», его и показываем
+    expect(shownPaidTime({ ...edit, paidDate: '2026-10-07' }, '10:30', '2026-10-07', '2026-10-05')).toBe('10:30');
+    expect(shownPaidTime({ ...edit, paidDate: '2026-10-06' }, '10:30', '2026-10-07', '2026-10-05')).toBe('18:15');
+    // сохранённое время позже «сейчас» в тот же день — без изменений
+    expect(shownPaidTime({ paidDate: '2026-10-07', paidTime: '15:00', paidTimeSet: false }, '10:30', '2026-10-07', '2026-10-07')).toBe('15:00');
+    expect(shownPaidTime({ ...edit, paidTime: '09:05', paidTimeSet: true }, '10:30', '2026-10-07', '2026-10-05')).toBe('09:05');
   });
 
   it('«создать похожий»: время, заданное руками, и дата переносятся; «живое» время остаётся живым', () => {
@@ -283,11 +311,42 @@ describe('время оплаты (§2.3 этапа 1.5)', () => {
     expect(duplicateDraft({ ...d, paidTime: '18:15', paidTimeSet: true }, available, '2026-10-07')).toMatchObject({ paidDate: '2026-10-07', paidTime: '', paidTimeSet: false });
 ```
 
+В импорт `tests/client/operation-form.test.ts` из `'../../src/client/lib/operation-form'` добавьте `shownPaidTime`.
+
+В `tests/client/operation-edit.test.ts` в помощнике `patchFor` строку
+
+```ts
+  const ctx: DraftContext = { accounts, today: '2026-10-07', timeZone: TZ, now: NOW, timeOfDayFrom: new Date(o.paidAt) };
+```
+
+замените на (как делает форма: момент правимой операции передаётся в buildBody)
+
+```ts
+  const ctx: DraftContext = { accounts, today: '2026-10-07', timeZone: TZ, now: NOW, timeOfDayFrom: new Date(o.paidAt), originalPaidAt: o.paidAt };
+```
+
+и в `describe('patchBody — …', …)` добавьте
+
+```ts
+  it('сохранённое время сегодня позже «сейчас» этого устройства: правка комментария не трогает paidAt (Review Focus 1)', () => {
+    const o = op({ paidAt: '2026-10-07T10:00:00.250Z' }); // 15:00 по Алматы, NOW — 10:30
+    expect(patchFor(o, (d) => ({ ...d, comment: 'новый' }))).toEqual({ version: 3, comment: 'новый' });
+  });
+```
+
 Run: `npx vitest run tests/client/operation-form.test.ts tests/client/operation-edit.test.ts` → FAIL.
 
 - [ ] **Step 2: `lib/operation-form.ts`**
 
-1) Строку импорта `import { isValidDate, startOfDayUtc, zoneOffsetMs } from '../../shared/dates';` замените на `import { isValidDate, parseTimeInput, startOfDayUtc, zoneOffsetMs } from '../../shared/dates';`.
+1) Строку импорта `import { isValidDate, startOfDayUtc, zoneOffsetMs } from '../../shared/dates';` замените на `import { isValidDate, parseTimeInput, startOfDayUtc, todayInTimezone, zoneOffsetMs } from '../../shared/dates';`; в `interface DraftContext` после поля `  timeOfDayFrom: Date;` вставьте
+
+```ts
+  /**
+   * Правка: `paidAt` операции. Если дата не менялась и время не задано руками, он уходит в тело как есть — с секундами
+   * и без «не позже сейчас» (§2.3 этапа 1.5): сохранённое время может быть позже «сейчас» этого устройства.
+   */
+  originalPaidAt?: string;
+```
 
 2) В `interface OperationDraft` после поля `  paidDate: string;` вставьте
 
@@ -334,7 +393,8 @@ export function similarDraft(draft: OperationDraft): OperationDraft {
  * Момент оплаты для даты из формы. С `time` («ЧЧ:ММ», задано руками, §2.3 этапа 1.5) — дата и ЧЧ:ММ:00 в поясе
  * приложения, без ограничения «не позже now»: проверка — в buildBody. Без `time` — время суток момента `ref`
  * (в поясе приложения), но не позже `now`: новая операция за сегодня — ровно «сейчас», за прошлый день — тот же час,
- * правка даты сохраняет прежнее время.
+ * правка даты сохраняет прежнее время. Сложение «начало суток + время» верно для поясов без летнего времени —
+ * Asia/Almaty такой (смещение берётся на дату операции: до 01.03.2024 UTC+6).
  */
 export function paidAtFor(date: string, ref: Date, now: Date, timeZone: string, time?: string): string {
   const start = Date.parse(startOfDayUtc(date, timeZone));
@@ -369,7 +429,50 @@ export function paidAtFor(date: string, ref: Date, now: Date, timeZone: string, 
   }
 ```
 
-- строку `      paidAt: paidAtFor(draft.paidDate, ctx.timeOfDayFrom, ctx.now, ctx.timeZone),` замените на `      paidAt: paidAtFor(draft.paidDate, ctx.timeOfDayFrom, ctx.now, ctx.timeZone, time ?? undefined),`.
+- перед строкой `  if (Object.keys(errors).length > 0) return { ok: false, errors };` вставьте
+
+```ts
+  // правка, дата та же, время не трогали — момент операции без изменений (секунды, без «не позже сейчас»)
+  const original =
+    !draft.paidTimeSet && ctx.originalPaidAt !== undefined && todayInTimezone(ctx.timeZone, new Date(ctx.originalPaidAt)) === draft.paidDate
+      ? ctx.originalPaidAt
+      : null;
+```
+
+- строку `      paidAt: paidAtFor(draft.paidDate, ctx.timeOfDayFrom, ctx.now, ctx.timeZone),` замените на `      paidAt: original ?? paidAtFor(draft.paidDate, ctx.timeOfDayFrom, ctx.now, ctx.timeZone, time ?? undefined),`.
+
+7) В конец файла добавьте
+
+```ts
+/**
+ * Время, которое показывает поле даты и времени (§2.3 этапа 1.5), — то, что сохранится: заданное руками; у новой
+ * операции — «сейчас»; у правки с той же датой — время операции (даже если оно позже «сейчас» устройства); дату
+ * перенесли на сегодня, а прежнее время ещё не наступило — «сейчас» (сохранится не позже него).
+ */
+export function shownPaidTime(
+  draft: Pick<OperationDraft, 'paidDate' | 'paidTime' | 'paidTimeSet'>,
+  nowTime: string,
+  today: string,
+  originalDate: string | null,
+): string {
+  if (draft.paidTimeSet) return draft.paidTime;
+  if (draft.paidTime === '') return nowTime;
+  if (draft.paidDate === originalDate) return draft.paidTime;
+  return draft.paidDate === today && draft.paidTime > nowTime ? nowTime : draft.paidTime;
+}
+```
+
+8) В `src/client/components/operation/OperationForm.tsx` в `submit` строку
+
+```ts
+    const r = buildBody(draft, { accounts, today: todayInTimezone(p.timeZone, now), timeZone: p.timeZone, now, timeOfDayFrom });
+```
+
+замените на
+
+```ts
+    const r = buildBody(draft, { accounts, today: todayInTimezone(p.timeZone, now), timeZone: p.timeZone, now, timeOfDayFrom, originalPaidAt: op?.paidAt });
+```
 
 - [ ] **Step 3: `lib/operation-edit.ts`**
 
@@ -412,7 +515,7 @@ Run: `npx vitest run tests/client/operation-form.test.ts tests/client/operation-
 Run: `npm test` → PASS. Run: `npm run test:e2e` → все проходят (поведение формы не меняется).
 
 ```bash
-git add src/client/lib/operation-form.ts src/client/lib/operation-edit.ts tests/client/operation-form.test.ts tests/client/operation-edit.test.ts
+git add src/client/lib/operation-form.ts src/client/lib/operation-edit.ts src/client/components/operation/OperationForm.tsx tests/client/operation-form.test.ts tests/client/operation-edit.test.ts
 git commit -m "feat: правила времени оплаты — ЧЧ:ММ:00 руками, «не позже сейчас», секунды при правке, время в «похожем»
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
@@ -508,7 +611,7 @@ import { Calendar } from '../Calendar';
 import { Field } from '../Field';
 import { CalendarIcon, ClockIcon } from '../icons';
 import { Popover } from '../Popover';
-import { btnPrimary, inputClass } from '../ui';
+import { btnPrimary } from '../ui';
 
 /** Кнопка поля с плавающей подписью (§6.3 этапа 1.5): высота 56 px, значение под подписью. */
 const fieldButtonClass =
@@ -567,7 +670,8 @@ function DateTimePanel(props: {
                 e.preventDefault();
                 apply();
               }}
-              className={`${inputClass} py-2`}
+              // свои классы, а не inputClass + py-2: два значения отступа в одном классе Tailwind не перекрывают друг друга надёжно
+              className="w-full rounded-xl bg-field px-4 py-2 outline-none focus:ring-2 focus:ring-focus"
             />
           )}
         </Field>
@@ -635,6 +739,8 @@ export function DateTimeField(props: {
 
 В `src/client/components/operation/OperationForm.tsx`:
 1) после строки `import { invalidateOperations } from '../../lib/journal-mutations';` вставьте `import { useNowTime } from '../../lib/use-now';` (место среди импортов `../../lib/*` — любое); после строки `import { ComboSelect } from './ComboSelect';` вставьте `import { DateTimeField } from './DateTimeField';`; из импорта `'../ui'` уберите `floatingControlClass`;
+В импорт из `'../../lib/operation-form'` добавьте `shownPaidTime`.
+
 2) после строки `  const today = todayInTimezone(p.timeZone);` (в начале `OperationEditor`) вставьте
 
 ```ts
@@ -671,7 +777,8 @@ export function DateTimeField(props: {
     <DateTimeField
       label={labels.paidDate}
       date={draft.paidDate}
-      time={draft.paidTime}
+      // то время, которое сохранится (shownPaidTime): «сейчас», время операции или заданное руками
+      time={shownPaidTime(draft, nowTime, today, op ? todayInTimezone(p.timeZone, new Date(op.paidAt)) : null)}
       nowTime={nowTime}
       today={today}
       error={errors.paidAt}
@@ -708,9 +815,11 @@ async function pickDay(page: Page, panel: Locator, iso: string) {
   const [ty, tm] = almatyToday().split('-').map(Number) as [number, number];
   const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
   let months = (ty - y) * 12 + (tm - m);
+  // клавиши — сетке: фокус уже на активном дне (Popover ставит его на data-autofocus)
+  await expect(panel.locator('[role="gridcell"][tabindex="0"]')).toBeFocused();
   for (; months >= 12; months -= 12) await page.keyboard.press('Shift+PageUp');
   for (; months > 0; months -= 1) await page.keyboard.press('PageUp');
-  await panel.getByRole('gridcell', { name: `${d} ${MONTHS_GENITIVE[m - 1]} ${y}` }).click();
+  await panel.getByRole('gridcell', { name: `${d} ${MONTHS_GENITIVE[m - 1]} ${y}`, exact: true }).click();
 }
 ```
 
@@ -747,7 +856,10 @@ test('дата и время оплаты: «Сегодня, …, ЧЧ:ММ», �
   // вчера, 9:05: день — в календаре (панель не закрывается), время — в строке «Время», «Готово» закрывает
   await when.click();
   const panel = page.getByRole('dialog', { name: 'Указать дату списания: календарь' });
+  // клавиши — сетке: фокус на сегодняшнем дне
+  await expect(panel.locator('[role="gridcell"][tabindex="0"]')).toBeFocused();
   await page.keyboard.press('ArrowLeft');
+  await expect(panel.locator('[role="gridcell"][tabindex="0"]')).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(panel).toBeVisible();
   await panel.getByLabel('Время').fill('9:05');
@@ -817,11 +929,14 @@ test('время позже «сейчас», заданное руками, —
 
 ```ts
 test('правка времени оплаты (§2.3): поле показывает время операции; без смены времени секунды не трогаются; время руками — ЧЧ:ММ:00', async ({ page }) => {
+  // в первые минуты суток время операции и «00:00» могут совпасть до минуты — PATCH был бы пустым
+  const almatyHm = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Almaty', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
+  test.skip(almatyHm < '00:03', 'в первые минуты суток «00:00» совпадает со временем операции');
   await login(page);
   const cid = await createCompany(page, `ТОО Время правка ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
   const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
-  const paidAt = todayAgo(500);
+  const paidAt = todayAgo(100);
   const id = (await apiPost(page, `${base}/operations`, { type: 'expense', paidAt, accountId: cash, amount: 10000, comment: 'время' })).operation.id;
   await page.reload();
   const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date());
@@ -859,7 +974,7 @@ test('правка времени оплаты (§2.3): поле показыв�
 
 - [ ] **Step 7: Full check and commit**
 
-Run: `npm test` → PASS. Run: `npm run typecheck`. Проверьте, что в `e2e/operation-form.spec.ts` нет невидимых символов: `grep -nP "[\x{200B}\x{00A0}\x{202F}]" e2e/operation-form.spec.ts` → пусто. Run: `npm run test:e2e` дважды → все проходят оба раза.
+Run: `npm test` → PASS. Run: `npm run typecheck`. Проверьте, что в `e2e/operation-form.spec.ts` нет невидимых символов: `LC_ALL=C.UTF-8 grep -nP "[\x{200B}\x{00A0}\x{202F}]" e2e/operation-form.spec.ts` → пусто. Run: `npm run test:e2e` дважды → все проходят оба раза.
 
 ```bash
 git add src/client/lib/use-now.ts tests/client/use-now.test.ts src/client/components/icons.tsx src/client/components/operation/DateTimeField.tsx src/client/components/operation/OperationForm.tsx e2e/operation-form.spec.ts e2e/operation-edit.spec.ts
@@ -881,7 +996,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Produces:
   - `salaryRowText(categoryName: string, accrualDate: string | null, paidDate: string): { text: string; muted: boolean }`, `firstOfMonth(year: number, month: number): string` (`lib/operation-form.ts`);
   - `salaryCategory(tree: CategoryTree, categoryId: number | null): CategoryNode | undefined` (`lib/operation-options.ts`);
-  - `SalaryRow(props: { text: string; muted: boolean; selectedMonth: string | null; activeMonth: string; onPick: (date: string) => void; onClear: () => void })` — кнопка с именем `text`, панель «Месяц начисления».
+  - `SalaryRow(props: { text: string; muted: boolean; selectedMonth: string | null; activeMonth: string; onPick: (date: string) => void; onClear: () => void; disabled?: boolean })` — кнопка с именем `text`, панель «Месяц начисления».
 
 - [ ] **Step 1: Write the failing unit tests**
 
@@ -1028,10 +1143,13 @@ export function SalaryRow(props: {
   activeMonth: string;
   onPick: (date: string) => void;
   onClear: () => void;
+  /** Только просмотр (архивная компания): строка видна, но не открывается. */
+  disabled?: boolean;
 }) {
   return (
     <div className="border-b border-field">
       <Popover
+        disabled={props.disabled}
         label={
           <>
             <span aria-hidden="true" className="grid size-6 shrink-0 place-items-center text-muted">
@@ -1103,6 +1221,30 @@ export function SalaryRow(props: {
 ```
 
 (остальная часть блока — `ActionRow` «Дата сделки отличается» и закрывающие скобки — без изменений; смена категории на несистемную возвращает строку 1, дата сделки остаётся в черновике — поле «Дата сделки».)
+
+4) в ветке только для чтения (архивная компания) строку
+
+```tsx
+              {!transfer && draft.accrualOn && accrualField}
+```
+
+замените на (у зарплаты видна строка «Зарплата за …», недоступная — решение 8)
+
+```tsx
+              {!transfer &&
+                (salary ? (
+                  <SalaryRow
+                    {...salaryRowText(salary.name, draft.accrualOn ? draft.accrualDate : null, draft.paidDate)}
+                    selectedMonth={draft.accrualOn ? draft.accrualDate.slice(0, 7) : null}
+                    activeMonth={(draft.accrualOn ? draft.accrualDate : draft.paidDate).slice(0, 7)}
+                    onPick={() => undefined}
+                    onClear={() => undefined}
+                    disabled
+                  />
+                ) : (
+                  draft.accrualOn && accrualField
+                ))}
+```
 
 Run: `npm run typecheck` → без ошибок.
 
@@ -1359,7 +1501,7 @@ export const CALC_HINT = 'Можно писать выражения: 1500+250*2
 
 3) в тип свойств после `  className?: string;` вставьте `  /** Иконка калькулятора в поле и подсказка про выражения (§6.10): у основной суммы формы. */` и `  calculator?: boolean;`;
 4) в ряду операторов у кнопки класс `"rounded-xl bg-field py-2 text-lg font-semibold"` замените на `"min-h-11 rounded-xl bg-field py-2 text-lg font-semibold"` (цель касания не меньше 44 px — отложенное 6a №1);
-5) в `return (` у `<Field` строку `      hint={props.hint}` замените на `      hint={props.hint ?? (props.calculator ? CALC_HINT : undefined)}`, а содержимое функции-ребёнка
+5) в `return (` у `<Field` строку `      hint={props.hint}` замените на `      hint={props.hint ?? (props.calculator && !props.disabled ? CALC_HINT : undefined)}`, а содержимое функции-ребёнка
 
 ```tsx
       {(c) => (
@@ -1376,7 +1518,8 @@ export const CALC_HINT = 'Можно писать выражения: 1500+250*2
             setCalcError(null);
           }}
           onBlur={evaluate}
-          className={`${floatingControlClass} font-semibold tabular-nums`}
+          // сумма — крупная, как раньше (text-lg): размер — отдельно от floatingControlBase
+          className={`${floatingControlBase} text-lg font-semibold tabular-nums`}
         />
       )}
 ```
@@ -1399,7 +1542,7 @@ export const CALC_HINT = 'Можно писать выражения: 1500+250*2
               setCalcError(null);
             }}
             onBlur={evaluate}
-            className={`${floatingControlClass} font-semibold tabular-nums ${props.calculator && !props.disabled ? 'pr-14' : ''}`}
+            className={`${floatingControlBase} text-lg font-semibold tabular-nums ${props.calculator && !props.disabled ? 'pr-14' : ''}`}
           />
           {props.calculator && !props.disabled && (
             <div className="absolute top-1/2 right-2 -translate-y-1/2">
@@ -1417,7 +1560,24 @@ export const CALC_HINT = 'Можно писать выражения: 1500+250*2
       )}
 ```
 
-В `src/client/components/operation/OperationForm.tsx` в `amountField` после строки `      hint={lockHint}` вставьте `      calculator`.
+В `src/client/components/operation/OperationForm.tsx` в `amountField` строки
+
+```tsx
+      refocusSignal={refocusAmount}
+      disabled={!!locked}
+      hint={lockHint}
+    />
+```
+
+замените на (в архивной компании калькулятора и подсказки нет — решение 8)
+
+```tsx
+      refocusSignal={refocusAmount}
+      disabled={!!locked}
+      hint={lockHint}
+      calculator={!readOnly}
+    />
+```
 
 Run: `npm run typecheck` → без ошибок.
 
