@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, formatDateRu, formatDateShortRu, formatDateTime, formatDateTimeSec, isValidDate, startOfDayUtc, todayInTimezone, zoneOffsetMs } from '../../src/shared/dates';
+import { addDays, formatDateRu, formatDateShortRu, formatDateTime, formatDateTimeField, formatDateTimeSec, isValidDate, parseTimeInput, timeOfDay, startOfDayUtc, todayInTimezone, zoneOffsetMs } from '../../src/shared/dates';
 
 describe('todayInTimezone', () => {
   it('возвращает календарную дату в указанном поясе', () => {
@@ -97,5 +97,45 @@ describe('formatDateShortRu', () => {
       '4 дек. 2026',
     ]);
     expect(formatDateShortRu('2026-10-31')).toBe('31 окт. 2026');
+  });
+});
+
+describe('formatDateTimeField — поле даты и времени формы (§2.3 этапа 1.5)', () => {
+  it('«Сегодня», «Вчера», иначе день недели с заглавной', () => {
+    expect(formatDateTimeField('2026-10-10', '15:58', '2026-10-10')).toBe('Сегодня, 10.10.2026, 15:58');
+    expect(formatDateTimeField('2026-10-09', '22:09', '2026-10-10')).toBe('Вчера, 09.10.2026, 22:09');
+    expect(formatDateTimeField('2026-10-04', '10:31', '2026-10-10')).toBe('Воскресенье, 04.10.2026, 10:31');
+    expect(formatDateTimeField('2026-10-05', '09:00', '2026-10-10')).toBe('Понедельник, 05.10.2026, 09:00');
+    expect(formatDateTimeField('2026-10-03', '00:05', '2026-10-10')).toBe('Суббота, 03.10.2026, 00:05');
+  });
+
+  it('«Вчера» через границу месяца и года (Review Focus 2)', () => {
+    expect(formatDateTimeField('2026-10-31', '23:59', '2026-11-01')).toBe('Вчера, 31.10.2026, 23:59');
+    expect(formatDateTimeField('2026-12-31', '12:00', '2027-01-01')).toBe('Вчера, 31.12.2026, 12:00');
+  });
+});
+
+describe('timeOfDay — время суток момента в поясе приложения', () => {
+  it('«ЧЧ:ММ» в 24-часовом формате; смещение — на дату момента (UTC+6 до 01.03.2024)', () => {
+    expect(timeOfDay('2026-10-10T10:58:00.000Z', 'Asia/Almaty')).toBe('15:58');
+    expect(timeOfDay('2026-10-09T19:05:30.000Z', 'Asia/Almaty')).toBe('00:05');
+    expect(timeOfDay('2024-01-15T04:30:00.000Z', 'Asia/Almaty')).toBe('10:30');
+    expect(timeOfDay('2026-10-10T10:58:00.000Z', 'UTC')).toBe('10:58');
+  });
+});
+
+describe('parseTimeInput — поле «Время» (§6.5 этапа 1.5)', () => {
+  it('принимает 9:05, 09:05, 0905, 905, 9.05 и пробелы по краям', () => {
+    expect(parseTimeInput('9:05')).toBe('09:05');
+    expect(parseTimeInput('09:05')).toBe('09:05');
+    expect(parseTimeInput('0905')).toBe('09:05');
+    expect(parseTimeInput('905')).toBe('09:05');
+    expect(parseTimeInput('9.05')).toBe('09:05');
+    expect(parseTimeInput(' 23:59 ')).toBe('23:59');
+    expect(parseTimeInput('0:00')).toBe('00:00');
+  });
+
+  it('неверное — null', () => {
+    for (const bad of ['', '9', '24:00', '12:60', '12:5', 'ab:cd', '12345', '-1:00', '12:00:00']) expect(parseTimeInput(bad), bad).toBeNull();
   });
 });

@@ -99,3 +99,39 @@ export function startOfDayUtc(date: string, timeZone: string): string {
   const first = wall - zoneOffsetMs(wall, timeZone);
   return new Date(wall - zoneOffsetMs(first, timeZone)).toISOString();
 }
+
+/** Дни недели с заглавной для поля даты формы (§2.3 этапа 1.5); индекс — getUTCDay(). */
+const WEEKDAY_NAMES = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+
+/**
+ * Значение поля даты и времени формы (§2.3 этапа 1.5): «Сегодня, 10.10.2026, 15:58», «Вчера, 09.10.2026, 22:09», иначе
+ * день недели с заглавной — «Воскресенье, 04.10.2026, 10:31». date и today — календарные даты в APP_TIMEZONE, time — «ЧЧ:ММ».
+ */
+export function formatDateTimeField(date: string, time: string, today: string): string {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const head = date === today ? 'Сегодня' : date === addDays(today, -1) ? 'Вчера' : WEEKDAY_NAMES[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]!;
+  return `${head}, ${formatDateRu(date)}, ${time}`;
+}
+
+/** Форматтеры времени суток по поясу. */
+const timeFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/** Время суток момента в поясе timeZone: «ЧЧ:ММ», 24 часа. */
+export function timeOfDay(iso: string, timeZone: string): string {
+  let fmt = timeFormatters.get(timeZone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+    timeFormatters.set(timeZone, fmt);
+  }
+  return fmt.format(new Date(iso));
+}
+
+/** Ввод времени (§6.5 этапа 1.5): «9:05», «09:05», «0905», «905», «9.05» → «09:05»; иначе null. */
+export function parseTimeInput(text: string): string | null {
+  const m = /^(\d{1,2})[:.]?(\d{2})$/.exec(text.trim());
+  if (!m) return null;
+  const hours = Number(m[1]);
+  const minutes = Number(m[2]);
+  if (hours > 23 || minutes > 59) return null;
+  return `${String(hours).padStart(2, '0')}:${m[2]}`;
+}
