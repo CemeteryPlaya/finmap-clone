@@ -902,3 +902,43 @@ test('калькулятор не вычисляет недописанное в
   await expect(amount).toHaveValue('5+');
   await expect(dialog).toBeVisible();
 });
+
+test('Tab через иконку калькулятора без открытия: поле вычисляется (8) или показывает ошибку; щелчок в поле при открытой панели не трогает значение', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Калькулятор3 ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+
+  const dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Касса');
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  const calc = dialog.getByRole('button', { name: 'Калькулятор' });
+  const panel = page.getByRole('dialog', { name: 'Калькулятор' });
+
+  await amount.click();
+  await page.keyboard.type('5+3');
+  await page.keyboard.press('Tab');
+  await expect(calc).toBeFocused();
+  await expect(amount).toHaveValue('5+3');
+  await page.keyboard.press('Tab');
+  await expect(panel).toBeHidden();
+  await expect(amount).toHaveValue('8');
+
+  await amount.fill('5+');
+  await amount.focus();
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  await expect(amount).toHaveAttribute('aria-invalid', 'true');
+  await expect(amount).toHaveValue('5+');
+
+  // щелчок в поле при открытой панели: панель закрывается, значение не переписывается под курсором
+  await amount.fill('2+3');
+  await calc.click();
+  await expect(panel).toBeVisible();
+  await amount.click();
+  await expect(panel).toBeHidden();
+  await expect(amount).toHaveValue('2+3');
+  await expect(amount).toBeFocused();
+  await amount.blur();
+  await expect(amount).toHaveValue('5');
+});

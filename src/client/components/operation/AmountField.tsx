@@ -41,6 +41,8 @@ export function AmountField(props: {
 }) {
   const ref = useRef<HTMLInputElement>(null);
   const calcBox = useRef<HTMLDivElement>(null);
+  /** Нажатие на иконку идёт: Safari не фокусирует кнопку, relatedTarget пуст — поле не вычисляется до открытия калькулятора. */
+  const openingCalc = useRef(false);
   const [calcError, setCalcError] = useState<string | null>(null);
   /** Куда поставить курсор после вставки оператора — сразу после отрисовки нового значения. */
   const caret = useRef<number | null>(null);
@@ -67,6 +69,13 @@ export function AmountField(props: {
     if (r.ok) props.onChange(amountInputText(r.minor, props.minorUnits));
     setCalcError(r.ok ? null : r.error);
   };
+
+  // свежий evaluate для отложенного вызова (закрытие панели)
+  const evaluateRef = useRef(evaluate);
+  evaluateRef.current = evaluate;
+
+  /** Узел — иконка калькулятора или его панель. */
+  const inCalc = (node: Element | null) => !!node && (!!calcBox.current?.contains(node) || !!node.closest('[data-popover-panel]'));
 
   const insert = (symbol: string) => {
     const input = ref.current;
@@ -125,15 +134,34 @@ export function AmountField(props: {
             }}
             onBlur={(e) => {
               // фокус ушёл на иконку калькулятора или в его панель: выражение не вычисляется, его доработает калькулятор
-              const to = e.relatedTarget as Element | null;
-              if (to && (calcBox.current?.contains(to) || to.closest('[data-popover-panel]'))) return;
+              if (openingCalc.current || inCalc(e.relatedTarget as Element | null)) return;
               evaluate();
             }}
             // сумма — крупная, как раньше (text-lg): размер — отдельно от floatingControlBase
             className={`${floatingControlBase} text-lg font-semibold tabular-nums ${props.calculator && !props.disabled ? 'pr-14' : ''}`}
           />
           {props.calculator && !props.disabled && (
-            <div ref={calcBox} className="absolute top-1/2 right-1.5 -translate-y-1/2">
+            <div
+              ref={calcBox}
+              className="absolute top-1/2 right-1.5 -translate-y-1/2"
+              onPointerDown={() => {
+                openingCalc.current = true;
+                requestAnimationFrame(() => (openingCalc.current = false));
+              }}
+              onMouseDown={() => {
+                openingCalc.current = true;
+                requestAnimationFrame(() => (openingCalc.current = false));
+              }}
+              onBlur={(e) => {
+                // фокус ушёл с иконки мимо поля и калькулятора при закрытой панели (Tab): поле вычисляется здесь,
+                // потому что панель не открывалась и onClose не придёт; blur внутри панели закроет она сама
+                if ((e.target as Element).closest('[data-popover-panel]')) return;
+                const to = e.relatedTarget as Element | null;
+                if (to === ref.current || inCalc(to)) return;
+                if (calcBox.current?.querySelector('[aria-expanded="true"]')) return;
+                evaluate();
+              }}
+            >
               <CalculatorPopover
                 value={props.value}
                 onChange={(text) => {
@@ -141,7 +169,12 @@ export function AmountField(props: {
                   setCalcError(null);
                 }}
                 onEquals={evaluate}
-                onClose={evaluate}
+                onClose={() => {
+                  // после щелчка в поле фокус переходит в него не сразу: решаем в следующем кадре; в поле — вычислит его уход
+                  requestAnimationFrame(() => {
+                    if (document.activeElement !== ref.current) evaluateRef.current();
+                  });
+                }}
               />
             </div>
           )}
