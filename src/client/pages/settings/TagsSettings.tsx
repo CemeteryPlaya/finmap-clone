@@ -1,214 +1,166 @@
 import { useMutation } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useOutletContext } from 'react-router';
 import { foldCase } from '../../../shared/search';
 import { cleanName } from '../../../shared/text';
-import { ConfirmDelete } from '../../components/ConfirmDelete';
+import { ArchivedNote, EntityActions } from '../../components/EntityActions';
 import { Field } from '../../components/Field';
+import { Modal } from '../../components/Modal';
 import { Pending, StaleNotice } from '../../components/QueryState';
-import { alertClass, btnPrimary, btnSecondary, btnSmall, inputClass, noticeClass } from '../../components/ui';
+import { SettingsList } from '../../components/SettingsList';
+import { alertClass, btnPrimary, btnSecondary, inputClass, noticeClass } from '../../components/ui';
 import { api, type ApiError } from '../../lib/api';
+import { mergeSubsetOrder } from '../../lib/order';
 import { queryClient } from '../../lib/query';
-import { useTags } from '../../lib/queries';
+import { useTags, type Tag } from '../../lib/queries';
+import { useEntityActions, useReorder } from '../../lib/settings-mutations';
 import type { CompanyOutletContext } from '../CompanyLayout';
-
-type Action = { path: string; method: 'POST' | 'DELETE' };
 
 /** То же сравнение, что у сервера (name_key): без учёта регистра, «ё» и невидимых символов. */
 const sameTag = (a: string, b: string) => foldCase(cleanName(a)) === foldCase(cleanName(b));
 
+/** Окно тега: 'new' — «Новый тег», тег — «Тег», null — закрыто. */
+type Editing = Tag | 'new' | null;
+
+/** «Теги» на шаблоне списка (§7.1, §7.4 этапа 1.5): создание и правка — в окне, порядок — за ☰. */
 export function TagsSettings() {
   const { company } = useOutletContext<CompanyOutletContext>();
   const tags = useTags(company.id);
-  const [name, setName] = useState('');
-  const [renamingId, setRenamingId] = useState<number | null>(null);
-  const [renameValue, setRenameValue] = useState('');
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [editing, setEditing] = useState<Editing>(null);
+  const [listError, setListError] = useState<string | null>(null);
   const readOnly = company.archivedAt !== null;
-  const base = `/companies/${company.id}/tags`;
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['tags', company.id] });
-
-  const create = useMutation<unknown, ApiError, string>({
-    mutationFn: (n) => api(base, { method: 'POST', body: { name: n } }),
-    onSuccess: async () => {
-      await invalidate();
-      setName('');
-    },
-  });
-  const rename = useMutation<unknown, ApiError, { id: number; name: string }>({
-    mutationFn: (v) => api(`${base}/${v.id}`, { method: 'PATCH', body: { name: v.name } }),
-    onSuccess: async () => {
-      await invalidate();
-      setRenamingId(null);
-    },
-  });
-  const action = useMutation<unknown, ApiError, Action>({
-    mutationFn: (a) => api(a.path, { method: a.method }),
-    onSuccess: async () => {
-      setDeletingId(null);
-      await invalidate();
-    },
-  });
-  const resetMessages = () => {
-    create.reset();
-    rename.reset();
-    action.reset();
-  };
+  const reorder = useReorder<Tag>(['tags', company.id], `/companies/${company.id}/tags/reorder`, setListError);
 
   if (!tags.data) return <Pending queries={[tags]} />;
   const list = tags.data;
-  // имя совпало с архивным тегом — предлагаем вернуть его вместо дубля (§4.4)
-  const archivedMatch = create.error?.code === 'ARCHIVED_DUPLICATE' ? list.find((t) => t.archivedAt && sameTag(t.name, name)) : undefined;
-  const error = action.error ?? (rename.error && !rename.error.fields ? rename.error : null);
 
   return (
     <section>
       <StaleNotice queries={[tags]} />
       <h1 className="mb-4 text-2xl font-bold">Теги</h1>
       {readOnly && <p className={noticeClass}>Компания в архиве — изменения недоступны.</p>}
-      {error && (
+      {listError && (
         <p role="alert" className={alertClass}>
-          {error.message}
+          {listError}
         </p>
       )}
-      {!readOnly && (
-        <form
-          noValidate
-          onSubmit={(e) => {
-            e.preventDefault();
-            resetMessages();
-            create.mutate(name);
-          }}
-          className="mb-4 flex flex-wrap items-end gap-2"
-        >
-          <Field label="Новый тег" error={archivedMatch ? undefined : create.error?.fields?.name} className="min-w-64 flex-1">
+      <SettingsList
+        label="Теги"
+        rows={list.map((t) => ({ id: t.id, name: t.name, archived: t.archivedAt !== null }))}
+        addLabel={readOnly ? null : 'Добавить тег'}
+        onAdd={() => setEditing('new')}
+        onReorder={
+          readOnly
+            ? undefined
+            : (group) =>
+                reorder.mutate(
+                  mergeSubsetOrder(
+                    list.map((t) => t.id),
+                    group,
+                  ),
+                )
+        }
+        onEdit={readOnly ? undefined : (row) => setEditing(list.find((t) => t.id === row.id) ?? null)}
+        empty="Тегов пока нет. Теги помогают отмечать операции поперёк категорий и проектов."
+      />
+      <Modal open={editing !== null} title={editing === 'new' ? 'Новый тег' : 'Тег'} onClose={() => setEditing(null)} className="max-w-lg">
+        {editing !== null && (
+          <TagEditor
+            key={editing === 'new' ? 'new' : editing.id}
+            companyId={company.id}
+            tag={editing === 'new' ? null : editing}
+            tags={list}
+            onDone={() => setEditing(null)}
+          />
+        )}
+      </Modal>
+    </section>
+  );
+}
+
+function TagEditor({ companyId, tag, tags, onDone }: { companyId: number; tag: Tag | null; tags: Tag[]; onDone: () => void }) {
+  const base = `/companies/${companyId}/tags`;
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['tags', companyId] });
+  const [name, setName] = useState(tag?.name ?? '');
+  const save = useMutation<unknown, ApiError>({
+    mutationFn: () => (tag ? api(`${base}/${tag.id}`, { method: 'PATCH', body: { name } }) : api(base, { method: 'POST', body: { name } })),
+    onSuccess: async () => {
+      await refresh();
+      onDone();
+    },
+  });
+  const restore = useMutation<unknown, ApiError, number>({
+    mutationFn: (id) => api(`${base}/${id}/unarchive`, { method: 'POST' }),
+    onSuccess: async () => {
+      await refresh();
+      onDone();
+    },
+  });
+  const actions = useEntityActions(tag ? `${base}/${tag.id}` : base, refresh, onDone);
+  // имя совпало с архивным тегом — предлагаем вернуть его вместо дубля (§4.4)
+  const archivedMatch = save.error?.code === 'ARCHIVED_DUPLICATE' ? tags.find((t) => t.archivedAt && sameTag(t.name, name)) : undefined;
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    save.mutate();
+  };
+
+  return (
+    <>
+      {tag?.archivedAt ? (
+        <ArchivedNote />
+      ) : (
+        <form noValidate onSubmit={submit} className="grid gap-4">
+          <Field label="Название тега" error={archivedMatch ? undefined : save.error?.fields?.name}>
             {(c) => (
               <input
                 {...c}
                 value={name}
                 onChange={(e) => {
                   setName(e.target.value);
-                  create.reset();
+                  save.reset();
                 }}
                 className={inputClass}
               />
             )}
           </Field>
-          <button type="submit" disabled={!name.trim() || create.isPending} className={btnPrimary}>
-            Добавить
-          </button>
+          {save.error && !save.error.fields && (
+            <p role="alert" className={`${alertClass} mb-0`}>
+              {save.error.message}
+            </p>
+          )}
+          {archivedMatch && (
+            <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl bg-field px-4 py-3 text-sm">
+              <span>Тег «{archivedMatch.name}» есть в архиве.</span>
+              <button type="button" disabled={restore.isPending} onClick={() => restore.mutate(archivedMatch.id)} className={btnPrimary}>
+                Вернуть из архива
+              </button>
+            </div>
+          )}
+          {restore.error && (
+            <p role="alert" className={`${alertClass} mb-0`}>
+              {restore.error.message}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button type="submit" disabled={save.isPending || !name.trim()} className={btnPrimary}>
+              Сохранить
+            </button>
+            <button type="button" onClick={onDone} className={btnSecondary}>
+              Отмена
+            </button>
+          </div>
         </form>
       )}
-      {archivedMatch && (
-        <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-field px-4 py-3 text-sm">
-          <span>Тег «{archivedMatch.name}» есть в архиве.</span>
-          <button
-            type="button"
-            className={btnPrimary}
-            onClick={() =>
-              action.mutate(
-                { path: `${base}/${archivedMatch.id}/unarchive`, method: 'POST' },
-                {
-                  onSuccess: () => {
-                    create.reset();
-                    setName('');
-                  },
-                },
-              )
-            }
-          >
-            Вернуть из архива
-          </button>
-        </div>
+      {tag && (
+        <EntityActions
+          archived={tag.archivedAt !== null}
+          onArchiveToggle={() => actions.toggleArchive(tag.archivedAt !== null)}
+          what={`тег «${tag.name}»`}
+          onDelete={actions.remove}
+          pending={actions.pending}
+          error={actions.error}
+        />
       )}
-      {list.length === 0 && <p className="text-muted">Тегов пока нет. Теги помогают отмечать операции поперёк категорий и проектов.</p>}
-      <ul className="space-y-2">
-        {list.map((t) => (
-          <li key={t.id} className={`rounded-2xl border border-field px-4 py-3 ${t.archivedAt ? 'opacity-60' : ''}`}>
-            {renamingId === t.id ? (
-              <form
-                noValidate
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  rename.mutate({ id: t.id, name: renameValue });
-                }}
-                className="flex flex-wrap items-start gap-2"
-              >
-                <Field label={`Новое название тега «${t.name}»`} error={rename.error?.fields?.name} className="min-w-64 flex-1">
-                  {(c) => <input {...c} autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)} className={inputClass} />}
-                </Field>
-                <div className="flex gap-2 md:mt-6">
-                  <button type="submit" disabled={!renameValue.trim() || rename.isPending} className={btnPrimary}>
-                    Сохранить
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRenamingId(null);
-                      rename.reset();
-                    }}
-                    className={btnSecondary}
-                  >
-                    Отмена
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <span className="font-semibold">
-                  {t.name}
-                  {t.archivedAt && <span className="ml-2 rounded-full bg-field px-2 py-0.5 text-xs font-normal text-muted">В архиве</span>}
-                </span>
-                {!readOnly &&
-                  (deletingId === t.id ? (
-                    <ConfirmDelete
-                      what={`тег «${t.name}»`}
-                      pending={action.isPending}
-                      onConfirm={() => action.mutate({ path: `${base}/${t.id}`, method: 'DELETE' })}
-                      onCancel={() => setDeletingId(null)}
-                    />
-                  ) : (
-                    <span className="flex flex-wrap gap-2">
-                      {!t.archivedAt && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            resetMessages();
-                            setRenameValue(t.name);
-                            setRenamingId(t.id);
-                          }}
-                          className={btnSmall}
-                        >
-                          Переименовать
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          resetMessages();
-                          action.mutate({ path: `${base}/${t.id}/${t.archivedAt ? 'unarchive' : 'archive'}`, method: 'POST' });
-                        }}
-                        className={btnSmall}
-                      >
-                        {t.archivedAt ? 'Вернуть из архива' : 'В архив'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          resetMessages();
-                          setDeletingId(t.id);
-                        }}
-                        className={btnSmall}
-                      >
-                        Удалить
-                      </button>
-                    </span>
-                  ))}
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
-    </section>
+    </>
   );
 }

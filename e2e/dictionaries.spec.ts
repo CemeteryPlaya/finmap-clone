@@ -18,6 +18,17 @@ async function createCompany(page: Page, name: string): Promise<number> {
 
 const section = (page: Page, name: string) => page.getByRole('navigation', { name: 'Разделы настроек' }).getByRole('link', { name });
 
+const csrf = (page: Page) => ({ origin: new URL(page.url()).origin, 'x-requested-with': 'fetch' });
+
+/** Запрос к API от имени вошедшего пользователя: кука сессии браузера и заголовки защиты от подделки. */
+async function apiPost(page: Page, url: string, data: unknown) {
+  const res = await page.request.post(url, { data, headers: csrf(page) });
+  expect(res.status(), await res.text()).toBeLessThan(300);
+  return res.json();
+}
+
+const minuteAgo = () => new Date(Date.now() - 60_000).toISOString();
+
 test('счета: создание в USD, архив только при нулевом остатке, удаление', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Счета ${Date.now()}`);
@@ -93,7 +104,7 @@ test('категории: вложение, «Перенести в…», пер
     .toBe(true);
 });
 
-test('контрагенты по вкладкам и поиск; тег с именем архивного предлагает вернуть его', async ({ page }) => {
+test('контрагенты по вкладкам и поиск', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Контрагенты ${Date.now()}`);
   await page.goto(`/c/${cid}/settings/counterparties`);
@@ -116,22 +127,6 @@ test('контрагенты по вкладкам и поиск; тег с им
   await page.getByLabel('Поиск').fill('петр'); // регистр и «ё» не важны
   await expect(panel.getByRole('listitem')).toHaveCount(1);
   await expect(panel).toContainText('Пётр Админов');
-
-  await section(page, 'Теги').click();
-  await page.getByLabel('Новый тег').fill('Ёлка');
-  await page.getByRole('button', { name: 'Добавить' }).click();
-  const tag = page.getByRole('listitem').filter({ hasText: 'Ёлка' });
-  await tag.getByRole('button', { name: 'В архив' }).click();
-  await expect(tag).toContainText('В архиве');
-
-  await page.getByLabel('Новый тег').fill('елка');
-  await page.getByRole('button', { name: 'Добавить' }).click();
-  const offer = page.getByRole('alert').filter({ hasText: 'есть в архиве' });
-  await expect(offer).toContainText('Тег «Ёлка» есть в архиве');
-  await offer.getByRole('button', { name: 'Вернуть из архива' }).click();
-  await expect(offer).toHaveCount(0);
-  await expect(page.getByRole('listitem')).toHaveCount(1);
-  await expect(tag.getByRole('button', { name: 'В архив' })).toBeVisible();
 });
 
 test('шаблон разделения: сохранить можно только при 100%', async ({ page }) => {
@@ -270,4 +265,154 @@ test('зона настроек: разделы по группам, без па
   await page.goto(`/c/${other}/settings/tags`);
   await nav.getByRole('link', { name: /Назад к журналу/ }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${other}/log$`));
+});
+
+test('шаблон списка на «Тегах»: добавить, ✎, архив и возврат, удалить через подтверждение, поиск; имя архивного тега предлагает вернуть его', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Теги ${Date.now()}`);
+  await page.goto(`/c/${cid}/settings/tags`);
+  const main = page.getByRole('main');
+  const list = main.getByRole('list', { name: 'Теги' });
+  const row = (name: string) => list.getByRole('listitem').filter({ hasText: name });
+  const add = main.getByRole('button', { name: 'Добавить тег' });
+  const dialog = page.getByRole('dialog', { name: 'Новый тег' });
+  const edit = page.getByRole('dialog', { name: 'Тег', exact: true });
+
+  // «Добавить тег» → окно «Новый тег», фокус в поле
+  for (const name of ['Ёлка', 'Аренда', 'Бар']) {
+    await add.click();
+    await expect(dialog.getByLabel('Название тега')).toBeFocused();
+    await dialog.getByLabel('Название тега').fill(name);
+    await dialog.getByRole('button', { name: 'Сохранить' }).click();
+    await expect(dialog).toBeHidden();
+    if (name === 'Ёлка') {
+      // единственная активная строка: двигать нечего — ни ручки, ни Alt+↑/↓ (Review Focus 5)
+      await expect(list.getByRole('listitem')).toHaveText([/Ёлка/]);
+      await expect(list.getByRole('button', { name: /^Переместить/ })).toHaveCount(0);
+    }
+  }
+  await expect(list.getByRole('listitem')).toHaveText([/Ёлка/, /Аренда/, /Бар/]);
+
+  // ✎ — окно «Тег»: переименование, фокус возвращается на ✎
+  await list.getByRole('button', { name: 'Изменить Аренда', exact: true }).click();
+  await edit.getByLabel('Название тега').fill('Аренда зала');
+  await edit.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(edit).toBeHidden();
+  await expect(list.getByRole('button', { name: 'Изменить Аренда зала', exact: true })).toBeFocused();
+
+  // «В архив» в окне: строка уходит в конец с пометкой «в архиве», ручки у неё нет
+  await list.getByRole('button', { name: 'Изменить Ёлка', exact: true }).click();
+  await edit.getByRole('button', { name: 'В архив' }).click();
+  await expect(edit).toBeHidden();
+  await expect(list.getByRole('listitem')).toHaveText([/Аренда зала/, /Бар/, /Ёлка.*в архиве/]);
+  await expect(row('Ёлка').getByRole('button', { name: /^Переместить/ })).toHaveCount(0);
+  // окно архивного: пояснение вместо формы
+  await list.getByRole('button', { name: 'Изменить Ёлка', exact: true }).click();
+  await expect(edit).toContainText('В архиве. Чтобы изменить, сначала верните из архива.');
+  await expect(edit.getByLabel('Название тега')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(edit).toBeHidden();
+
+  // имя архивного тега при создании — предложение вернуть его
+  await add.click();
+  await dialog.getByLabel('Название тега').fill('елка');
+  await dialog.getByRole('button', { name: 'Сохранить' }).click();
+  const offer = dialog.getByRole('alert').filter({ hasText: 'есть в архиве' });
+  await expect(offer).toContainText('Тег «Ёлка» есть в архиве');
+  await offer.getByRole('button', { name: 'Вернуть из архива' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(row('Ёлка')).not.toContainText('в архиве');
+
+  // «Удалить» — подтверждение «Отменить | Удалить»
+  await list.getByRole('button', { name: 'Изменить Бар', exact: true }).click();
+  await edit.getByRole('button', { name: 'Удалить' }).click();
+  const confirm = page.getByRole('alertdialog', { name: 'Удалить тег «Бар»?' });
+  await expect(confirm).toContainText('Это нельзя отменить.');
+  await expect(confirm.getByRole('button', { name: 'Отменить' })).toBeFocused();
+  await confirm.getByRole('button', { name: 'Отменить' }).click();
+  await expect(confirm).toBeHidden();
+  await expect(edit).toBeVisible();
+  await edit.getByRole('button', { name: 'Удалить' }).click();
+  await confirm.getByRole('button', { name: 'Удалить' }).click();
+  await expect(edit).toBeHidden();
+  await expect(row('Бар')).toHaveCount(0);
+  await expect(main.getByRole('heading', { level: 1, name: 'Теги' })).toBeFocused();
+
+  // поиск без учёта регистра и «ё»
+  const search = main.getByRole('searchbox', { name: 'Поиск' });
+  await search.fill('ЕЛ');
+  await expect(list.getByRole('listitem')).toHaveText([/Ёлка/]);
+  await search.fill('нет такого');
+  await expect(main).toContainText('Ничего не найдено.');
+});
+
+test('шаблон списка: порядок за ☰ мышью и Alt+↑/↓ с объявлением; отказ сервера; «Удалить» не прошло — ошибка в окне', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Порядок тегов ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const tagIds: number[] = [];
+  for (const name of ['Альфа', 'Бета', 'Гамма']) tagIds.push((await apiPost(page, `${base}/tags`, { name })).tag.id);
+  await page.goto(`/c/${cid}/settings/tags`);
+  const main = page.getByRole('main');
+  const list = main.getByRole('list', { name: 'Теги' });
+  const order = async () => ((await (await page.request.get(`${base}/tags`)).json()).tags as { name: string }[]).map((t) => t.name);
+
+  // клавиатура: Alt+↓ на ручке — строка ниже, фокус на ручке, новое место объявлено
+  const alpha = list.getByRole('button', { name: 'Переместить Альфа', exact: true });
+  await expect(alpha).toHaveAccessibleDescription(/Alt/);
+  await alpha.focus();
+  await page.keyboard.press('Alt+ArrowDown');
+  await expect(list.getByRole('listitem')).toHaveText([/Бета/, /Альфа/, /Гамма/]);
+  await expect(alpha).toBeFocused();
+  await expect(main).toContainText('«Альфа» — место 2 из 3');
+  await expect.poll(order).toEqual(['Бета', 'Альфа', 'Гамма']);
+  await page.keyboard.press('Alt+ArrowUp');
+  await expect.poll(order).toEqual(['Альфа', 'Бета', 'Гамма']);
+  // Alt+↑ на первой строке ничего не меняет (Review Focus 5)
+  await page.keyboard.press('Alt+ArrowUp');
+  await expect(list.getByRole('listitem')).toHaveText([/Альфа/, /Бета/, /Гамма/]);
+
+  // мышь: «Гамма» за ☰ — выше «Альфы»
+  const grip = (await list.getByRole('button', { name: 'Переместить Гамма', exact: true }).boundingBox())!;
+  const target = (await list.getByRole('listitem').filter({ hasText: 'Альфа' }).boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2, target.y + 4, { steps: 8 });
+  await page.mouse.up();
+  await expect(list.getByRole('listitem')).toHaveText([/Гамма/, /Альфа/, /Бета/]);
+  await expect.poll(order).toEqual(['Гамма', 'Альфа', 'Бета']);
+
+  // сервер отклонил порядок — список возвращается, над ним ошибка (Review Focus 2)
+  const reorderUrl = '**/api/v1/companies/*/tags/reorder';
+  await page.route(reorderUrl, (route) =>
+    route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'VERSION_CONFLICT', message: 'Список изменился — обновите страницу и повторите' } }),
+    }),
+  );
+  try {
+    await list.getByRole('button', { name: 'Переместить Гамма', exact: true }).focus();
+    await page.keyboard.press('Alt+ArrowDown');
+    await expect(main.getByRole('alert')).toHaveText('Список изменился — обновите страницу и повторите');
+    await expect(list.getByRole('listitem')).toHaveText([/Гамма/, /Альфа/, /Бета/]);
+  } finally {
+    await page.unroute(reorderUrl);
+  }
+
+  // при поиске ручек нет (Review Focus 5)
+  await main.getByRole('searchbox', { name: 'Поиск' }).fill('а');
+  await expect(list.getByRole('button', { name: /^Переместить/ })).toHaveCount(0);
+  await main.getByRole('searchbox', { name: 'Поиск' }).fill('');
+
+  // тег на операции не удаляется: подтверждение закрылось, ошибка — в окне, фокус на «Удалить» (Review Focus 3)
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minuteAgo(), accountId: cash, amount: 100, tagIds: [tagIds[0]] });
+  await list.getByRole('button', { name: 'Изменить Альфа', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: 'Тег', exact: true });
+  await edit.getByRole('button', { name: 'Удалить' }).click();
+  await page.getByRole('alertdialog', { name: 'Удалить тег «Альфа»?' }).getByRole('button', { name: 'Удалить' }).click();
+  await expect(page.getByRole('alertdialog')).toBeHidden();
+  await expect(edit.getByRole('alert')).toHaveText('Тег стоит на операциях — его можно только перевести в архив');
+  await expect(edit.getByRole('button', { name: 'Удалить' })).toBeFocused();
 });

@@ -111,11 +111,15 @@ test('история: события компании с именем польз
   await login(page);
   const cid = await createCompany(page, `ТОО История ${Date.now()}`);
   await page.goto(`/c/${cid}/settings/tags`);
-  await page.getByLabel('Новый тег').fill('Аренда');
-  await page.getByRole('button', { name: 'Добавить' }).click();
-  await page.getByRole('listitem').filter({ hasText: 'Аренда' }).getByRole('button', { name: 'Переименовать' }).click();
-  await page.getByLabel('Новое название тега «Аренда»').fill('Аренда зала');
-  await page.getByRole('button', { name: 'Сохранить' }).click();
+  await page.getByRole('button', { name: 'Добавить тег' }).click();
+  const created = page.getByRole('dialog', { name: 'Новый тег' });
+  await created.getByLabel('Название тега').fill('Аренда');
+  await created.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(created).toBeHidden();
+  await page.getByRole('button', { name: 'Изменить Аренда', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: 'Тег', exact: true });
+  await edit.getByLabel('Название тега').fill('Аренда зала');
+  await edit.getByRole('button', { name: 'Сохранить' }).click();
   await expect(page.getByRole('listitem').filter({ hasText: 'Аренда зала' })).toBeVisible();
 
   await page.getByRole('banner').getByRole('button', { name: 'История действий' }).click();
