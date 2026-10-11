@@ -29,38 +29,55 @@ async function apiPost(page: Page, url: string, data: unknown) {
 
 const minuteAgo = () => new Date(Date.now() - 60_000).toISOString();
 
-test('счета: создание в USD, архив только при нулевом остатке, удаление', async ({ page }) => {
+test('счета: «Добавление нового счёта» — валюта, название, стартовый баланс; архив только при нулевом остатке, ошибка — в окне; удаление через подтверждение', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Счета ${Date.now()}`);
   await page.getByRole('banner').getByRole('button', { name: 'Настройки', exact: true }).click();
   await page.getByRole('dialog').getByRole('link', { name: 'Настройки компании' }).click();
   await section(page, 'Счета').click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/accounts$`));
+  const main = page.getByRole('main');
 
-  await page.getByRole('button', { name: 'Добавить счёт' }).click();
-  await page.getByLabel('Название счёта').fill('Сейф');
-  await page.getByLabel('Валюта').selectOption('USD');
-  await page.getByLabel('Остаток на дату открытия').fill('1 500,505');
-  await page.getByRole('button', { name: 'Создать счёт' }).click();
-  await expect(page.getByText('Введите сумму, например 1 500,50')).toBeVisible();
-  await expect(page.getByLabel('Остаток на дату открытия')).toHaveAttribute('aria-invalid', 'true');
-  await page.getByLabel('Остаток на дату открытия').fill('1 500,50');
-  await page.getByRole('button', { name: 'Создать счёт' }).click();
+  await main.getByRole('button', { name: 'Добавить счёт' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Добавление нового счёта' });
+  // порядок полей как в Finmap: валюта, название, стартовый баланс; затем наши проект и дата открытия
+  await expect(dialog.locator('label')).toHaveText(['Валюта', 'Название счёта', 'Стартовый баланс', 'Проект', 'Дата открытия']);
+  await expect(dialog.getByLabel('Валюта')).toBeFocused();
+  await dialog.getByLabel('Валюта').selectOption('USD');
+  await dialog.getByLabel('Название счёта').fill('Сейф');
+  await dialog.getByLabel('Стартовый баланс').fill('1 500,505');
+  await dialog.getByRole('button', { name: 'Создать счёт' }).click();
+  await expect(dialog.getByText('Введите сумму, например 1 500,50')).toBeVisible();
+  await expect(dialog.getByLabel('Стартовый баланс')).toHaveAttribute('aria-invalid', 'true');
+  await dialog.getByLabel('Стартовый баланс').fill('1 500,50');
+  await dialog.getByRole('button', { name: 'Создать счёт' }).click();
+  await expect(dialog).toBeHidden();
 
-  const row = page.getByRole('listitem').filter({ hasText: 'Сейф' });
-  await expect(row).toContainText(/1\s500,50\s\$/);
-  await row.getByRole('button', { name: 'В архив' }).click();
-  await expect(page.getByRole('alert')).toHaveText('Счёт можно перевести в архив только при нулевом балансе');
+  const row = main.getByRole('listitem').filter({ hasText: 'Сейф' });
+  // серый текст — баланс со знаком валюты впереди
+  await expect(row).toContainText(/\$\s1\s500,50/);
+  const pencil = row.getByRole('button', { name: 'Изменить Сейф', exact: true });
+  const edit = page.getByRole('dialog', { name: 'Счёт', exact: true });
+  await pencil.click();
+  await edit.getByRole('button', { name: 'В архив' }).click();
+  // ошибка — в окне, окно открыто, форму можно поправить (Review Focus 4)
+  await expect(edit.getByRole('alert')).toHaveText('Счёт можно перевести в архив только при нулевом балансе');
+  await edit.getByLabel('Стартовый баланс').fill('0');
+  await edit.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(edit).toBeHidden();
+  await pencil.click();
+  await edit.getByRole('button', { name: 'В архив' }).click();
+  await expect(edit).toBeHidden();
+  await expect(row).toContainText('в архиве');
 
-  await row.getByRole('button', { name: 'Изменить' }).click();
-  await page.getByLabel('Остаток на дату открытия').fill('0');
-  await page.getByRole('button', { name: 'Сохранить' }).click();
-  await row.getByRole('button', { name: 'В архив' }).click();
-  await expect(row).toContainText('В архиве');
-
-  await row.getByRole('button', { name: 'Удалить' }).click();
-  await row.getByRole('button', { name: 'Да, удалить' }).click();
-  await expect(page.getByRole('listitem').filter({ hasText: 'Сейф' })).toHaveCount(0);
+  // архивный: вместо формы — пояснение; «Удалить» — через подтверждение
+  await pencil.click();
+  await expect(edit).toContainText('В архиве. Чтобы изменить, сначала верните из архива.');
+  await expect(edit.getByLabel('Название счёта')).toHaveCount(0);
+  await edit.getByRole('button', { name: 'Удалить' }).click();
+  await page.getByRole('alertdialog', { name: 'Удалить счёт «Сейф»?' }).getByRole('button', { name: 'Удалить' }).click();
+  await expect(edit).toBeHidden();
+  await expect(main.getByRole('listitem').filter({ hasText: 'Сейф' })).toHaveCount(0);
 });
 
 test('категории: вложение, «Перенести в…», переименование, перетаскивание; системные не переименовываются', async ({ page }) => {
@@ -199,7 +216,7 @@ test('шаблон разделения: сохранить можно толь�
   await expect(row).toContainText('Клуб 2 — 50%');
 });
 
-test('переименование проекта переименовывает его счета; ↑/↓ меняют порядок счетов', async ({ page }) => {
+test('переименование проекта переименовывает его счета; Alt+↓ меняет порядок счетов', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Переименование ${Date.now()}`);
   await page.goto(`/c/${cid}/settings/projects`);
@@ -219,11 +236,15 @@ test('переименование проекта переименовывает
   await expect(page.getByRole('status')).toHaveText('Переименовано счетов: 2');
 
   await section(page, 'Счета').click();
-  const group = page.getByRole('region', { name: 'Клуб Б' });
-  await expect(group.getByRole('listitem')).toHaveCount(2);
-  await expect(group.getByRole('listitem').first()).toContainText('Касса Клуб Б');
-  await group.getByRole('button', { name: 'Ниже: Касса Клуб Б' }).click();
-  await expect(group.getByRole('listitem').first()).toContainText('Kaspi Клуб Б');
+  const accounts = page.getByRole('main').getByRole('list', { name: 'Счета' });
+  // без групп по клубам: клуб — в сером тексте строки (§7.4)
+  await expect(accounts.getByRole('listitem')).toHaveText([/Касса Клуб Б\s*Клуб Б/, /Kaspi Клуб Б\s*Клуб Б/]);
+  await accounts.getByRole('button', { name: 'Переместить Касса Клуб Б', exact: true }).focus();
+  await page.keyboard.press('Alt+ArrowDown');
+  await expect(accounts.getByRole('listitem').first()).toContainText('Kaspi Клуб Б');
+  await expect
+    .poll(async () => ((await (await page.request.get(`/api/v1/companies/${cid}/accounts`)).json()).accounts as { name: string }[]).map((a) => a.name))
+    .toEqual(['Kaspi Клуб Б', 'Касса Клуб Б']);
 });
 
 test('зона настроек: разделы по группам, без панели счетов и вкладок; адреса и перенаправления; «← Назад к журналу» с фильтром', async ({ page }) => {

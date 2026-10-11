@@ -1,3 +1,4 @@
+import { formatMoney, MONEY_SCREEN_BEFORE } from '../../shared/money';
 import type { Account, Project } from './queries';
 
 export interface AccountGroup {
@@ -13,4 +14,11 @@ export function groupAccounts(accounts: Account[], projects: Project[]): Account
     { key: 'common', title: 'Общие', items: active.filter((a) => a.projectId === null) },
     ...projects.map((p) => ({ key: String(p.id), title: p.name, items: active.filter((a) => a.projectId === p.id) })),
   ].filter((g) => g.items.length > 0);
+}
+
+/** Серый текст строки раздела «Счета» (§7.4 этапа 1.5): «{Клуб} · ₸ 114 997»; у общего счёта — только баланс. */
+export function accountSecondary(account: Account, projects: Project[], balance: number | undefined): string {
+  const club = account.projectId === null ? null : (projects.find((p) => p.id === account.projectId)?.name ?? null);
+  const money = balance === undefined ? null : formatMoney(balance, account.currency, MONEY_SCREEN_BEFORE);
+  return [club, money].filter((s): s is string => s !== null).join(' · ');
 }

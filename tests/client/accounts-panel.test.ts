@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupAccounts } from '../../src/client/lib/accounts-panel';
+import { accountSecondary, groupAccounts } from '../../src/client/lib/accounts-panel';
 import type { Account, Project } from '../../src/client/lib/queries';
 
 const account = (id: number, projectId: number | null, archived = false): Account => ({
@@ -41,5 +41,15 @@ describe('groupAccounts', () => {
 
   it('нет активных счетов — нет групп', () => {
     expect(groupAccounts([account(1, null, true)], [])).toEqual([]);
+  });
+});
+
+describe('accountSecondary — серый текст строки раздела «Счета» (§7.4 этапа 1.5)', () => {
+  it('«{Клуб} · ₸ 114 997»; у общего счёта — только баланс; баланс ещё не загружен — только клуб', () => {
+    const projects = [project(10, 'Клуб 1')];
+    expect(accountSecondary(account(1, 10), projects, 11499700)).toBe('Клуб 1 · ₸\u00A0114\u202F997');
+    expect(accountSecondary(account(2, null), projects, -50050)).toBe('\u2212₸\u00A0500,50');
+    expect(accountSecondary(account(3, 10), projects, undefined)).toBe('Клуб 1');
+    expect(accountSecondary(account(4, null), projects, undefined)).toBe('');
   });
 });

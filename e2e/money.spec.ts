@@ -164,17 +164,17 @@ test('валюта счёта с операциями и базовая валю
   await apiPost(page, `${base}/operations`, { type: 'income', paidAt: minuteAgo(), accountId: kaspi, amount: 100 });
 
   await page.goto(`/c/${cid}/settings/accounts`);
-  // в режиме правки название — значение поля, а не текст строки: строку формы ищем по полю
-  const editRow = (accountName: string) => page.getByRole('listitem').filter({ has: page.locator(`input[value="${accountName}"]`) });
-  await page.getByRole('listitem').filter({ hasText: 'Kaspi' }).getByRole('button', { name: 'Изменить' }).click();
-  const row = editRow('Kaspi');
-  await expect(row.getByLabel('Валюта')).toBeDisabled();
-  await expect(row).toContainText('По счёту есть операции — валюту изменить нельзя');
-  await row.getByRole('button', { name: 'Отмена' }).click();
-  await page.getByRole('listitem').filter({ hasText: 'Пустой' }).getByRole('button', { name: 'Изменить' }).click();
-  const empty = editRow('Пустой');
-  await expect(empty.getByLabel('Валюта')).toBeEnabled();
-  await empty.getByRole('button', { name: 'Отмена' }).click();
+  const main = page.getByRole('main');
+  const edit = page.getByRole('dialog', { name: 'Счёт', exact: true });
+  await main.getByRole('button', { name: 'Изменить Kaspi', exact: true }).click();
+  await expect(edit.getByLabel('Валюта')).toBeDisabled();
+  await expect(edit).toContainText('По счёту есть операции — валюту изменить нельзя');
+  await edit.getByRole('button', { name: 'Отмена' }).click();
+  await expect(edit).toBeHidden();
+  await main.getByRole('button', { name: 'Изменить Пустой', exact: true }).click();
+  await expect(edit.getByLabel('Валюта')).toBeEnabled();
+  await edit.getByRole('button', { name: 'Отмена' }).click();
+  await expect(edit).toBeHidden();
 
   await page.goto(`/c/${cid}/settings/companies`);
   const locked = page.getByRole('listitem').filter({ has: page.locator(`input[value="${name}"]`) });

@@ -3,7 +3,7 @@ import { CURRENCIES, getCurrency } from '../../shared/currencies';
 import { formatAmount, parseAmount } from '../../shared/money';
 import type { Account, Project } from '../lib/queries';
 import { Field } from './Field';
-import { btnPrimary, btnSecondary, inputClass } from './ui';
+import { alertClass, btnPrimary, btnSecondary, inputClass } from './ui';
 
 export interface AccountFormValues {
   name: string;
@@ -14,6 +14,10 @@ export interface AccountFormValues {
   startingBalance: number;
 }
 
+/**
+ * Форма счёта в окне (§7.4 этапа 1.5): поля в порядке Finmap — «Валюта», «Название счёта», «Стартовый баланс»,
+ * затем наши «Проект» и «Дата открытия»; одна колонка. Начальный фокус ставит окно — на первое поле.
+ */
 export function AccountForm(props: {
   mode: 'create' | 'edit';
   initial?: Account;
@@ -54,15 +58,8 @@ export function AccountForm(props: {
   };
 
   return (
-    <form onSubmit={onSubmit} noValidate className="grid gap-4 rounded-2xl bg-canvas p-4 md:grid-cols-2">
-      <Field label="Название счёта" error={fields.name}>
-        {(c) => <input {...c} autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Kaspi Gold" className={inputClass} />}
-      </Field>
-      <Field
-        label="Валюта"
-        error={fields.currency}
-        hint={props.currencyLocked ? 'По счёту есть операции — валюту изменить нельзя' : undefined}
-      >
+    <form onSubmit={onSubmit} noValidate className="grid gap-4">
+      <Field label="Валюта" error={fields.currency} hint={props.currencyLocked ? 'По счёту есть операции — валюту изменить нельзя' : undefined}>
         {(c) => (
           <select {...c} value={currency} disabled={props.currencyLocked} onChange={(e) => setCurrency(e.target.value)} className={inputClass}>
             {CURRENCIES.map((x) => (
@@ -72,6 +69,12 @@ export function AccountForm(props: {
             ))}
           </select>
         )}
+      </Field>
+      <Field label="Название счёта" error={fields.name}>
+        {(c) => <input {...c} value={name} onChange={(e) => setName(e.target.value)} placeholder="Kaspi Gold" className={inputClass} />}
+      </Field>
+      <Field label="Стартовый баланс" hint="Остаток на дату открытия счёта" error={fields.startingBalance}>
+        {(c) => <input {...c} inputMode="decimal" value={balance} onChange={(e) => setBalance(e.target.value)} className={inputClass} />}
       </Field>
       <Field label="Проект" error={fields.projectId}>
         {(c) => (
@@ -93,15 +96,12 @@ export function AccountForm(props: {
       >
         {(c) => <input {...c} type="date" value={openedAt} onChange={(e) => setOpenedAt(e.target.value)} className={inputClass} />}
       </Field>
-      <Field label="Остаток на дату открытия" error={fields.startingBalance}>
-        {(c) => <input {...c} inputMode="decimal" value={balance} onChange={(e) => setBalance(e.target.value)} className={inputClass} />}
-      </Field>
       {props.serverError && (
-        <p role="alert" className="rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense-strong md:col-span-2">
+        <p role="alert" className={`${alertClass} mb-0`}>
           {props.serverError}
         </p>
       )}
-      <div className="flex gap-2 md:col-span-2">
+      <div className="flex flex-wrap gap-2">
         <button type="submit" disabled={props.pending || !name.trim()} className={btnPrimary}>
           {props.mode === 'create' ? 'Создать счёт' : 'Сохранить'}
         </button>
