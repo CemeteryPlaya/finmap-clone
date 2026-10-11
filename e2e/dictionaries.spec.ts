@@ -82,45 +82,86 @@ test('счета: «Добавление нового счёта» — валю�
   await expect(main.getByRole('listitem').filter({ hasText: 'Сейф' })).toHaveCount(0);
 });
 
-test('категории: вложение, «Перенести в…», переименование, перетаскивание; системные не переименовываются', async ({ page }) => {
+test('категории: подменю «Системные / Мои», «Добавить категорию», «+» подкатегория, окно «Категория» с «Перенести в…», поиск с родителем, порядок среди системных', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Категории ${Date.now()}`);
   await page.goto(`/c/${cid}/settings/categories`);
-  const expense = page.getByRole('region', { name: 'Расходы' });
-  const item = (name: string) => expense.getByRole('listitem', { name, exact: true });
+  const main = page.getByRole('main');
+  const kinds = main.getByRole('navigation', { name: 'Виды категорий' });
+  await expect(kinds.getByRole('link')).toHaveText(['Системные категории дохода', 'Системные категории расхода', 'Мои категории дохода', 'Мои категории расхода']);
+  await expect(kinds.getByRole('link', { name: 'Мои категории расхода' })).toHaveAttribute('aria-current', 'page');
+  const list = main.getByRole('list', { name: 'Мои категории расхода' });
+  const created = page.getByRole('dialog', { name: 'Новая категория' });
+  const sub = page.getByRole('dialog', { name: 'Новая подкатегория' });
+  const edit = page.getByRole('dialog', { name: 'Категория', exact: true });
 
-  await expense.getByLabel('Новая категория расходов').fill('Реклама');
-  await expense.getByRole('button', { name: 'Добавить' }).click();
-  await expect(item('Реклама')).toBeVisible();
-  await expense.getByLabel('Новая категория расходов').fill('Таргет');
-  await expense.getByLabel('Родитель').selectOption({ label: 'Реклама' });
-  await expense.getByRole('button', { name: 'Добавить' }).click();
-  await expect(item('Реклама').getByRole('listitem', { name: 'Таргет', exact: true })).toBeVisible();
+  // «Добавить категорию» → окно «Новая категория»
+  for (const name of ['Реклама', 'Аренда']) {
+    await main.getByRole('button', { name: 'Добавить категорию' }).click();
+    await created.getByLabel('Название').fill(name);
+    await created.getByRole('button', { name: 'Сохранить' }).click();
+    await expect(created).toBeHidden();
+  }
+  // «+» у строки → «Новая подкатегория», родитель указан
+  await list.getByRole('button', { name: 'Добавить подкатегорию в Реклама' }).click();
+  await expect(sub).toContainText('Родитель: Реклама');
+  await sub.getByLabel('Название').fill('Таргет');
+  await sub.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(sub).toBeHidden();
+  await expect(list.getByRole('listitem')).toHaveText([/Реклама/, /Таргет/, /Аренда/]);
 
-  // системная «Зарплата»: значок есть, переименовать нельзя
-  await expect(item('Зарплата')).toContainText('системная');
-  await expect(item('Зарплата').getByRole('button', { name: 'Переименовать' })).toHaveCount(0);
+  // ✎ — окно «Категория»: имя и «Перенести в…» на верхний уровень
+  await list.getByRole('button', { name: 'Изменить Таргет', exact: true }).click();
+  await expect(edit.getByLabel('Перенести в…').locator('option:checked')).toHaveText('Реклама');
+  await edit.getByLabel('Название').fill('Таргетинг');
+  await edit.getByLabel('Перенести в…').selectOption({ label: 'Верхний уровень' });
+  await edit.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(edit).toBeHidden();
+  await expect(list.getByRole('listitem')).toHaveText([/Реклама/, /Аренда/, /Таргетинг/]);
 
-  // «Таргет» — на верхний уровень через «Перенести в…»
-  await expense.getByLabel('Перенести «Таргет»').selectOption('top');
-  await expect(item('Реклама').getByRole('listitem', { name: 'Таргет', exact: true })).toHaveCount(0);
-  await expect(item('Таргет')).toBeVisible();
+  // категория с дочерними: переносить некуда (Review Focus 2)
+  await list.getByRole('button', { name: 'Добавить подкатегорию в Аренда' }).click();
+  await sub.getByLabel('Название').fill('Зал');
+  await sub.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(sub).toBeHidden();
+  await list.getByRole('button', { name: 'Изменить Аренда', exact: true }).click();
+  await expect(edit.getByLabel('Перенести в…')).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(edit).toBeHidden();
 
-  await item('Таргет').getByRole('button', { name: 'Переименовать' }).click();
-  await expense.getByLabel('Новое название категории «Таргет»').fill('Таргетинг');
-  await expense.getByRole('button', { name: 'Сохранить' }).click();
-  await expect(item('Таргетинг')).toBeVisible();
+  // поиск: найденная подкатегория — вместе с родителем
+  const search = main.getByRole('searchbox', { name: 'Поиск' });
+  await search.fill('ЗАЛ');
+  await expect(list.getByRole('listitem')).toHaveText([/Аренда/, /Зал/]);
+  await search.fill('');
 
-  // перетаскивание: «Таргетинг» встаёт перед «Зарплатой»
-  // тянем за ручку ⠿ (левый верхний угол строки): в центре строки может оказаться выпадающий список «Перенести в…»
-  await item('Таргетинг').locator(':scope > div').dragTo(item('Зарплата').locator(':scope > div'), { sourcePosition: { x: 16, y: 20 } });
-  await expect
-    .poll(async () => {
-      const tree = (await (await page.request.get(`/api/v1/companies/${cid}/categories`)).json()) as { expense: { name: string }[] };
-      const names = tree.expense.map((n) => n.name);
-      return names.indexOf('Таргетинг') === names.indexOf('Зарплата') - 1;
-    })
-    .toBe(true);
+  // порядок своих среди системных: системные остаются на своих местах (Review Focus 1)
+  const topExpense = async () => ((await (await page.request.get(`/api/v1/companies/${cid}/categories`)).json()).expense as { name: string }[]).map((c) => c.name);
+  const own = ['Реклама', 'Аренда', 'Таргетинг'];
+  const before = await topExpense();
+  await list.getByRole('button', { name: 'Переместить Таргетинг', exact: true }).focus();
+  await page.keyboard.press('Alt+ArrowUp');
+  await expect(list.getByRole('listitem')).toHaveText([/Реклама/, /Таргетинг/, /Аренда/, /Зал/]);
+  const order = ['Реклама', 'Таргетинг', 'Аренда'];
+  await expect.poll(topExpense).toEqual(before.map((name) => (own.includes(name) ? order[own.indexOf(name)]! : name)));
+
+  // системные: вместо ✎ — «банк» с подсказкой, «+» есть, «Добавить категорию» нет
+  await kinds.getByRole('link', { name: 'Системные категории расхода' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/categories\\?tab=system-expense$`));
+  const system = main.getByRole('list', { name: 'Системные категории расхода' });
+  const salary = system.getByRole('listitem').filter({ hasText: 'Зарплата' });
+  await expect(salary.getByRole('img', { name: 'Системная — не переименовывается и не удаляется' })).toBeVisible();
+  await expect(salary.getByRole('button', { name: /^Изменить/ })).toHaveCount(0);
+  await expect(main.getByRole('button', { name: 'Добавить категорию' })).toHaveCount(0);
+  await salary.getByRole('button', { name: 'Добавить подкатегорию в Зарплата' }).click();
+  await sub.getByLabel('Название').fill('Администраторы');
+  await sub.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(sub).toBeHidden();
+  await expect(system.getByRole('button', { name: 'Изменить Администраторы', exact: true })).toBeVisible();
+
+  // неверная вкладка в адресе — «Мои категории расхода»
+  await page.goto(`/c/${cid}/settings/categories?tab=nope`);
+  await expect(kinds.getByRole('link', { name: 'Мои категории расхода' })).toHaveAttribute('aria-current', 'page');
 });
 
 test('контрагенты: подменю типов в порядке Finmap, «Мои контрагенты» по умолчанию, окно с типом, поиск, порядок в своей вкладке', async ({ page }) => {
