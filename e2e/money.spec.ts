@@ -179,11 +179,15 @@ test('валюта счёта с операциями и базовая валю
   await expect(edit).toBeHidden();
 
   await page.goto(`/c/${cid}/settings/companies`);
-  const locked = page.getByRole('listitem').filter({ has: page.locator(`input[value="${name}"]`) });
-  await expect(locked.getByLabel('Базовая валюта')).toBeDisabled();
-  await expect(locked).toContainText('В компании есть операции или фиксированные курсы — базовую валюту изменить нельзя');
-  const free = page.getByRole('listitem').filter({ has: page.locator(`input[value="${freeName}"]`) });
-  await expect(free.getByLabel('Базовая валюта')).toBeEnabled();
+  const company = page.getByRole('dialog', { name: 'Компания', exact: true });
+  await page.getByRole('button', { name: `Изменить компанию «${name}»` }).click();
+  await expect(company.getByLabel('Базовая валюта')).toBeDisabled();
+  await expect(company).toContainText('В компании есть операции или фиксированные курсы — базовую валюту изменить нельзя');
+  await company.getByRole('button', { name: 'Отмена' }).click();
+  await expect(company).toBeHidden();
+  await page.getByRole('button', { name: `Изменить компанию «${freeName}»` }).click();
+  await expect(company.getByLabel('Базовая валюта')).toBeEnabled();
+  await company.getByRole('button', { name: 'Отмена' }).click();
 });
 
 test('смена базовой валюты обновляет итог в левой панели', async ({ page }) => {
@@ -196,10 +200,13 @@ test('смена базовой валюты обновляет итог в ле
   const panel = page.getByRole('navigation', { name: 'Счета' });
   await expect(panel).toContainText(/Всего на счетах\s*₸\s1\s000(?![\s\d])/);
   await page.goto(`/c/${cid}/settings/companies`);
-  const row = page.getByRole('listitem').filter({ has: page.locator(`input[value="${name}"]`) });
-  await row.getByLabel('Базовая валюта').selectOption('USD');
-  await row.getByRole('button', { name: 'Сохранить' }).click();
-  await expect(row.getByRole('button', { name: 'Сохранить' })).toBeDisabled();
+  const card = page.getByRole('main').getByRole('listitem').filter({ hasText: name });
+  await card.getByRole('button', { name: `Изменить компанию «${name}»` }).click();
+  const dialog = page.getByRole('dialog', { name: 'Компания', exact: true });
+  await dialog.getByLabel('Базовая валюта').selectOption('USD');
+  await dialog.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(card).toContainText('USD');
   // курса USD в свежей базе нет: итог в тенге больше не показывается
   await page.getByRole('navigation', { name: 'Разделы настроек' }).getByRole('link', { name: /Назад к журналу/ }).click();
   await expect(panel).toContainText('курс USD недоступен');

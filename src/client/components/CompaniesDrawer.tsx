@@ -10,7 +10,7 @@ import { Drawer } from './Drawer';
 import { btnPrimary, inputClass } from './ui';
 
 /** Квадратный аватар с инициалами (свой цвет бренда, §1). display задаёт вызывающий: grid или hidden md:grid. */
-function Avatar({ name, className }: { name: string; className: string }) {
+export function CompanyAvatar({ name, className }: { name: string; className: string }) {
   return (
     <span aria-hidden="true" className={`shrink-0 place-items-center rounded-xl bg-income-soft font-bold text-income ${className}`}>
       {companyInitials(name)}
@@ -36,7 +36,7 @@ export function CompanyBlockButton({ current, companies }: { current: Company; c
         title={current.name}
         className="flex min-w-[10rem] max-w-xs items-center gap-3 rounded-xl px-2 py-1 text-left hover:bg-white/10 max-md:min-w-0"
       >
-        <Avatar name={current.name} className="hidden h-10 w-10 text-sm md:grid" />
+        <CompanyAvatar name={current.name} className="hidden h-10 w-10 text-sm md:grid" />
         <span className="min-w-0">
           <span className="block truncate font-semibold">{current.name}</span>
           <span className="block truncate text-xs text-white/60">Сменить компанию</span>
@@ -72,7 +72,7 @@ function CompaniesList(props: { current: Company; companies: Company[]; onDone: 
   const navigate = useNavigate();
   const location = useLocation();
   const [query, setQuery] = useState('');
-  const [editing, setEditing] = useState<Company | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
   // итоги — при открытии панели (она монтирует список заново): свежие, без запросов на каждой странице
   const summary = useCompaniesSummary(true);
   const totals = new Map((summary.data ?? []).map((s) => [s.id, s.total]));
@@ -128,7 +128,7 @@ function CompaniesList(props: { current: Company; companies: Company[]; onDone: 
                 onClick={() => choose(c)}
                 className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2 py-2 text-left"
               >
-                <Avatar name={c.name} className="grid h-10 w-10 text-sm" />
+                <CompanyAvatar name={c.name} className="grid h-10 w-10 text-sm" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-semibold">
                     {c.name}
@@ -156,7 +156,7 @@ function CompaniesList(props: { current: Company; companies: Company[]; onDone: 
                 type="button"
                 aria-label={`Изменить компанию «${c.name}»`}
                 title="Изменить"
-                onClick={() => setEditing(c)}
+                onClick={() => setEditingId(c.id)}
                 className="mr-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-card hover:text-ink"
               >
                 <span aria-hidden="true">✎</span>
@@ -171,7 +171,7 @@ function CompaniesList(props: { current: Company; companies: Company[]; onDone: 
           to="/companies/new"
           onClick={(e) => {
             if (isPlainLeftClick(e)) props.onDone(true, '/companies/new');
-          }} 
+          }}
           className={`${btnPrimary} block text-center`}
         >
           Добавить компанию
@@ -187,7 +187,11 @@ function CompaniesList(props: { current: Company; companies: Company[]; onDone: 
         </Link>
       </div>
       {/* окно поверх панели — вложенный <dialog>: его Esc и close панель не закрывают (Drawer проверяет target) */}
-      <CompanyEditDialog company={editing} onClose={() => setEditing(null)} />
+      <CompanyEditDialog
+        company={props.companies.find((c) => c.id === editingId) ?? null}
+        currentId={props.current.id}
+        onClose={() => setEditingId(null)}
+      />
     </div>
   );
 }

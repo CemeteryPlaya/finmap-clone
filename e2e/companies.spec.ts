@@ -143,16 +143,16 @@ test('проекты по шаблонам: клуб и общий', async ({ pa
   const after = (await (await page.request.get(`/api/v1/companies/${cid}/accounts`)).json()).accounts;
   expect(after).toHaveLength(2);
 
-  // переименование компании на экране «Компании»
+  // переименование компании на экране «Мои компании»: карточка только для чтения, ✎ — окно «Компания»
   await page.getByRole('navigation', { name: 'Разделы настроек' }).getByRole('link', { name: 'Мои компании' }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/companies$`));
   const renamed = `ТОО Клубы переим ${Date.now()}`;
-  const companyRow = page.getByRole('listitem').filter({ has: page.locator(`input[value="${companyName}"]`) });
-  await companyRow.getByLabel('Название').fill(renamed);
-  // локаторы Playwright разрешаются заново при каждом действии, а React обновил атрибут value —
-  // строку ищем уже по новому имени
-  const renamedRow = page.getByRole('listitem').filter({ has: page.locator(`input[value="${renamed}"]`) });
-  await renamedRow.getByRole('button', { name: 'Сохранить' }).click();
+  await page.getByRole('button', { name: `Изменить компанию «${companyName}»` }).click();
+  const dialog = page.getByRole('dialog', { name: 'Компания', exact: true });
+  await dialog.getByLabel('Название компании').fill(renamed);
+  await dialog.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('main').getByRole('listitem').filter({ hasText: renamed })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Сменить компанию' })).toContainText(renamed);
 });
 
@@ -167,4 +167,68 @@ test('истёкшая сессия уводит на вход', async ({ page }
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole('button', { name: 'Войти' })).toBeVisible();
   expect(cid).toBeGreaterThan(0);
+});
+
+test('«Мои компании»: карточки с балансом и валютой; ✎ — «В архив» и «Вернуть из архива»; архив открытой уводит к другой', async ({ page }) => {
+  await login(page);
+  const stamp = Date.now();
+  const keep = `ТОО Остаётся ${stamp}`;
+  const gone = `ТОО Уходит ${stamp}`;
+  const keepId = await createCompany(page, keep);
+  const goneId = await createCompany(page, gone);
+  const headers = { origin: new URL(page.url()).origin, 'x-requested-with': 'fetch' };
+  const res = await page.request.post(`/api/v1/companies/${keepId}/accounts`, {
+    data: { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 1026481000 },
+    headers,
+  });
+  expect(res.status()).toBe(201);
+
+  await page.goto(`/c/${keepId}/settings/companies`);
+  const main = page.getByRole('main');
+  await expect(main.getByRole('link', { name: 'Добавить компанию' })).toHaveAttribute('href', '/companies/new');
+  const active = main.getByRole('list', { name: 'Компании', exact: true });
+  const card = active.getByRole('listitem').filter({ hasText: keep });
+  await expect(card).toContainText(/Баланс на счетах\s*₸\s10\s264\s810/);
+  await expect(card).toContainText('KZT');
+
+  // ✎ другой компании → «В архив»: карточка уходит в блок «В архиве»
+  const dialog = page.getByRole('dialog', { name: 'Компания', exact: true });
+  await active.getByRole('button', { name: `Изменить компанию «${gone}»` }).click();
+  await dialog.getByRole('button', { name: 'В архив' }).click();
+  await expect(dialog).toBeHidden();
+  const archived = main.getByRole('list', { name: 'Компании в архиве' });
+  await expect(archived.getByRole('listitem').filter({ hasText: gone })).toBeVisible();
+  // архивная: поля только для чтения, «Вернуть из архива»
+  await archived.getByRole('button', { name: `Изменить компанию «${gone}»` }).click();
+  await expect(dialog.getByLabel('Название компании')).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Вернуть из архива' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(active.getByRole('listitem').filter({ hasText: gone })).toBeVisible();
+
+  // архив открытой компании из панели «Компании» — переход к первой активной (Review Focus 5)
+  await page.goto(`/c/${goneId}/log`);
+  await page.getByRole('banner').getByRole('button', { name: /Сменить компанию/ }).click();
+  await page.getByRole('dialog', { name: 'Компании' }).getByRole('button', { name: `Изменить компанию «${gone}»` }).click();
+  await dialog.getByRole('button', { name: 'В архив' }).click();
+  await expect(page).toHaveURL(/\/c\/\d+\/log$/);
+  await expect(page).not.toHaveURL(new RegExp(`/c/${goneId}/`));
+});
+
+test('«Мои компании»: «В архив» компании с активными счетами отклонён — ошибка в окне, окно открыто', async ({ page }) => {
+  await login(page);
+  const name = `ТОО Со счётом ${Date.now()}`;
+  const cid = await createCompany(page, name);
+  const headers = { origin: new URL(page.url()).origin, 'x-requested-with': 'fetch' };
+  const res = await page.request.post(`/api/v1/companies/${cid}/accounts`, {
+    data: { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' },
+    headers,
+  });
+  expect(res.status()).toBe(201);
+  await page.goto(`/c/${cid}/settings/companies`);
+  await page.getByRole('button', { name: `Изменить компанию «${name}»` }).click();
+  const dialog = page.getByRole('dialog', { name: 'Компания', exact: true });
+  await dialog.getByRole('button', { name: 'В архив' }).click();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await expect(dialog).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/companies$`));
 });
