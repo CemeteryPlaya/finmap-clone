@@ -3,10 +3,12 @@ import {
   buildBody,
   changeType,
   emptyDraft,
+  firstOfMonth,
   initialFocusField,
   FIELD_LABELS,
   operationTitle,
   paidAtFor,
+  salaryRowText,
   shownPaidTime,
   similarDraft,
   submitLabel,
@@ -280,5 +282,19 @@ describe('время оплаты (§2.3 этапа 1.5)', () => {
     expect(similarDraft(manual)).toMatchObject({ paidDate: '2026-10-06', paidTime: '22:09', paidTimeSet: true, amount: '' });
     const fromEdit = draft({ amount: '5', paidDate: '2026-10-06', paidTime: '18:15', paidTimeSet: false });
     expect(similarDraft(fromEdit)).toMatchObject({ paidDate: '2026-10-06', paidTime: '', paidTimeSet: false });
+  });
+});
+
+describe('«Зарплата за {месяц}» (§6.7 строка 1а этапа 1.5)', () => {
+  it('без даты сделки — месяц даты оплаты, приглушённо; с ней — её месяц', () => {
+    expect(salaryRowText('Зарплата', null, '2026-10-04')).toEqual({ text: 'Зарплата за октябрь', muted: true });
+    expect(salaryRowText('Зарплата', '2026-09-01', '2026-10-04')).toEqual({ text: 'Зарплата за сентябрь', muted: false });
+    expect(salaryRowText('Администраторы', '2026-05-01', '2026-10-04')).toEqual({ text: 'Администраторы за май', muted: false });
+  });
+
+  it('другой год — с годом; дата сделки — первое число месяца (Review Focus 4)', () => {
+    expect(salaryRowText('Зарплата', '2025-12-01', '2026-01-05')).toEqual({ text: 'Зарплата за декабрь 2025', muted: false });
+    expect(firstOfMonth(2025, 12)).toBe('2025-12-01');
+    expect(firstOfMonth(2026, 1)).toBe('2026-01-01');
   });
 });

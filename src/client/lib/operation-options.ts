@@ -58,6 +58,12 @@ export function findCategory(tree: CategoryTree, id: number | null): CategoryNod
   return undefined;
 }
 
+/** Категория зарплаты (эффективный systemKey = salary): у неё вместо «Дата сделки отличается» — «{Категория} за {месяц}». */
+export function salaryCategory(tree: CategoryTree, categoryId: number | null): CategoryNode | undefined {
+  const node = findCategory(tree, categoryId);
+  return node?.effectiveSystemKey === 'salary' ? node : undefined;
+}
+
 /** Тип контрагента, который подходит категории с эффективным systemKey (§4.4): «Зарплата» → сотрудник. */
 export function preferredCounterpartyType(tree: CategoryTree, categoryId: number | null): CounterpartyType | null {
   const key = findCategory(tree, categoryId)?.effectiveSystemKey;

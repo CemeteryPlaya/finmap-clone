@@ -20,13 +20,14 @@ import {
   FIELD_LABELS,
   operationTitle,
   positiveAmount,
+  salaryRowText,
   shownPaidTime,
   similarDraft,
   submitLabel,
   transferRateText,
   type OperationDraft,
 } from '../../lib/operation-form';
-import { accountOptions, categoryOptions, counterpartyLabel, counterpartyOptions, preferredCounterpartyType, projectOptions, tagOptions } from '../../lib/operation-options';
+import { accountOptions, categoryOptions, counterpartyLabel, counterpartyOptions, preferredCounterpartyType, projectOptions, salaryCategory, tagOptions } from '../../lib/operation-options';
 import { SKIP_CLOSE_CONFIRM_PREF, skipCloseConfirm } from '../../lib/preferences';
 import {
   savePreference,
@@ -72,6 +73,7 @@ import { ComboSelect } from './ComboSelect';
 import { DateTimeField } from './DateTimeField';
 import type { OperationFormRequest } from './OperationFormHost';
 import { RateFix, type MissingRate } from './RateFix';
+import { SalaryRow } from './SalaryRow';
 import { SplitEditor } from './SplitEditor';
 
 export interface FormData {
@@ -312,6 +314,8 @@ function OperationEditor(p: {
   const amountMinor = amountParsed.ok ? amountParsed.minor : null;
   // подходящий тип контрагента — по категории операции или первой строки разбиения
   const mainCategory = draft.split ? (draft.split.lines[0]?.categoryId ?? null) : draft.categoryId;
+  // зарплата (эффективный systemKey = salary): вместо «Дата сделки отличается» — «{Категория} за {месяц}» (§6.7, строка 1а)
+  const salary = salaryCategory(p.data.categories, mainCategory);
   // операция на архивном счёте: сумма, дата оплаты и счета заблокированы, удалить нельзя (инвариант 7)
   const locked = op ? archivedAccountOf(op, accounts) : null;
   const lockHint = locked ? LOCKED_HINT : undefined;
@@ -653,7 +657,16 @@ function OperationEditor(p: {
   const rows = (
     <div>
       {!transfer &&
-        (draft.accrualOn ? (
+        (salary ? (
+          <SalaryRow
+            {...salaryRowText(salary.name, draft.accrualOn ? draft.accrualDate : null, draft.paidDate)}
+            selectedMonth={draft.accrualOn ? draft.accrualDate.slice(0, 7) : null}
+            activeMonth={(draft.accrualOn ? draft.accrualDate : draft.paidDate).slice(0, 7)}
+            onPick={(accrualDate) => set({ accrualOn: true, accrualDate }, 'accrualDate')}
+            // дата сделки возвращается к исходной: иначе «Как дата оплаты» оставила бы форму «грязной» с невидимой датой
+            onClear={() => set({ accrualOn: false, accrualDate: initial.accrualDate }, 'accrualDate')}
+          />
+        ) : draft.accrualOn ? (
           accrualField
         ) : (
           <ActionRow
@@ -780,7 +793,19 @@ function OperationEditor(p: {
           {readOnly ? (
             // архивная компания: только поля, без строк-действий (§6.7)
             <>
-              {!transfer && draft.accrualOn && accrualField}
+              {!transfer &&
+                (salary ? (
+                  <SalaryRow
+                    {...salaryRowText(salary.name, draft.accrualOn ? draft.accrualDate : null, draft.paidDate)}
+                    selectedMonth={draft.accrualOn ? draft.accrualDate.slice(0, 7) : null}
+                    activeMonth={(draft.accrualOn ? draft.accrualDate : draft.paidDate).slice(0, 7)}
+                    onPick={() => undefined}
+                    onClear={() => undefined}
+                    disabled
+                  />
+                ) : (
+                  draft.accrualOn && accrualField
+                ))}
               {moreBlock}
             </>
           ) : (

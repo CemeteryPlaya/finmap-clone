@@ -307,3 +307,22 @@ export function shownPaidTime(
   if (draft.paidDate === originalDate) return draft.paidTime;
   return draft.paidDate === today && draft.paidTime > nowTime ? nowTime : draft.paidTime;
 }
+
+/** Месяцы строки «{Категория} за {месяц}»: именительный падеж со строчной (§6.7 строка 1а этапа 1.5). */
+const MONTHS_LOWER = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+
+/**
+ * Строка «Зарплата за сентябрь» (§6.7 строка 1а этапа 1.5): месяц — из даты сделки, а если её нет — из даты оплаты
+ * (тогда текст приглушён). Год пишется, если он не совпадает с годом даты оплаты: «Зарплата за декабрь 2025».
+ */
+export function salaryRowText(categoryName: string, accrualDate: string | null, paidDate: string): { text: string; muted: boolean } {
+  const source = accrualDate ?? paidDate;
+  const month = Number(source.slice(5, 7));
+  const year = source.slice(0, 4) === paidDate.slice(0, 4) ? '' : ` ${source.slice(0, 4)}`;
+  return { text: `${categoryName} за ${MONTHS_LOWER[month - 1]}${year}`, muted: accrualDate === null };
+}
+
+/** Первое число месяца `YYYY-MM-01` — дата сделки при выборе месяца зарплаты (решение владельца 14.3 №4). */
+export function firstOfMonth(year: number, month: number): string {
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-01`;
+}

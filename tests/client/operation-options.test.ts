@@ -7,6 +7,7 @@ import {
   findCategory,
   preferredCounterpartyType,
   projectOptions,
+  salaryCategory,
   tagOptions,
 } from '../../src/client/lib/operation-options';
 import type { Account, CategoryNode, CategoryTree, Counterparty, Project, Tag } from '../../src/client/lib/queries';
@@ -78,6 +79,13 @@ describe('варианты списков формы операции', () => {
     expect(options.find((o) => o.label === 'Зарплата')).toEqual({ id: 10, label: 'Зарплата', badge: 'системная' });
     expect(options.find((o) => o.label === 'Зарплата → Администраторы')).toEqual({ id: 11, label: 'Зарплата → Администраторы' });
     expect(options.find((o) => o.label === 'Помещение')).toEqual({ id: 20, label: 'Помещение' });
+  });
+
+  it('категория зарплаты — по эффективному systemKey, в том числе дочерняя', () => {
+    expect(salaryCategory(tree, 10)?.name).toBe('Зарплата');
+    expect(salaryCategory(tree, 11)?.name).toBe('Администраторы');
+    expect(salaryCategory(tree, 21)).toBeUndefined();
+    expect(salaryCategory(tree, null)).toBeUndefined();
   });
 
   it('подпись поля контрагента — по системной категории (§6.4 этапа 1.5)', () => {

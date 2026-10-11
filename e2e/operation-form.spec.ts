@@ -763,3 +763,54 @@ test('время позже «сейчас», заданное руками, —
   await expect(dialog).toBeVisible();
   expect(posts).toBe(0);
 });
+
+test('«Зарплата за {месяц}»: месяц оплаты серым; выбор месяца — дата сделки первым числом; несистемная категория — поле «Дата сделки»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Зарплата за ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 1000000 });
+  await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда' });
+  await page.reload();
+  const MONTHS = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+  const CAP = MONTHS.map((m) => m[0]!.toUpperCase() + m.slice(1));
+  const [y, m] = almatyToday().split('-').map(Number) as [number, number];
+  // прошлый месяц; в январе — декабрь прошлого года (Review Focus 4)
+  const prev = m === 1 ? { y: y - 1, m: 12 } : { y, m: m - 1 };
+  const pad = (n: number) => String(n).padStart(2, '0');
+
+  const dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Касса');
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('8000');
+  await pick(page, 'Категория', 'Зарплата');
+  // без даты сделки — месяц даты оплаты; строки «Дата сделки отличается» нет
+  const current = dialog.getByRole('button', { name: `Зарплата за ${MONTHS[m - 1]}`, exact: true });
+  await expect(current).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Дата сделки отличается' })).toHaveCount(0);
+
+  // выбор прошлого месяца в панели: год «‹ ›», 12 месяцев
+  await current.click();
+  const months = page.getByRole('dialog', { name: 'Месяц начисления' });
+  if (prev.y !== y) await months.getByRole('button', { name: 'Предыдущий год' }).click();
+  await months.getByRole('button', { name: `${CAP[prev.m - 1]} ${prev.y}`, exact: true }).click();
+  await expect(months).toBeHidden();
+  const label = `Зарплата за ${MONTHS[prev.m - 1]}${prev.y !== y ? ` ${prev.y}` : ''}`;
+  await expect(dialog.getByRole('button', { name: label, exact: true })).toBeFocused();
+
+  // «Как дата оплаты» убирает дату сделки; снова прошлый месяц
+  await dialog.getByRole('button', { name: label, exact: true }).click();
+  await months.getByRole('button', { name: 'Как дата оплаты' }).click();
+  await expect(current).toBeVisible();
+  await current.click();
+  if (prev.y !== y) await months.getByRole('button', { name: 'Предыдущий год' }).click();
+  await months.getByRole('button', { name: `${CAP[prev.m - 1]} ${prev.y}`, exact: true }).click();
+
+  // несистемная категория — снова «Дата сделки», дата сделки сохранилась
+  await pick(page, 'Категория', 'Аренда');
+  await expect(dialog.getByRole('button', { name: /^Дата сделки:/ })).toHaveAccessibleName(`Дата сделки: 01.${pad(prev.m)}.${prev.y}`);
+  await pick(page, 'Категория', 'Зарплата');
+  await expect(dialog.getByRole('button', { name: label, exact: true })).toBeVisible();
+  const request = nextCreate(page);
+  await submit(dialog).click();
+  expect((await request).postDataJSON().accrualDate).toBe(`${prev.y}-${pad(prev.m)}-01`);
+  await expect(dialog).toBeHidden();
+});
