@@ -575,8 +575,14 @@ function OperationEditor(p: {
       error={errors.paidAt}
       hint={lockHint}
       disabled={!!locked}
-      onDateChange={(picked) => set({ paidDate: picked, paidDateSet: true }, 'paidAt')}
-      onTimeChange={(paidTime) => set({ paidTime, paidTimeSet: true }, 'paidAt')}
+      // «сегодня», выбранное в нетронутой дате, ничего не меняет: дата и так следует за «сегодня» (R5)
+      onDateChange={(picked) =>
+        !draft.paidDateSet && picked === clock.today
+          ? undefined
+          : set({ paidDate: picked, paidDateSet: true }, 'paidAt')
+      }
+      // время руками закрепляет и показанную дату — иначе после полуночи дата уйдёт на завтра, а время окажется в будущем
+      onTimeChange={(paidTime) => set({ paidTime, paidTimeSet: true, paidDate, paidDateSet: true }, 'paidAt')}
     />
   );
 
