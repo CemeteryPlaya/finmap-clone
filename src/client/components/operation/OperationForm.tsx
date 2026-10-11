@@ -6,8 +6,10 @@ import { todayInTimezone } from '../../../shared/dates';
 import { api, ApiError } from '../../lib/api';
 import { isFileDrag, uploadAttachment, uploadErrorText, useAttachments } from '../../lib/attachments';
 import type { OperationType } from '../../lib/journal-filter';
+import { dayOf } from '../../lib/journal-format';
 import { invalidateOperations } from '../../lib/journal-mutations';
 import { defaultAccounts, readLastAccounts, saveLastAccounts, withSaved } from '../../lib/last-account';
+import { useNow } from '../../lib/use-now';
 import { createFromForm, type CreatableKind } from '../../lib/operation-create';
 import { archivedAccountOf, draftFromOperation, duplicateDraft, patchBody, type Available, type OperationRecord } from '../../lib/operation-edit';
 import {
@@ -18,6 +20,7 @@ import {
   FIELD_LABELS,
   operationTitle,
   positiveAmount,
+  shownPaidTime,
   similarDraft,
   submitLabel,
   transferRateText,
@@ -59,7 +62,6 @@ import {
   btnPrimary,
   btnSecondary,
   btnTransfer,
-  floatingControlClass,
   floatingTextareaClass,
   noticeClass,
 } from '../ui';
@@ -67,6 +69,7 @@ import { ActionRow } from './ActionRow';
 import { AmountField } from './AmountField';
 import { AttachmentsField } from './AttachmentsField';
 import { ComboSelect } from './ComboSelect';
+import { DateTimeField } from './DateTimeField';
 import type { OperationFormRequest } from './OperationFormHost';
 import { RateFix, type MissingRate } from './RateFix';
 import { SplitEditor } from './SplitEditor';
@@ -189,6 +192,8 @@ function OperationEditor(p: {
   cancelRef: MutableRefObject<() => void>;
 }) {
   const today = todayInTimezone(p.timeZone);
+  // «живое» время новой операции: «сегодня» и «сейчас» из одного момента, обновляются раз в минуту (§2.3 этапа 1.5)
+  const clock = useNow(p.timeZone);
   // архивная компания — только просмотр: поля недоступны, строк-действий, кнопок сохранения и файлов нет
   const readOnly = p.company.archivedAt !== null;
   const accounts = new Map(p.data.accounts.map((a) => [a.id, a]));
@@ -549,21 +554,21 @@ function OperationEditor(p: {
     />
   );
 
-  // дата оплаты — пока календарная дата (`type="date"`); дату и время (`DateTimeField`) добавит план 1.5-3c
+  /** Дата и время оплаты (§2.3, §6.5 этапа 1.5): у перевода — первым полем, у дохода и расхода — после контрагента. */
   const paidDateField = (
-    <Field label={labels.paidDate} error={errors.paidAt} hint={lockHint} floating filled>
-      {(c) => (
-        <input
-          {...c}
-          type="date"
-          max={today}
-          disabled={!!locked}
-          value={draft.paidDate}
-          onChange={(e) => set({ paidDate: e.target.value }, 'paidAt')}
-          className={floatingControlClass}
-        />
-      )}
-    </Field>
+    <DateTimeField
+      label={labels.paidDate}
+      date={draft.paidDate}
+      // то время, которое сохранится (shownPaidTime): «сейчас», время операции или заданное руками
+      time={shownPaidTime(draft, clock.time, clock.today, op ? dayOf(op.paidAt, p.timeZone) : null)}
+      nowTime={clock.time}
+      today={clock.today}
+      error={errors.paidAt}
+      hint={lockHint}
+      disabled={!!locked}
+      onDateChange={(paidDate) => set({ paidDate }, 'paidAt')}
+      onTimeChange={(paidTime) => set({ paidTime, paidTimeSet: true }, 'paidAt')}
+    />
   );
 
   const amountField = (

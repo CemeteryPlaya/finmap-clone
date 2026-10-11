@@ -532,3 +532,46 @@ test('файл, который сервер не принял после соз�
   await expect(edit.getByRole('alert')).toContainText('Операция сохранена, но не загружено: «плохой.png»: Допустимые файлы');
   await expect(rows(page)).toHaveCount(1);
 });
+
+test('правка времени оплаты (§2.3): поле показывает время операции; без смены времени секунды не трогаются; время руками — ЧЧ:ММ:00', async ({ page }) => {
+  // в первые минуты суток время операции и «00:00» могут совпасть до минуты — PATCH был бы пустым
+  const almatyHm = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Almaty', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
+  test.skip(almatyHm < '00:03', 'в первые минуты суток «00:00» совпадает со временем операции');
+  await login(page);
+  const cid = await createCompany(page, `ТОО Время правка ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  const paidAt = todayAgo(100);
+  const id = (await apiPost(page, `${base}/operations`, { type: 'expense', paidAt, accountId: cash, amount: 10000, comment: 'время' })).operation.id;
+  await page.reload();
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date());
+  const hm = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Almaty', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(paidAt));
+
+  await rows(page).first().getByText('время').click();
+  const dialog = editForm(page);
+  const when = dialog.getByRole('button', { name: /^Указать дату списания:/ });
+  await expect(when).toHaveAccessibleName(`Указать дату списания: Сегодня, ${day.split('-').reverse().join('.')}, ${hm}`);
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  // правка без смены даты и времени — paidAt не уходит: секунды операции сохраняются (Review Focus 1)
+  await dialog.getByLabel('Комментарий').fill('время 2');
+  let patch = page.waitForRequest((r) => r.method() === 'PATCH');
+  await submit(dialog).click();
+  expect((await patch).postDataJSON()).toEqual({ version: 1, comment: 'время 2' });
+  await expect(dialog).toBeHidden();
+
+  // время руками — ЧЧ:ММ:00 (00:00 сегодня всегда не позже «сейчас»)
+  await rows(page).first().getByText('время 2').click();
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  await when.click();
+  const panel = page.getByRole('dialog', { name: 'Указать дату списания: календарь' });
+  await panel.getByLabel('Время').fill('00:00');
+  await panel.getByLabel('Время').press('Enter');
+  await expect(panel).toBeHidden();
+  const midnight = new Date(`${day}T00:00:00+05:00`).toISOString();
+  patch = page.waitForRequest((r) => r.method() === 'PATCH');
+  await submit(dialog).click();
+  expect((await patch).postDataJSON()).toEqual({ version: 2, paidAt: midnight });
+  await expect(dialog).toBeHidden();
+  const saved = (await (await page.request.get(`${base}/operations/${id}`)).json()).operation as { paidAt: string };
+  expect(saved.paidAt).toBe(midnight);
+});

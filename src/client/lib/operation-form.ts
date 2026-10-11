@@ -1,8 +1,9 @@
 import { evaluateAmount } from '../../shared/calc';
 import { getCurrency } from '../../shared/currencies';
-import { isValidDate, parseTimeInput, startOfDayUtc, todayInTimezone, zoneOffsetMs } from '../../shared/dates';
+import { isValidDate, parseTimeInput, startOfDayUtc, zoneOffsetMs } from '../../shared/dates';
 import { DEC_ONE, divDec, roundSignificant } from '../../shared/decimal';
 import type { OperationType } from './journal-filter';
+import { dayOf } from './journal-format';
 import { similarSplit, splitLines, splitResult, type SplitDraft } from './split';
 
 /**
@@ -198,8 +199,10 @@ export function buildBody(draft: OperationDraft, ctx: DraftContext): BuildResult
 
   // время, заданное руками (§2.3 этапа 1.5): «ЧЧ:ММ», не позже «сейчас»
   const time = draft.paidTimeSet ? parseTimeInput(draft.paidTime) : undefined;
+  // правка без смены даты: день операции может быть «позже» сегодняшнего по часам этого устройства — это не повод не сохранять
+  const dateUnchanged = ctx.originalPaidAt !== undefined && dayOf(ctx.originalPaidAt, ctx.timeZone) === draft.paidDate;
   if (!isValidDate(draft.paidDate)) errors.paidAt = 'Укажите дату оплаты';
-  else if (draft.paidDate > ctx.today) errors.paidAt = 'Дата оплаты в будущем — так нельзя';
+  else if (draft.paidDate > ctx.today && !dateUnchanged) errors.paidAt = 'Дата оплаты в будущем — так нельзя';
   else if (time === null) errors.paidAt = 'Укажите время в виде ЧЧ:ММ';
   else if (time !== undefined && Date.parse(paidAtFor(draft.paidDate, ctx.now, ctx.now, ctx.timeZone, time)) > ctx.now.getTime()) {
     errors.paidAt = 'Это время ещё не наступило';
@@ -211,10 +214,7 @@ export function buildBody(draft: OperationDraft, ctx: DraftContext): BuildResult
   if (comment.length > COMMENT_MAX) errors.comment = `Не длиннее ${COMMENT_MAX} символов`;
 
   // правка, дата та же, время не трогали — момент операции без изменений (секунды, без «не позже сейчас»)
-  const original =
-    !draft.paidTimeSet && ctx.originalPaidAt !== undefined && todayInTimezone(ctx.timeZone, new Date(ctx.originalPaidAt)) === draft.paidDate
-      ? ctx.originalPaidAt
-      : null;
+  const original = !draft.paidTimeSet && dateUnchanged ? (ctx.originalPaidAt ?? null) : null;
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   const transfer = draft.type === 'transfer';
   return {

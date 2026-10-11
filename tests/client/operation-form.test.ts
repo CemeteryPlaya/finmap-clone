@@ -250,6 +250,19 @@ describe('время оплаты (§2.3 этапа 1.5)', () => {
     });
   });
 
+  it('правка: дата операции «в будущем» из-за часов устройства не блокирует сохранение, если дату не меняли; перенос на будущий день — ошибка', () => {
+    const skewed = '2026-10-08T05:30:00.250Z'; // 08.10 по Алматы, а «сегодня» устройства — 07.10
+    const d = draft({ amount: '1', paidDate: '2026-10-08', paidTime: '10:30' });
+    expect(buildBody(d, { ...ctx, timeOfDayFrom: new Date(skewed), originalPaidAt: skewed })).toMatchObject({ ok: true, body: { paidAt: skewed } });
+    // новая операция и правка с переносом на будущий день — по-прежнему ошибка
+    expect(errors(d)).toEqual({ paidAt: 'Дата оплаты в будущем — так нельзя' });
+    const moved = draft({ amount: '1', paidDate: '2026-10-09', paidTime: '10:30' });
+    expect(buildBody(moved, { ...ctx, timeOfDayFrom: new Date(skewed), originalPaidAt: skewed })).toMatchObject({
+      ok: false,
+      errors: { paidAt: 'Дата оплаты в будущем — так нельзя' },
+    });
+  });
+
   it('время в поле — то, что сохранится (shownPaidTime)', () => {
     const edit = { paidDate: '2026-10-05', paidTime: '18:15', paidTimeSet: false };
     expect(shownPaidTime({ paidDate: '2026-10-07', paidTime: '', paidTimeSet: false }, '10:30', '2026-10-07', null)).toBe('10:30');

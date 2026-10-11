@@ -50,7 +50,7 @@ export function Calendar(props: { value: string | null; today: string; max?: str
       aria-label={label}
       title={label}
       onClick={() => setActive((a) => addMonths(a, months))}
-      className="grid size-8 shrink-0 place-items-center rounded-lg text-sm font-semibold hover:bg-field focus-visible:outline-2 focus-visible:outline-focus"
+      className="grid size-8 pointer-coarse:size-11 shrink-0 place-items-center rounded-lg text-sm font-semibold hover:bg-field focus-visible:outline-2 focus-visible:outline-focus"
     >
       <span aria-hidden="true">{sign}</span>
     </button>
@@ -100,7 +100,7 @@ export function Calendar(props: { value: string | null; today: string; max?: str
                     }}
                     onKeyDown={(e) => onKeyDown(e, d)}
                     className={[
-                      'h-9 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-focus',
+                      'h-9 pointer-coarse:h-11 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-focus',
                       selected ? 'bg-income font-semibold text-white' : 'hover:bg-field',
                       !selected && d === props.today ? 'ring-1 ring-inset ring-income' : '',
                       !selected && !sameMonth(d, active) ? 'text-muted' : '',

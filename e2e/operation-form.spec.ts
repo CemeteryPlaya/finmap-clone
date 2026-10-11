@@ -26,6 +26,30 @@ async function apiPost(page: Page, url: string, data: unknown) {
 }
 
 const table = (page: Page) => page.getByRole('table', { name: 'Операции' });
+/** Сегодня по Алматы (APP_TIMEZONE e2e-сервера), `YYYY-MM-DD`. */
+const almatyToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date());
+const shiftDay = (iso: string, days: number) => {
+  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+};
+/** `YYYY-MM-DD` → «ДД.ММ.ГГГГ». */
+const ru = (iso: string) => iso.split('-').reverse().join('.');
+const MONTHS_GENITIVE = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+/**
+ * Выбрать день в календаре открытой панели поля даты (§6.5 этапа 1.5): фокус — на сегодняшнем дне; Shift+PageUp и PageUp
+ * ведут к нужному месяцу, затем день — мышью по имени ячейки «15 июня 2021».
+ */
+async function pickDay(page: Page, panel: Locator, iso: string) {
+  const [ty, tm] = almatyToday().split('-').map(Number) as [number, number];
+  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
+  let months = (ty - y) * 12 + (tm - m);
+  // клавиши — сетке: фокус уже на активном дне (Popover ставит его на data-autofocus)
+  await expect(panel.locator('[role="gridcell"][tabindex="0"]')).toBeFocused();
+  for (; months >= 12; months -= 12) await page.keyboard.press('Shift+PageUp');
+  for (; months > 0; months -= 1) await page.keyboard.press('PageUp');
+  await panel.getByRole('gridcell', { name: `${d} ${MONTHS_GENITIVE[m - 1]} ${y}`, exact: true }).click();
+}
 const panel = (page: Page) => page.getByRole('navigation', { name: 'Счета' });
 /** Тело следующего запроса создания операции. */
 const nextCreate = (page: Page) =>
@@ -562,7 +586,12 @@ test('нет курса на дату: «Указать курс на {D}» со
   const dialog = await openForm(page, 'Расход');
   await pick(page, 'Со счёта', 'Франки');
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('10');
-  await dialog.getByLabel('Указать дату списания').fill('2021-06-15');
+  // дата — в календаре поля «Указать дату списания» (§6.5); «Готово» закрывает панель, время остаётся «живым»
+  await dialog.getByRole('button', { name: /^Указать дату списания:/ }).click();
+  const calendar = page.getByRole('dialog', { name: 'Указать дату списания: календарь' });
+  await pickDay(page, calendar, '2021-06-15');
+  await calendar.getByRole('button', { name: 'Готово' }).click();
+  await expect(dialog.getByRole('button', { name: /^Указать дату списания:/ })).toHaveAccessibleName(/^Указать дату списания: Вторник, 15\.06\.2021, \d{2}:\d{2}$/);
   await submit(dialog).click();
   const alert = dialog.getByRole('alert').filter({ hasText: 'Нет курса CHF на 15.06.2021' });
   await expect(alert).toBeVisible();
@@ -651,4 +680,86 @@ test('последний счёт и фокус при открытии: пус�
   dialog = await openForm(page, 'Расход');
   await expect(field(dialog, 'Со счёта')).toHaveValue('');
   await expect(field(dialog, 'Со счёта')).toBeFocused();
+});
+
+test('дата и время оплаты: «Сегодня, …, ЧЧ:ММ», свой календарь и строка «Время»; время руками переносится в «похожий»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Время ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+
+  const dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Касса');
+  const when = dialog.getByRole('button', { name: /^Указать дату списания:/ });
+  // «живое» время: сегодня и «сейчас» (§2.3)
+  await expect(when).toHaveAccessibleName(/^Указать дату списания: Сегодня, \d{2}\.\d{2}\.\d{4}, \d{2}:\d{2}$/);
+
+  // вчера, 9:05: день — в календаре (панель не закрывается), время — в строке «Время», «Готово» закрывает
+  await when.click();
+  const panel = page.getByRole('dialog', { name: 'Указать дату списания: календарь' });
+  // клавиши — сетке: фокус на сегодняшнем дне
+  await expect(panel.locator('[role="gridcell"][tabindex="0"]')).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(panel.locator('[role="gridcell"][tabindex="0"]')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(panel).toBeVisible();
+  await panel.getByLabel('Время').fill('9:05');
+  await panel.getByRole('button', { name: 'Готово' }).click();
+  await expect(panel).toBeHidden();
+  await expect(when).toBeFocused();
+  const yesterday = shiftDay(almatyToday(), -1);
+  await expect(when).toHaveAccessibleName(`Указать дату списания: Вчера, ${ru(yesterday)}, 09:05`);
+  const at = new Date(`${yesterday}T09:05:00+05:00`).toISOString();
+
+  // «+ Добавить и создать похожий»: время, заданное руками, остаётся — выручку за смену вносят двумя операциями
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('100');
+  let request = nextCreate(page);
+  await dialog.getByRole('button', { name: 'Добавить и создать похожий' }).click();
+  expect((await request).postDataJSON().paidAt).toBe(at);
+  await expect(dialog.getByRole('status')).toContainText('Операция сохранена');
+  await expect(when).toHaveAccessibleName(`Указать дату списания: Вчера, ${ru(yesterday)}, 09:05`);
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('200');
+  request = nextCreate(page);
+  await submit(dialog).click();
+  expect((await request).postDataJSON().paidAt).toBe(at);
+  await expect(dialog).toBeHidden();
+
+  // неверное время — ошибка в панели, панель остаётся; Esc закрывает её, время остаётся «живым»
+  const again = await openForm(page, 'Расход');
+  const againWhen = again.getByRole('button', { name: /^Указать дату списания:/ });
+  await againWhen.click();
+  await panel.getByLabel('Время').fill('25:00');
+  await panel.getByRole('button', { name: 'Готово' }).click();
+  await expect(panel).toContainText('Введите время в виде ЧЧ:ММ');
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await expect(again).toBeVisible();
+  await expect(againWhen).toHaveAccessibleName(/^Указать дату списания: Сегодня, \d{2}\.\d{2}\.\d{4}, \d{2}:\d{2}$/);
+});
+
+test('время позже «сейчас», заданное руками, — ошибка у поля «Это время ещё не наступило»', async ({ page }) => {
+  const nowHm = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Almaty', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
+  test.skip(nowHm >= '23:58', 'в последние минуты суток будущего времени «сегодня» уже нет');
+  await login(page);
+  const cid = await createCompany(page, `ТОО Будущее время ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+
+  const dialog = await openForm(page, 'Доход');
+  await pick(page, 'На счёт', 'Касса');
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('50');
+  const when = dialog.getByRole('button', { name: /^Дата поступления денег:/ });
+  await when.click();
+  const panel = page.getByRole('dialog', { name: 'Дата поступления денег: календарь' });
+  await panel.getByLabel('Время').fill('23:59');
+  await panel.getByRole('button', { name: 'Готово' }).click();
+  let posts = 0;
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && /\/operations$/.test(new URL(r.url()).pathname)) posts += 1;
+  });
+  await submit(dialog).click();
+  await expect(when).toHaveAttribute('aria-invalid', 'true');
+  await expect(dialog).toContainText('Это время ещё не наступило');
+  await expect(dialog).toBeVisible();
+  expect(posts).toBe(0);
 });

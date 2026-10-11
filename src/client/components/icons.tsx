@@ -137,3 +137,13 @@ export function ChevronIcon({ up }: { up?: boolean }) {
     </Svg>
   );
 }
+
+/** Часы — строка «Время» в календаре поля даты (§6.5 этапа 1.5). */
+export function ClockIcon() {
+  return (
+    <Svg>
+      <circle cx="12" cy="12" r="9" />
+      <polyline points="12 7 12 12 15 14" />
+    </Svg>
+  );
+}
