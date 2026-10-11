@@ -126,6 +126,28 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    ours: 'c12-income-datepicker.png',
+    finmap: '12-income-datepicker.png',
+    path: 'log',
+    act: async (p) => {
+      // календарь поля «Дата поступления денег» со строкой «Время» (§6.5)
+      await openForm('Доход')(p);
+      await newForm(p).getByRole('button', { name: /^Дата поступления денег:/ }).click();
+      await p.getByRole('dialog', { name: 'Дата поступления денег: календарь' }).waitFor();
+    },
+  },
+  {
+    ours: 'c13-calculator.png',
+    finmap: '13c-calculator.png',
+    path: 'log',
+    act: async (p) => {
+      // калькулятор по иконке в поле суммы (§6.10)
+      await openForm('Расход')(p);
+      await newForm(p).getByRole('button', { name: 'Калькулятор' }).click();
+      await p.getByRole('dialog', { name: 'Калькулятор' }).waitFor();
+    },
+  },
+  {
     ours: 'c14-after-escape.png',
     finmap: '14-after-escape.png',
     path: 'log',
