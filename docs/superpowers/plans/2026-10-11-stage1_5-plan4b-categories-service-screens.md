@@ -180,6 +180,11 @@ describe('categoryReorderPlan — порядок вкладки в полном 
     expect(categoryReorderPlan(tree, 'my-expense', [3, 2])).toEqual({ kind: 'expense', parentId: null, ids: [1, 3, 2, 4], moving: null });
   });
 
+  it('системная между своими остаётся на своём месте', () => {
+    const mixed: CategoryTree = { income: [], expense: [n(2, null), n(1, null, { systemKey: 'salary' }), n(3, null)] };
+    expect(categoryReorderPlan(mixed, 'my-expense', [3, 2])).toEqual({ kind: 'expense', parentId: null, ids: [3, 1, 2], moving: null });
+  });
+
   it('дочерние — порядок детей родителя', () => {
     expect(categoryReorderPlan(tree, 'my-expense', [22, 21])).toEqual({ kind: 'expense', parentId: 2, ids: [22, 21], moving: null });
   });
@@ -586,7 +591,7 @@ function CategoryEditor(props: { companyId: number; kind: 'income' | 'expense'; 
             {(c) => <input {...c} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />}
           </Field>
           {node && (
-            <Field label="Перенести в…" hint={options.length <= 1 ? 'Переносить некуда: у категории есть дочерние или она системная' : undefined}>
+            <Field label="Перенести в…" hint={options.length <= 1 ? 'Переносить некуда: у категории есть дочерние' : undefined}>
               {(c) => (
                 <select {...c} value={parentValue} disabled={options.length <= 1} onChange={(e) => setParentValue(e.target.value)} className={inputClass}>
                   {options.map((o) => (
@@ -701,7 +706,7 @@ test('шаблоны разделения — вкладка «Проектов�
   await row.getByRole('button', { name: 'Изменить Аренда пополам', exact: true }).click();
   const edit = page.getByRole('dialog', { name: 'Шаблон разделения', exact: true });
   await expect(edit.getByLabel('Доля %, строка 2')).toHaveValue('50');
-  await edit.getByRole('button', { name: 'Удалить' }).click();
+  await edit.getByRole('button', { name: 'Удалить', exact: true }).click();
   await page.getByRole('alertdialog', { name: 'Удалить шаблон «Аренда пополам»?' }).getByRole('button', { name: 'Удалить' }).click();
   await expect(edit).toBeHidden();
   await expect(main.getByRole('listitem').filter({ hasText: 'Аренда пополам' })).toHaveCount(0);
@@ -2844,6 +2849,8 @@ Run: `npx vitest run tests/client/journal-view.test.ts tests/client/preferences.
     );
     // сохранённое уже не правка: после перезапроса изменённым остаётся только вопрос (итоги 1.5-2a №5)
     await expect(page.getByRole('checkbox', { name: 'Комментарий', exact: true })).not.toBeChecked();
+    // вопрос всё ещё отличается от сервера — «Применить» не залипает (Review Focus 3)
+    await expect(apply).toBeEnabled();
 ```
 
 Run: `npx playwright test e2e/dialogs.spec.ts -g "Настройки журнала"` → FAIL (старый текст ошибки).
