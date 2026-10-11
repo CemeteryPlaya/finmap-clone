@@ -1,4 +1,7 @@
-import type { JournalItem } from './queries';
+import { COUNTERPARTY_TYPE_SINGULAR } from '../../shared/counterparties';
+import type { PickerOption } from '../components/SearchPicker';
+import { categoryOptions, counterpartyOptions, preferredCounterpartyType, projectOptions } from './operation-options';
+import type { CategoryTree, Counterparty, JournalItem, Project } from './queries';
 
 /** Поле, которое можно «Указать» в пустой ячейке журнала (§7). */
 export type AssignField = 'counterparty' | 'category' | 'project';
@@ -57,4 +60,48 @@ export function withAssigned<T extends AssignTarget>(item: T, field: AssignField
   if (field === 'counterparty') return { ...item, counterpartyId: id };
   const line = item.lines[0] ?? { id: 0, position: 0, categoryId: null, projectId: null, amount: item.amount, baseAmount: item.baseAmount };
   return { ...item, lines: [{ ...line, ...(field === 'category' ? { categoryId: id } : { projectId: id }) }] };
+}
+
+/** Справочники для «Указать» и «Изменить данные». */
+export interface AssignData {
+  categories: CategoryTree;
+  projects: Project[];
+  counterparties: Counterparty[];
+}
+
+/** Заголовок окна «Указать» (§5.4 этапа 1.5). */
+export const ASSIGN_TITLES: Record<AssignField, string> = {
+  counterparty: 'Редактирование контрагента',
+  category: 'Редактирование категории',
+  project: 'Редактирование проекта',
+};
+
+/** Название списка для программ чтения с экрана. */
+export const ASSIGN_LIST_LABELS: Record<AssignField, string> = {
+  counterparty: 'Контрагенты',
+  category: 'Категории',
+  project: 'Проекты',
+};
+
+/** Категория операции с одной строкой — по ней подбирается тип контрагента (§6.4); у разбитой и без строк — null. */
+function singleCategory(item: Pick<AssignTarget, 'lines'>): number | null {
+  return item.lines.length === 1 ? item.lines[0]!.categoryId : null;
+}
+
+/** Подпись поля в окне «Указать»: у контрагента — по системной категории операции («Сотрудник»), иначе «Мой контрагент». */
+export function assignLabel(item: AssignTarget, field: AssignField, tree: CategoryTree): string {
+  if (field === 'category') return 'Категория';
+  if (field === 'project') return 'Проект';
+  const preferred = preferredCounterpartyType(tree, singleCategory(item));
+  return preferred ? COUNTERPARTY_TYPE_SINGULAR[preferred] : 'Мой контрагент';
+}
+
+/**
+ * Варианты списка «Указать» — те же правила, что в форме операции: архивные не предлагаются (инвариант 7),
+ * категории — только вида операции (инвариант 3), контрагенты подходящего типа — первыми.
+ */
+export function assignOptions(item: AssignTarget, field: AssignField, data: AssignData): PickerOption[] {
+  if (field === 'counterparty') return counterpartyOptions(data.counterparties, null, preferredCounterpartyType(data.categories, singleCategory(item)));
+  if (field === 'project') return projectOptions(data.projects, []);
+  return item.type === 'transfer' ? [] : categoryOptions(data.categories, item.type, []);
 }

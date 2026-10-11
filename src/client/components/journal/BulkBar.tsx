@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import type { AssignData } from '../../lib/journal-assign';
 import { BULK_MAX, type BulkAction } from '../../lib/journal-bulk';
+import { categoryOptions } from '../../lib/operation-options';
 import { SearchPicker } from '../SearchPicker';
 import { btnDanger, btnSecondary, btnSmall } from '../ui';
-import { categoryPickerOptions, type AssignData } from './AssignPicker';
 
 /**
  * Массовые действия с выбранными строками (§7): «Категория», «Проект», «Контрагент» (только назначают значение),
@@ -24,9 +25,9 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
   const tooMany = props.count > BULK_MAX;
   const disabled = props.pending || tooMany;
   const pickerClass = btnSmall;
-  const categoryOptions = [
-    ...categoryPickerOptions(props.data.categories.income).map((o) => ({ ...o, label: `Доход: ${o.label}` })),
-    ...categoryPickerOptions(props.data.categories.expense).map((o) => ({ ...o, label: `Расход: ${o.label}` })),
+  const categoryChoices = [
+    ...categoryOptions(props.data.categories, 'income', []).map((o) => ({ ...o, label: `Доход: ${o.label}` })),
+    ...categoryOptions(props.data.categories, 'expense', []).map((o) => ({ ...o, label: `Расход: ${o.label}` })),
   ];
 
   return (
@@ -39,7 +40,7 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
           <SearchPicker
             label="Категория"
             listLabel="Категории"
-            options={categoryOptions}
+            options={categoryChoices}
             onPick={(categoryId) => props.onRun({ action: 'setCategory', categoryId })}
             buttonClassName={pickerClass}
             inactive={props.pending}

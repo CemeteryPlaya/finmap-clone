@@ -22,6 +22,11 @@ export function Modal(props: {
   className?: string;
   /** Окно на весь экран телефона (форма операции): отступ под вырез экрана — в липкой шапке, а не у окна. */
   phoneFullScreen?: boolean;
+  /**
+   * Куда вернуть фокус после закрытия вместо кнопки, с которой открыли окно (после «Указать» — на кнопку строки:
+   * плашки уже нет). Вызывается при закрытии; null или элемент не на странице — обычное правило.
+   */
+  returnFocus?: () => HTMLElement | null;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -77,8 +82,9 @@ export function Modal(props: {
       onClose={(e) => {
         if (e.target !== e.currentTarget) return;
         props.onClose();
+        const preferred = props.returnFocus?.() ?? null;
         // кнопки, с которой открыли окно, уже нет (строку журнала удалили) или она не принимает фокус — фокус на заголовок страницы
-        const back = opener.current;
+        const back = preferred?.isConnected ? preferred : opener.current;
         if (back?.isConnected && back !== document.body) back.focus({ preventScroll: true });
         if (!back?.isConnected || back === document.body || document.activeElement !== back) focusPageHeading();
       }}

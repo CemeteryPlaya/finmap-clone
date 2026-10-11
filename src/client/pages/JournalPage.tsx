@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useOutletContext, useSearchParams } from 'react-router';
 import { todayInTimezone } from '../../shared/dates';
-import { AssignPicker } from '../components/journal/AssignPicker';
+import { AssignChip, AssignDialog, rowOpenButton, type AssignRequest } from '../components/journal/AssignDialog';
 import { BulkBar } from '../components/journal/BulkBar';
 import { FilterButton } from '../components/journal/FilterButton';
 import { JournalCards } from '../components/journal/JournalCards';
@@ -38,9 +38,9 @@ import { queryClient, useMeta } from '../lib/query';
 import { useAccounts, useCategories, useCounterparties, useJournal, usePreferences, useProjects, useSavedFilters, useTags, type Company } from '../lib/queries';
 import type { CompanyOutletContext } from './CompanyLayout';
 
-/** Фокус на строку операции (у строки tabIndex=-1 и data-operation-id). */
-function focusRow(id: number): void {
-  requestAnimationFrame(() => document.querySelector<HTMLElement>(`tr[data-operation-id="${id}"]`)?.focus());
+/** Фокус на кнопку открытия операции в строке (ячейка даты). */
+function focusRowOpen(id: number): void {
+  requestAnimationFrame(() => rowOpenButton(id)?.focus());
 }
 
 /** id заголовка «Журнал»: на него уходит фокус, когда закрывается тост. */
@@ -153,6 +153,8 @@ function JournalScreen(props: {
   // ошибка «Указать» (конфликт версии, архив) — над таблицей, пока её не скроют или не начнут новое действие
   const [actionError, setActionError] = useState<string | null>(null);
   const assign = useAssign(company.id, setActionError);
+  // «Указать» (§5.4): окно открыто для этой строки и поля
+  const [assignRequest, setAssignRequest] = useState<AssignRequest | null>(null);
   // массовые действия: выделение (только загруженные строки), итог, тост отмены удаления (в JournalPage)
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const [summary, setSummary] = useState<BulkSummary | null>(null);
@@ -209,7 +211,7 @@ function JournalScreen(props: {
     assigned.current = null;
     if (document.activeElement && document.activeElement !== document.body) return;
     const next = ids[a.index];
-    if (next !== undefined) focusRow(next);
+    if (next !== undefined) focusRowOpen(next);
     else document.getElementById(HEADING_ID)?.focus();
   }, [loadedIds]);
 
@@ -223,7 +225,7 @@ function JournalScreen(props: {
     };
   }, [accounts.data, categories.data, projects.data, counterparties.data]);
 
-  // один объект между перерисовками: от него зависят списки «Указать» (AssignPicker)
+  // один объект между перерисовками: от него зависят списки окон «Указать» и «Изменить данные»
   const assignData = useMemo(
     () => ({ categories: categories.data!, projects: projects.data!, counterparties: counterparties.data! }),
     [categories.data, projects.data, counterparties.data],
@@ -319,6 +321,20 @@ function JournalScreen(props: {
         onClose={() => setFilterOpen(false)}
         onSave={readOnly ? undefined : saveFilter}
       />
+      {!readOnly && (
+        <AssignDialog
+          request={assignRequest}
+          data={assignData}
+          onClose={() => setAssignRequest(null)}
+          onSave={({ item, field }, id) => {
+            setAssignRequest(null);
+            setActionError(null);
+            assign.mutate({ item, field, id });
+            // строка может уйти из выборки («Без категории»): эффект выше переведёт фокус на соседнюю
+            assigned.current = { id: item.id, index: items.findIndex((i) => i.id === item.id) };
+          }}
+        />
+      )}
       {readOnly && <p className={noticeClass}>Компания в архиве — изменения недоступны.</p>}
       {props.undoFailure && (
         <p role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
@@ -424,24 +440,7 @@ function JournalScreen(props: {
           onSort={(sort, order) => update({ ...state, sort, order })}
           busy={journal.isPlaceholderData}
           onOpenOperation={openOperation}
-          renderAssign={
-            readOnly
-              ? undefined
-              : (item, field) => (
-                  <AssignPicker
-                    item={item}
-                    field={field}
-                    data={assignData}
-                    onPick={(id) => {
-                      setActionError(null);
-                      assign.mutate({ item, field, id });
-                      // кнопка «Указать» исчезает вместе с пустой ячейкой — фокус на строку операции
-                      focusRow(item.id);
-                      assigned.current = { id: item.id, index: items.findIndex((i) => i.id === item.id) };
-                    }}
-                  />
-                )
-          }
+          renderAssign={readOnly ? undefined : (item, field) => <AssignChip field={field} onClick={() => setAssignRequest({ item, field })} />}
           selection={readOnly ? undefined : {
             selected,
             onToggle: (id) =>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../src/client/lib/api';
-import { assignPatch, canAssign, withAssigned, type AssignTarget } from '../../src/client/lib/journal-assign';
+import { ASSIGN_TITLES, assignLabel, assignOptions, assignPatch, canAssign, withAssigned, type AssignData, type AssignTarget } from '../../src/client/lib/journal-assign';
+import type { CategoryNode, Counterparty, Project } from '../../src/client/lib/queries';
 import { operationErrorText } from '../../src/client/lib/journal-mutations';
 
 const FIELDS = ['counterparty', 'category', 'project'] as const;
@@ -61,6 +62,89 @@ describe('«Указать» (§7)', () => {
       'Операция изменена другим пользователем. Журнал обновлён — проверьте и повторите.',
     );
     expect(operationErrorText(new Error('x'))).toBe('Ошибка сервера');
+  });
+});
+
+describe('окно «Указать» (§5.4 этапа 1.5)', () => {
+  const ARCH = '2026-10-01T00:00:00.000Z';
+  const node = (id: number, name: string, patch: Partial<CategoryNode> = {}): CategoryNode => ({
+    id,
+    companyId: 1,
+    kind: 'expense',
+    parentId: null,
+    name,
+    systemKey: null,
+    effectiveSystemKey: null,
+    templateRef: null,
+    orderIndex: 0,
+    archivedAt: null,
+    children: [],
+    ...patch,
+  });
+  const cp = (id: number, name: string, type: Counterparty['type'], archivedAt: string | null = null): Counterparty => ({
+    id,
+    companyId: 1,
+    type,
+    name,
+    comment: null,
+    orderIndex: id,
+    createdAt: ARCH,
+    archivedAt,
+  });
+  const project = (id: number, name: string, archivedAt: string | null = null): Project => ({
+    id,
+    companyId: 1,
+    name,
+    templateKey: 'general',
+    templateParams: {},
+    orderIndex: id,
+    createdAt: ARCH,
+    archivedAt,
+  });
+  const data: AssignData = {
+    categories: {
+      income: [node(1, 'Выручка', { kind: 'income' })],
+      expense: [
+        node(10, 'Зарплата', {
+          systemKey: 'salary',
+          effectiveSystemKey: 'salary',
+          children: [node(11, 'Администраторы', { parentId: 10, effectiveSystemKey: 'salary' })],
+        }),
+        node(20, 'Аренда'),
+        node(30, 'Старая', { archivedAt: ARCH }),
+      ],
+    },
+    projects: [project(5, 'Клуб 1'), project(6, 'Закрытый', ARCH)],
+    counterparties: [cp(7, 'ИП Клиент', 'client'), cp(8, 'Алина', 'employee'), cp(9, 'Уволен', 'employee', ARCH)],
+  };
+
+  it('заголовки окна; подпись поля контрагента — по системной категории операции, иначе «Мой контрагент»', () => {
+    expect(ASSIGN_TITLES).toEqual({
+      counterparty: 'Редактирование контрагента',
+      category: 'Редактирование категории',
+      project: 'Редактирование проекта',
+    });
+    expect(assignLabel(op({ lines: [line(10, null)] }), 'counterparty', data.categories)).toBe('Сотрудник');
+    expect(assignLabel(op({ lines: [line(11, null)] }), 'counterparty', data.categories)).toBe('Сотрудник');
+    expect(assignLabel(op({ lines: [line(20, null)] }), 'counterparty', data.categories)).toBe('Мой контрагент');
+    expect(assignLabel(op({}), 'counterparty', data.categories)).toBe('Мой контрагент');
+    expect(assignLabel(op({}), 'category', data.categories)).toBe('Категория');
+    expect(assignLabel(op({}), 'project', data.categories)).toBe('Проект');
+  });
+
+  it('варианты: без архивных; категории только вида операции; контрагенты подходящего типа — первыми, как в форме', () => {
+    expect(assignOptions(op({}), 'category', data).map((o) => o.label)).toEqual(['Зарплата', 'Зарплата → Администраторы', 'Аренда']);
+    expect(assignOptions(op({ type: 'income' }), 'category', data).map((o) => o.label)).toEqual(['Выручка']);
+    expect(assignOptions(op({ type: 'transfer', lines: [] }), 'category', data)).toEqual([]);
+    expect(assignOptions(op({}), 'project', data).map((o) => o.label)).toEqual(['Клуб 1']);
+    expect(assignOptions(op({ lines: [line(10, null)] }), 'counterparty', data)).toEqual([
+      { id: 8, label: 'Алина', section: 'Сотрудники' },
+      { id: 7, label: 'ИП Клиент', section: 'Остальные' },
+    ]);
+    expect(assignOptions(op({}), 'counterparty', data)).toEqual([
+      { id: 7, label: 'ИП Клиент' },
+      { id: 8, label: 'Алина' },
+    ]);
   });
 });
 

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 async function login(page: Page) {
   await page.goto('/login');
@@ -53,6 +53,17 @@ const letters = async (page: Page) => (await bodyRows(page).allInnerTexts()).map
 async function choosePeriod(page: Page, label: string) {
   await page.getByRole('button', { name: /^Период:/ }).click();
   await page.getByRole('dialog', { name: 'Период', exact: true }).getByRole('button', { name: label, exact: true }).click();
+}
+
+/** «Указать» через окно (§5.4 этапа 1.5): плашка → поле со списком → пункт → «Сохранить». */
+async function assignVia(page: Page, row: Locator, chip: string, list: string, option: string) {
+  await row.getByRole('button', { name: chip }).click();
+  const dialog = page.getByRole('dialog', { name: /^Редактирование/ });
+  await expect(dialog).toBeVisible();
+  await dialog.locator('button[aria-haspopup="dialog"]').click();
+  await page.getByRole('listbox', { name: list }).getByRole('option', { name: option, exact: true }).click();
+  await dialog.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(dialog).toBeHidden();
 }
 
 test('сохранённые фильтры: сохранить из окна «Фильтр», применить, переименовать, удалить; предупреждение о недоступных условиях', async ({ page }) => {
@@ -172,8 +183,7 @@ test('ошибка журнала, затем новый поиск: тулба�
   await expect(search).toBeFocused();
 });
 
-test('«Указать»: список с поиском и клавиатурой, значение сохраняется сразу; конфликт версии — откат и сообщение', async ({ page }) => {
-  // высокое окно: под последней строкой таблицы хватает места, и список открывается вниз — за край обёртки таблицы
+test('«Указать»: окно «Редактирование …» с одним списком и «Сохранить»; Esc и «×» ничего не меняют; конфликт версии — откат и сообщение', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 });
   await login(page);
   const cid = await createCompany(page, `ТОО Указать ${Date.now()}`);
@@ -201,6 +211,7 @@ test('«Указать»: список с поиском и клавиатуро
   await page.reload();
   await expect.poll(() => letters(page)).toBe('CBA');
   const row = (letter: string) => bodyRows(page).filter({ hasText: `операция ${letter}` });
+  const openButton = (letter: string) => row(letter).getByRole('button', { name: /^Открыть операцию/ });
 
   // где есть «Указать»: доход — все три поля; разбитая операция — нигде; перевод — только проект
   await expect(row('A').getByRole('button', { name: /^Указать/ })).toHaveCount(3);
@@ -208,58 +219,89 @@ test('«Указать»: список с поиском и клавиатуро
   await expect(row('C').getByRole('button', { name: /^Указать/ })).toHaveCount(1);
   await expect(row('C').getByRole('button', { name: 'Указать проект' })).toBeVisible();
 
-  // категория с клавиатуры: поиск, стрелка, Enter; доход видит только доходные категории
+  // категория с клавиатуры: окно с одним полем, фокус на нём; «Сохранить» недоступна, пока ничего не выбрано
   await row('A').getByRole('button', { name: 'Указать категорию' }).click();
+  const categoryDialog = page.getByRole('dialog', { name: 'Редактирование категории' });
+  await expect(categoryDialog).toBeVisible();
+  const save = categoryDialog.getByRole('button', { name: 'Сохранить' });
+  await expect(save).toBeDisabled();
+  const categoryField = categoryDialog.getByRole('button', { name: /^Категория:/ });
+  await expect(categoryField).toBeFocused();
+  await page.keyboard.press('Enter');
   const search = page.getByRole('combobox', { name: 'Категории: поиск' });
   await expect(search).toBeFocused();
+  // доход видит только доходные категории
   const categoryOptions = page.getByRole('listbox', { name: 'Категории' }).getByRole('option');
   await expect(categoryOptions).toHaveText(['Инвестиции', 'Возврат займа', 'Получение кредита', 'Бар', 'Игровое время']);
-  // список у последней строки не обрезан обёрткой таблицы (overflow-x: auto): он ниже её нижнего края и виден целиком
-  const listBox = (await page.getByRole('listbox', { name: 'Категории' }).boundingBox())!;
-  const wrapperBox = (await table(page).locator('xpath=..').boundingBox())!;
-  expect(listBox.y + listBox.height).toBeGreaterThan(wrapperBox.y + wrapperBox.height);
-  await expect(categoryOptions.last()).toBeInViewport();
-  const lastOptionHit = await categoryOptions
-    .last()
-    .evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === el;
-    });
-  expect(lastOptionHit).toBe(true);
   await search.fill('БАР');
   await expect(categoryOptions).toHaveText(['Бар']);
-  await search.press('ArrowDown');
   await search.press('Enter');
+  await expect(categoryField).toHaveAccessibleName('Категория: Бар');
+  await expect(categoryField).toBeFocused();
+  // до «Сохранить» операция не меняется
+  await expect(row('A').getByRole('button', { name: 'Указать категорию' })).toHaveCount(1);
+  await save.click();
+  await expect(categoryDialog).toBeHidden();
   await expect(row('A')).toContainText('Бар');
   await expect(row('A').getByRole('button', { name: 'Указать категорию' })).toHaveCount(0);
-  // кнопки больше нет — фокус на строке операции, а не на body
-  await expect(row('A')).toBeFocused();
+  // плашки больше нет — фокус на кнопке открытия операции в той же строке
+  await expect(openButton('A')).toBeFocused();
 
-  // Esc закрывает список, фокус — на кнопке
-  await row('A').getByRole('button', { name: 'Указать проект' }).click();
+  // Esc и «×» закрывают окно без изменений, даже если пункт уже выбран; фокус — на плашке (Review Focus 2)
+  const projectChip = row('A').getByRole('button', { name: 'Указать проект' });
+  const projectDialog = page.getByRole('dialog', { name: 'Редактирование проекта' });
+  await projectChip.click();
+  await expect(projectDialog).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('listbox', { name: 'Проекты' })).toHaveCount(0);
-  await expect(row('A').getByRole('button', { name: 'Указать проект' })).toBeFocused();
+  await expect(projectDialog).toBeHidden();
+  await expect(projectChip).toBeFocused();
+  let patches = 0;
+  page.on('request', (r) => {
+    if (r.method() === 'PATCH') patches += 1;
+  });
+  // пункт выбран, но не сохранён: и Esc, и «×» закрывают окно без изменений
+  for (const closeWith of ['Escape', 'cross'] as const) {
+    await projectChip.click();
+    await projectDialog.getByRole('button', { name: /^Проект:/ }).click();
+    await page.getByRole('listbox', { name: 'Проекты' }).getByRole('option', { name: 'Клуб 1' }).click();
+    await expect(projectDialog.getByRole('button', { name: /^Проект:/ })).toHaveAccessibleName('Проект: Клуб 1');
+    if (closeWith === 'Escape') await page.keyboard.press('Escape');
+    else await projectDialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+    await expect(projectDialog).toBeHidden();
+    await expect(projectChip).toBeFocused();
+  }
+  await expect(row('A')).not.toContainText('Клуб 1');
+  expect(patches).toBe(0);
 
   // проект переводу без строк — мышью
   await row('C').getByRole('button', { name: 'Указать проект' }).click();
   // журнал перечитывается после сохранения — дождёмся его, чтобы правка «в другом окне» ниже пришла позже
   const reloaded = page.waitForResponse((r) => r.url().includes(`/companies/${cid}/operations?`) && r.request().method() === 'GET');
+  await projectDialog.getByRole('button', { name: /^Проект:/ }).click();
   await page.getByRole('listbox', { name: 'Проекты' }).getByRole('option', { name: 'Клуб 1' }).click();
+  await projectDialog.getByRole('button', { name: 'Сохранить' }).click();
   await expect(row('C')).toContainText('Клуб 1');
   await reloaded;
+  await expect(openButton('C')).toBeFocused();
 
-  // конфликт: операцию изменили в другом окне — значение откатывается, сообщение о конфликте, журнал обновлён
+  // контрагент: подпись поля — «Мой контрагент» (у операции нет системной категории).
+  // Конфликт: операцию изменили в другом окне — значение откатывается, сообщение о конфликте, журнал обновлён
   const patched = await page.request.patch(`${base}/operations/${income.id}`, { data: { version: 2, comment: 'операция A изменена' }, headers: csrf(page) });
   expect(patched.status(), await patched.text()).toBe(200);
-  await row('A').getByRole('button', { name: 'Указать контрагента' }).click();
-  await page.getByRole('listbox', { name: 'Контрагенты' }).getByRole('option', { name: 'ИП Клиент' }).click();
+  const counterpartyDialog = page.getByRole('dialog', { name: 'Редактирование контрагента' });
+  const pickClient = async () => {
+    await row('A').getByRole('button', { name: 'Указать контрагента' }).click();
+    await counterpartyDialog.getByRole('button', { name: /^Мой контрагент:/ }).click();
+    await page.getByRole('listbox', { name: 'Контрагенты' }).getByRole('option', { name: 'ИП Клиент' }).click();
+    await counterpartyDialog.getByRole('button', { name: 'Сохранить' }).click();
+    await expect(counterpartyDialog).toBeHidden();
+  };
+  await pickClient();
   await expect(page.getByRole('alert')).toContainText('Операция изменена другим пользователем. Журнал обновлён — проверьте и повторите.');
   await expect(row('A')).toContainText('операция A изменена');
   await expect(row('A').getByRole('button', { name: 'Указать контрагента' })).toBeVisible();
   // повтор с новой версией проходит; после перезагрузки значения на месте
-  await row('A').getByRole('button', { name: 'Указать контрагента' }).click();
-  await page.getByRole('listbox', { name: 'Контрагенты' }).getByRole('option', { name: 'ИП Клиент' }).click();
+  await pickClient();
   await expect(row('A')).toContainText('ИП Клиент');
   await page.reload();
   await expect(row('A')).toContainText('ИП Клиент');
@@ -436,7 +478,7 @@ test('массовые действия: категория с итогом и �
   await expect(undo).toHaveCount(0);
 });
 
-test('«Указать»: два выбора подряд в одной строке — без ложного конфликта версии; строка ушла из фильтра — фокус на соседней или на заголовке', async ({ page }) => {
+test('«Указать»: два сохранения подряд в одной строке — без ложного конфликта версии; строка ушла из фильтра — фокус на соседней или на заголовке', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 });
   await login(page);
   const cid = await createCompany(page, `ТОО Подряд ${Date.now()}`);
@@ -451,7 +493,7 @@ test('«Указать»: два выбора подряд в одной стр�
   await expect.poll(() => letters(page)).toBe('CBA');
   const row = (letter: string) => bodyRows(page).filter({ hasText: `операция ${letter}` });
 
-  // ответ PATCH задержан: второй выбор уходит, пока первый ещё в пути, — с версией из ответа первого, а не со старой
+  // ответ PATCH задержан: второе сохранение уходит, пока первое ещё в пути, — с версией из ответа первого, а не со старой
   const patches: number[] = [];
   const patchUrl = new RegExp(`/api/v1/companies/${cid}/operations/\\d+$`);
   await page.route(patchUrl, async (route) => {
@@ -461,10 +503,8 @@ test('«Указать»: два выбора подряд в одной стр�
     }
     await route.continue().catch(() => undefined);
   });
-  await row('A').getByRole('button', { name: 'Указать контрагента' }).click();
-  await page.getByRole('listbox', { name: 'Контрагенты' }).getByRole('option', { name: 'ИП Клиент' }).click();
-  await row('A').getByRole('button', { name: 'Указать категорию' }).click();
-  await page.getByRole('listbox', { name: 'Категории' }).getByRole('option', { name: 'Аренда' }).click();
+  await assignVia(page, row('A'), 'Указать контрагента', 'Контрагенты', 'ИП Клиент');
+  await assignVia(page, row('A'), 'Указать категорию', 'Категории', 'Аренда');
   await expect(row('A')).toContainText('ИП Клиент');
   await expect(row('A')).toContainText('Аренда');
   await expect.poll(() => patches).toEqual([1, 2]);
@@ -475,15 +515,14 @@ test('«Указать»: два выбора подряд в одной стр�
   await expect(row('A')).toContainText('Аренда');
   await expect(page.getByRole('alert')).toHaveCount(0);
 
-  // «Без категории»: назначенная строка уходит из выборки — фокус на строку, занявшую её место, а когда её нет — на заголовок
+  // «Без категории»: назначенная строка уходит из выборки — фокус на кнопку строки, занявшей её место,
+  // а когда строк нет — на заголовок (Review Focus 1)
   await page.goto(`/c/${cid}/log?noCategory=1`);
   await expect.poll(() => letters(page)).toBe('CB');
-  await row('C').getByRole('button', { name: 'Указать категорию' }).click();
-  await page.getByRole('listbox', { name: 'Категории' }).getByRole('option', { name: 'Аренда' }).click();
+  await assignVia(page, row('C'), 'Указать категорию', 'Категории', 'Аренда');
   await expect.poll(() => letters(page)).toBe('B');
-  await expect(row('B')).toBeFocused();
-  await row('B').getByRole('button', { name: 'Указать категорию' }).click();
-  await page.getByRole('listbox', { name: 'Категории' }).getByRole('option', { name: 'Аренда' }).click();
+  await expect(row('B').getByRole('button', { name: /^Открыть операцию/ })).toBeFocused();
+  await assignVia(page, row('B'), 'Указать категорию', 'Категории', 'Аренда');
   await expect(page.getByText('По этому фильтру операций нет.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Журнал' })).toBeFocused();
 });

@@ -266,11 +266,9 @@ export function JournalTable(props: JournalTableProps) {
             return (
               <tr
                 key={item.id}
-                // фокус сюда переводит «Указать» после выбора, если кнопки строки нет
-                tabIndex={-1}
                 data-operation-id={item.id}
                 onClick={props.onOpenOperation ? onRowClick(item) : undefined}
-                className={`border-b border-field outline-none last:border-0 focus:bg-field/60 ${props.onOpenOperation ? 'cursor-pointer hover:bg-field/60' : ''} ${selection?.selected.has(item.id) ? 'bg-income-soft/40' : ''}`}
+                className={`border-b border-field last:border-0 ${props.onOpenOperation ? 'cursor-pointer hover:bg-field/60' : ''} ${selection?.selected.has(item.id) ? 'bg-income-soft/40' : ''}`}
               >
                 {selection && (
                   <td className="h-[4.5rem] p-0 align-middle">
