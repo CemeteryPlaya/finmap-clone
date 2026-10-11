@@ -83,7 +83,7 @@ function AmountInput(props: { label: string; placeholder: string; value: number 
         className={amountInput}
       />
       {error && (
-        <span id={errorId} className="mt-1 block text-xs text-expense">
+        <span id={errorId} className="mt-1 block text-xs text-expense-strong">
           {error}
         </span>
       )}

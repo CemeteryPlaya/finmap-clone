@@ -84,7 +84,7 @@ export function BulkBar(props: {
               setConfirm(false);
               void props.onRun({ action: 'delete' });
             }}
-            className="shrink-0 rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-expense hover:brightness-95 disabled:opacity-60"
+            className="shrink-0 rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-expense-strong hover:brightness-95 disabled:opacity-60"
           >
             Да, удалить
           </button>

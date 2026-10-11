@@ -403,7 +403,7 @@ function JournalScreen(props: {
       )}
       {readOnly && <p className={noticeClass}>Компания в архиве — изменения недоступны.</p>}
       {props.undoFailure && (
-        <p role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
+        <p role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense-strong">
           <span>
             Не удалось отменить удаление{otherCompany(props.undoFailure.state.companyId) ? ` в компании «${props.undoFailure.state.companyName}»` : ''}: {props.undoFailure.message}
           </span>
@@ -424,7 +424,7 @@ function JournalScreen(props: {
         </p>
       )}
       {actionError && (
-        <p role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
+        <p role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense-strong">
           <span>{actionError}</span>
           <button type="button" onClick={() => setActionError(null)} className="font-semibold underline">
             Скрыть
@@ -458,7 +458,7 @@ function JournalScreen(props: {
         </div>
       )}
       {notice && (
-        <p role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
+        <p role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense-strong">
           <span>{notice}</span>
           <button type="button" onClick={() => setNotice(null)} className="font-semibold underline">
             Скрыть
@@ -469,7 +469,7 @@ function JournalScreen(props: {
         <p className="py-8 text-center text-muted">Загрузка…</p>
       ) : !journal.data ? (
         <div className="py-8 text-center">
-          <p role="alert" className="mb-4 text-expense">
+          <p role="alert" className="mb-4 text-expense-strong">
             {journal.error?.message}
           </p>
           <button type="button" onClick={() => void journal.refetch()} className={btnSecondary}>

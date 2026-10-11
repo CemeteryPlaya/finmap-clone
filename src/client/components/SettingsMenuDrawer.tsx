@@ -1,9 +1,10 @@
 import { useMutation } from '@tanstack/react-query';
-import { useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useId, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { api } from '../lib/api';
 import { focusHeadingSoon, isPlainLeftClick, pathOf } from '../lib/focus-heading';
 import { queryClient, useMe } from '../lib/query';
+import { ACCOUNT_GROUP_LABEL } from '../lib/settings-sections';
 import { Drawer } from './Drawer';
 import { GearIcon } from './icons';
 import { headerIconClass } from './ui';
@@ -11,9 +12,13 @@ import { headerIconClass } from './ui';
 const itemClass = 'flex items-center justify-between gap-3 rounded-xl px-3 py-3 text-sm hover:bg-field';
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
+  const id = useId();
+  // группа ссылок с именем-подзаголовком (итоги 1.5-1b №1)
   return (
-    <div className="mb-4">
-      <p className="mb-1 truncate px-3 text-xs font-semibold uppercase tracking-wide text-muted">{title}</p>
+    <div role="group" aria-labelledby={id} className="mb-4">
+      <p id={id} className="mb-1 truncate px-3 text-xs font-semibold uppercase tracking-wide text-muted">
+        {title}
+      </p>
       {children}
     </div>
   );
@@ -72,7 +77,7 @@ export function SettingsMenuButton({ companyId, companyName }: { companyId: numb
         }}
       >
         {companyId !== null && (
-          <Group title="Мой аккаунт">
+          <Group title={ACCOUNT_GROUP_LABEL}>
             {item(`/c/${companyId}/settings/profile`, 'Профиль')}
             {item(`/c/${companyId}/settings/companies`, 'Мои компании')}
           </Group>
@@ -88,7 +93,7 @@ export function SettingsMenuButton({ companyId, companyName }: { companyId: numb
             type="button"
             disabled={logout.isPending}
             onClick={() => logout.mutate()}
-            className="w-full rounded-xl px-3 py-3 text-left text-sm font-semibold text-expense hover:bg-field disabled:opacity-50"
+            className="w-full rounded-xl px-3 py-3 text-left text-sm font-semibold text-expense-strong hover:bg-field disabled:opacity-50"
           >
             Выйти
           </button>

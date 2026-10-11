@@ -245,11 +245,11 @@ export function SplitEditor(props: {
         >
           + Строка
         </button>
-        <p role="status" className={`text-sm font-semibold ${result.left === 0 ? 'text-income' : 'text-expense'}`}>
+        <p role="status" className={`text-sm font-semibold ${result.left === 0 ? 'text-income' : 'text-expense-strong'}`}>
           {leftText}
         </p>
       </div>
-      {props.error && <p role="alert" className="text-sm text-expense">{props.error}</p>}
+      {props.error && <p role="alert" className="text-sm text-expense-strong">{props.error}</p>}
       {/* область role="status" есть всегда — меняется только текст, так его объявляют программы чтения с экрана */}
       <div role="status" className={notice ? 'flex flex-wrap items-center justify-between gap-2 rounded-xl bg-field px-3 py-2 text-sm' : 'sr-only'}>
         {notice && (

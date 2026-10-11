@@ -223,6 +223,19 @@ test('зона настроек: разделы по группам, без па
   ]);
   await expect(nav).toContainText(name);
   await expect(nav).toContainText('Визуальные настройки');
+  // группы навигации — с именами (итоги 1.5-1b №1)
+  await expect(nav.getByRole('group', { name: 'Мой аккаунт' }).getByRole('link')).toHaveText(['Профиль', 'Мои компании']);
+  await expect(nav.getByRole('group', { name }).getByRole('link')).toHaveText([
+    'Контрагенты',
+    'Счета',
+    'Категории',
+    'Проекты',
+    'Теги',
+    'Пользователи',
+    'Фиксированные курсы валют',
+    'Резервное копирование',
+  ]);
+  await expect(nav.getByRole('group', { name: 'Визуальные настройки' }).getByRole('link')).toHaveText(['Настройки журнала']);
   await expect(nav.getByRole('link', { name: 'Контрагенты' })).toHaveAttribute('aria-current', 'page');
 
   // общий для экземпляра раздел — серая строка

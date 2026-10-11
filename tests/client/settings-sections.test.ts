@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS_SECTION, settingsGroups, SHARED_NOTE } from '../../src/client/lib/settings-sections';
+import { ACCOUNT_GROUP_LABEL, DEFAULT_SETTINGS_SECTION, settingsGroups, SHARED_NOTE } from '../../src/client/lib/settings-sections';
 
 describe('навигация зоны настроек (§4.2 этапа 1.5)', () => {
   it('группы и порядок как в Finmap; вторая группа подписана названием компании', () => {
@@ -30,5 +30,9 @@ describe('навигация зоны настроек (§4.2 этапа 1.5)', 
     expect(paths).not.toContain('split-presets');
     expect(DEFAULT_SETTINGS_SECTION).toBe('counterparties');
     expect(SHARED_NOTE).toBe('Общие для всех компаний');
+  });
+
+  it('группа аккаунта без подзаголовка называется «Мой аккаунт» — как в панели «Настройки» (итоги 1.5-1b №1)', () => {
+    expect(ACCOUNT_GROUP_LABEL).toBe('Мой аккаунт');
   });
 });

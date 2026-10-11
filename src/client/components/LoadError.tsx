@@ -4,7 +4,7 @@ import { btnSecondary } from './ui';
 export function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="p-8">
-      <p role="alert" className="mb-4 text-expense">
+      <p role="alert" className="mb-4 text-expense-strong">
         {message}
       </p>
       <div className="flex items-center gap-4">

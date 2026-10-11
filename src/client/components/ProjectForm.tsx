@@ -114,7 +114,7 @@ export function ProjectForm(props: {
         </label>
       )}
       {props.serverError && (
-        <p role="alert" className="rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense">
+        <p role="alert" className="rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense-strong">
           {props.serverError}
         </p>
       )}

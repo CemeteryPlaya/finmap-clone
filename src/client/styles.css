@@ -15,6 +15,7 @@
   --color-income-strong: #0b7a53; /* текст на income-soft (плашка «Указать», «системная») — 4,7:1; фон полосы действий под белым текстом — 5,4:1 */
   --color-expense: #e2553f;
   --color-expense-soft: #fde7e2;
+  --color-expense-strong: #b83a26; /* любой текст цвета расхода: 5,7:1 на белом, 4,8:1 на expense-soft, 5,0:1 на field (итоги 1.5-3b №1) */
   --color-transfer: #5b6270;
   --color-focus: #2bb3a0;
   --color-income-on-dark: #3ddc9b; /* текст «+ Доход» на тёмной шапке: 7.8:1 */

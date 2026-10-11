@@ -18,7 +18,7 @@ export function StaleNotice({ queries }: { queries: QueryLike[] }) {
   const failed = queries.find((q) => q.error);
   if (!failed?.error) return null;
   return (
-    <p role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
+    <p role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense-strong">
       <span>Не удалось обновить данные: {failed.error.message}</span>
       <button type="button" onClick={() => queries.forEach((q) => void q.refetch())} className="font-semibold underline">
         Повторить

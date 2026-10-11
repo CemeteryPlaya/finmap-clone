@@ -97,7 +97,7 @@ export function AccountForm(props: {
         {(c) => <input {...c} inputMode="decimal" value={balance} onChange={(e) => setBalance(e.target.value)} className={inputClass} />}
       </Field>
       {props.serverError && (
-        <p role="alert" className="rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense md:col-span-2">
+        <p role="alert" className="rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense-strong md:col-span-2">
           {props.serverError}
         </p>
       )}

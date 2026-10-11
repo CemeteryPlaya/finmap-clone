@@ -65,7 +65,7 @@ export function Field(props: {
         </span>
       )}
       {props.error && (
-        <span id={errorId} className="mt-1 block text-sm text-expense">
+        <span id={errorId} className="mt-1 block text-sm text-expense-strong">
           {props.error}
         </span>
       )}

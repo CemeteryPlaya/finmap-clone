@@ -35,9 +35,9 @@ export function ActionRow(props: {
         onClick={() => {
           if (!props.disabledHint) props.onClick();
         }}
-        className={`peer ${actionRowClass} ${props.danger ? 'text-expense' : 'text-ink'}`}
+        className={`peer ${actionRowClass} ${props.danger ? 'text-expense-strong' : 'text-ink'}`}
       >
-        <span aria-hidden="true" className={`grid size-6 shrink-0 place-items-center ${props.danger ? 'text-expense' : 'text-muted'}`}>
+        <span aria-hidden="true" className={`grid size-6 shrink-0 place-items-center ${props.danger ? 'text-expense-strong' : 'text-muted'}`}>
           {props.icon}
         </span>
         <span className={`min-w-0 flex-1 ${props.muted ? 'text-muted' : ''}`}>{props.label}</span>

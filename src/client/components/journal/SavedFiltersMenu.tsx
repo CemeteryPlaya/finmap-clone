@@ -66,7 +66,7 @@ function SavedFilterItem(props: { filter: SavedFilter; companyId: number; onAppl
             autoFocus
             className={`${inputClass} py-1.5 text-sm`}
           />
-          {error && <p className="text-xs text-expense">{error}</p>}
+          {error && <p className="text-xs text-expense-strong">{error}</p>}
           <div className="flex gap-2">
             <button type="submit" disabled={pending} className={btnSmall}>
               Сохранить
@@ -92,7 +92,7 @@ function SavedFilterItem(props: { filter: SavedFilter; companyId: number; onAppl
     return (
       <li role="group" aria-label={`Удаление фильтра «${filter.name}»`} className="flex flex-col gap-2 py-1 text-sm">
         <span>Удалить фильтр «{filter.name}»?</span>
-        {error && <p className="text-xs text-expense">{error}</p>}
+        {error && <p className="text-xs text-expense-strong">{error}</p>}
         <div className="flex gap-2">
           <button type="button" disabled={pending} onClick={() => void run(() => api(url, { method: 'DELETE' }), props.onRemoved)} className={`${btnDanger} px-3 py-1.5 text-sm`}>
             Да, удалить
@@ -117,8 +117,8 @@ function SavedFilterItem(props: { filter: SavedFilter; companyId: number; onAppl
         className="min-w-0 flex-1 truncate rounded-lg px-2 py-1.5 text-left text-sm hover:bg-field disabled:text-muted disabled:hover:bg-transparent"
       >
         {filter.name}
-        {filter.invalid && <span className="ml-1 text-xs text-expense">(повреждён)</span>}
-        {filter.unavailable > 0 && <span className="ml-1 text-xs text-expense">({unavailableText(filter.unavailable)})</span>}
+        {filter.invalid && <span className="ml-1 text-xs text-expense-strong">(повреждён)</span>}
+        {filter.unavailable > 0 && <span className="ml-1 text-xs text-expense-strong">({unavailableText(filter.unavailable)})</span>}
       </button>
       <button
         type="button"
@@ -134,7 +134,7 @@ function SavedFilterItem(props: { filter: SavedFilter; companyId: number; onAppl
         aria-label={`Удалить фильтр «${filter.name}»`}
         title="Удалить"
         onClick={() => setMode('delete')}
-        className="rounded-lg px-2 py-1 text-sm text-expense hover:bg-field"
+        className="rounded-lg px-2 py-1 text-sm text-expense-strong hover:bg-field"
       >
         <span aria-hidden="true">✕</span>
       </button>

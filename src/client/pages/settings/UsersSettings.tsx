@@ -45,7 +45,7 @@ function NewUserForm({ onDone }: { onDone: () => void }) {
         {(c) => <input {...c} type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputClass} />}
       </Field>
       {create.error && !create.error.fields && (
-        <p role="alert" className="rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense md:col-span-3">
+        <p role="alert" className="rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense-strong md:col-span-3">
           {create.error.message}
         </p>
       )}
@@ -179,7 +179,7 @@ function UserItem({ u, isMe }: { u: AppUser; isMe: boolean }) {
         </p>
       )}
       {patch.error && !patch.error.fields && (
-        <p role="alert" className="mt-2 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
+        <p role="alert" className="mt-2 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense-strong">
           {patch.error.message}
         </p>
       )}

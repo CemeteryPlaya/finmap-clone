@@ -57,7 +57,7 @@ export interface JournalTableProps {
 
 const AMOUNT_CLASS: Record<JournalItem['type'], string> = {
   income: 'text-income',
-  expense: 'text-expense',
+  expense: 'text-expense-strong',
   transfer: 'text-transfer',
 };
 
@@ -133,7 +133,7 @@ function dimensionCell(item: JournalItem, key: 'categoryId' | 'projectId', value
 /** Остаток после операции в валюте счёта, без слова «остаток» (§5.2); отрицательный — красным. */
 function Balance({ account, balance }: { account: Account | undefined; balance: number | null }) {
   if (!account || balance === null) return null;
-  return <span className={balance < 0 ? 'text-expense' : 'text-muted'}>{formatMoney(balance, account.currency, MONEY_SCREEN)}</span>;
+  return <span className={balance < 0 ? 'text-expense-strong' : 'text-muted'}>{formatMoney(balance, account.currency, MONEY_SCREEN)}</span>;
 }
 
 export function JournalTable(props: JournalTableProps) {

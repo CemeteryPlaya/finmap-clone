@@ -78,7 +78,7 @@ export function LoginPage() {
           Запомнить меня на 30 дней
         </label>
         {err && (
-          <p role="alert" className="mb-4 rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense">
+          <p role="alert" className="mb-4 rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense-strong">
             {err.fields ? Object.values(err.fields).join('. ') : err.message}
           </p>
         )}

@@ -10,7 +10,7 @@ import { useOpenOperationForm } from './operation/OperationFormHost';
 import { Pending } from './QueryState';
 import { btnPrimary, headerIconClass } from './ui';
 
-const AMOUNT_CLASS: Record<NonNullable<HistoryItem['type']>, string> = { income: 'text-income', expense: 'text-expense', transfer: 'text-transfer' };
+const AMOUNT_CLASS: Record<NonNullable<HistoryItem['type']>, string> = { income: 'text-income', expense: 'text-expense-strong', transfer: 'text-transfer' };
 
 /** Иконка «История действий» в шапке и правая панель с последними действиями по операциям (§3.4 этапа 1.5). */
 export function HistoryButton({ company }: { company: Company }) {

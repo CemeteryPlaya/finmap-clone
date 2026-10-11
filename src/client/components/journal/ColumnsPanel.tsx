@@ -82,7 +82,7 @@ export function ColumnsPanel({ onFailAway }: { onFailAway?: (text: string) => vo
         <span className="text-xs text-muted">(до 2 строк)</span>
       </label>
       {errors.map((text) => (
-        <p key={text} role="alert" className="mt-2 text-xs text-expense">
+        <p key={text} role="alert" className="mt-2 text-xs text-expense-strong">
           {text}
         </p>
       ))}

@@ -113,7 +113,7 @@ export function SalaryRow(props: {
         )}
       </Popover>
       {props.error && (
-        <span id={errorId} className="mb-2 block px-1 text-sm text-expense">
+        <span id={errorId} className="mb-2 block px-1 text-sm text-expense-strong">
           {props.error}
         </span>
       )}

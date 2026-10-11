@@ -185,7 +185,7 @@ function PresetForm(props: {
                   className={inputClass}
                 />
                 {l.percent !== '' && parsed[i] === null && (
-                  <span id={`percent-error-${i}`} className="mt-1 block text-sm text-expense">
+                  <span id={`percent-error-${i}`} className="mt-1 block text-sm text-expense-strong">
                     Введите число, например 33,33
                   </span>
                 )}
@@ -214,13 +214,13 @@ function PresetForm(props: {
         >
           + Строка
         </button>
-        <p role="status" className={`text-sm font-semibold ${total === SPLIT_TOTAL_BP ? 'text-income' : 'text-expense'}`}>
+        <p role="status" className={`text-sm font-semibold ${total === SPLIT_TOTAL_BP ? 'text-income' : 'text-expense-strong'}`}>
           Распределено {formatBp(total)}% из 100%
           {total !== SPLIT_TOTAL_BP && ` · ${total < SPLIT_TOTAL_BP ? 'осталось' : 'лишние'} ${formatBp(Math.abs(SPLIT_TOTAL_BP - total))}%`}
         </p>
       </div>
       {alertMessages.length > 0 && (
-        <p role="alert" className="rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense">
+        <p role="alert" className="rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense-strong">
           {alertMessages.join('. ')}
         </p>
       )}

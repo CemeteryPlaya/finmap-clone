@@ -60,6 +60,9 @@ test('панель «Настройки» на странице компании
   await expect(menu).toContainText('Мой аккаунт');
   await expect(menu).toContainText(`Моя компания: ${name}`);
   await expect(menu.getByRole('link')).toHaveText([/^Профиль/, /^Мои компании/, /^Пользователи/, /^Настройки компании/]);
+  // группы — настоящие группы с подписью (итоги 1.5-1b №1)
+  await expect(menu.getByRole('group', { name: 'Мой аккаунт' }).getByRole('link')).toHaveText([/^Профиль/, /^Мои компании/]);
+  await expect(menu.getByRole('group', { name: `Моя компания: ${name}` }).getByRole('link')).toHaveText([/^Пользователи/, /^Настройки компании/]);
   await expect(menu.getByRole('button', { name: 'Выйти' })).toBeVisible();
 
   await menu.getByRole('link', { name: /^Пользователи/ }).click();

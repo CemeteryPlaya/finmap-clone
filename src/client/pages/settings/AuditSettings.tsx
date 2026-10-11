@@ -43,7 +43,7 @@ function AuditItem({ e, timeZone }: { e: AuditEntry; timeZone: string }) {
                 {rows.map((r) => (
                   <tr key={r.field}>
                     <td className="pr-3 align-top">{r.field}</td>
-                    <td className="pr-3 align-top text-expense">{r.before}</td>
+                    <td className="pr-3 align-top text-expense-strong">{r.before}</td>
                     <td className="align-top text-income">{r.after}</td>
                   </tr>
                 ))}

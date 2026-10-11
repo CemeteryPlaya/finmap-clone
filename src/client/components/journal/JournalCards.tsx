@@ -4,7 +4,7 @@ import type { JournalLookups } from './JournalTable';
 
 const AMOUNT_CLASS: Record<JournalItem['type'], string> = {
   income: 'text-income',
-  expense: 'text-expense',
+  expense: 'text-expense-strong',
   transfer: 'text-transfer',
 };
 

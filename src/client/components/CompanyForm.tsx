@@ -28,7 +28,7 @@ export function CompanyForm({ onCreated }: { onCreated: (c: Company) => void }) 
       <label className="block">
         <span className="mb-1 block text-sm text-muted">Название компании</span>
         <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="ТОО «Ромашка»" className={inputClass} />
-        {fields.name && <span className="mt-1 block text-sm text-expense">{fields.name}</span>}
+        {fields.name && <span className="mt-1 block text-sm text-expense-strong">{fields.name}</span>}
       </label>
       <label className="block">
         <span className="mb-1 block text-sm text-muted">Базовая валюта</span>
@@ -39,10 +39,10 @@ export function CompanyForm({ onCreated }: { onCreated: (c: Company) => void }) 
             </option>
           ))}
         </select>
-        {fields.baseCurrency && <span className="mt-1 block text-sm text-expense">{fields.baseCurrency}</span>}
+        {fields.baseCurrency && <span className="mt-1 block text-sm text-expense-strong">{fields.baseCurrency}</span>}
       </label>
       {create.error && !create.error.fields && (
-        <p role="alert" className="rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense">
+        <p role="alert" className="rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense-strong">
           {create.error.message}
         </p>
       )}

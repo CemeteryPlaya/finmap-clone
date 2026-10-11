@@ -1,9 +1,10 @@
+import { useId } from 'react';
 import { Link, NavLink } from 'react-router';
 import { CollapseButton } from '../../components/CollapseButton';
 import { focusHeadingSoon, isPlainLeftClick, pathOf } from '../../lib/focus-heading';
 import { journalBackHref, readLastJournal } from '../../lib/last-journal';
 import type { Company } from '../../lib/queries';
-import { settingsGroups } from '../../lib/settings-sections';
+import { ACCOUNT_GROUP_LABEL, settingsGroups } from '../../lib/settings-sections';
 import { useSidebarCollapsed } from '../../lib/sidebar';
 
 const sidebarLink = ({ isActive }: { isActive: boolean }) =>
@@ -62,21 +63,35 @@ function BackLink({ to, compact }: { to: string; compact?: boolean }) {
 }
 
 function SettingsNavBody(props: { companyId: number; companyName: string; back: string; sidebar: boolean }) {
+  const id = useId();
   return (
     <>
       <BackLink to={props.back} />
-      {settingsGroups(props.companyName).map((g) => (
-        <div key={g.key} className={g.title ? 'mt-3 border-t border-field pt-3' : ''}>
-          {g.title && <p className="mb-1 truncate px-3 text-xs font-semibold uppercase tracking-wide text-muted">{g.title}</p>}
-          <div className={props.sidebar ? 'grid gap-0.5' : 'flex flex-wrap gap-1'}>
-            {g.items.map((s) => (
-              <NavLink key={s.path} to={`/c/${props.companyId}/settings/${s.path}`} className={props.sidebar ? sidebarLink : inlineLink}>
-                {s.label}
-              </NavLink>
-            ))}
+      {settingsGroups(props.companyName).map((g) => {
+        const titleId = `${id}-${g.key}`;
+        return (
+          // настоящая группа с именем: программа чтения называет её при входе (итоги 1.5-1b №1); не список — listitem ищут e2e разделов
+          <div
+            key={g.key}
+            role="group"
+            {...(g.title ? { 'aria-labelledby': titleId } : { 'aria-label': ACCOUNT_GROUP_LABEL })}
+            className={g.title ? 'mt-3 border-t border-field pt-3' : ''}
+          >
+            {g.title && (
+              <p id={titleId} className="mb-1 truncate px-3 text-xs font-semibold uppercase tracking-wide text-muted">
+                {g.title}
+              </p>
+            )}
+            <div className={props.sidebar ? 'grid gap-0.5' : 'flex flex-wrap gap-1'}>
+              {g.items.map((s) => (
+                <NavLink key={s.path} to={`/c/${props.companyId}/settings/${s.path}`} className={props.sidebar ? sidebarLink : inlineLink}>
+                  {s.label}
+                </NavLink>
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </>
   );
 }

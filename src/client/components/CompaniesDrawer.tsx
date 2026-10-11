@@ -108,7 +108,7 @@ function CompaniesList(props: { current: Company; companies: Company[]; onDone: 
         />
       )}
       {summary.isError && (
-        <p className="mb-2 px-1 text-xs text-expense">
+        <p className="mb-2 px-1 text-xs text-expense-strong">
           Не удалось загрузить итоги.{' '}
           <button type="button" className="underline" onClick={() => void summary.refetch()}>
             Повторить

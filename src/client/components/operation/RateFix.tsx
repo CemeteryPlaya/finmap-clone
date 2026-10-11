@@ -56,7 +56,7 @@ export function RateFix(props: { missing: MissingRate; companyId: number; pendin
   };
 
   return (
-    <div role="alert" className="grid gap-2 rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense">
+    <div role="alert" className="grid gap-2 rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense-strong">
       <span>{props.missing.message}</span>
       {saved && (
         <span className="text-ink">

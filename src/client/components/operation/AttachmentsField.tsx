@@ -129,7 +129,7 @@ export function AttachmentsField(props: {
   return (
     <div role="group" aria-label="Файлы">
       <span className="mb-1 block text-sm text-muted">Файлы</span>
-      {attachments.isError && <p className="mb-1 text-sm text-expense">Не удалось загрузить список файлов</p>}
+      {attachments.isError && <p className="mb-1 text-sm text-expense-strong">Не удалось загрузить список файлов</p>}
       <ul className="mb-2 grid gap-1 text-sm">
         {(attachments.data ?? []).map((a) => (
           <li key={a.id} className="flex flex-wrap items-center gap-2">
@@ -159,7 +159,7 @@ export function AttachmentsField(props: {
                     else removeButtons.current.delete(a.id);
                   }}
                   aria-label={`Удалить файл «${a.originalName}»`}
-                  onClick={() => setConfirmId(a.id)} className="text-muted hover:text-expense">
+                  onClick={() => setConfirmId(a.id)} className="text-muted hover:text-expense-strong">
                   ×
                 </button>
                 )}
@@ -178,7 +178,7 @@ export function AttachmentsField(props: {
                 setErrors([]);
                 props.onPendingChange(props.pending.filter((_, j) => j !== i));
               }}
-              className="text-muted hover:text-expense"
+              className="text-muted hover:text-expense-strong"
             >
               ×
             </button>
@@ -241,7 +241,7 @@ export function AttachmentsField(props: {
         </div>
       )}
       {errors.length > 0 && (
-        <ul role="alert" className="mt-1 text-sm text-expense">
+        <ul role="alert" className="mt-1 text-sm text-expense-strong">
           {errors.map((e, i) => (
             <li key={`${i}-${e}`}>{e}</li>
           ))}

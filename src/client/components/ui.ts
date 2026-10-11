@@ -11,7 +11,8 @@ export const floatingTextareaClass = 'block w-full rounded-xl bg-field px-4 pt-6
 export const badgeClass = 'shrink-0 rounded bg-income-soft px-1.5 py-0.5 text-[11px] font-medium text-income-strong';
 export const btnPrimary = 'rounded-xl bg-income px-4 py-2.5 font-semibold text-white hover:brightness-95 disabled:opacity-50';
 export const btnSecondary = 'rounded-xl bg-field px-4 py-2.5 font-medium text-ink hover:brightness-95 disabled:opacity-50';
-export const btnDanger = 'rounded-xl bg-expense-soft px-4 py-2.5 font-medium text-expense hover:brightness-95 disabled:opacity-50';
+/** Разрушительное действие: текст expense-strong на expense-soft — 4,8:1 (итоги 1.5-3b №1). */
+export const btnDanger = 'rounded-xl bg-expense-soft px-4 py-2.5 font-medium text-expense-strong hover:brightness-95 disabled:opacity-50';
 /**
  * Главная кнопка формы операции (§6.9 этапа 1.5): на всю ширину, 56 px, цвет типа. Тёмный текст на income и expense —
  * 5,2:1 и 4,8:1; при наведении фон не темнеет, а светлеет (5,7:1 и 5,3:1: затемнение опускало расход до 4,43:1, ниже AA).
@@ -28,7 +29,7 @@ export const btnClose = `${btnIcon} shrink-0 max-md:flex max-md:size-11 max-md:i
 /** Круглая кнопка-иконка в тёмной шапке (история действий, настройки) с видимой рамкой фокуса. */
 export const headerIconClass =
   'grid h-10 w-10 shrink-0 place-items-center rounded-full max-md:size-11 bg-chrome-2 text-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
-export const alertClass = 'mb-4 rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense';
+export const alertClass = 'mb-4 rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense-strong';
 export const noticeClass = 'mb-4 rounded-xl bg-field px-4 py-3 text-sm text-muted';
 
 /**

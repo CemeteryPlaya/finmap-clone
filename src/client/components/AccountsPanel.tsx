@@ -34,13 +34,13 @@ function AccountsSummary({ company, onNavigate, onAdd }: { company: Company; onN
         <p className="text-xs text-muted">Всего на счетах</p>
         <p className="truncate text-xl font-bold tabular-nums">{total ? formatMoney(total.amount, total.currency, MONEY_SCREEN_BEFORE) : balances.error ? '—' : '…'}</p>
         {total?.unavailable.map((code) => (
-          <p key={code} className="text-xs text-expense">
+          <p key={code} className="text-xs text-expense-strong">
             курс {code} недоступен
           </p>
         ))}
       </div>
       {failed && (
-        <p className="mb-2 text-xs text-expense">
+        <p className="mb-2 text-xs text-expense-strong">
           Не удалось загрузить счета.{' '}
           <button
             type="button"
@@ -68,7 +68,7 @@ function AccountsSummary({ company, onNavigate, onAdd }: { company: Company; onN
                 className="flex items-baseline justify-between gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-field"
               >
                 <span className="truncate">{a.name}</span>
-                <span className={`shrink-0 tabular-nums ${balance !== undefined && balance < 0 ? 'text-expense' : ''}`}>
+                <span className={`shrink-0 tabular-nums ${balance !== undefined && balance < 0 ? 'text-expense-strong' : ''}`}>
                   {balance === undefined ? '…' : formatMoney(balance, a.currency, MONEY_SCREEN_BEFORE)}
                 </span>
               </Link>

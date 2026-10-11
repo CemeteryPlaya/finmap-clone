@@ -88,7 +88,7 @@ function CompanyRow({ c, currentId }: { c: Company; currentId: number }) {
       </div>
       {readOnly && <p className="mt-2 text-sm text-muted">В архиве</p>}
       {rowError && (
-        <p role="alert" className="mt-2 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense">
+        <p role="alert" className="mt-2 rounded-xl bg-expense-soft px-4 py-2 text-sm text-expense-strong">
           {rowError.message}
         </p>
       )}

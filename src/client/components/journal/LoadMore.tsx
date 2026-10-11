@@ -26,7 +26,7 @@ export function LoadMore(props: { hasNext: boolean; loading: boolean; failed: bo
   return (
     <div ref={ref} className="mt-4 flex flex-col items-center gap-2">
       {props.failed && !props.loading && (
-        <p role="alert" className="text-sm text-expense">
+        <p role="alert" className="text-sm text-expense-strong">
           Не удалось загрузить продолжение списка.
         </p>
       )}
