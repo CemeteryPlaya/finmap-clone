@@ -78,7 +78,7 @@ describe('backup', () => {
     const file = svc.create('daily');
     expect(fs.existsSync(file)).toBe(true);
     expect(fs.existsSync(missing)).toBe(false);
-    expect(svc.status().lastCopyError).toMatch(/не найдена/);
+    expect(svc.status().lastCopyError).toBe(`Не удалось скопировать в ${missing}: ENOENT`);
     expect(logs.some((l) => /Не удалось скопировать бэкап/.test(l.msg) && l.err instanceof Error)).toBe(true);
   });
 
@@ -105,7 +105,7 @@ describe('backup', () => {
     expect(() => svc.create('daily')).not.toThrow();
     vi.restoreAllMocks();
     expect(svc.list()).toHaveLength(1);
-    expect(svc.status().lastCopyError).toMatch(/EACCES/);
+    expect(svc.status().lastCopyError).toBe(`Не удалось скопировать в ${copyDir}: EACCES`);
     fs.rmSync(copyDir, { recursive: true, force: true });
   });
 

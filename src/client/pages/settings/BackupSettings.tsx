@@ -52,7 +52,7 @@ export function BackupSettings() {
         </dl>
         {s.lastCopyError && (
           <p role="alert" className={alertClass}>
-            Не удалось скопировать архив в BACKUP_COPY_DIR: {s.lastCopyError}
+            {s.lastCopyError}
           </p>
         )}
         {download.error && (

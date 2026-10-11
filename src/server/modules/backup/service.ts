@@ -124,13 +124,14 @@ export function createBackupService(d: {
           // Папку не создаём: отключённая флешка или несмонтированный диск дали бы «успешную» копию
           // на системный диск. Нет папки — предупреждение в журнале и на экране «Резервная копия».
           if (!isDirectory(config.backupCopyDir)) {
-            throw new Error(`папка ${config.backupCopyDir} не найдена — подключите диск или создайте папку`);
+            throw Object.assign(new Error('папка не найдена'), { code: 'ENOENT' });
           }
           copyAtomic(target, path.join(config.backupCopyDir, path.basename(target)), at);
           prune(config.backupCopyDir, config.backupKeep);
           lastCopyError = null;
         } catch (e) {
-          lastCopyError = (e as Error).message;
+          // на экран — только настроенная папка и код ошибки: текст системной ошибки может содержать другие абсолютные пути
+          lastCopyError = `Не удалось скопировать в ${config.backupCopyDir}: ${(e as NodeJS.ErrnoException).code ?? 'ошибка'}`;
           log(`Не удалось скопировать бэкап в ${config.backupCopyDir}`, e);
         }
       }

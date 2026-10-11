@@ -270,3 +270,26 @@ test('панель «История действий»: последние де�
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/audit$`));
   await expect(page.getByRole('heading', { level: 1, name: 'История действий' })).toBeFocused();
 });
+
+test('резервная копия: папка не задана, ошибка копирования и сбой скачивания видны на карточке', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Бэкап2 ${Date.now()}`);
+  const status = { last: { file: 'backup-20260101-000000.zip', createdAt: '2026-01-01T00:00:00.000Z', size: 2048 }, copyDir: null as string | null, lastCopyError: null as string | null };
+  await page.route('**/api/v1/backup/status', (route) => route.fulfill({ json: status }));
+  await page.route('**/api/v1/backup/download', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'INTERNAL', message: 'Не удалось подготовить архив' } }) }));
+
+  await page.goto(`/c/${cid}/settings/backup`);
+  const auto = page.getByRole('region', { name: 'Автоматическая копия' });
+  await expect(auto).toContainText('Не задана — копии хранятся только в data/backups');
+  await expect(auto.getByRole('alert')).toHaveCount(0);
+
+  status.copyDir = 'E:\copies';
+  status.lastCopyError = 'Не удалось скопировать в E:\copies: EACCES';
+  await page.reload();
+  await expect(auto).toContainText('E:\copies');
+  await expect(auto.getByRole('alert')).toContainText('Не удалось скопировать в E:\copies: EACCES');
+  await expect(auto).toContainText('Включено');
+
+  await auto.getByRole('button', { name: 'Скачать сейчас' }).click();
+  await expect(auto.getByRole('alert').filter({ hasText: 'Не удалось подготовить архив' })).toBeVisible();
+});

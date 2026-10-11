@@ -328,3 +328,79 @@ test('сворачивание: кнопка на правой границе п
     expect(restore.ok()).toBe(true);
   }
 });
+
+test('фиксированный курс: обратный и пересекающийся период — ошибки у полей, окно открыто; в архивной компании добавить и изменить нельзя', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Периоды ${Date.now()}`);
+  await page.goto(`/c/${cid}/settings/rates`);
+  const fixed = page.getByRole('region', { name: 'Фиксированные курсы компании' });
+  const dialog = page.getByRole('dialog', { name: 'Новый фиксированный курс' });
+  const fill = async (from: string, to: string) => {
+    await dialog.getByLabel('Валюта').selectOption('EUR');
+    await dialog.getByLabel('Курс к KZT').fill('500');
+    await dialog.getByLabel('Действует с').fill(from);
+    await dialog.getByLabel('Действует по').fill(to);
+    await dialog.getByRole('button', { name: 'Сохранить' }).click();
+  };
+
+  await fixed.getByRole('button', { name: 'Добавить свой курс' }).click();
+  await fill('2020-02-01', '2020-01-01');
+  await expect(dialog.getByLabel('Действует по')).toHaveAttribute('aria-invalid', 'true');
+  await expect(dialog).toContainText('Дата окончания раньше начала');
+  await fill('2020-01-01', '2020-12-31');
+  await expect(dialog).toBeHidden();
+  await expect(fixed.getByRole('listitem').filter({ hasText: 'EUR' })).toContainText('с 01.01.2020 по 31.12.2020');
+
+  await fixed.getByRole('button', { name: 'Добавить свой курс' }).click();
+  await fill('2020-06-01', '2021-06-01');
+  await expect(dialog.getByLabel('Действует с')).toHaveAttribute('aria-invalid', 'true');
+  await expect(dialog).toContainText('Период пересекается с другим фиксированным курсом');
+  await expect(dialog).toBeVisible();
+
+  // архивная компания: только чтение
+  await dialog.getByRole('button', { name: 'Отмена' }).click();
+  await apiPost(page, `/api/v1/companies/${cid}/archive`, {});
+  await page.reload();
+  await expect(page.getByText('Компания в архиве — изменения недоступны.')).toBeVisible();
+  await expect(fixed.getByRole('button', { name: 'Добавить свой курс' })).toHaveCount(0);
+  await expect(fixed.getByRole('button', { name: /Изменить курс/ })).toHaveCount(0);
+});
+
+test('ручной курс: повтор даты — ошибка у поля; сбой удаления остаётся в окне, фокус возвращается на «Удалить»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Ручные ${Date.now()}`);
+  await page.goto(`/c/${cid}/settings/rates`);
+  const day = String(1 + (Date.now() % 28)).padStart(2, '0');
+  const month = String(1 + (Math.floor(Date.now() / 1000) % 12)).padStart(2, '0');
+  const date = `1995-${month}-${day}`;
+  await apiPost(page, '/api/v1/rates/manual', { date, currency: 'USD', rate: '450' });
+  await page.reload();
+  const manual = page.getByRole('region', { name: 'Ручные курсы на дату' });
+  const fresh = page.getByRole('dialog', { name: 'Новый курс на дату' });
+
+  await manual.getByRole('button', { name: 'Добавить курс на дату' }).click();
+  await fresh.getByLabel('Дата').fill(date);
+  await fresh.getByLabel('Валюта').selectOption('USD');
+  await fresh.getByLabel('Курс к тенге').fill('451');
+  await fresh.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(fresh.getByLabel('Дата')).toHaveAttribute('aria-invalid', 'true');
+  await expect(fresh).toContainText('Курс на эту дату уже есть');
+  await fresh.getByRole('button', { name: 'Отмена' }).click();
+
+  // сервер отказывает в удалении: ошибка в окне, подтверждение закрыто, фокус на «Удалить»
+  await page.route('**/api/v1/rates/manual/*', async (route) => {
+    if (route.request().method() === 'DELETE') {
+      await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: { code: 'CONFLICT', message: 'Курс нельзя удалить' } }) });
+    } else {
+      await route.continue();
+    }
+  });
+  const [y, m, d] = date.split('-');
+  await manual.getByRole('button', { name: `Изменить курс USD на ${d}.${m}.${y}` }).click();
+  const edit = page.getByRole('dialog', { name: 'Курс на дату', exact: true });
+  await edit.getByRole('button', { name: 'Удалить', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Удалить', exact: true }).click();
+  await expect(page.getByRole('alertdialog')).toBeHidden();
+  await expect(edit.getByRole('alert')).toContainText('Курс нельзя удалить');
+  await expect(edit.getByRole('button', { name: 'Удалить', exact: true })).toBeFocused();
+});
