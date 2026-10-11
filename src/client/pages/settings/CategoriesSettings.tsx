@@ -1,18 +1,27 @@
 import { useMutation } from '@tanstack/react-query';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router';
 import { ArchivedNote, EntityActions } from '../../components/EntityActions';
 import { Field } from '../../components/Field';
 import { BankIcon, PlusIcon } from '../../components/icons';
 import { Modal } from '../../components/Modal';
 import { Pending, StaleNotice } from '../../components/QueryState';
-import { ReorderButtons } from '../../components/ReorderButtons';
 import { SettingsList } from '../../components/SettingsList';
 import { SettingsSubmenu } from '../../components/SettingsSubmenu';
-import { alertClass, btnPrimary, btnSecondary, inputClass, noticeClass } from '../../components/ui';
+import { alertClass, btnIcon, btnPrimary, btnSecondary, inputClass, noticeClass } from '../../components/ui';
 import { api, ApiError } from '../../lib/api';
-import { CATEGORY_TABS, categoryReorderPlan, categoryRows, categoryTab, categoryTabInfo, parentOptions } from '../../lib/category-tabs';
-import { planMove, planShift, type MovePlan } from '../../lib/category-moves';
+import {
+  CATEGORY_TABS,
+  applyCategoryOrder,
+  categoryReorderPlan,
+  categoryRows,
+  categoryShiftPlan,
+  categoryTab,
+  categoryTabInfo,
+  parentOptions,
+  type CategoryTab,
+} from '../../lib/category-tabs';
+import { planMove, type MovePlan } from '../../lib/category-moves';
 import { queryClient } from '../../lib/query';
 import { useCategories, type CategoryNode, type CategoryTree } from '../../lib/queries';
 import { useEntityActions } from '../../lib/settings-mutations';
@@ -24,6 +33,40 @@ const plusClass =
 
 /** Окно категории: создание (на верхнем уровне или в родителе) или правка (по id — свежие данные из дерева). */
 type CategoryDialog = { mode: 'new'; parent: CategoryNode | null } | { mode: 'edit'; id: number };
+
+/** Текст ошибки: сообщения полей (сервер отдаёт отказ переноса как ids / parentId) или общее сообщение. */
+const errorText = (e: ApiError) => (e.fields && Object.keys(e.fields).length > 0 ? Object.values(e.fields).join(' ') : e.message);
+
+/**
+ * Новый порядок соседей: POST …/categories/reorder. В кэше дерева порядок меняется сразу; отказ — прежний порядок и
+ * onError(сообщение). Быстрые перестановки подряд не мешают друг другу: откат и обновление с сервера — после последней
+ * (как useReorder у остальных списков). onError(null) — перед запросом.
+ */
+function useCategoryReorder(companyId: number, onError: (message: string | null) => void) {
+  const queryKey = ['categories', companyId];
+  const mutationKey = ['reorder', ...queryKey];
+  // в onError/onSettled своя мутация ещё считается выполняющейся: «одна» — значит, других нет
+  const lastOne = () => queryClient.isMutating({ mutationKey }) === 1;
+  return useMutation<unknown, ApiError, MovePlan, { previous: CategoryTree | undefined }>({
+    mutationKey,
+    mutationFn: (plan) => api(`/companies/${companyId}/categories/reorder`, { method: 'POST', body: plan }),
+    onMutate: async (plan) => {
+      onError(null);
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<CategoryTree>(queryKey);
+      if (previous) queryClient.setQueryData<CategoryTree>(queryKey, applyCategoryOrder(previous, plan));
+      return { previous };
+    },
+    onSuccess: () => {
+      if (lastOne()) onError(null);
+    },
+    onError: (e, _plan, context) => {
+      if (context?.previous && lastOne()) queryClient.setQueryData(queryKey, context.previous);
+      onError(errorText(e));
+    },
+    onSettled: () => (lastOne() ? queryClient.invalidateQueries({ queryKey }) : undefined),
+  });
+}
 
 const dialogTitle = (d: CategoryDialog) => (d.mode === 'edit' ? 'Категория' : d.parent ? 'Новая подкатегория' : 'Новая категория');
 
@@ -41,13 +84,9 @@ export function CategoriesSettings() {
   const [dialog, setDialog] = useState<CategoryDialog | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const readOnly = company.archivedAt !== null;
-  const reorder = useMutation<unknown, ApiError, MovePlan>({
-    mutationFn: (plan) => api(`/companies/${company.id}/categories/reorder`, { method: 'POST', body: plan }),
-    onMutate: () => setListError(null),
-    onError: (e) => setListError(e.message),
-    // и после ошибки (например, 409 «список изменился») — свежее дерево
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['categories', company.id] }),
-  });
+  const reorder = useCategoryReorder(company.id, setListError);
+  // ошибка прежней вкладки на новой не нужна
+  useEffect(() => setListError(null), [tab]);
 
   if (!categories.data) return <Pending queries={[categories]} />;
   const tree = categories.data;
@@ -119,6 +158,7 @@ export function CategoriesSettings() {
             companyId={company.id}
             kind={info.kind}
             tree={tree}
+            tab={tab}
             node={null}
             parent={dialog.parent}
             onDone={() => setDialog(null)}
@@ -131,6 +171,7 @@ export function CategoriesSettings() {
               companyId={company.id}
               kind={info.kind}
               tree={tree}
+              tab={tab}
               node={editingNode}
               parent={null}
               onDone={() => setDialog(null)}
@@ -147,6 +188,7 @@ function CategoryEditor(props: {
   companyId: number;
   kind: 'income' | 'expense';
   tree: CategoryTree;
+  tab: CategoryTab;
   node: CategoryNode | null;
   parent: CategoryNode | null;
   onDone: () => void;
@@ -179,18 +221,44 @@ function CategoryEditor(props: {
     // переименование могло пройти, а перенос — нет: дерево перечитываем в любом случае
     onError: () => void refresh(),
   });
-  const shift = useMutation<unknown, ApiError, MovePlan>({
-    mutationFn: (plan) => api(`${base}/reorder`, { method: 'POST', body: plan }),
-    onSettled: () => refresh(),
-  });
+  const [shiftError, setShiftError] = useState<string | null>(null);
+  const shift = useCategoryReorder(props.companyId, setShiftError);
+  const upRef = useRef<HTMLButtonElement>(null);
+  const downRef = useRef<HTMLButtonElement>(null);
   const actions = useEntityActions(node ? `${base}/${node.id}` : base, refresh, onDone);
   const fields = save.error?.fields ?? {};
   const submit = (e: FormEvent) => {
     e.preventDefault();
     save.mutate();
   };
-  const up = node ? planShift(level, node.id, -1) : null;
-  const down = node ? planShift(level, node.id, 1) : null;
+  // среди видимых соседей вкладки: скрытые системные и архивные остаются на своих местах
+  const up = node ? categoryShiftPlan(props.tree, props.tab, node.id, -1) : null;
+  const down = node ? categoryShiftPlan(props.tree, props.tab, node.id, 1) : null;
+  // дошли до края — стрелка гаснет (aria-disabled), фокус переходит на другую, а не падает на body
+  useEffect(() => {
+    if (!up && down && document.activeElement === upRef.current) downRef.current?.focus();
+    if (!down && up && document.activeElement === downRef.current) upRef.current?.focus();
+  }, [up, down]);
+  const shiftBusy = shift.isPending;
+  const arrow = (dir: 'up' | 'down', plan: MovePlan | null) => (
+    <button
+      ref={dir === 'up' ? upRef : downRef}
+      type="button"
+      aria-label={`${dir === 'up' ? 'Выше' : 'Ниже'}: ${node?.name ?? ''}`}
+      title={dir === 'up' ? 'Выше' : 'Ниже'}
+      aria-disabled={!plan || shiftBusy || undefined}
+      onClick={() => {
+        if (plan && !shiftBusy) shift.mutate(plan);
+      }}
+      className={`${btnIcon} aria-disabled:opacity-30`}
+    >
+      {dir === 'up' ? '↑' : '↓'}
+    </button>
+  );
+  const otherFields = Object.entries(fields)
+    .filter(([key]) => key !== 'name')
+    .map(([, message]) => message);
+  const saveAlert = save.error ? (otherFields.length > 0 ? otherFields.join(' ') : save.error.fields ? null : save.error.message) : null;
 
   return (
     <>
@@ -203,7 +271,7 @@ function CategoryEditor(props: {
             {(c) => <input {...c} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />}
           </Field>
           {node && (
-            <Field label="Перенести в…" hint={options.length <= 1 ? 'Переносить некуда: у категории есть дочерние' : undefined}>
+            <Field label="Перенести в…" hint={options.length <= 1 ? (node.children.length > 0 ? 'Переносить некуда: у категории есть дочерние' : 'Переносить некуда') : undefined}>
               {(c) => (
                 <select {...c} value={parentValue} disabled={options.length <= 1} onChange={(e) => setParentValue(e.target.value)} className={inputClass}>
                   {options.map((o) => (
@@ -218,12 +286,15 @@ function CategoryEditor(props: {
           {node && (
             <div className="flex items-center gap-2 text-sm text-muted">
               <span>Порядок:</span>
-              <ReorderButtons label={node.name} disabled={shift.isPending} onUp={up ? () => shift.mutate(up) : null} onDown={down ? () => shift.mutate(down) : null} />
+              <span className="inline-flex gap-1">
+                {arrow('up', up)}
+                {arrow('down', down)}
+              </span>
             </div>
           )}
-          {(save.error && !save.error.fields) || shift.error ? (
+          {saveAlert || shiftError ? (
             <p role="alert" className={`${alertClass} mb-0`}>
-              {save.error && !save.error.fields ? save.error.message : shift.error?.message}
+              {saveAlert ?? shiftError}
             </p>
           ) : null}
           <div className="flex flex-wrap gap-2">

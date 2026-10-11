@@ -1,7 +1,7 @@
 import { moveError, type MovePlan } from './category-moves';
-import { mergeSubsetOrder } from './order';
+import { mergeSubsetOrder, sortByIds } from './order';
 import type { CategoryNode, CategoryTree } from './queries';
-import type { SettingsRow } from './settings-list';
+import { moveGroup, shiftInGroup, visibleRows, type SettingsRow } from './settings-list';
 
 /** Пункт подменю «Категорий» (§7.2 этапа 1.5), `?tab=` адреса. */
 export type CategoryTab = 'system-income' | 'system-expense' | 'my-income' | 'my-expense';
@@ -83,4 +83,20 @@ export function parentOptions(level: readonly CategoryNode[], node: CategoryNode
       .filter((p) => p.id === node.parentId || (p.id !== node.id && moveError(level, node, p.id) === null))
       .map((p) => ({ value: String(p.id), label: p.name })),
   ];
+}
+
+/** ↑ ↓ в окне категории: сдвиг среди видимых соседей вкладки (без архивных и без чужих системных); на краю и у архивной — null. */
+export function categoryShiftPlan(tree: CategoryTree, tab: CategoryTab, id: number, delta: -1 | 1): MovePlan | null {
+  const group = moveGroup(visibleRows(categoryRows(tree, tab), ''), id);
+  const next = shiftInGroup(group, id, delta);
+  return next ? categoryReorderPlan(tree, tab, next) : null;
+}
+
+/** Дерево с порядком из плана перестановки (оптимистичное обновление кэша); не названные — в конце. */
+export function applyCategoryOrder(tree: CategoryTree, plan: MovePlan): CategoryTree {
+  if (plan.parentId === null) return { ...tree, [plan.kind]: sortByIds(tree[plan.kind], plan.ids) };
+  return {
+    ...tree,
+    [plan.kind]: tree[plan.kind].map((n) => (n.id === plan.parentId ? { ...n, children: sortByIds(n.children, plan.ids) } : n)),
+  };
 }

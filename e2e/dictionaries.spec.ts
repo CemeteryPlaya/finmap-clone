@@ -164,6 +164,49 @@ test('категории: подменю «Системные / Мои», «До
   await expect(kinds.getByRole('link', { name: 'Мои категории расхода' })).toHaveAttribute('aria-current', 'page');
 });
 
+test('категории: ↑↓ в окне идут среди видимых своих (системные на местах), фокус на краю, отказ переноса виден в окне', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Категории окно ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}/categories`;
+  for (const name of ['Альфа', 'Бета']) await apiPost(page, base, { kind: 'expense', name, parentId: null });
+  const topExpense = async () => ((await (await page.request.get(base)).json()).expense as { id: number; name: string; systemKey: string | null }[]);
+  // свои между системными: Системная1, Альфа, Системная2, Бета, остальные системные
+  const all = await topExpense();
+  const system = all.filter((c) => c.systemKey !== null);
+  const alpha = all.find((c) => c.name === 'Альфа')!;
+  const beta = all.find((c) => c.name === 'Бета')!;
+  const ids = [system[0]!.id, alpha.id, system[1]!.id, beta.id, ...system.slice(2).map((c) => c.id)];
+  await apiPost(page, `${base}/reorder`, { kind: 'expense', parentId: null, ids, moving: null });
+
+  await page.goto(`/c/${cid}/settings/categories`);
+  const main = page.getByRole('main');
+  const list = main.getByRole('list', { name: 'Мои категории расхода' });
+  await expect(list.getByRole('listitem')).toHaveText([/Альфа/, /Бета/]);
+  const edit = page.getByRole('dialog', { name: 'Категория', exact: true });
+  await list.getByRole('button', { name: 'Изменить Альфа', exact: true }).click();
+  const up = edit.getByRole('button', { name: 'Выше: Альфа', exact: true });
+  const down = edit.getByRole('button', { name: 'Ниже: Альфа', exact: true });
+  await expect(up).toHaveAttribute('aria-disabled', 'true');
+  await expect(down).not.toHaveAttribute('aria-disabled', 'true');
+
+  // ↓: Альфа меняется местами с Бета, системные остаются на своих местах
+  await down.click();
+  await expect.poll(async () => (await topExpense()).map((c) => c.name)).toEqual(ids.map((id) => (id === alpha.id ? 'Бета' : id === beta.id ? 'Альфа' : all.find((c) => c.id === id)!.name)));
+  await expect(list.getByRole('listitem')).toHaveText([/Бета/, /Альфа/]);
+  // дошли до края: ↓ погас, фокус перешёл на ↑
+  await expect(down).toHaveAttribute('aria-disabled', 'true');
+  await expect(up).toBeFocused();
+
+  // отказ сервера при переносе: сообщение поля — в окне, окно открыто
+  await page.route('**/api/v1/companies/*/categories/reorder', (route) =>
+    route.fulfill({ status: 422, json: { error: { code: 'VALIDATION', message: 'Проверьте поля', fields: { parentId: 'Сюда переносить нельзя' } } } }),
+  );
+  await edit.getByLabel('Перенести в…').selectOption({ label: 'Бета' });
+  await edit.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(edit.getByRole('alert')).toHaveText('Сюда переносить нельзя');
+  await expect(edit).toBeVisible();
+});
+
 test('контрагенты: подменю типов в порядке Finmap, «Мои контрагенты» по умолчанию, окно с типом, поиск, порядок в своей вкладке', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Контрагенты ${Date.now()}`);
@@ -561,34 +604,48 @@ test('шаблон списка: две быстрые перестановки 
   await page.goto(`/c/${cid}/settings/tags`);
   const list = page.getByRole('main').getByRole('list', { name: 'Теги' });
   const order = async () => ((await (await page.request.get(`${base}/tags`)).json()).tags as { name: string }[]).map((t) => t.name);
+  await expect(list.getByRole('listitem')).toHaveText([/Альфа/, /Бета/, /Гамма/]);
 
-  // первый запрос сервер выполняет сразу, но ответ приходит через 0,5 с; второй доходит до сервера только через 1,5 с.
-  // Пока второй в пути, ответ первого не должен затирать порядок, уже показанный после второго
+  // оба запроса доходят до сервера сразу, но ответы заперты: открываем их сами, а не по таймеру
+  const gate = () => {
+    let open!: () => void;
+    const promise = new Promise<void>((resolve) => (open = resolve));
+    return { promise, open };
+  };
+  const gates = [gate(), gate()];
   let calls = 0;
-  await page.route('**/api/v1/companies/*/tags/reorder', async (route) => {
-    if (++calls === 1) {
-      const response = await route.fetch();
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      await route.fulfill({ response });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      await route.continue();
-    }
+  let refetches = 0;
+  page.on('request', (r) => {
+    if (r.method() === 'GET' && new URL(r.url()).pathname === `${base}/tags`) refetches++;
   });
+  await page.route('**/api/v1/companies/*/tags/reorder', async (route) => {
+    const n = calls++;
+    const response = await route.fetch();
+    await gates[n]!.promise;
+    await route.fulfill({ response });
+  });
+
   const alpha = list.getByRole('button', { name: 'Переместить Альфа', exact: true });
   await alpha.focus();
   await page.keyboard.press('Alt+ArrowDown');
+  await expect(list.getByRole('listitem')).toHaveText([/Бета/, /Альфа/, /Гамма/]);
   await page.keyboard.press('Alt+ArrowDown');
   await expect(list.getByRole('listitem')).toHaveText([/Бета/, /Гамма/, /Альфа/]);
-  // на сервере пока промежуточный порядок; ответ первого приходит — экран не откатывается к нему
-  // исключение из «без фиксированных пауз»: проверяется отсутствие отката в окне ожидания ответов
-  for (let k = 0; k < 8; k++) {
-    await page.waitForTimeout(100);
-    expect(await list.getByRole('listitem').allInnerTexts(), 'экран не откатился к промежуточному порядку').toEqual(['Бета', 'Гамма', 'Альфа']);
-  }
-  // второй дошёл — итог на экране и на сервере один
+  await expect.poll(() => calls).toBe(2);
+
+  // ответ первого пришёл, второй ещё в пути: экран не откатывается и список не перечитывается
+  const refetchesBefore = refetches;
+  const firstDone = page.waitForResponse((r) => r.url().endsWith('/tags/reorder'));
+  gates[0]!.open();
+  await firstDone;
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  expect(refetches, 'пока второй запрос в пути, список не перечитывается').toBe(refetchesBefore);
   await expect(list.getByRole('listitem')).toHaveText([/Бета/, /Гамма/, /Альфа/]);
+
+  // второй дошёл — итог на экране и на сервере один
+  gates[1]!.open();
   await expect.poll(order).toEqual(['Бета', 'Гамма', 'Альфа']);
+  await expect(list.getByRole('listitem')).toHaveText([/Бета/, /Гамма/, /Альфа/]);
   await expect(alpha).toBeFocused();
 });
 

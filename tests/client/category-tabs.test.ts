@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CATEGORY_TABS, categoryReorderPlan, categoryRows, categoryTab, parentOptions } from '../../src/client/lib/category-tabs';
+import { CATEGORY_TABS, applyCategoryOrder, categoryReorderPlan, categoryShiftPlan, categoryRows, categoryTab, parentOptions } from '../../src/client/lib/category-tabs';
 import type { CategoryNode, CategoryTree } from '../../src/client/lib/queries';
 
 const n = (id: number, parentId: number | null, extra: Partial<CategoryNode> = {}, children: CategoryNode[] = []): CategoryNode => ({
@@ -94,5 +94,43 @@ describe('parentOptions — «Перенести в…» (Review Focus 2)', () =
 
   it('подкатегория: её родитель и другие допустимые', () => {
     expect(parentOptions(level, level[1]!.children[0]!).map((o) => o.value)).toEqual(['top', '1', '2', '3', '4']);
+  });
+});
+
+describe('parentOptions — архивный родитель', () => {
+  const level = [n(1, null, { archivedAt: 'x' }), n(2, null), n(3, null, {}, [n(31, 3)]), n(4, null, { archivedAt: 'x' }, [n(41, 4)])];
+
+  it('архивная категория не предлагается как новый родитель', () => {
+    expect(parentOptions(level, level[1]!).map((o) => o.value)).toEqual(['top', '3']);
+  });
+
+  it('архивный текущий родитель остаётся в списке', () => {
+    expect(parentOptions(level, level[3]!.children[0]!).map((o) => o.value)).toEqual(['top', '2', '3', '4']);
+  });
+});
+
+describe('categoryShiftPlan — ↑ ↓ в окне категории', () => {
+  const mixed: CategoryTree = {
+    income: [],
+    expense: [n(1, null, { systemKey: 'salary' }), n(2, null), n(3, null, { archivedAt: 'x' }), n(4, null), n(5, null, { systemKey: 'tax' })],
+  };
+
+  it('среди видимых своих: системные и архивные остаются на местах', () => {
+    expect(categoryShiftPlan(mixed, 'my-expense', 4, -1)).toEqual({ kind: 'expense', parentId: null, ids: [1, 4, 3, 2, 5], moving: null });
+  });
+
+  it('на краю группы и у архивной — null', () => {
+    expect(categoryShiftPlan(mixed, 'my-expense', 2, -1)).toBeNull();
+    expect(categoryShiftPlan(mixed, 'my-expense', 4, 1)).toBeNull();
+    expect(categoryShiftPlan(mixed, 'my-expense', 3, 1)).toBeNull();
+  });
+});
+
+describe('applyCategoryOrder', () => {
+  it('верхний уровень и дети родителя', () => {
+    expect(applyCategoryOrder(tree, { kind: 'expense', parentId: null, ids: [4, 3, 2, 1], moving: null }).expense.map((x) => x.id)).toEqual([4, 3, 2, 1]);
+    const out = applyCategoryOrder(tree, { kind: 'expense', parentId: 2, ids: [22, 21], moving: null });
+    expect(out.expense[1]!.children.map((x) => x.id)).toEqual([22, 21]);
+    expect(out.income).toBe(tree.income);
   });
 });
