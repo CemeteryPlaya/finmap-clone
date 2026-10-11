@@ -86,7 +86,11 @@ const SCENARIOS: Scenario[] = [
     act: async (p) => {
       // как на снимке Finmap 05 — правка расхода (в подписи кнопки сумма со знаком «минус» U+2212)
       await table(p).getByRole('button', { name: /^Открыть операцию.*−/ }).first().click();
-      await p.getByRole('dialog', { name: 'Расход', exact: true }).getByRole('textbox', { name: /^Сумма,/ }).waitFor();
+      const dialog = p.getByRole('dialog', { name: 'Расход', exact: true });
+      await dialog.getByRole('textbox', { name: /^Сумма,/ }).waitFor();
+      // окно выше экрана: прокручиваем тело вниз, чтобы на снимке были нижние строки — «Дублировать платёж», «Удалить платёж» и кнопка
+      await dialog.getByRole('button', { name: 'Сохранить изменения' }).scrollIntoViewIfNeeded();
+      await dialog.getByRole('button', { name: 'Удалить платёж' }).waitFor();
     },
   },
   { ours: 'c06-income.png', finmap: '06-income.png', path: 'log', act: openForm('Доход') },
