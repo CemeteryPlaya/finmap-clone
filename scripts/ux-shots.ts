@@ -201,7 +201,26 @@ const SCENARIOS: Scenario[] = [
       await p.getByRole('dialog', { name: 'Ещё', exact: true }).waitFor();
     },
   },
-  { ours: 'c21-account-add.png', finmap: '21-account-add.png', path: 'settings/accounts', act: (p) => p.getByRole('button', { name: 'Добавить счёт' }).click() },
+  {
+    ours: 'c21-account-add.png',
+    finmap: '21-account-add.png',
+    path: 'log',
+    act: async (p) => {
+      // «+» в «Моих счетах» — окно прямо над журналом (§7.6); шага выбора банка у нас нет
+      await p.getByRole('navigation', { name: 'Счета' }).getByRole('button', { name: 'Добавить счёт' }).click();
+      await p.getByRole('dialog', { name: 'Добавление нового счёта' }).waitFor();
+    },
+  },
+  {
+    ours: 'c22-accounts-edit.png',
+    finmap: '22-accounts-edit.png',
+    path: 'log',
+    act: async (p) => {
+      // ✎ «Изменить счета» — окно «Счета» со списком ☰ имя ✎ (§7.6)
+      await p.getByRole('navigation', { name: 'Счета' }).getByRole('button', { name: 'Изменить счета' }).click();
+      await p.getByRole('dialog', { name: 'Счета', exact: true }).getByRole('list', { name: 'Список счетов' }).waitFor();
+    },
+  },
   {
     ours: 'c23-change-company.png',
     finmap: '23-change-company.png',
@@ -232,6 +251,7 @@ const SCENARIOS: Scenario[] = [
   { ours: 'c26-company-settings.png', finmap: '26-company-settings.png', path: 'settings/profile' },
   { ours: 'c27-settings-Мои_компании.png', finmap: '27-settings-Мои_компании.png', path: 'settings/companies' },
   { ours: 'c28-settings-Контрагенты.png', finmap: '28-settings-Контрагенты.png', path: 'settings/counterparties' },
+  { ours: 'c28c-my-counterparties.png', finmap: '28c-my-counterparties.png', path: 'settings/counterparties?type=my' },
   { ours: 'c29-settings-Счета.png', finmap: '29-settings-Счета.png', path: 'settings/accounts' },
   { ours: 'c30-settings-Категории.png', finmap: '30-settings-Категории.png', path: 'settings/categories' },
   { ours: 'c31-settings-Проекты.png', finmap: '31-settings-Проекты.png', path: 'settings/projects' },
