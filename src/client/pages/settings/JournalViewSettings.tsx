@@ -3,7 +3,7 @@ import { Pending } from '../../components/QueryState';
 import { alertClass, btnPrimary } from '../../components/ui';
 import { ApiError } from '../../lib/api';
 import { JOURNAL_COLUMNS, toggleColumn } from '../../lib/journal-columns';
-import { JOURNAL_VIEW_NAMES, journalViewChanges, journalViewPref, savedJournalView, shownJournalView, type JournalView, type JournalViewKey } from '../../lib/journal-view';
+import { applyEdit, JOURNAL_VIEW_NAMES, journalViewChanges, journalViewPref, savedJournalView, shownJournalView, type JournalView, type JournalViewKey } from '../../lib/journal-view';
 import { prefsSaveError } from '../../lib/preferences';
 import { queryClient } from '../../lib/query';
 import { savePreference, usePreferences } from '../../lib/queries';
@@ -44,7 +44,7 @@ function JournalViewForm({ saved }: { saved: JournalView }) {
   const edit = (patch: Partial<JournalView>) => {
     setStatus(null);
     setError(null);
-    setEdits((e) => ({ ...e, ...patch }));
+    setEdits((e) => applyEdit(saved, e, patch));
   };
 
   const apply = async () => {

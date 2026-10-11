@@ -299,6 +299,17 @@ test('«Настройки журнала»: «Применить» только
     await expect(page.getByRole('checkbox', { name: 'Комментарий', exact: true })).not.toBeChecked();
     // вопрос всё ещё отличается от сервера — «Применить» не залипает (Review Focus 3)
     await expect(apply).toBeEnabled();
+    // сохранённые настройки вышли из правок и следуют за сервером: колонки изменены «с другого компьютера» (finally вернёт исходное)
+    const savedColumns = (await (await page.request.get('/api/v1/preferences')).json()).preferences['journal.columns'];
+    const comment = page.getByRole('checkbox', { name: 'Комментарий', exact: true });
+    await putPref('journal.columns', null);
+    await apply.click(); // вопрос снова не сохранится; сбой перечитывает настройки
+    await expect(page.getByRole('alert')).toHaveText('Не удалось сохранить «Спрашивать перед закрытием формы»: Сбой сохранения.');
+    await expect(comment).toBeChecked();
+    await putPref('journal.columns', savedColumns);
+    await apply.click();
+    await expect(page.getByRole('alert')).toHaveText('Не удалось сохранить «Спрашивать перед закрытием формы»: Сбой сохранения.');
+    await expect(comment).not.toBeChecked();
     await expect(apply).toBeEnabled();
     await expect(apply).toBeFocused();
     await page.unroute(skipUrl);

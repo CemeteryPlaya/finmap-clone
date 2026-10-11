@@ -20,7 +20,7 @@ export function journalWrap(prefs: Record<string, unknown> | undefined): boolean
  * Имена — подписи на странице: «Колонки», «Показывать полностью», «Спрашивать перед закрытием формы».
  */
 export function prefsSaveError(saved: readonly string[], failed: string, reason: string): string {
-  const why = reason.trim().replace(/[.!]+$/, '');
+  const why = reason.trim().replace(/[.!?…]+$/, '').trim() || 'Ошибка сервера';
   const head = `Не удалось сохранить «${failed}»: ${why}.`;
   return saved.length > 0 ? `${head} Остальное сохранено: ${saved.map((s) => `«${s}»`).join(', ')}.` : head;
 }

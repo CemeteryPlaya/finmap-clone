@@ -34,12 +34,25 @@ export function shownJournalView(saved: JournalView, edits: Partial<JournalView>
 }
 
 /**
+ * Правка поля: патч поверх правок; поле, вернувшееся к сохранённому, из правок уходит и снова следует за сервером
+ * (другая вкладка).
+ */
+export function applyEdit(saved: JournalView, edits: Partial<JournalView>, patch: Partial<JournalView>): Partial<JournalView> {
+  const merged = { ...edits, ...patch };
+  const next: Partial<JournalView> = {};
+  const shown = shownJournalView(saved, merged);
+  for (const key of KEYS) if (merged[key] !== undefined && !same(key, shown, saved)) Object.assign(next, { [key]: merged[key] });
+  return next;
+}
+
+/**
  * Что сохранит «Применить», по порядку: правки, отличные от сохранённого. Пусто — «Применить» недоступна; считается
- * от сохранённого на сервере, поэтому после сбоя и перезапроса не залипает (итоги 1.5-2a №5).
+ * от сохранённого на сервере, поэтому после сбоя и перезапроса не залипает (итоги 1.5-2a №5). Правка, ставшая равной
+ * сохранённому уже на сервере (перезапрос), — не изменение.
  */
 export function journalViewChanges(saved: JournalView, edits: Partial<JournalView>): JournalViewKey[] {
   const shown = shownJournalView(saved, edits);
-  return KEYS.filter((key) => edits[key] !== undefined && !same(key, shown, saved));
+  return KEYS.filter((key) => !same(key, shown, saved));
 }
 
 /** Ключ и значение PUT /preferences/:key для настройки. */
