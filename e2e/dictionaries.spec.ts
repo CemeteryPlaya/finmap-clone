@@ -366,6 +366,114 @@ test('переименование проекта переименовывает
     .toEqual(['Kaspi Клуб Б', 'Касса Клуб Б']);
 });
 
+test('проекты и шаблоны разделения: Alt+↓ на ☰ меняет порядок на сервере; архивный проект — в конце без ☰', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Порядок проектов ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const ids: number[] = [];
+  for (const name of ['Клуб 1', 'Клуб 2', 'Клуб 3']) ids.push((await apiPost(page, `${base}/projects`, { name, templateKey: 'general' })).project.id);
+  for (const name of ['Шаблон 1', 'Шаблон 2']) {
+    await apiPost(page, `${base}/split-presets`, {
+      name,
+      lines: [
+        { categoryId: null, projectId: ids[0], bp: 5000 },
+        { categoryId: null, projectId: ids[1], bp: 5000 },
+      ],
+    });
+  }
+  await apiPost(page, `${base}/projects/${ids[2]}/archive`, {});
+  const main = page.getByRole('main');
+  const names = async (path: string) => {
+    const body = (await (await page.request.get(`${base}/${path}`)).json()) as Record<string, { name: string }[]>;
+    return Object.values(body)[0]!.map((x) => x.name);
+  };
+
+  await page.goto(`/c/${cid}/settings/projects`);
+  const projects = main.getByRole('list', { name: 'Проекты' });
+  await expect(projects.getByRole('listitem')).toHaveCount(3);
+  // архивный — последний и без ☰
+  await expect(projects.getByRole('listitem').last()).toContainText('Клуб 3');
+  await expect(projects.getByRole('button', { name: 'Переместить Клуб 3', exact: true })).toHaveCount(0);
+  await projects.getByRole('button', { name: 'Переместить Клуб 1', exact: true }).focus();
+  await page.keyboard.press('Alt+ArrowDown');
+  await expect(projects.getByRole('listitem').first()).toContainText('Клуб 2');
+  await expect.poll(() => names('projects')).toEqual(['Клуб 2', 'Клуб 1', 'Клуб 3']);
+
+  await page.goto(`/c/${cid}/settings/projects/split-presets`);
+  const presets = main.getByRole('list', { name: 'Шаблоны разделения' });
+  await expect(presets.getByRole('listitem')).toHaveCount(2);
+  await presets.getByRole('button', { name: 'Переместить Шаблон 1', exact: true }).focus();
+  await page.keyboard.press('Alt+ArrowDown');
+  await expect(presets.getByRole('listitem').first()).toContainText('Шаблон 2');
+  await expect.poll(() => names('split-presets')).toEqual(['Шаблон 2', 'Шаблон 1']);
+});
+
+test('архивная компания: на «Проектах» и «Шаблонах разделения» нет «Добавить», ☰ и ✎', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Архив проектов ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const ids: number[] = [];
+  for (const name of ['Клуб 1', 'Клуб 2']) ids.push((await apiPost(page, `${base}/projects`, { name, templateKey: 'general' })).project.id);
+  await apiPost(page, `${base}/split-presets`, {
+    name: 'Пополам',
+    lines: [
+      { categoryId: null, projectId: ids[0], bp: 5000 },
+      { categoryId: null, projectId: ids[1], bp: 5000 },
+    ],
+  });
+  const main = page.getByRole('main');
+  // у активной компании управление есть — иначе проверка ниже ничего не доказывает
+  await page.goto(`/c/${cid}/settings/projects`);
+  await expect(main.getByRole('button', { name: 'Добавить проект' })).toBeVisible();
+  await expect(main.getByRole('button', { name: /^Переместить/ })).toHaveCount(2);
+  await apiPost(page, `${base}/archive`, {});
+
+  for (const [path, add] of [
+    ['projects', 'Добавить проект'],
+    ['projects/split-presets', 'Создать шаблон'],
+  ] as const) {
+    await page.goto(`/c/${cid}/settings/${path}`);
+    await expect(main.getByRole('heading', { level: 1, name: 'Проекты' })).toBeVisible();
+    await expect(main.getByText('Компания в архиве — изменения недоступны.')).toBeVisible();
+    await expect(main.getByRole('listitem').first()).toBeVisible();
+    await expect(main.getByRole('button', { name: add })).toHaveCount(0);
+    await expect(main.getByRole('button', { name: /^Переместить/ })).toHaveCount(0);
+    await expect(main.getByRole('button', { name: /^Изменить/ })).toHaveCount(0);
+  }
+});
+
+test('окно проекта: ошибка сервера — в окне, оно остаётся; архив из окна — «В архиве» без формы, «Вернуть из архива»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Окно проекта ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/projects`, { name: 'Клуб', templateKey: 'general' });
+  await page.goto(`/c/${cid}/settings/projects`);
+  const main = page.getByRole('main');
+
+  await main.getByRole('button', { name: 'Добавить проект' }).click();
+  const created = page.getByRole('dialog', { name: 'Новый проект' });
+  await created.getByLabel('Тип бизнеса').selectOption('general');
+  await created.getByLabel('Название проекта').fill('Клуб');
+  await created.getByRole('button', { name: 'Создать проект' }).click();
+  await expect(created.getByText('Проект с таким названием уже есть')).toBeVisible();
+  await expect(created).toBeVisible();
+  await created.getByRole('button', { name: 'Отмена' }).click();
+  await expect(created).toBeHidden();
+
+  await main.getByRole('button', { name: 'Изменить Клуб', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: 'Проект', exact: true });
+  await edit.getByRole('button', { name: 'В архив' }).click();
+  await expect(edit).toBeHidden();
+
+  await main.getByRole('button', { name: 'Изменить Клуб', exact: true }).click();
+  await expect(edit.getByText('В архиве. Чтобы изменить, сначала верните из архива.')).toBeVisible();
+  await expect(edit.getByLabel('Название проекта')).toHaveCount(0);
+  await edit.getByRole('button', { name: 'Вернуть из архива' }).click();
+  await expect(edit).toBeHidden();
+
+  await main.getByRole('button', { name: 'Изменить Клуб', exact: true }).click();
+  await expect(edit.getByLabel('Название проекта')).toHaveValue('Клуб');
+});
+
 test('зона настроек: разделы по группам, без панели счетов и вкладок; адреса и перенаправления; «← Назад к журналу» с фильтром', async ({ page }) => {
   await login(page);
   const name = `ТОО Зона ${Date.now()}`;

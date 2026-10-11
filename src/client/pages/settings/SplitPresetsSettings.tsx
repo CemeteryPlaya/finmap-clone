@@ -239,7 +239,6 @@ function PresetForm(props: {
   );
 }
 
-
 /** Окно шаблона: 'new' — «Новый шаблон», id — «Шаблон разделения» (свежие данные из списка), null — закрыто. */
 type Editing = number | 'new' | null;
 
