@@ -571,6 +571,7 @@ function OperationEditor(p: {
       nowTime={clock.time}
       today={clock.today}
       originalDate={op ? dayOf(op.paidAt, p.timeZone) : null}
+      editing={op !== null}
       error={errors.paidAt}
       hint={lockHint}
       disabled={!!locked}

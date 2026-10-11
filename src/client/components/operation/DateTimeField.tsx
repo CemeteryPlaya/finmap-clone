@@ -23,6 +23,8 @@ function DateTimePanel(props: {
   today: string;
   /** Последний день, который можно выбрать. */
   max: string;
+  /** Правка: набранное время, равное показанному (времени самой операции), не «задаётся руками» (R4a). У новой операции оно задаётся всегда (R7). */
+  editing: boolean;
   onDate: (date: string) => void;
   onTime: (time: string) => void;
   close: () => void;
@@ -42,8 +44,8 @@ function DateTimePanel(props: {
         timeRef.current?.focus();
         return;
       }
-      // то же время, что уже в поле, не «задаётся руками»: «живое» время остаётся живым
-      if (time !== props.time) props.onTime(time);
+      // правка: то же время, что уже в поле, не «задаётся руками» (R4a); новая операция: подтверждённое время — задано (R7)
+      if (!props.editing || time !== props.time) props.onTime(time);
     }
     props.close();
   };
@@ -101,6 +103,8 @@ export function DateTimeField(props: {
   today: string;
   /** День существующей операции: её собственный день выбрать можно, даже если часы устройства отстают от сервера. */
   originalDate?: string | null;
+  /** Правка существующей операции (не новая и не копия). */
+  editing: boolean;
   error?: string;
   hint?: string;
   disabled?: boolean;
@@ -132,6 +136,7 @@ export function DateTimeField(props: {
               date={props.date}
               time={shownTime}
               today={props.today}
+              editing={props.editing}
               max={props.originalDate && props.originalDate > props.today ? props.originalDate : props.today}
               onDate={props.onDateChange}
               onTime={props.onTimeChange}

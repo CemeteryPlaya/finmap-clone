@@ -979,7 +979,7 @@ test('форма, открытая до полуночи (R5): нетронут�
   await expect(dialog).toBeHidden();
 });
 
-test('время, набранное в панели и равное показанному, не «задаётся руками» (R4a); другое время — ЧЧ:ММ:00', async ({ page }) => {
+test('новая операция (R7): время, набранное в панели и равное показанному, задаётся руками — ЧЧ:ММ:00, и «создать похожий» его сохраняет', async ({ page }) => {
   test.skip(almatyHm() < '00:03' || almatyHm() >= '23:58', 'у границы суток фиксированное «сейчас» теста уходит в другой день');
   const fixed = new Date(`${almatyToday()}T12:34:56+05:00`);
   await page.clock.install({ time: fixed });
@@ -996,24 +996,24 @@ test('время, набранное в панели и равное показ�
   const panel = page.getByRole('dialog', { name: 'Указать дату списания: календарь' });
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('100');
 
-  // то же время, что уже в поле, — время остаётся «живым»: в теле точный момент сохранения (с секундами)
+  // то же время, что уже в поле, но подтверждённое в панели, задано руками: ЧЧ:ММ:00, а не «живой» момент с секундами
   await when.click();
   await expect(panel.getByLabel('Время')).toHaveValue('12:34');
+  await panel.getByLabel('Время').fill('');
   await panel.getByLabel('Время').fill('12:34');
   await panel.getByRole('button', { name: 'Готово' }).click();
   await expect(panel).toBeHidden();
+  const at = new Date(`${almatyToday()}T12:34:00+05:00`).toISOString();
   let request = nextCreate(page);
   await dialog.getByRole('button', { name: 'Добавить и создать похожий' }).click();
-  expect((await request).postDataJSON().paidAt).toBe(fixed.toISOString());
+  expect((await request).postDataJSON().paidAt).toBe(at);
 
-  // другое время — задано руками: ЧЧ:ММ:00
+  // «создать похожий» оставил это время: следующая операция — тоже 12:34:00
+  await expect(when).toHaveAccessibleName(`Указать дату списания: Сегодня, ${ru(almatyToday())}, 12:34`);
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('200');
-  await when.click();
-  await panel.getByLabel('Время').fill('12:30');
-  await panel.getByRole('button', { name: 'Готово' }).click();
   request = nextCreate(page);
   await submit(dialog).click();
-  expect((await request).postDataJSON().paidAt).toBe(new Date(`${almatyToday()}T12:30:00+05:00`).toISOString());
+  expect((await request).postDataJSON().paidAt).toBe(at);
   await expect(dialog).toBeHidden();
 });
 

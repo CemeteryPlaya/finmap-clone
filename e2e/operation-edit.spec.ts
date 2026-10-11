@@ -710,3 +710,27 @@ test('архивная компания: строка «Зарплата за {�
   await expect(row).toBeVisible();
   await expect(row).toBeDisabled();
 });
+
+test('правка (R4a): повторное подтверждение собственного времени операции не задаёт время руками — paidAt не уходит', async ({ page }) => {
+  test.skip(almatyHm() < '00:03' || almatyHm() >= '23:58', 'у границы суток «сегодня» в тесте расходится');
+  await login(page);
+  const cid = await createCompany(page, `ТОО R4a правка ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(100), accountId: cash, amount: 10000, comment: 'своё время' });
+  await page.reload();
+
+  await rows(page).first().getByText('своё время').click();
+  const dialog = editForm(page);
+  await dialog.getByRole('button', { name: /^Указать дату списания:/ }).click();
+  const panel = page.getByRole('dialog', { name: 'Указать дату списания: календарь' });
+  const shown = await panel.getByLabel('Время').inputValue();
+  await panel.getByLabel('Время').fill('');
+  await panel.getByLabel('Время').fill(shown);
+  await panel.getByRole('button', { name: 'Готово' }).click();
+  await expect(panel).toBeHidden();
+  await dialog.getByLabel('Комментарий').fill('своё время 2');
+  const patch = page.waitForRequest((r) => r.method() === 'PATCH');
+  await submit(dialog).click();
+  expect((await patch).postDataJSON()).toEqual({ version: 1, comment: 'своё время 2' });
+});
