@@ -131,10 +131,12 @@ function AccountsSummary({ company, onNavigate }: { company: Company; onNavigate
  */
 export function AccountsPanel({ company }: { company: Company }) {
   const { collapsed, toggle } = useSidebarCollapsed();
+  const mobile = useIsMobile();
   return (
     <nav aria-label="Счета" className={`relative hidden shrink-0 self-start md:block ${collapsed ? 'h-24 w-3' : 'w-64 rounded-3xl bg-card p-4'}`}>
       <CollapseButton collapsed={collapsed} onToggle={toggle} collapseLabel="Свернуть панель счетов" expandLabel="Развернуть панель счетов" />
-      {!collapsed && <AccountsSummary company={company} />}
+      {/* окна внутри скрытой на телефоне панели остались бы открытыми и невидимыми: key пересоздаёт содержимое и закрывает их */}
+      {!collapsed && <AccountsSummary key={mobile ? 'mobile' : 'desktop'} company={company} />}
     </nav>
   );
 }
