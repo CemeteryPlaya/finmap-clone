@@ -1,13 +1,9 @@
 import { useEffect, useId, useState, type KeyboardEvent } from 'react';
 import { foldCase, matchesQuery } from '../../shared/search';
+import type { PickerOption } from '../lib/picker';
 import { Popover } from './Popover';
 
-export interface PickerOption {
-  id: number;
-  label: string;
-  /** Заголовок группы: показывается перед первым вариантом группы (например, «Сотрудники»). */
-  section?: string;
-}
+export type { PickerOption } from '../lib/picker';
 
 type Item = { kind: 'option'; option: PickerOption } | { kind: 'create'; name: string };
 

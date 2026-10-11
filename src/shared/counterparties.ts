@@ -11,26 +11,26 @@ export const COUNTERPARTY_TYPES = [
   'tax',
 ] as const satisfies readonly CounterpartyType[];
 
-/** Подписи вкладок (множественное число). */
+/** Подписи вкладок и групп списка (множественное число, как в Finmap — §6.4 этапа 1.5). */
 export const COUNTERPARTY_TYPE_LABELS: Record<CounterpartyType, string> = {
   client: 'Клиенты',
   supplier: 'Поставщики',
   employee: 'Сотрудники',
-  owner: 'Собственники',
+  owner: 'Владельцы',
   investor: 'Инвесторы',
   creditor: 'Кредиторы',
   borrower: 'Заёмщики',
-  tax: 'Налоговые',
+  tax: 'Типы налогов',
 };
 
-/** Подписи в списке выбора типа (единственное число). */
+/** Подписи в списке выбора типа и поля контрагента (единственное число). */
 export const COUNTERPARTY_TYPE_SINGULAR: Record<CounterpartyType, string> = {
   client: 'Клиент',
   supplier: 'Поставщик',
   employee: 'Сотрудник',
-  owner: 'Собственник',
+  owner: 'Владелец',
   investor: 'Инвестор',
   creditor: 'Кредитор',
   borrower: 'Заёмщик',
-  tax: 'Налоговый орган',
+  tax: 'Тип налога',
 };

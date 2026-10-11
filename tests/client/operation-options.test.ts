@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   accountOptions,
   categoryOptions,
+  counterpartyLabel,
   counterpartyOptions,
   findCategory,
   preferredCounterpartyType,
@@ -47,11 +48,14 @@ const cp = (id: number, name: string, type: Counterparty['type'], archivedAt: st
 describe('варианты списков формы операции', () => {
   it('архивные не предлагаются, уже выбранный архивный остаётся с пометкой', () => {
     const accounts = [account(1, 'Касса', 'KZT'), account(2, 'Старый', 'USD', ARCH)];
-    expect(accountOptions(accounts, null)).toEqual([{ id: 1, label: 'Касса (KZT)' }]);
+    // символ валюты — справа в пункте (suffix), в названии «(KZT)» нет (§6.6 этапа 1.5)
+    expect(accountOptions(accounts, null)).toEqual([{ id: 1, label: 'Касса', suffix: '₸' }]);
     expect(accountOptions(accounts, 2)).toEqual([
-      { id: 1, label: 'Касса (KZT)' },
-      { id: 2, label: 'Старый (USD) (в архиве)' },
+      { id: 1, label: 'Касса', suffix: '₸' },
+      { id: 2, label: 'Старый (в архиве)', suffix: '$' },
     ]);
+    // неизвестный код валюты — вместо символа сам код, без исключения
+    expect(accountOptions([account(3, 'Странный', 'XYZ')], null)).toEqual([{ id: 3, label: 'Странный', suffix: 'XYZ' }]);
     const projects = [{ id: 5, name: 'Клуб', archivedAt: null }, { id: 6, name: 'Закрытый', archivedAt: ARCH }] as Project[];
     expect(projectOptions(projects, [null])).toEqual([{ id: 5, label: 'Клуб' }]);
     expect(projectOptions(projects, [6])).toHaveLength(2);
@@ -69,7 +73,31 @@ describe('варианты списков формы операции', () => {
     expect(categoryOptions(tree, 'expense', [31]).map((o) => o.label)).toContain('Старое → Дочерняя (в архиве)');
   });
 
-  it('эффективный systemKey дочерней категории → подходящий тип контрагента; обычная категория — без предпочтения', () => {
+  it('бейдж «системная» — только у категории с собственным systemKey, не у её дочерних (как в журнале)', () => {
+    const options = categoryOptions(tree, 'expense', []);
+    expect(options.find((o) => o.label === 'Зарплата')).toEqual({ id: 10, label: 'Зарплата', badge: 'системная' });
+    expect(options.find((o) => o.label === 'Зарплата → Администраторы')).toEqual({ id: 11, label: 'Зарплата → Администраторы' });
+    expect(options.find((o) => o.label === 'Помещение')).toEqual({ id: 20, label: 'Помещение' });
+  });
+
+  it('подпись поля контрагента — по системной категории (§6.4 этапа 1.5)', () => {
+    const system = (id: number, name: string, key: string): CategoryNode => node(id, name, { systemKey: key, effectiveSystemKey: key });
+    const all: CategoryTree = {
+      income: [system(101, 'Инвестиции', 'investment'), system(102, 'Возврат займа', 'loan_repaid'), system(103, 'Получение кредита', 'credit_received')],
+      expense: [...tree.expense, system(104, 'Дивиденды', 'dividends'), system(105, 'Налоги', 'tax')],
+    };
+    expect(counterpartyLabel(all, null)).toBe('Мой контрагент');
+    expect(counterpartyLabel(all, 21)).toBe('Мой контрагент');
+    expect(counterpartyLabel(all, 10)).toBe('Сотрудник');
+    expect(counterpartyLabel(all, 11)).toBe('Сотрудник');
+    expect(counterpartyLabel(all, 104)).toBe('Владелец');
+    expect(counterpartyLabel(all, 101)).toBe('Инвестор');
+    expect(counterpartyLabel(all, 103)).toBe('Кредитор');
+    expect(counterpartyLabel(all, 102)).toBe('Заёмщик');
+    expect(counterpartyLabel(all, 105)).toBe('Тип налога');
+  });
+
+  it('эффективный systemKey дочерней категории→ подходящий тип контрагента; обычная категория — без предпочтения', () => {
     expect(findCategory(tree, 11)?.name).toBe('Администраторы');
     expect(findCategory(tree, 99)).toBeUndefined();
     expect(preferredCounterpartyType(tree, 10)).toBe('employee');

@@ -1,6 +1,7 @@
-import { COUNTERPARTY_TYPE_LABELS } from '../../shared/counterparties';
+import { COUNTERPARTY_TYPE_LABELS, COUNTERPARTY_TYPE_SINGULAR } from '../../shared/counterparties';
+import { getCurrency, isKnownCurrency } from '../../shared/currencies';
 import { SYSTEM_CATEGORIES, type CounterpartyType } from '../../shared/system-categories';
-import type { PickerOption } from '../components/SearchPicker';
+import type { PickerOption } from './picker';
 import type { Account, CategoryNode, CategoryTree, Counterparty, Project, Tag } from './queries';
 
 /**
@@ -13,18 +14,28 @@ type Archivable = { id: number; archivedAt: string | null };
 const keep = (x: Archivable, selected: readonly (number | null)[]) => !x.archivedAt || selected.includes(x.id);
 const mark = (label: string, x: Archivable) => (x.archivedAt ? label + ARCHIVED : label);
 
+/** Бейдж системной категории в списках (§6.6 этапа 1.5) — тот же текст, что в журнале. */
+export const SYSTEM_BADGE = 'системная';
+
+/** Символ валюты для пункта; неизвестный код (справочник валют отстал от данных) — сам код, а не исключение. */
+const currencySymbol = (code: string) => (isKnownCurrency(code) ? getCurrency(code).symbol : code);
+
+/** Счета: название, символ валюты — справа в пункте (§6.6 этапа 1.5: «(KZT)» в названии нет). */
 export function accountOptions(accounts: readonly Account[], selected: number | null): PickerOption[] {
-  return accounts.filter((a) => keep(a, [selected])).map((a) => ({ id: a.id, label: mark(`${a.name} (${a.currency})`, a) }));
+  return accounts.filter((a) => keep(a, [selected])).map((a) => ({ id: a.id, label: mark(a.name, a), suffix: currencySymbol(a.currency) }));
 }
+
+/** Бейдж «системная» — у категории с собственным systemKey (у дочерних системной его нет, как в журнале). */
+const withBadge = (option: PickerOption, node: Pick<CategoryNode, 'systemKey'>): PickerOption => (node.systemKey ? { ...option, badge: SYSTEM_BADGE } : option);
 
 /** Категории вида kind: «Родитель», «Родитель → Дочерняя». Дочерняя архивного родителя тоже считается архивной. */
 export function categoryOptions(tree: CategoryTree, kind: 'income' | 'expense', selected: readonly (number | null)[]): PickerOption[] {
   return tree[kind].flatMap((n) => [
-    ...(keep(n, selected) ? [{ id: n.id, label: mark(n.name, n) }] : []),
+    ...(keep(n, selected) ? [withBadge({ id: n.id, label: mark(n.name, n) }, n)] : []),
     ...n.children
       .map((c) => ({ ...c, archivedAt: c.archivedAt ?? n.archivedAt }))
       .filter((c) => keep(c, selected))
-      .map((c) => ({ id: c.id, label: mark(`${n.name} → ${c.name}`, c) })),
+      .map((c) => withBadge({ id: c.id, label: mark(`${n.name} → ${c.name}`, c) }, c)),
   ]);
 }
 
@@ -51,6 +62,15 @@ export function findCategory(tree: CategoryTree, id: number | null): CategoryNod
 export function preferredCounterpartyType(tree: CategoryTree, categoryId: number | null): CounterpartyType | null {
   const key = findCategory(tree, categoryId)?.effectiveSystemKey;
   return SYSTEM_CATEGORIES.find((c) => c.key === key)?.counterpartyType ?? null;
+}
+
+/**
+ * Подпись поля контрагента (§6.4 этапа 1.5): по системной категории операции — «Сотрудник», «Владелец», «Инвестор»,
+ * «Кредитор», «Заёмщик», «Тип налога»; без системной категории — «Мой контрагент», как в Finmap.
+ */
+export function counterpartyLabel(tree: CategoryTree, categoryId: number | null): string {
+  const preferred = preferredCounterpartyType(tree, categoryId);
+  return preferred ? COUNTERPARTY_TYPE_SINGULAR[preferred] : 'Мой контрагент';
 }
 
 /**

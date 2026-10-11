@@ -63,7 +63,7 @@ test('доход, расход и перевод KZT → USD через форм
   await expect(dialog.getByRole('radio', { name: 'Доход' })).toBeChecked();
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
   await expect(amount).toBeFocused();
-  await pick(page, 'Счёт', 'Касса (KZT)');
+  await pick(page, 'Счёт', 'Касса');
   await pick(page, 'Категория', 'Выручка');
   await amount.fill('1 500 + 500');
   await amount.blur();
@@ -91,8 +91,8 @@ test('доход, расход и перевод KZT → USD через форм
   // перевод в другую валюту: «Сумма зачисления» и вычисленный курс
   dialog = await openForm(page, 'Перевод');
   await expect(dialog.getByRole('textbox', { name: /^Сумма зачисления/ })).toHaveCount(0);
-  await pick(page, 'Со счёта', 'Касса (KZT)');
-  await pick(page, 'На счёт', 'Валютный (USD)');
+  await pick(page, 'Со счёта', 'Касса');
+  await pick(page, 'На счёт', 'Валютный');
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('500');
   await dialog.getByRole('textbox', { name: /^Сумма зачисления/ }).fill('1');
   await expect(dialog.getByText('Курс: 1 USD = 500 KZT')).toBeVisible();
@@ -307,7 +307,7 @@ test('сценарий 3 §10 через форму: доход, расход н
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
   await expect(amount).toBeFocused();
   await amount.fill('500');
-  await pick(page, 'Счёт', 'Касса (KZT)');
+  await pick(page, 'Счёт', 'Касса');
   await pick(page, 'Категория', 'Выручка');
   await dialog.getByRole('button', { name: 'Проект, теги, комментарий' }).click();
   await pick(page, 'Проект', 'Север');
@@ -341,8 +341,8 @@ test('сценарий 3 §10 через форму: доход, расход н
   dialog = await openForm(page, 'Перевод');
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('500');
-  await pick(page, 'Со счёта', 'Касса (KZT)');
-  await pick(page, 'На счёт', 'Валютный (USD)');
+  await pick(page, 'Со счёта', 'Касса');
+  await pick(page, 'На счёт', 'Валютный');
   await dialog.getByRole('textbox', { name: /^Сумма зачисления/ }).fill('1');
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog).toBeHidden();

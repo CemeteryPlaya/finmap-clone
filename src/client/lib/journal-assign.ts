@@ -1,6 +1,5 @@
-import { COUNTERPARTY_TYPE_SINGULAR } from '../../shared/counterparties';
-import type { PickerOption } from '../components/SearchPicker';
-import { categoryOptions, counterpartyOptions, preferredCounterpartyType, projectOptions } from './operation-options';
+import { categoryOptions, counterpartyLabel, counterpartyOptions, preferredCounterpartyType, projectOptions } from './operation-options';
+import type { PickerOption } from './picker';
 import type { CategoryTree, Counterparty, JournalItem, Project } from './queries';
 
 /** Поле, которое можно «Указать» в пустой ячейке журнала (§7). */
@@ -92,8 +91,7 @@ function singleCategory(item: Pick<AssignTarget, 'lines'>): number | null {
 export function assignLabel(item: AssignTarget, field: AssignField, tree: CategoryTree): string {
   if (field === 'category') return 'Категория';
   if (field === 'project') return 'Проект';
-  const preferred = preferredCounterpartyType(tree, singleCategory(item));
-  return preferred ? COUNTERPARTY_TYPE_SINGULAR[preferred] : 'Мой контрагент';
+  return counterpartyLabel(tree, singleCategory(item));
 }
 
 /**
