@@ -45,12 +45,12 @@ import {
 import { useMe, useMeta } from '../../lib/query';
 import { startSplit } from '../../lib/split';
 import { ConfirmDialog } from '../ConfirmDialog';
+import { useComboList } from '../ComboList';
 import { DateField } from '../DateField';
 import { Field } from '../Field';
 import { CalendarIcon, ChevronIcon, CopyIcon, SplitIcon, TrashIcon } from '../icons';
 import { Modal } from '../Modal';
 import { Pending } from '../QueryState';
-import { SearchPicker } from '../SearchPicker';
 import {
   alertClass,
   btnExpense,
@@ -58,7 +58,6 @@ import {
   btnIncome,
   btnPrimary,
   btnSecondary,
-  btnSmall,
   btnTransfer,
   floatingControlClass,
   floatingTextareaClass,
@@ -841,34 +840,54 @@ function rateHint(draft: OperationDraft, from: string, fromMinor: number, to: st
   return text ? `Курс: ${text}` : undefined;
 }
 
-/** Теги операции: выбранные — с кнопкой «убрать», добавление — список с поиском (поле с плашками — задача 3). */
+/**
+ * Теги (§6.7 строка 3 этапа 1.5): поле-мультивыбор — выбранные плашками внутри поля с плавающей подписью «Теги»,
+ * печать ищет и добавляет («+ Создать „…“» — новый тег). Выбор пункта добавляет тег и закрывает список; Backspace
+ * в пустом поле убирает последний тег; «×» на плашке убирает её тег.
+ */
 function TagsField(props: { tags: Tag[]; value: number[]; onChange: (ids: number[]) => void; onCreate: (name: string) => void; error?: string }) {
   const names = new Map(props.tags.map((t) => [t.id, t.name]));
   const options = tagOptions(props.tags, props.value).filter((o) => !props.value.includes(o.id));
+  const combo = useComboList({
+    listLabel: 'Теги',
+    options,
+    selectedId: null,
+    text: '',
+    onPick: (id) => props.onChange([...props.value, id]),
+    onCreate: props.onCreate,
+    createNoun: 'тег',
+  });
+  const { onKeyDown, ...inputProps } = combo.inputProps;
   return (
-    <div role="group" aria-label="Теги">
-      <span className="mb-1 block text-sm text-muted">Теги</span>
-      <div className="flex flex-wrap items-center gap-2">
-        {props.value.map((id) => (
-          <span key={id} className="inline-flex items-center gap-1 rounded-full bg-field px-3 py-1 text-sm">
-            {names.get(id) ?? '…'}
-            <button type="button" aria-label={`Убрать тег «${names.get(id) ?? ''}»`} onClick={() => props.onChange(props.value.filter((x) => x !== id))} className="text-muted hover:text-ink">
-              ×
-            </button>
-          </span>
-        ))}
-        <SearchPicker
-          label="+ Тег"
-          ariaLabel="Добавить тег"
-          listLabel="Теги"
-          options={options}
-          onPick={(id) => props.onChange([...props.value, id])}
-          onCreate={props.onCreate}
-          createNoun="тег"
-          buttonClassName={btnSmall}
-        />
-      </div>
-      {props.error && <span className="mt-1 block text-sm text-expense">{props.error}</span>}
-    </div>
+    <Field label="Теги" error={props.error} floating filled={props.value.length > 0 || combo.open} boxRef={combo.anchorRef}>
+      {(control) => (
+        <div className="flex min-h-14 flex-wrap items-center gap-1.5 rounded-xl bg-field px-4 pt-6 pb-2 focus-within:ring-2 focus-within:ring-focus">
+          {props.value.map((id) => (
+            <span key={id} className="inline-flex items-center gap-1 rounded-full bg-card px-2.5 py-0.5 text-sm">
+              {names.get(id) ?? '…'}
+              <button
+                type="button"
+                aria-label={`Убрать тег «${names.get(id) ?? ''}»`}
+                onClick={() => props.onChange(props.value.filter((x) => x !== id))}
+                className="text-muted hover:text-ink"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          <input
+            {...control}
+            {...inputProps}
+            onKeyDown={(e) => {
+              // Backspace в пустом поле убирает последний тег
+              if (e.key === 'Backspace' && e.currentTarget.value === '' && props.value.length > 0) props.onChange(props.value.slice(0, -1));
+              onKeyDown(e);
+            }}
+            className="min-w-24 flex-1 bg-transparent py-1 text-base outline-none"
+          />
+          {combo.list}
+        </div>
+      )}
+    </Field>
   );
 }

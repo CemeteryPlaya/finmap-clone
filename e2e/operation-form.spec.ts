@@ -503,13 +503,20 @@ test('«+ Создать „…“» прямо из формы: контраг�
   await dialog.getByRole('option', { name: '+ Создать проект „Клуб Центр“' }).click();
   await expect(project).toHaveValue('Клуб Центр');
 
-  await dialog.getByRole('button', { name: 'Добавить тег' }).click();
-  await dialog.getByRole('combobox', { name: 'Теги: поиск' }).fill('нал');
+  // теги — поле с плашками внутри (§6.7): печать ищет, «+ Создать тег „…“» создаёт и добавляет плашку
+  const tags = field(dialog, 'Теги');
+  await tags.fill('нал');
   await dialog.getByRole('option', { name: '+ Создать тег „нал“' }).click();
-  await expect(dialog.getByRole('group', { name: 'Теги' })).toContainText('нал');
+  await expect(dialog.getByRole('button', { name: 'Убрать тег «нал»' })).toBeVisible();
+  await expect(tags).toBeFocused();
+  // Backspace в пустом поле убирает последнюю плашку; выбор из списка возвращает её
+  await tags.press('Backspace');
+  await expect(dialog.getByRole('button', { name: 'Убрать тег «нал»' })).toHaveCount(0);
+  await tags.click();
+  await dialog.getByRole('option', { name: 'нал', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Убрать тег «нал»' })).toBeVisible();
   // архивный тег не предлагается, а создать такой же нельзя — сообщение сервера
-  await dialog.getByRole('button', { name: 'Добавить тег' }).click();
-  await dialog.getByRole('combobox', { name: 'Теги: поиск' }).fill('старый');
+  await tags.fill('старый');
   await dialog.getByRole('option', { name: '+ Создать тег „старый“' }).click();
   await expect(dialog.getByRole('alert')).toContainText('Не удалось создать «старый»');
 

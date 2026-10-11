@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../src/client/lib/api';
-import { ATTACHMENT_MAX_BYTES, attachmentSizeError, attachmentUrl, formatFileSize, uploadErrorText } from '../../src/client/lib/attachments';
+import { ATTACHMENT_MAX_BYTES, attachmentSizeError, attachmentUrl, formatFileSize, isFileDrag, uploadErrorText } from '../../src/client/lib/attachments';
 
 describe('вложения в форме операции', () => {
   it('размер проверяется до отправки: пустой и больше 10 МБ (§8)', () => {
@@ -22,5 +22,15 @@ describe('вложения в форме операции', () => {
     expect(uploadErrorText(new ApiError(400, 'VALIDATION', 'Проверьте файл', { name: 'Имя файла: от 1 до 200 символов' }))).toBe('Имя файла: от 1 до 200 символов');
     expect(uploadErrorText(new ApiError(413, 'TOO_LARGE', 'Файл больше 10 МБ'))).toBe('Файл больше 10 МБ');
     expect(uploadErrorText(new Error('x'))).toBe('Ошибка сервера');
+  });
+});
+
+describe('перетаскивание в зону файлов (§6.7 этапа 1.5)', () => {
+  it('принимаются только файлы: текст и ссылки не перетаскиваются (Review Focus 5)', () => {
+    expect(isFileDrag(['Files'])).toBe(true);
+    expect(isFileDrag(['text/plain', 'Files'])).toBe(true);
+    expect(isFileDrag(['text/plain'])).toBe(false);
+    expect(isFileDrag(['text/uri-list', 'text/html'])).toBe(false);
+    expect(isFileDrag([])).toBe(false);
   });
 });

@@ -80,3 +80,8 @@ export async function removeAttachment(companyId: number, operationId: number, i
     void invalidateAttachments(companyId, operationId);
   }
 }
+
+/** Перетаскивают файлы (а не текст или ссылку): только их принимает зона «Перетяните сюда файл» (§6.7 этапа 1.5). */
+export function isFileDrag(types: readonly string[]): boolean {
+  return types.includes('Files');
+}

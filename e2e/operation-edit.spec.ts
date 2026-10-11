@@ -362,6 +362,25 @@ test('файлы: выбранный до сохранения загружае�
   const files = dialog.getByRole('group', { name: 'Файлы' });
   await expect(files).toContainText('чек.png');
   await expect(files).toContainText('загрузится после сохранения');
+  // перетаскивание в зону «Перетяните сюда файл (до 10 МБ) или выберите файл» (§6.7): файл ждёт сохранения
+  const zone = dialog.locator('[data-drop-zone]');
+  await expect(zone).toContainText('Перетяните сюда файл (до 10 МБ) или выберите файл');
+  const dropped = await page.evaluateHandle(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(['a;b\n1;2\n'], 'перетащен.csv', { type: 'text/csv' }));
+    return dt;
+  });
+  await zone.dispatchEvent('dragover', { dataTransfer: dropped });
+  await zone.dispatchEvent('drop', { dataTransfer: dropped });
+  await expect(files).toContainText('перетащен.csv');
+  // перетаскивание текста — не файл: ничего не добавляется (Review Focus 5)
+  const text = await page.evaluateHandle(() => {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', 'просто текст');
+    return dt;
+  });
+  await zone.dispatchEvent('drop', { dataTransfer: text });
+  await expect(files.getByText('просто текст')).toHaveCount(0);
   // больше 10 МБ — отказ до отправки
   await dialog.getByLabel('Добавить файл').setInputFiles({ name: 'большой.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(10 * 1024 * 1024 + 1) });
   await expect(files.getByRole('alert')).toContainText('«большой.pdf»: Файл больше 10 МБ');
@@ -373,6 +392,8 @@ test('файлы: выбранный до сохранения загружае�
   dialog = editForm(page);
   const link = dialog.getByRole('link', { name: 'чек.png' });
   await expect(link).toBeVisible();
+  // перетащенный до сохранения файл тоже загрузился
+  await expect(dialog.getByRole('link', { name: 'перетащен.csv' })).toBeVisible();
   const download = page.waitForEvent('download');
   await link.click();
   expect((await download).suggestedFilename()).toBe('чек.png');
@@ -404,7 +425,7 @@ test('файлы: выбранный до сохранения загружае�
   await expect(dialog.getByRole('link', { name: 'чек.png' })).toHaveCount(0);
   await expect(dialog.getByRole('link', { name: 'выписка.csv' })).toBeVisible();
   // после удаления фокус на «×» соседней строки
-  await expect(dialog.getByRole('button', { name: 'Удалить файл «выписка.csv»' })).toBeFocused();
+  await expect(dialog.locator(':focus')).toHaveAttribute('aria-label', /^Удалить файл «(перетащен|выписка)\.csv»$/);
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
 });

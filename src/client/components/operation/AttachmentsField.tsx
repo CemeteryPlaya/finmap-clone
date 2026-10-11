@@ -4,6 +4,7 @@ import {
   attachmentSizeError,
   attachmentUrl,
   formatFileSize,
+  isFileDrag,
   removeAttachment,
   uploadAttachment,
   uploadErrorText,
@@ -31,6 +32,8 @@ export function AttachmentsField(props: {
   const [uploading, setUploading] = useState(false);
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const [removing, setRemoving] = useState(false);
+  /** Над зоной тащат файлы — подсветка. */
+  const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const removeButtons = useRef(new Map<number, HTMLButtonElement>());
   /** Куда вернуть фокус после действия с файлом: «×» строки по id или поле выбора файла. */
@@ -158,29 +161,56 @@ export function AttachmentsField(props: {
           </li>
         ))}
       </ul>
-      {/* поле выбора скрыто, видна подпись-кнопка; фокус с клавиатуры подсвечивает подпись */}
+      {/* зона файлов (§6.7 этапа 1.5): перетаскивание или «выберите файл»; поле выбора скрыто, фокус с клавиатуры на нём подсвечивает всю зону */}
       {!props.readOnly && (
-      <>
-      <input
-        id={inputId}
-        type="file"
-        multiple
-        accept={ATTACHMENT_ACCEPT}
-        ref={inputRef}
-        aria-label="Добавить файл"
-        aria-describedby={hintId}
-        disabled={uploading}
-        onChange={(e) => {
-          void choose(e.target.files);
-          e.target.value = '';
-        }}
-        className="peer sr-only"
-      />
-      <label htmlFor={inputId} className="inline-block cursor-pointer rounded-lg bg-field px-3 py-1.5 text-sm font-medium peer-focus-visible:ring-2 peer-focus-visible:ring-focus">
-        {uploading ? 'Загрузка…' : '+ Файл'}
-      </label>
-      <span id={hintId} className="ml-2 text-xs text-muted">PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV до 10 МБ</span>
-      </>
+        <div
+          data-drop-zone=""
+          onDragOver={(e) => {
+            if (uploading || !isFileDrag([...e.dataTransfer.types])) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            setDragging(true);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+          }}
+          onDrop={(e) => {
+            setDragging(false);
+            if (uploading || !isFileDrag([...e.dataTransfer.types])) return;
+            e.preventDefault();
+            void choose(e.dataTransfer.files);
+          }}
+          className={`rounded-xl border-2 border-dashed px-4 py-4 text-center text-sm has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-focus ${dragging ? 'border-income bg-income-soft' : 'border-field'}`}
+        >
+          <input
+            id={inputId}
+            type="file"
+            multiple
+            accept={ATTACHMENT_ACCEPT}
+            ref={inputRef}
+            aria-label="Добавить файл"
+            aria-describedby={hintId}
+            disabled={uploading}
+            onChange={(e) => {
+              void choose(e.target.files);
+              e.target.value = '';
+            }}
+            className="peer sr-only"
+          />
+          {uploading ? (
+            <span>Загрузка…</span>
+          ) : (
+            <span>
+              Перетяните сюда файл (до 10 МБ) или{' '}
+              <label htmlFor={inputId} className="cursor-pointer font-semibold text-income-strong underline">
+                выберите файл
+              </label>
+            </span>
+          )}
+          <span id={hintId} className="mt-1 block text-xs text-muted">
+            PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV
+          </span>
+        </div>
       )}
       {errors.length > 0 && (
         <ul role="alert" className="mt-1 text-sm text-expense">
