@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { dropIndexAt, dropInGroup, moveGroup, movedText, shiftInGroup, visibleRows, type SettingsRow } from '../lib/settings-list';
 import { GripIcon, PencilIcon, SearchIcon } from './icons';
 import { btnPrimary, inputClass } from './ui';
@@ -50,42 +50,50 @@ export function SettingsList<T extends SettingsRow>(props: {
   const hintId = useId();
   const rowEls = useRef(new Map<number, HTMLLIElement>());
   const handles = useRef(new Map<number, HTMLButtonElement>());
-  /** После Alt+↑/↓: вернуть фокус на ручку строки, пока порядок не станет новым (React мог переставить узел). */
-  const refocus = useRef<{ id: number; order: number[] } | null>(null);
+  /** Ручка, на которой был фокус: после перестановки или отката React мог переставить узел и фокус упал на body. */
+  const lastHandle = useRef<number | null>(null);
   const shown = visibleRows(props.rows, query);
   // при поиске видна только часть списка — порядок не меняют (§7.1)
   const reorderable = props.onReorder !== undefined && query.trim() === '';
 
   useLayoutEffect(() => {
-    const want = refocus.current;
-    if (!want) return;
-    const handle = handles.current.get(want.id);
+    if (lastHandle.current === null) return;
     const active = document.activeElement;
-    // человек уже ушёл фокусом на другой элемент — не мешаем
-    if (active && active !== document.body && active !== handle) {
-      refocus.current = null;
-      return;
-    }
-    if (handle && active !== handle) handle.focus({ preventScroll: true });
-    if (moveGroup(shown, want.id).join() === want.order.join()) refocus.current = null;
+    // фокус потерян (body) — возвращаем на ручку; ушёл на другой элемент — не мешаем
+    if (active && active !== document.body) return;
+    handles.current.get(lastHandle.current)?.focus({ preventScroll: true });
   });
 
-  const commit = (row: T, next: number[], keyboard: boolean) => {
+  // щелчок мимо ручек забывает ручку: иначе обновление списка вернуло бы на неё фокус
+  useEffect(() => {
+    const forget = (e: globalThis.PointerEvent) => {
+      if (!(e.target instanceof Element) || !e.target.closest('[data-grip]')) lastHandle.current = null;
+    };
+    window.addEventListener('pointerdown', forget);
+    return () => window.removeEventListener('pointerdown', forget);
+  }, []);
+
+  // Esc отменяет перетаскивание, где бы ни был фокус
+  const dragging = drag !== null;
+  useEffect(() => {
+    if (!dragging) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') setDrag(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dragging]);
+
+  const commit = (row: T, next: number[]) => {
     props.onReorder?.(next, row.id);
     setAnnounce(movedText(row.name, next, row.id));
-    if (keyboard) refocus.current = { id: row.id, order: next };
   };
 
   const onHandleKey = (e: KeyboardEvent<HTMLButtonElement>, row: T) => {
-    if (e.key === 'Escape' && drag) {
-      e.preventDefault();
-      setDrag(null);
-      return;
-    }
     if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
     e.preventDefault();
     const next = shiftInGroup(moveGroup(shown, row.id), row.id, e.key === 'ArrowUp' ? -1 : 1);
-    if (next) commit(row, next, true);
+    if (next) commit(row, next);
   };
 
   const midpoints = (ids: number[]) =>
@@ -101,6 +109,9 @@ export function SettingsList<T extends SettingsRow>(props: {
     // без выделения текста и «мышиных» событий; дальше указатель привязан к ручке, даже если ушёл со строки
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
+    // preventDefault выше отменил и фокус — ставим на ручку сами
+    e.currentTarget.focus({ preventScroll: true });
+    lastHandle.current = row.id;
     setDrag({ id: row.id, group, index: group.indexOf(row.id) });
   };
 
@@ -111,11 +122,12 @@ export function SettingsList<T extends SettingsRow>(props: {
     if (index !== drag.index) setDrag({ ...drag, index });
   };
 
-  const onPointerUp = (row: T) => {
+  const onPointerUp = () => {
     if (!drag) return;
+    const row = shown.find((r) => r.id === drag.id);
     const next = dropInGroup(drag.group, drag.id, drag.index);
     setDrag(null);
-    if (next) commit(row, next, false);
+    if (row && next) commit(row, next);
   };
 
   // где встанет строка: черта над строкой (или под последней); на прежнем месте — без черты
@@ -163,7 +175,7 @@ export function SettingsList<T extends SettingsRow>(props: {
                   if (el) rowEls.current.set(row.id, el);
                   else rowEls.current.delete(row.id);
                 }}
-                className={`flex min-h-14 items-center gap-2 border-b border-field py-2 pr-1 hover:bg-field/60 ${child ? 'pl-9' : 'pl-1'} ${row.archived ? 'opacity-60' : ''} ${drag?.id === row.id ? 'opacity-50' : ''} ${before === row.id ? markBefore : ''} ${after === row.id ? markAfter : ''}`}
+                className={`flex min-h-14 items-center gap-2 border-b border-field py-2 pr-1 hover:bg-field/60 ${child ? 'pl-9' : 'pl-1'} ${drag?.id === row.id ? 'opacity-50' : ''} ${before === row.id ? markBefore : ''} ${after === row.id ? markAfter : ''}`}
               >
                 {movable ? (
                   <button
@@ -177,8 +189,14 @@ export function SettingsList<T extends SettingsRow>(props: {
                     title="Перетащите, чтобы изменить порядок"
                     onPointerDown={(e) => onPointerDown(e, row)}
                     onPointerMove={onPointerMove}
-                    onPointerUp={() => onPointerUp(row)}
+                    onPointerUp={onPointerUp}
                     onPointerCancel={() => setDrag(null)}
+                    onLostPointerCapture={() => setDrag(null)}
+                    onFocus={() => (lastHandle.current = row.id)}
+                    onBlur={(e) => {
+                      if (e.relatedTarget) lastHandle.current = null;
+                    }}
+                    data-grip=""
                     onKeyDown={(e) => onHandleKey(e, row)}
                     className={`${iconButton} cursor-grab touch-none select-none active:cursor-grabbing`}
                   >
@@ -192,9 +210,9 @@ export function SettingsList<T extends SettingsRow>(props: {
                   )
                 )}
                 <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
-                  <span className={`min-w-0 truncate ${props.strong?.(row) ? 'font-semibold' : ''}`}>{row.name}</span>
+                  <span className={`min-w-0 truncate ${props.strong?.(row) ? 'font-semibold' : ''} ${row.archived ? 'text-label' : ''}`}>{row.name}</span>
                   {row.secondary && <span className="text-sm text-muted">{row.secondary}</span>}
-                  {note && <span className="rounded-full bg-field px-2 py-0.5 text-xs text-muted">{note}</span>}
+                  {note && <span className="rounded-full bg-field px-2 py-0.5 text-xs text-label">{note}</span>}
                 </span>
                 {props.actions?.(row)}
                 {props.onEdit && (props.canEdit?.(row) ?? true) && (

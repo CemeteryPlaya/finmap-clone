@@ -6,9 +6,15 @@ import { queryClient } from './query';
 /**
  * Новый порядок списка настроек (§7.1 этапа 1.5): POST …/reorder с полным порядком. В кэше порядок меняется
  * сразу; если сервер отказал — прежний порядок и onError(сообщение). onError(null) — перед запросом.
+ * Быстрые перестановки подряд не мешают друг другу: пока выполняется другая, откат и обновление с сервера
+ * откладываются до последней (иначе ответ первой затёр бы показанный порядок третьей).
  */
 export function useReorder<T extends { id: number }>(queryKey: QueryKey, path: string, onError: (message: string | null) => void) {
+  const mutationKey = ['reorder', ...queryKey];
+  // в onError/onSettled своя мутация ещё считается выполняющейся: «одна» — значит, других нет
+  const lastOne = () => queryClient.isMutating({ mutationKey }) === 1;
   return useMutation<unknown, ApiError, number[], { previous: T[] | undefined }>({
+    mutationKey,
     mutationFn: (ids) => api(path, { method: 'POST', body: { ids } }),
     onMutate: async (ids) => {
       onError(null);
@@ -18,10 +24,10 @@ export function useReorder<T extends { id: number }>(queryKey: QueryKey, path: s
       return { previous };
     },
     onError: (e, _ids, context) => {
-      if (context?.previous) queryClient.setQueryData(queryKey, context.previous);
+      if (context?.previous && lastOne()) queryClient.setQueryData(queryKey, context.previous);
       onError(e.message);
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+    onSettled: () => (lastOne() ? queryClient.invalidateQueries({ queryKey }) : undefined),
   });
 }
 

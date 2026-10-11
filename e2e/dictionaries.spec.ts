@@ -356,6 +356,10 @@ test('шаблон списка: порядок за ☰ мышью и Alt+↑/�
   const main = page.getByRole('main');
   const list = main.getByRole('list', { name: 'Теги' });
   const order = async () => ((await (await page.request.get(`${base}/tags`)).json()).tags as { name: string }[]).map((t) => t.name);
+  let reorders = 0;
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.url().endsWith('/tags/reorder')) reorders++;
+  });
 
   // клавиатура: Alt+↓ на ручке — строка ниже, фокус на ручке, новое место объявлено
   const alpha = list.getByRole('button', { name: 'Переместить Альфа', exact: true });
@@ -369,8 +373,12 @@ test('шаблон списка: порядок за ☰ мышью и Alt+↑/�
   await page.keyboard.press('Alt+ArrowUp');
   await expect.poll(order).toEqual(['Альфа', 'Бета', 'Гамма']);
   // Alt+↑ на первой строке ничего не меняет (Review Focus 5)
+  const sent = reorders;
   await page.keyboard.press('Alt+ArrowUp');
   await expect(list.getByRole('listitem')).toHaveText([/Альфа/, /Бета/, /Гамма/]);
+  await page.waitForTimeout(300);
+  expect(reorders, 'запрос на сервер не уходит').toBe(sent);
+  expect(await order()).toEqual(['Альфа', 'Бета', 'Гамма']);
 
   // мышь: «Гамма» за ☰ — выше «Альфы»
   const grip = (await list.getByRole('button', { name: 'Переместить Гамма', exact: true }).boundingBox())!;
@@ -381,22 +389,34 @@ test('шаблон списка: порядок за ☰ мышью и Alt+↑/�
   await page.mouse.up();
   await expect(list.getByRole('listitem')).toHaveText([/Гамма/, /Альфа/, /Бета/]);
   await expect.poll(order).toEqual(['Гамма', 'Альфа', 'Бета']);
+  // после броска фокус остаётся на ручке
+  await expect(list.getByRole('button', { name: 'Переместить Гамма', exact: true })).toBeFocused();
 
   // сервер отклонил порядок — список возвращается, над ним ошибка (Review Focus 2)
+  // ответ придержан: порядок на экране уже новый, потом сервер отказывает — откат и ошибка над списком
   const reorderUrl = '**/api/v1/companies/*/tags/reorder';
-  await page.route(reorderUrl, (route) =>
-    route.fulfill({
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route(reorderUrl, async (route) => {
+    await gate;
+    await route.fulfill({
       status: 409,
       contentType: 'application/json',
       body: JSON.stringify({ error: { code: 'VERSION_CONFLICT', message: 'Список изменился — обновите страницу и повторите' } }),
-    }),
-  );
+    });
+  });
   try {
     await list.getByRole('button', { name: 'Переместить Гамма', exact: true }).focus();
     await page.keyboard.press('Alt+ArrowDown');
+    await expect(list.getByRole('listitem')).toHaveText([/Альфа/, /Гамма/, /Бета/]);
+    await expect(main.getByRole('alert')).toHaveCount(0);
+    release();
     await expect(main.getByRole('alert')).toHaveText('Список изменился — обновите страницу и повторите');
     await expect(list.getByRole('listitem')).toHaveText([/Гамма/, /Альфа/, /Бета/]);
+    // после отката фокус остаётся на ручке
+    await expect(list.getByRole('button', { name: 'Переместить Гамма', exact: true })).toBeFocused();
   } finally {
+    release();
     await page.unroute(reorderUrl);
   }
 
@@ -415,4 +435,42 @@ test('шаблон списка: порядок за ☰ мышью и Alt+↑/�
   await expect(page.getByRole('alertdialog')).toBeHidden();
   await expect(edit.getByRole('alert')).toHaveText('Тег стоит на операциях — его можно только перевести в архив');
   await expect(edit.getByRole('button', { name: 'Удалить' })).toBeFocused();
+});
+
+test('шаблон списка: две быстрые перестановки подряд при медленном сервере — на экране и на сервере итоговый порядок', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Быстрый порядок ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  for (const name of ['Альфа', 'Бета', 'Гамма']) await apiPost(page, `${base}/tags`, { name });
+  await page.goto(`/c/${cid}/settings/tags`);
+  const list = page.getByRole('main').getByRole('list', { name: 'Теги' });
+  const order = async () => ((await (await page.request.get(`${base}/tags`)).json()).tags as { name: string }[]).map((t) => t.name);
+
+  // первый запрос сервер выполняет сразу, но ответ приходит через 0,5 с; второй доходит до сервера только через 1,5 с.
+  // Пока второй в пути, ответ первого не должен затирать порядок, уже показанный после второго
+  let calls = 0;
+  await page.route('**/api/v1/companies/*/tags/reorder', async (route) => {
+    if (++calls === 1) {
+      const response = await route.fetch();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await route.fulfill({ response });
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await route.continue();
+    }
+  });
+  const alpha = list.getByRole('button', { name: 'Переместить Альфа', exact: true });
+  await alpha.focus();
+  await page.keyboard.press('Alt+ArrowDown');
+  await page.keyboard.press('Alt+ArrowDown');
+  await expect(list.getByRole('listitem')).toHaveText([/Бета/, /Гамма/, /Альфа/]);
+  // на сервере пока промежуточный порядок; ответ первого приходит — экран не откатывается к нему
+  for (let k = 0; k < 8; k++) {
+    await page.waitForTimeout(100);
+    expect(await list.getByRole('listitem').allInnerTexts(), 'экран не откатился к промежуточному порядку').toEqual(['Бета', 'Гамма', 'Альфа']);
+  }
+  // второй дошёл — итог на экране и на сервере один
+  await expect(list.getByRole('listitem')).toHaveText([/Бета/, /Гамма/, /Альфа/]);
+  await expect.poll(order).toEqual(['Бета', 'Гамма', 'Альфа']);
+  await expect(alpha).toBeFocused();
 });
