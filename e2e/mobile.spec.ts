@@ -104,12 +104,20 @@ test('счета на телефоне выезжают слева: итог и 
   await drawer.getByRole('link', { name: /^Kaspi/ }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?account=${kaspi}$`));
   await expect(drawer).toBeHidden();
-  // переход из панели — фокус на заголовок страницы; «+ счёт» ведёт в раздел «Счета» (§11 этапа 1.5)
+  // переход из панели — фокус на заголовок страницы (§11 этапа 1.5)
   await expect(page.getByRole('heading', { level: 1, name: 'Журнал' })).toBeFocused();
+  // «Добавить счёт» в панели — окно поверх панели; Esc закрывает только окно (§7.6)
   await open.click();
-  await drawer.getByRole('link', { name: '+ счёт' }).click();
-  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/accounts$`));
-  await expect(page.getByRole('heading', { level: 1, name: 'Счета' })).toBeFocused();
+  const addButton = drawer.getByRole('button', { name: 'Добавить счёт' });
+  await addButton.click();
+  const addDialog = page.getByRole('dialog', { name: 'Добавление нового счёта' });
+  await expect(addDialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(addDialog).toBeHidden();
+  await expect(drawer).toBeVisible();
+  await expect(addButton).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(drawer).toBeHidden();
 
   // страница без компании (новая компания): в шапке телефона — название продукта и шестерёнка «Настройки», без имени и «Выйти»
   await page.goto('/companies/new');

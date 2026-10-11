@@ -22,3 +22,8 @@ export function accountSecondary(account: Account, projects: Project[], balance:
   const money = balance === undefined ? null : formatMoney(balance, account.currency, MONEY_SCREEN_BEFORE);
   return [club, money].filter((s): s is string => s !== null).join(' · ');
 }
+
+/** Заголовки групп «Общие» / клубы показываются, только если групп больше одной (§7.6 этапа 1.5). */
+export function showGroupTitles(groups: AccountGroup[]): boolean {
+  return groups.length > 1;
+}

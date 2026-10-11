@@ -317,10 +317,6 @@ test('зона настроек: разделы по группам, без па
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?period=month$`));
   // ссылка исчезла вместе с меню настроек — фокус на заголовке журнала
   await expect(page.getByRole('heading', { level: 1, name: 'Журнал' })).toBeFocused();
-  // то же для «+ счёт» в левой панели: она заменяется меню настроек
-  await page.getByRole('navigation', { name: 'Счета' }).getByRole('link', { name: '+ счёт' }).click();
-  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/accounts$`));
-  await expect(page.getByRole('heading', { level: 1, name: 'Счета' })).toBeFocused();
   // у другой компании журнал запомнился без фильтра
   await page.goto(`/c/${other}/settings/tags`);
   await nav.getByRole('link', { name: /Назад к журналу/ }).click();

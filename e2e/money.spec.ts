@@ -40,7 +40,9 @@ test('левая панель: балансы и итог, переход в ж�
   await expect(panel).toContainText(/Всего на счетах\s*₸\s1\s500(?![\s\d])/);
   await expect(panel.getByRole('link', { name: /^Kaspi/ })).toContainText(/₸\s1\s300$/);
   await expect(panel.getByRole('link', { name: /^Сейф/ })).toContainText(/₸\s200$/);
-  await expect(panel).toContainText('Общие');
+  // над счетами — «Мои счета»; одна группа — без заголовка «Общие» (§7.6)
+  await expect(panel.getByRole('heading', { level: 2, name: 'Мои счета' })).toBeVisible();
+  await expect(panel).not.toContainText('Общие');
 
   await panel.getByRole('link', { name: /^Kaspi/ }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?account=${kaspi}$`));
