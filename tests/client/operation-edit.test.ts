@@ -32,7 +32,7 @@ const op = (patch: Partial<OperationRecord> = {}): OperationRecord => ({
 
 /** Правка в форме → тело PATCH: как это делает форма (время суток — прежнее). */
 const patchFor = (o: OperationRecord, edit: (d: OperationDraft) => OperationDraft) => {
-  const ctx: DraftContext = { accounts, today: '2026-10-07', timeZone: TZ, now: NOW, timeOfDayFrom: new Date(o.paidAt) };
+  const ctx: DraftContext = { accounts, today: '2026-10-07', timeZone: TZ, now: NOW, timeOfDayFrom: new Date(o.paidAt), originalPaidAt: o.paidAt };
   const r = buildBody(edit(draftFromOperation(o, accounts, TZ)), ctx);
   if (!r.ok) throw new Error(JSON.stringify(r.errors));
   return patchBody(o, r.body, TZ);
@@ -67,6 +67,10 @@ describe('draftFromOperation', () => {
     const t = draftFromOperation(op({ type: 'transfer', toAccountId: 3, toAmount: 1000, counterpartyId: null, lines: [{ categoryId: null, projectId: 8, amount: 150050 }] }), accounts, TZ);
     expect(t).toMatchObject({ toAccountId: 3, toAmount: '10', projectId: 8, split: null });
     expect(draftFromOperation(op({ type: 'transfer', toAccountId: 2, toAmount: 150050, lines: [] }), accounts, TZ).toAmount).toBe('');
+  });
+
+  it('время операции — в поле (ЧЧ:ММ по Алматы), но не «задано руками»', () => {
+    expect(draftFromOperation(op(), accounts, TZ)).toMatchObject({ paidDate: '2026-10-05', paidTime: '18:15', paidTimeSet: false });
   });
 });
 
@@ -109,6 +113,22 @@ describe('patchBody — в PATCH только изменённые поля (и�
     expect(patchFor(t, (d) => ({ ...d, amount: '500' }))).toEqual({ version: 3, amount: 50000, toAmount: 10000 });
     expect(patchFor(t, (d) => ({ ...d, accountId: 2 }))).toEqual({ version: 3, accountId: 2, toAmount: 10000 });
   });
+
+  it('время (§2.3 этапа 1.5): без смены даты и времени — без paidAt, секунды сохраняются; та же минута руками — тоже; другое время — ЧЧ:ММ:00 (Review Focus 1)', () => {
+    const o = op({ paidAt: '2026-10-05T13:15:42.250Z' }); // 05.10, 18:15:42 по Алматы
+    expect(patchFor(o, (d) => ({ ...d, comment: 'новый' }))).toEqual({ version: 3, comment: 'новый' });
+    expect(patchFor(o, (d) => ({ ...d, paidTime: '18:15', paidTimeSet: true }))).toBeNull();
+    expect(patchFor(o, (d) => ({ ...d, paidTime: '09:05', paidTimeSet: true }))).toEqual({ version: 3, paidAt: '2026-10-05T04:05:00.000Z' });
+    // смена даты без времени — прежнее время суток с секундами
+    expect(patchFor(o, (d) => ({ ...d, paidDate: '2026-10-04' }))).toEqual({ version: 3, paidAt: '2026-10-04T13:15:42.250Z' });
+    // смена даты и времени
+    expect(patchFor(o, (d) => ({ ...d, paidDate: '2026-10-04', paidTime: '23:00', paidTimeSet: true }))).toEqual({ version: 3, paidAt: '2026-10-04T18:00:00.000Z' });
+  });
+
+  it('сохранённое время сегодня позже «сейчас» этого устройства: правка комментария не трогает paidAt (Review Focus 1)', () => {
+    const o = op({ paidAt: '2026-10-07T10:00:00.250Z' }); // 15:00 по Алматы, NOW — 10:30
+    expect(patchFor(o, (d) => ({ ...d, comment: 'новый' }))).toEqual({ version: 3, comment: 'новый' });
+  });
 });
 
 describe('duplicateDraft, archivedAccountOf', () => {
@@ -125,6 +145,8 @@ describe('duplicateDraft, archivedAccountOf', () => {
       amount: '1500,5',
       comment: 'аренда',
     });
+    // «Дублировать»: дата «сегодня», время «живое»
+    expect(duplicateDraft({ ...d, paidTime: '18:15', paidTimeSet: true }, available, '2026-10-07')).toMatchObject({ paidDate: '2026-10-07', paidTime: '', paidTimeSet: false });
   });
 
   it('без архивных ссылок — для «Сохранить и создать похожий» после правки; дата остаётся', () => {

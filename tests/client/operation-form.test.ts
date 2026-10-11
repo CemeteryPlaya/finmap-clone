@@ -7,6 +7,7 @@ import {
   FIELD_LABELS,
   operationTitle,
   paidAtFor,
+  shownPaidTime,
   similarDraft,
   submitLabel,
   transferRateText,
@@ -212,5 +213,59 @@ describe('фокус при открытии (§6.2 этапа 1.5)', () => {
     expect(initialFocusField(emptyDraft('transfer', '2026-10-07', 1, 2), false)).toBe('amount');
     expect(initialFocusField(emptyDraft('transfer', '2026-10-07', null, 2), false)).toBe('accountId');
     expect(initialFocusField(emptyDraft('income', '2026-10-07'), true)).toBe('amount');
+  });
+});
+
+describe('время оплаты (§2.3 этапа 1.5)', () => {
+  it('paidAtFor с явным временем — дата и ЧЧ:ММ:00 в поясе приложения, без ограничения «не позже now»', () => {
+    expect(paidAtFor('2026-10-06', NOW, NOW, TZ, '22:09')).toBe('2026-10-06T17:09:00.000Z');
+    expect(paidAtFor('2026-10-07', NOW, NOW, TZ, '23:59')).toBe('2026-10-07T18:59:00.000Z');
+    expect(paidAtFor('2026-10-07', NOW, NOW, TZ, '00:05')).toBe('2026-10-06T19:05:00.000Z');
+    // до 01.03.2024 в Алматы было UTC+6 (Review Focus 2)
+    expect(paidAtFor('2024-01-15', NOW, NOW, TZ, '09:05')).toBe('2024-01-15T03:05:00.000Z');
+  });
+
+  it('время не трогали — «живое»: сегодня — точный момент сохранения, другая дата — текущее время суток', () => {
+    expect(emptyDraft('expense', '2026-10-07')).toMatchObject({ paidTime: '', paidTimeSet: false });
+    expect(body(draft({ amount: '1' })).paidAt).toBe(NOW.toISOString());
+    expect(body(draft({ amount: '1', paidDate: '2026-10-05' })).paidAt).toBe('2026-10-05T05:30:00.123Z');
+  });
+
+  it('время задано руками: в теле — дата и ЧЧ:ММ:00; позже «сейчас» сегодня — ошибка; в прошлый день — можно (Review Focus 3)', () => {
+    expect(body(draft({ amount: '1', paidDate: '2026-10-06', paidTime: '22:09', paidTimeSet: true })).paidAt).toBe('2026-10-06T17:09:00.000Z');
+    expect(body(draft({ amount: '1', paidTime: '10:30', paidTimeSet: true })).paidAt).toBe('2026-10-07T05:30:00.000Z');
+    expect(errors(draft({ amount: '1', paidTime: '10:31', paidTimeSet: true }))).toEqual({ paidAt: 'Это время ещё не наступило' });
+    expect(errors(draft({ amount: '1', paidTime: '25:00', paidTimeSet: true }))).toEqual({ paidAt: 'Укажите время в виде ЧЧ:ММ' });
+  });
+
+  it('правка: та же дата, время не трогали — paidAt операции как есть, даже если он позже «сейчас» (Review Focus 1)', () => {
+    const later = '2026-10-07T10:00:00.250Z'; // 15:00 по Алматы — позже NOW (10:30)
+    const d = draft({ amount: '1', paidDate: '2026-10-07', paidTime: '15:00' });
+    expect(buildBody(d, { ...ctx, timeOfDayFrom: new Date(later), originalPaidAt: later })).toMatchObject({ ok: true, body: { paidAt: later } });
+    // дату перенесли — прежнее время суток, но не позже «сейчас»
+    const moved = draft({ amount: '1', paidDate: '2026-10-07', paidTime: '18:15' });
+    expect(buildBody(moved, { ...ctx, timeOfDayFrom: new Date('2026-10-05T13:15:42.250Z'), originalPaidAt: '2026-10-05T13:15:42.250Z' })).toMatchObject({
+      ok: true,
+      body: { paidAt: NOW.toISOString() },
+    });
+  });
+
+  it('время в поле — то, что сохранится (shownPaidTime)', () => {
+    const edit = { paidDate: '2026-10-05', paidTime: '18:15', paidTimeSet: false };
+    expect(shownPaidTime({ paidDate: '2026-10-07', paidTime: '', paidTimeSet: false }, '10:30', '2026-10-07', null)).toBe('10:30');
+    expect(shownPaidTime(edit, '10:30', '2026-10-07', '2026-10-05')).toBe('18:15');
+    // перенос на сегодня, время ещё не наступило — сохранится «сейчас», его и показываем
+    expect(shownPaidTime({ ...edit, paidDate: '2026-10-07' }, '10:30', '2026-10-07', '2026-10-05')).toBe('10:30');
+    expect(shownPaidTime({ ...edit, paidDate: '2026-10-06' }, '10:30', '2026-10-07', '2026-10-05')).toBe('18:15');
+    // сохранённое время позже «сейчас» в тот же день — без изменений
+    expect(shownPaidTime({ paidDate: '2026-10-07', paidTime: '15:00', paidTimeSet: false }, '10:30', '2026-10-07', '2026-10-07')).toBe('15:00');
+    expect(shownPaidTime({ ...edit, paidTime: '09:05', paidTimeSet: true }, '10:30', '2026-10-07', '2026-10-05')).toBe('09:05');
+  });
+
+  it('«создать похожий»: время, заданное руками, и дата переносятся; «живое» время остаётся живым', () => {
+    const manual = draft({ amount: '5', paidDate: '2026-10-06', paidTime: '22:09', paidTimeSet: true });
+    expect(similarDraft(manual)).toMatchObject({ paidDate: '2026-10-06', paidTime: '22:09', paidTimeSet: true, amount: '' });
+    const fromEdit = draft({ amount: '5', paidDate: '2026-10-06', paidTime: '18:15', paidTimeSet: false });
+    expect(similarDraft(fromEdit)).toMatchObject({ paidDate: '2026-10-06', paidTime: '', paidTimeSet: false });
   });
 });

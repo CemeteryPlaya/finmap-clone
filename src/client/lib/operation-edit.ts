@@ -1,4 +1,5 @@
 import { getCurrency } from '../../shared/currencies';
+import { timeOfDay } from '../../shared/dates';
 import { amountInputText, dayOf } from './journal-format';
 import type { OperationBody, OperationDraft } from './operation-form';
 import { newLine } from './split';
@@ -44,6 +45,9 @@ export function draftFromOperation(op: OperationRecord, accounts: ReadonlyMap<nu
     toAccountId: op.toAccountId,
     toAmount: op.toAmount !== null && to !== undefined && to !== from ? amountInputText(op.toAmount, minorOf(accounts, op.toAccountId)) : '',
     paidDate,
+    // поле показывает время операции, но оно не «задано руками»: без правки времени paidAt не меняется (§2.3)
+    paidTime: timeOfDay(op.paidAt, timeZone),
+    paidTimeSet: false,
     accrualOn: op.accrualDate !== null,
     accrualDate: op.accrualDate ?? paidDate,
     categoryId: single?.categoryId ?? null,
@@ -67,13 +71,14 @@ const sameIds = (a: readonly number[], b: readonly number[]) => JSON.stringify([
 /**
  * Изменённые поля для PATCH (итоги плана 4a, п. 1): `null` в `toAccountId`/`toAmount` схема правки не принимает,
  * а прежняя сумма зачисления вместе с новой суммой у перевода в одной валюте дала бы INVARIANT_4.
- * Дата оплаты отправляется, только если сменился день (время суток прежнее). У перевода между валютами сервер
+ * Дата оплаты отправляется, только если сменились дата или минуты в APP_TIMEZONE (§2.3 этапа 1.5): правка без смены времени не трогает секунды. У перевода между валютами сервер
  * сбрасывает сумму зачисления при смене суммы или счетов, если её нет в запросе, — поэтому тогда она уходит всегда.
  * null — менять нечего.
  */
 export function patchBody(op: OperationRecord, body: OperationBody, timeZone: string): OperationPatch | null {
   const patch: OperationPatch = { version: op.version };
-  if (dayOf(body.paidAt, timeZone) !== dayOf(op.paidAt, timeZone)) patch.paidAt = body.paidAt;
+  const minute = (iso: string) => `${dayOf(iso, timeZone)} ${timeOfDay(iso, timeZone)}`;
+  if (minute(body.paidAt) !== minute(op.paidAt)) patch.paidAt = body.paidAt;
   if (body.accrualDate !== op.accrualDate) patch.accrualDate = body.accrualDate;
   if (body.accountId !== op.accountId) patch.accountId = body.accountId;
   if (body.amount !== op.amount) patch.amount = body.amount;
@@ -118,9 +123,9 @@ export function withoutArchived(draft: OperationDraft, available: Available): Op
   };
 }
 
-/** «Дублировать» (§7): новая операция с теми же значениями, без архивных ссылок и с датой оплаты «сегодня». */
+/** «Дублировать платёж» (§7, §2.3 этапа 1.5): новая операция с теми же значениями, без архивных ссылок, «сегодня» и живое время. */
 export function duplicateDraft(draft: OperationDraft, available: Available, today: string): OperationDraft {
-  return { ...withoutArchived(draft, available), paidDate: today };
+  return { ...withoutArchived(draft, available), paidDate: today, paidTime: '', paidTimeSet: false };
 }
 
 /** Архивный счёт, который затрагивает операция: сумму, дату оплаты и счета менять нельзя, удалить нельзя (инвариант 7). */

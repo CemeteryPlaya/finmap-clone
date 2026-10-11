@@ -351,7 +351,7 @@ function OperationEditor(p: {
     // у существующей операции при смене дня сохраняется прежнее время суток
     const timeOfDayFrom = op ? new Date(op.paidAt) : now;
     // buildBody вычисляет выражение в сумме само: Enter или главная кнопка без ухода из поля сохраняют результат
-    const r = buildBody(draft, { accounts, today: todayInTimezone(p.timeZone, now), timeZone: p.timeZone, now, timeOfDayFrom });
+    const r = buildBody(draft, { accounts, today: todayInTimezone(p.timeZone, now), timeZone: p.timeZone, now, timeOfDayFrom, originalPaidAt: op?.paidAt });
     if (!r.ok) {
       setErrors(r.errors);
       setFormError('Проверьте заполнение полей');

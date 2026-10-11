@@ -1,6 +1,6 @@
 import { evaluateAmount } from '../../shared/calc';
 import { getCurrency } from '../../shared/currencies';
-import { isValidDate, startOfDayUtc, zoneOffsetMs } from '../../shared/dates';
+import { isValidDate, parseTimeInput, startOfDayUtc, todayInTimezone, zoneOffsetMs } from '../../shared/dates';
 import { DEC_ONE, divDec, roundSignificant } from '../../shared/decimal';
 import type { OperationType } from './journal-filter';
 import { similarSplit, splitLines, splitResult, type SplitDraft } from './split';
@@ -18,6 +18,13 @@ export interface OperationDraft {
   /** Перевод между валютами: «Сумма зачисления». */
   toAmount: string;
   paidDate: string;
+  /**
+   * Время оплаты «ЧЧ:ММ» в APP_TIMEZONE (§2.3 этапа 1.5). Пусто — у новой операции «живое» время (поле показывает
+   * «сейчас»); у правки — время операции. Используется при сохранении, только если `paidTimeSet`.
+   */
+  paidTime: string;
+  /** Время задано руками: сохраняется дата + ЧЧ:ММ:00. Нет — «сейчас» у новой, прежнее время с секундами у правки. */
+  paidTimeSet: boolean;
   /** «Дата сделки отличается». */
   accrualOn: boolean;
   accrualDate: string;
@@ -58,6 +65,11 @@ export interface DraftContext {
   now: Date;
   /** Откуда взять время суток для paidAt: у новой операции — «сейчас», у существующей — её прежнее время. */
   timeOfDayFrom: Date;
+  /**
+   * Правка: `paidAt` операции. Если дата не менялась и время не задано руками, он уходит в тело как есть — с секундами
+   * и без «не позже сейчас» (§2.3 этапа 1.5): сохранённое время может быть позже «сейчас» этого устройства.
+   */
+  originalPaidAt?: string;
 }
 
 export type BuildResult = { ok: true; body: OperationBody } | { ok: false; errors: Record<string, string> };
@@ -72,6 +84,8 @@ export function emptyDraft(type: OperationType, today: string, accountId: number
     toAccountId: type === 'transfer' ? toAccountId : null,
     toAmount: '',
     paidDate: today,
+    paidTime: '',
+    paidTimeSet: false,
     accrualOn: false,
     accrualDate: today,
     categoryId: null,
@@ -97,22 +111,39 @@ export function changeType(draft: OperationDraft, type: OperationType): Operatio
   };
 }
 
-/** «Сохранить и создать похожий» (§7): те же значения, кроме суммы, комментария и файлов (суммы строк разбиения — тоже). */
+/**
+ * «+ Добавить и создать похожий» (§7, §2.3 этапа 1.5): те же значения, кроме суммы, комментария и файлов (суммы строк
+ * разбиения — тоже). Время, заданное руками, остаётся вместе с датой (выручка за смену двумя операциями); иначе — «живое».
+ */
 export function similarDraft(draft: OperationDraft): OperationDraft {
-  return { ...draft, amount: '', toAmount: '', comment: '', split: draft.split && similarSplit(draft.split) };
+  return {
+    ...draft,
+    amount: '',
+    toAmount: '',
+    comment: '',
+    split: draft.split && similarSplit(draft.split),
+    paidTime: draft.paidTimeSet ? draft.paidTime : '',
+  };
 }
 
 const DAY_MS = 86_400_000;
 
 /**
- * Момент оплаты для даты из формы: дата `date` и время суток момента `ref` (в поясе приложения), но не позже `now`.
- * Новая операция за сегодня — ровно «сейчас»; за прошлый день — тот же час; правка даты сохраняет прежнее время.
+ * Момент оплаты для даты из формы. С `time` («ЧЧ:ММ», задано руками, §2.3 этапа 1.5) — дата и ЧЧ:ММ:00 в поясе
+ * приложения, без ограничения «не позже now»: проверка — в buildBody. Без `time` — время суток момента `ref`
+ * (в поясе приложения), но не позже `now`: новая операция за сегодня — ровно «сейчас», за прошлый день — тот же час,
+ * правка даты сохраняет прежнее время. Сложение «начало суток + время» верно для поясов без летнего времени —
+ * Asia/Almaty такой (смещение берётся на дату операции: до 01.03.2024 UTC+6).
  */
-export function paidAtFor(date: string, ref: Date, now: Date, timeZone: string): string {
+export function paidAtFor(date: string, ref: Date, now: Date, timeZone: string, time?: string): string {
+  const start = Date.parse(startOfDayUtc(date, timeZone));
+  if (time !== undefined) {
+    const [hours, minutes] = time.split(':').map(Number) as [number, number];
+    return new Date(start + (hours * 60 + minutes) * 60_000).toISOString();
+  }
   const wall = ref.getTime() + zoneOffsetMs(ref.getTime(), timeZone);
   const msOfDay = ((wall % DAY_MS) + DAY_MS) % DAY_MS;
-  const t = Date.parse(startOfDayUtc(date, timeZone)) + msOfDay;
-  return new Date(Math.min(t, now.getTime())).toISOString();
+  return new Date(Math.min(start + msOfDay, now.getTime())).toISOString();
 }
 
 /** Сумма поля → минимальные единицы (> 0) или текст ошибки. */
@@ -165,21 +196,32 @@ export function buildBody(draft: OperationDraft, ctx: DraftContext): BuildResult
     }
   }
 
+  // время, заданное руками (§2.3 этапа 1.5): «ЧЧ:ММ», не позже «сейчас»
+  const time = draft.paidTimeSet ? parseTimeInput(draft.paidTime) : undefined;
   if (!isValidDate(draft.paidDate)) errors.paidAt = 'Укажите дату оплаты';
   else if (draft.paidDate > ctx.today) errors.paidAt = 'Дата оплаты в будущем — так нельзя';
+  else if (time === null) errors.paidAt = 'Укажите время в виде ЧЧ:ММ';
+  else if (time !== undefined && Date.parse(paidAtFor(draft.paidDate, ctx.now, ctx.now, ctx.timeZone, time)) > ctx.now.getTime()) {
+    errors.paidAt = 'Это время ещё не наступило';
+  }
   // у перевода даты сделки нет (§7): переключатель есть только у дохода и расхода
   const accrual = draft.accrualOn && draft.type !== 'transfer';
   if (accrual && !isValidDate(draft.accrualDate)) errors.accrualDate = 'Укажите дату сделки';
   const comment = draft.comment.trim();
   if (comment.length > COMMENT_MAX) errors.comment = `Не длиннее ${COMMENT_MAX} символов`;
 
+  // правка, дата та же, время не трогали — момент операции без изменений (секунды, без «не позже сейчас»)
+  const original =
+    !draft.paidTimeSet && ctx.originalPaidAt !== undefined && todayInTimezone(ctx.timeZone, new Date(ctx.originalPaidAt)) === draft.paidDate
+      ? ctx.originalPaidAt
+      : null;
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   const transfer = draft.type === 'transfer';
   return {
     ok: true,
     body: {
       type: draft.type,
-      paidAt: paidAtFor(draft.paidDate, ctx.timeOfDayFrom, ctx.now, ctx.timeZone),
+      paidAt: original ?? paidAtFor(draft.paidDate, ctx.timeOfDayFrom, ctx.now, ctx.timeZone, time ?? undefined),
       accrualDate: accrual ? draft.accrualDate : null,
       accountId: account!.id,
       amount,
@@ -247,4 +289,21 @@ export function initialFocusField(draft: Pick<OperationDraft, 'type' | 'accountI
   if (draft.accountId === null) return 'accountId';
   if (draft.type === 'transfer' && draft.toAccountId === null) return 'toAccountId';
   return 'amount';
+}
+
+/**
+ * Время, которое показывает поле даты и времени (§2.3 этапа 1.5), — то, что сохранится: заданное руками; у новой
+ * операции — «сейчас»; у правки с той же датой — время операции (даже если оно позже «сейчас» устройства); дату
+ * перенесли на сегодня, а прежнее время ещё не наступило — «сейчас» (сохранится не позже него).
+ */
+export function shownPaidTime(
+  draft: Pick<OperationDraft, 'paidDate' | 'paidTime' | 'paidTimeSet'>,
+  nowTime: string,
+  today: string,
+  originalDate: string | null,
+): string {
+  if (draft.paidTimeSet) return draft.paidTime;
+  if (draft.paidTime === '') return nowTime;
+  if (draft.paidDate === originalDate) return draft.paidTime;
+  return draft.paidDate === today && draft.paidTime > nowTime ? nowTime : draft.paidTime;
 }
