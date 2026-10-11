@@ -65,7 +65,7 @@ const SCENARIOS: Scenario[] = [
     path: 'log',
     act: async (p) => {
       await table(p).getByRole('button', { name: /Указать/ }).first().click();
-      await p.getByRole('listbox').first().waitFor();
+      await p.getByRole('dialog', { name: /^Редактирование/ }).waitFor();
     },
   },
   {
@@ -129,7 +129,7 @@ const SCENARIOS: Scenario[] = [
     path: 'log',
     act: async (p) => {
       await p.getByRole('button', { name: 'Фильтр', exact: true }).click();
-      await p.getByRole('dialog', { name: 'Фильтр', exact: true }).waitFor();
+      await p.getByRole('dialog', { name: 'Фильтры', exact: true }).waitFor();
     },
   },
   {
