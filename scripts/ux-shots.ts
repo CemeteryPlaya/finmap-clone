@@ -105,7 +105,7 @@ const SCENARIOS: Scenario[] = [
     finmap: '09b-category-typed.png',
     path: 'log',
     act: async (p) => {
-      // как на снимке Finmap: расход, в поле категории набрано «аре» — найденное и «+ Создать „аре“» после него
+      // как на снимке Finmap: расход, в поле категории набрано «аре» — найденное и «+ Создать категорию „аре“» после него
       await openForm('Расход')(p);
       await newForm(p).getByRole('combobox', { name: 'Категория', exact: true }).fill('аре');
       await p.getByRole('listbox').first().waitFor();

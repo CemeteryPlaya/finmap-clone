@@ -84,7 +84,7 @@ describe('варианты списков формы операции', () => {
     const system = (id: number, name: string, key: string): CategoryNode => node(id, name, { systemKey: key, effectiveSystemKey: key });
     const all: CategoryTree = {
       income: [system(101, 'Инвестиции', 'investment'), system(102, 'Возврат займа', 'loan_repaid'), system(103, 'Получение кредита', 'credit_received')],
-      expense: [...tree.expense, system(104, 'Дивиденды', 'dividends'), system(105, 'Налоги', 'tax')],
+      expense: [...tree.expense, system(104, 'Дивиденды', 'dividends'), system(105, 'Налоги', 'tax'), system(106, 'НДС', 'vat'), system(107, 'Погашение кредита', 'credit_repayment'), system(108, 'Выдача займа', 'loan_issued')],
     };
     expect(counterpartyLabel(all, null)).toBe('Мой контрагент');
     expect(counterpartyLabel(all, 21)).toBe('Мой контрагент');
@@ -95,9 +95,12 @@ describe('варианты списков формы операции', () => {
     expect(counterpartyLabel(all, 103)).toBe('Кредитор');
     expect(counterpartyLabel(all, 102)).toBe('Заёмщик');
     expect(counterpartyLabel(all, 105)).toBe('Тип налога');
+    expect(counterpartyLabel(all, 106)).toBe('Тип налога');
+    expect(counterpartyLabel(all, 107)).toBe('Кредитор');
+    expect(counterpartyLabel(all, 108)).toBe('Заёмщик');
   });
 
-  it('эффективный systemKey дочерней категории→ подходящий тип контрагента; обычная категория — без предпочтения', () => {
+  it('эффективный systemKey дочерней категории → подходящий тип контрагента; обычная категория — без предпочтения', () => {
     expect(findCategory(tree, 11)?.name).toBe('Администраторы');
     expect(findCategory(tree, 99)).toBeUndefined();
     expect(preferredCounterpartyType(tree, 10)).toBe('employee');

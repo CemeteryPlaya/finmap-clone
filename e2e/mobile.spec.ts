@@ -533,3 +533,36 @@ test('архивная компания: форма операции тольк�
   await page.keyboard.press('Escape');
   await expect(view).toBeHidden();
 });
+
+test('список поля над экранной клавиатурой телефона: место считается по видимой области (visualViewport)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Клавиатура ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 1000000 });
+  for (let i = 1; i <= 18; i++) await apiPost(page, `${base}/categories`, { kind: 'expense', name: `Категория ${String(i).padStart(2, '0')}` });
+  await page.setViewportSize(PHONE);
+  await page.reload();
+  await bar(page).getByRole('button', { name: 'Расход', exact: true }).click();
+  const dialog = newForm(page);
+  const category = dialog.getByRole('combobox', { name: 'Категория', exact: true });
+  await category.click();
+  const list = dialog.getByRole('listbox', { name: 'Категории' }).locator('..');
+  await expect(list).toBeVisible();
+  // без клавиатуры список занимает почти весь экран
+  const before = (await list.boundingBox())!;
+  expect(before.y + before.height).toBeGreaterThan(560);
+  // Playwright не умеет показывать экранную клавиатуру: подменяем видимую область (над клавиатурой остаётся 500 px) и сообщаем об изменении
+  await page.evaluate(() => {
+    const fake = Object.assign(new EventTarget(), { width: 390, height: 500, offsetTop: 0, offsetLeft: 0, scale: 1, pageTop: 0, pageLeft: 0 });
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: fake });
+    window.dispatchEvent(new Event('resize'));
+  });
+  await expect(async () => {
+    const box = (await list.boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(500);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+  }).toPass();
+  // список прокручивается внутри себя: последняя категория достижима
+  await dialog.getByRole('option', { name: 'Категория 18', exact: true }).scrollIntoViewIfNeeded();
+  await expect(dialog.getByRole('option', { name: 'Категория 18', exact: true })).toBeVisible();
+});

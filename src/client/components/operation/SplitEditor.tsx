@@ -3,6 +3,7 @@ import { formatBp } from '../../../shared/percent';
 import { formatMoney, MONEY_SCREEN } from '../../../shared/money';
 import { api, ApiError } from '../../lib/api';
 import { categoryOptions, projectOptions } from '../../lib/operation-options';
+import { createProps } from '../../lib/picker';
 import { queryClient } from '../../lib/query';
 import type { CategoryTree, Project, SplitPreset } from '../../lib/queries';
 import {
@@ -48,8 +49,8 @@ export function SplitEditor(props: {
   presets: SplitPreset[];
   error?: string;
   /** «+ Создать „…“» в строке: создать категорию или проект и выбрать его в строке с ключом key. */
-  onCreateCategory?: (name: string, key: number) => void;
-  onCreateProject?: (name: string, key: number) => void;
+  onCreateCategory?: (name: string, key: number) => void | Promise<boolean>;
+  onCreateProject?: (name: string, key: number) => void | Promise<boolean>;
 }) {
   const modeName = useId();
   const [notice, setNotice] = useState<string | null>(null);
@@ -70,7 +71,10 @@ export function SplitEditor(props: {
     const rows = Array.from(section.querySelectorAll<HTMLElement>(':scope > [role="group"][aria-label^="Строка"]'));
     if (target.kind === 'add') {
       // новая строка — фокус в её первое поле (категория — поле ввода со списком)
-      rows[rows.length - 1]?.querySelector<HTMLElement>('input, button')?.focus();
+      // на телефоне фокус в поле открыл бы экранную клавиатуру поверх формы: фокус остаётся на «+ Строка», новая строка прокручивается в видимую область
+      const row = rows[rows.length - 1];
+      if (window.matchMedia?.('(pointer: coarse)').matches) row?.scrollIntoView({ block: 'nearest' });
+      else row?.querySelector<HTMLElement>('input, button')?.focus();
       return;
     }
     const remove = rows[Math.max(target.index - 1, 0)]?.querySelector<HTMLButtonElement>('button[aria-label^="Убрать строку"]');
@@ -193,8 +197,7 @@ export function SplitEditor(props: {
             options={categoryOptions(props.categories, props.kind, [line.categoryId])}
             emptyLabel="Без категории"
             onChange={(categoryId) => setLine(i, { categoryId })}
-            onCreate={props.onCreateCategory && ((name) => props.onCreateCategory!(name, line.key))}
-            createNoun="категорию"
+            {...createProps<void | Promise<boolean>>(props.onCreateCategory ? { onCreate: (name) => props.onCreateCategory!(name, line.key), createNoun: 'категорию' } : {})}
           />
           <ComboSelect
             label="Проект"
@@ -203,8 +206,7 @@ export function SplitEditor(props: {
             options={projectOptions(props.projects, [line.projectId])}
             emptyLabel="Без проекта"
             onChange={(projectId) => setLine(i, { projectId })}
-            onCreate={props.onCreateProject && ((name) => props.onCreateProject!(name, line.key))}
-            createNoun="проект"
+            {...createProps<void | Promise<boolean>>(props.onCreateProject ? { onCreate: (name) => props.onCreateProject!(name, line.key), createNoun: 'проект' } : {})}
           />
           {split.mode === 'amount' ? (
             <AmountField

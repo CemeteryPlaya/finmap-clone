@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
-import { createItemLabel, initialActive, pickerItems, type PickerItem, type PickerOption } from '../lib/picker';
+import { createItemLabel, createProps, initialActive, pickerItems, type CreateProps, type PickerItem, type PickerOption } from '../lib/picker';
 import { Popover } from './Popover';
 import { badgeClass } from './ui';
 
@@ -101,12 +101,9 @@ export function PickerList(props: {
   label: string;
   options: PickerOption[];
   onPick: (id: number) => void;
-  onCreate?: (name: string) => void;
-  /** Что создаёт «+ Создать»: «тег». Обязательно вместе с onCreate. */
-  createNoun?: string;
   /** Уже выбранное значение: активно при открытии, отмечено `aria-selected`. */
   selectedId?: number | null;
-}) {
+} & CreateProps) {
   const noun = props.onCreate ? (props.createNoun ?? '') : undefined;
   const [query, setQuery] = useState('');
   const [naming, setNaming] = useState(false);
@@ -183,15 +180,11 @@ export function SearchPicker(props: {
   listLabel: string;
   options: PickerOption[];
   onPick: (id: number) => void;
-  /** «+ Создать»: создаёт элемент с набранным названием (§7). */
-  onCreate?: (name: string) => void;
-  /** Что создаёт «+ Создать»: «тег». Обязательно вместе с onCreate. */
-  createNoun?: string;
   buttonClassName?: string;
   align?: 'left' | 'right';
   /** Недоступна без потери фокуса (aria-disabled) — см. Popover. */
   inactive?: boolean;
-}) {
+} & CreateProps /* «+ Создать»: onCreate создаёт элемент с набранным названием (§7), createNoun — «тег» */) {
   return (
     <Popover
       label={props.label}
@@ -209,14 +202,17 @@ export function SearchPicker(props: {
             close(true);
             props.onPick(id);
           }}
-          onCreate={
-            props.onCreate &&
-            ((name) => {
-              close(true);
-              props.onCreate!(name);
-            })
-          }
-          createNoun={props.createNoun}
+          {...createProps<void>(
+            props.onCreate
+              ? {
+                  onCreate: (name: string) => {
+                    close(true);
+                    props.onCreate?.(name);
+                  },
+                  createNoun: props.createNoun ?? '',
+                }
+              : {},
+          )}
         />
       )}
     </Popover>

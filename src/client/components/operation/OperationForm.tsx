@@ -271,20 +271,23 @@ function OperationEditor(p: {
   /**
    * «+ Создать „…“» (§7): создать элемент справочника и выбрать его. Контрагент получает тип, подходящий категории,
    * иначе «Клиент» у дохода и «Поставщик» у расхода. apply — функцией от свежего черновика: создание идёт асинхронно.
+   * Результат: false — создать не удалось (поле списка оставляет набранное название).
    */
-  const createItem = async (what: CreatableKind, name: string, apply: (d: OperationDraft, id: number) => OperationDraft) => {
+  const createItem = async (what: CreatableKind, name: string, apply: (d: OperationDraft, id: number) => OperationDraft): Promise<boolean> => {
     setFormError(null);
     try {
       const counterpartyType = preferredCounterpartyType(p.data.categories, mainCategory) ?? (kind === 'income' ? 'client' : 'supplier');
       const id = await createFromForm(p.company.id, what, name, { kind, counterpartyType });
       setDraft((d) => apply(d, id));
+      return true;
     } catch (e) {
       const message = e instanceof ApiError ? (e.fields?.name ?? e.message) : 'Ошибка сервера';
       setFormError(`Не удалось создать «${name}»: ${message}`);
+      return false;
     }
   };
   const createLine = (field: 'categoryId' | 'projectId') => (name: string, key: number) =>
-    void createItem(field === 'categoryId' ? 'category' : 'project', name, (d, id) =>
+    createItem(field === 'categoryId' ? 'category' : 'project', name, (d, id) =>
       d.split ? { ...d, split: { ...d.split, lines: d.split.lines.map((l) => (l.key === key ? { ...l, [field]: id } : l)) } } : d,
     );
 
@@ -579,7 +582,7 @@ function OperationEditor(p: {
                 options={categoryOptions(p.data.categories, kind, [draft.categoryId])}
                 emptyLabel="Без категории"
                 onChange={(categoryId) => set({ categoryId }, 'lines')}
-                onCreate={(name) => void createItem('category', name, (d, categoryId) => ({ ...d, categoryId }))}
+                onCreate={(name) => createItem('category', name, (d, categoryId) => ({ ...d, categoryId }))}
                 createNoun="категорию"
                 error={errors.lines}
               />
@@ -599,7 +602,7 @@ function OperationEditor(p: {
             options={counterpartyOptions(p.data.counterparties, draft.counterpartyId, preferredCounterpartyType(p.data.categories, mainCategory))}
             emptyLabel="Без контрагента"
             onChange={(counterpartyId) => set({ counterpartyId }, 'counterpartyId')}
-            onCreate={(name) => void createItem('counterparty', name, (d, counterpartyId) => ({ ...d, counterpartyId }))}
+            onCreate={(name) => createItem('counterparty', name, (d, counterpartyId) => ({ ...d, counterpartyId }))}
             createNoun="контрагента"
             error={errors.counterpartyId}
           />
@@ -651,7 +654,7 @@ function OperationEditor(p: {
                 options={projectOptions(p.data.projects, [draft.projectId])}
                 emptyLabel="Без проекта"
                 onChange={(projectId) => set({ projectId }, 'lines')}
-                onCreate={(name) => void createItem('project', name, (d, projectId) => ({ ...d, projectId }))}
+                onCreate={(name) => createItem('project', name, (d, projectId) => ({ ...d, projectId }))}
                 createNoun="проект"
                 error={transfer ? errors.lines : undefined}
               />

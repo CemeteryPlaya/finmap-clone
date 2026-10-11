@@ -778,7 +778,7 @@ test('«Указать»: «+ Создать» в окне — проект по
     await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: { code: 'CONFLICT', message: 'Конфликт', fields: { name: 'Проект с таким названием уже есть' } } }) });
   });
   await project.fill('Клуб Новый');
-  await page.getByRole('listbox', { name: 'Проекты' }).getByRole('option', { name: '+ Создать „Клуб Новый“' }).click();
+  await page.getByRole('listbox', { name: 'Проекты' }).getByRole('option', { name: '+ Создать проект „Клуб Новый“' }).click();
   await expect(projectDialog.getByRole('alert')).toHaveText('Не удалось создать «Клуб Новый»: Проект с таким названием уже есть');
   await expect(project).toHaveValue('Клуб Новый');
   await expect(project).toBeFocused();
@@ -802,7 +802,7 @@ test('«Указать»: «+ Создать» в окне — проект по
   await expect(person).toHaveAttribute('placeholder', 'Введите название');
   await expect(page.getByRole('listbox', { name: 'Контрагенты' })).toBeVisible();
   await page.keyboard.type('ИП Новый');
-  // найденного нет — активен «+ Создать „ИП Новый“», Enter создаёт
+  // найденного нет — активен «+ Создать контрагента „ИП Новый“», Enter создаёт
   await person.press('Enter');
   await expect(person).toHaveValue('ИП Новый');
   await cpDialog.getByRole('button', { name: 'Сохранить' }).click();

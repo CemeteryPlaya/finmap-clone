@@ -1,8 +1,13 @@
 import { useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { initialActive, pickerItems, pickQuery, type PickerItem, type PickerOption } from '../lib/picker';
+import { initialActive, pickerItems, pickQuery, type CreateProps, type PickerItem, type PickerOption } from '../lib/picker';
 import { PickerListbox, pickerItemId } from './SearchPicker';
 import { useFloating } from './useFloating';
+
+/** Основное устройство ввода — палец (телефон, планшет): у поля при этом есть экранная клавиатура. */
+function isCoarsePointer(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+}
 
 export interface ComboListOptions {
   /** Название списка для программ чтения с экрана: «Категории». */
@@ -13,12 +18,13 @@ export interface ComboListOptions {
   /** Текст поля при закрытом списке — название выбранного (у поля тегов — пусто). */
   text: string;
   onPick: (id: number) => void;
-  /** «+ Создать»: с ним в списке есть пункт создания. */
-  /** Вернувший обещание с `false` (создать не удалось) — поле снова открывается с набранным названием. */
-  onCreate?: (name: string) => void | Promise<boolean>;
-  /** Что создаёт «+ Создать»: «категорию». Обязательно вместе с onCreate. */
-  createNoun?: string;
 }
+
+/**
+ * С `onCreate` (и обязательным `createNoun`: «категорию») в списке есть пункт «+ Создать». Вернувший обещание
+ * с `false` (создать не удалось) — поле снова открывается с набранным названием.
+ */
+export type ComboListConfig = ComboListOptions & CreateProps<void | Promise<boolean>>;
 
 /** Атрибуты и обработчики `<input role="combobox">`. */
 export interface ComboInputProps {
@@ -55,7 +61,7 @@ export interface ComboList {
  * печатают с чистого поля. Правка закрытого поля с выбранным значением начинает новый запрос (введённое, если всё название выделено, иначе разница с показанным названием). Активный пункт при открытии — выбранный, после печати — первый найденный.
  * «+ Создать категорию» без названия оставляет список открытым, фокус — в поле с подсказкой «Введите название».
  */
-export function useComboList(o: ComboListOptions): ComboList {
+export function useComboList(o: ComboListConfig): ComboList {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [naming, setNaming] = useState(false);
@@ -96,12 +102,13 @@ export function useComboList(o: ComboListOptions): ComboList {
       close();
       const name = it.name;
       const created = o.onCreate?.(name);
-      // не удалось создать — набранное название остаётся в поле, чтобы его поправить
+      // не удалось создать — набранное название остаётся в поле, чтобы его поправить; но только если пользователь
+      // не ушёл в другое поле (иначе список открылся бы в поле, которое он оставил)
       if (created instanceof Promise) {
         void created.then((ok) => {
-          if (ok === false) {
+          if (ok === false && inputRef.current && anchorRef.current?.contains(document.activeElement)) {
             search(name);
-            inputRef.current?.focus();
+            inputRef.current.focus();
           }
         });
       }
@@ -109,6 +116,8 @@ export function useComboList(o: ComboListOptions): ComboList {
     }
     close();
     o.onPick(it.option.id);
+    // на телефоне после выбора клавиатура закрывается: иначе она остаётся поверх нижней части формы (на компьютере фокус остаётся в поле)
+    if (isCoarsePointer()) inputRef.current?.blur();
   };
 
   useEffect(() => {
@@ -166,7 +175,9 @@ export function useComboList(o: ComboListOptions): ComboList {
     onChange: (e) => {
       // закрытое поле с выбранным значением: запрос — правка относительно показанного названия, а не название со вставкой
       const ev = e.nativeEvent as InputEvent;
-      search(!open && o.text !== '' ? pickQuery({ shown: o.text, next: e.target.value, data: ev.data ?? null, inputType: ev.inputType ?? '', selectedAll: allSelected.current }) : e.target.value);
+      const selectedAll = allSelected.current;
+      allSelected.current = false;
+      search(!open && o.text !== '' ? pickQuery({ shown: o.text, next: e.target.value, data: ev.data ?? null, inputType: ev.inputType ?? '', selectedAll }) : e.target.value);
     },
     // нажатие только открывает: нажатие внутри открытого поля (поставить курсор) не закрывает список и не сбрасывает набранное
     onClick: () => {

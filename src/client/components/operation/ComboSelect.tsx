@@ -1,4 +1,4 @@
-import type { PickerOption } from '../../lib/picker';
+import { createProps, type CreateProps, type PickerOption } from '../../lib/picker';
 import { useComboList } from '../ComboList';
 import { Field } from '../Field';
 import { floatingControlClass } from '../ui';
@@ -21,17 +21,13 @@ export function ComboSelect(props: {
   /** Пункт пустого значения в списке: «Без категории». null — пустого значения нет (счёт). */
   emptyLabel: string | null;
   onChange: (id: number | null) => void;
-  /** Вернувший обещание с `false` — создать не удалось: набранное название остаётся в поле. */
-  onCreate?: (name: string) => void | Promise<boolean>;
-  /** Что создаёт «+ Создать»: «категорию», «контрагента», «проект». Обязательно вместе с onCreate. */
-  createNoun?: string;
   error?: string;
   hint?: string;
   disabled?: boolean;
   /** Подсказка пустого закрытого поля («Не менять» в окне «Изменить данные»); с ней подпись всегда мелкая сверху. */
   emptyText?: string;
   className?: string;
-}) {
+} & CreateProps<void | Promise<boolean>> /* «+ Создать»: onCreate вместе с createNoun («категорию»); обещание с false — создать не удалось, набранное название остаётся в поле */) {
   const selected = props.options.find((o) => o.id === props.value);
   // значение есть, а пункта нет (справочник ещё грузится) — «…»
   const text = selected?.label ?? (props.value === null ? '' : '…');
@@ -42,11 +38,11 @@ export function ComboSelect(props: {
     selectedId: props.value ?? (props.emptyLabel === null ? null : NONE),
     text,
     onPick: (id) => props.onChange(id === NONE ? null : id),
-    onCreate: props.onCreate,
-    createNoun: props.createNoun,
+    ...createProps(props),
   });
   const suffix = combo.open ? undefined : selected?.suffix;
   const placeholder = combo.inputProps.placeholder ?? (text === '' ? props.emptyText : undefined);
+  const filled = combo.inputProps.value !== '' || placeholder !== undefined;
   return (
     <Field
       label={props.label}
@@ -55,7 +51,7 @@ export function ComboSelect(props: {
       className={props.className}
       floating
       // подпись поднимается, когда в поле есть что показать (значение, набранное, подсказка); пустое открытое поле — крупная подпись (Finmap 09)
-      filled={combo.inputProps.value !== '' || placeholder !== undefined}
+      filled={filled}
       boxRef={combo.anchorRef}
     >
       {(control) => (
@@ -65,6 +61,10 @@ export function ComboSelect(props: {
             {...combo.inputProps}
             placeholder={placeholder}
             disabled={props.disabled}
+            // названия вводятся с заглавной буквы; автозамена и проверка правописания не должны менять имя для «+ Создать»
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="sentences"
             className={`${floatingControlClass} truncate ${suffix ? 'pr-20' : 'pr-10'}`}
           />
           {/* символ валюты выбранного счёта — справа в закрытом поле на строке значения (pt-5 pb-1: центр на 0,5 rem ниже), только для глаз */}
@@ -73,7 +73,10 @@ export function ComboSelect(props: {
               {suffix}
             </span>
           )}
-          <span aria-hidden="true" className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-muted">
+          <span
+            aria-hidden="true"
+            className={`pointer-events-none absolute right-4 -translate-y-1/2 text-muted ${filled ? 'top-[calc(50%+0.5rem)]' : 'top-1/2'}`}
+          >
             ▾
           </span>
           {combo.list}

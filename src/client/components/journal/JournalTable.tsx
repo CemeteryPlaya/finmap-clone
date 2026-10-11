@@ -1,10 +1,12 @@
 import type { MouseEvent, ReactNode } from 'react';
 import { formatDateShortRu } from '../../../shared/dates';
 import { formatMoney, MONEY_SCREEN } from '../../../shared/money';
+import { badgeClass } from '../ui';
 import { canAssign, type AssignField } from '../../lib/journal-assign';
 import { JOURNAL_COLUMNS, type JournalColumnId } from '../../lib/journal-columns';
 import type { JournalSortKey, JournalSortOrder } from '../../lib/journal-filter';
 import { journalDateParts, lineDimension, projectShare, signedMoney, splitLabel, type CategoryInfo } from '../../lib/journal-format';
+import { SYSTEM_BADGE } from '../../lib/operation-options';
 import type { Account, JournalItem } from '../../lib/queries';
 import { SplitHint } from './SplitHint';
 
@@ -110,7 +112,7 @@ function CellText({ text, wrap }: { text: string; wrap: boolean }) {
 
 /** «системная» — у категории с собственным systemKey (§5.2 этапа 1.5). */
 function SystemBadge() {
-  return <span className="shrink-0 rounded bg-income-soft px-1.5 py-0.5 text-[11px] font-medium text-income-strong">системная</span>;
+  return <span className={badgeClass}>{SYSTEM_BADGE}</span>;
 }
 
 function lineHint(item: JournalItem, lookups: JournalLookups, currency: string): string[] {

@@ -8,6 +8,7 @@ import { ReorderButtons } from '../../components/ReorderButtons';
 import { alertClass, btnPrimary, btnSecondary, btnSmall, inputClass, noticeClass } from '../../components/ui';
 import { api, type ApiError } from '../../lib/api';
 import { parentChoices, planMove, planShift, type MovePlan } from '../../lib/category-moves';
+import { SYSTEM_BADGE } from '../../lib/operation-options';
 import { queryClient } from '../../lib/query';
 import { useCategories, type CategoryNode } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
@@ -108,7 +109,7 @@ function TreeSection(props: {
                   </span>
                 )}
                 {n.name}
-                {n.systemKey && <span className={badge}>системная</span>}
+                {n.systemKey && <span className={badge}>{SYSTEM_BADGE}</span>}
                 {n.archivedAt && <span className={badge}>в архиве</span>}
               </span>
               {!props.readOnly &&

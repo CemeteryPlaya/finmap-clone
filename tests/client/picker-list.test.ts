@@ -14,7 +14,9 @@ const render = (selectedId: number | null, create = false) =>
     createElement(
       StrictMode,
       null,
-      createElement(PickerList, { label: 'Счета', options, onPick: () => {}, selectedId, ...(create ? { onCreate: () => {}, createNoun: 'счёт' } : {}) }),
+      create
+        ? createElement(PickerList, { label: 'Счета', options, onPick: () => {}, selectedId, onCreate: () => {}, createNoun: 'счёт' })
+        : createElement(PickerList, { label: 'Счета', options, onPick: () => {}, selectedId }),
     ),
   );
 

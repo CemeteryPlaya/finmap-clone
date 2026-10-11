@@ -12,12 +12,20 @@ export interface PickerOption {
   suffix?: string;
 }
 
+/** «+ Создать» списка: `onCreate` и `createNoun` («категорию») передаются только вместе. */
+export type CreateProps<R = void> = { onCreate?: undefined; createNoun?: undefined } | { onCreate: (name: string) => R; createNoun: string };
+
+/** `onCreate` с `createNoun` или ни того ни другого — для передачи дальше в виде `{...createProps(props)}`. */
+export function createProps<R>(p: CreateProps<R>): CreateProps<R> {
+  return p.onCreate ? { onCreate: p.onCreate, createNoun: p.createNoun } : {};
+}
+
 export type PickerItem = { kind: 'option'; option: PickerOption } | { kind: 'create'; name: string };
 
 /**
  * Пункты списка с поиском (§6.6 этапа 1.5): варианты, подходящие под запрос (без учёта регистра и «ё», тем же правилом,
  * что сервер), и с `createNoun` — пункт «+ Создать»: при пустом запросе первым («+ Создать категорию», снимок Finmap 11),
- * с текстом — после найденных («+ Создать „аре“», снимок 09b), если такого названия ещё нет.
+ * с текстом — после найденных («+ Создать категорию „аре“», снимок 09b), если такого названия ещё нет.
  */
 export function pickerItems(options: readonly PickerOption[], query: string, createNoun?: string): PickerItem[] {
   const name = query.trim();
@@ -28,9 +36,9 @@ export function pickerItems(options: readonly PickerOption[], query: string, cre
   return exists ? shown : [...shown, { kind: 'create', name }];
 }
 
-/** Подпись пункта «+ Создать»: без названия — «+ Создать категорию», с названием — «+ Создать „Аренда“». */
+/** Подпись пункта «+ Создать»: без названия — «+ Создать категорию», с названием — «+ Создать категорию „Аренда“» (снимок Finmap 09b). */
 export function createItemLabel(name: string, noun: string): string {
-  return name === '' ? `+ Создать ${noun}` : `+ Создать „${name}“`;
+  return name === '' ? `+ Создать ${noun}` : `+ Создать ${noun} „${name}“`;
 }
 
 /**
