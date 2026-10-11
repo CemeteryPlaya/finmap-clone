@@ -138,7 +138,8 @@ export function JournalToolbar(props: {
         >
           Фильтры{count > 0 && ` · ${count}`}
         </button>
-        <Drawer open={panelOpen} title="Фильтры" side="right" onClose={() => setPanelOpen(false)}>
+        {/* до плана 1.5-5; название не совпадает с окном «Фильтры», которое открывается поверх */}
+        <Drawer open={panelOpen} title="Период и условия" side="right" onClose={() => setPanelOpen(false)}>
           <div className="flex flex-col gap-4">
             <div>{period}</div>
             <div>

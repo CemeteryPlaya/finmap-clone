@@ -98,7 +98,7 @@ async function apiPost(page: Page, url: string, data: unknown) {
 const minuteAgo = () => new Date(Date.now() - 60_000).toISOString();
 const PHONE = { width: 390, height: 844 };
 
-test('окно: «×» закрывает форму и «Фильтр»; начальный фокус не на «×»; Shift+Tab доходит до «×» и остаётся в окне; на телефоне «×» видна после прокрутки', async ({ page }) => {
+test('окно: «×» закрывает форму и «Фильтры»; начальный фокус не на «×»; Shift+Tab доходит до «×» и остаётся в окне; на телефоне «×» видна после прокрутки', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Окна ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
@@ -139,10 +139,10 @@ test('окно: «×» закрывает форму и «Фильтр»; нач
   await edit.getByRole('button', { name: 'Закрыть', exact: true }).click();
   await expect(edit).toBeHidden();
 
-  // «Фильтр»: «×» закрывает без применения, фокус — на кнопке «Фильтр»
+  // окно «Фильтры»: «×» закрывает без применения, фокус — на кнопке «Фильтр»
   const filterButton = page.getByRole('button', { name: 'Фильтр', exact: true });
   await filterButton.click();
-  const filter = page.getByRole('dialog', { name: 'Фильтр', exact: true });
+  const filter = page.getByRole('dialog', { name: 'Фильтры', exact: true });
   await expect(filter).toBeVisible();
   await filter.getByRole('button', { name: 'Закрыть', exact: true }).click();
   await expect(filter).toBeHidden();

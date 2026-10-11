@@ -252,7 +252,7 @@ const todayAgo = (n: number) => {
 /** Вчера в полдень по Алматы. */
 const yesterdayNoon = () => new Date(startOfTodayAlmaty() - 12 * 3600_000).toISOString();
 
-test('фильтры на телефоне — в панели справа: период, сумма, сортировка, окно «Фильтр» поверх панели, сброс; поиск на виду', async ({ page }) => {
+test('фильтры на телефоне — в панели справа: период, сумма, сортировка, окно «Фильтры» поверх панели, сброс; поиск на виду', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Фильтры ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
@@ -273,7 +273,7 @@ test('фильтры на телефоне — в панели справа: п�
   await expect(open).toHaveText('Фильтры');
 
   await open.click();
-  const panel = page.getByRole('dialog', { name: 'Фильтры' });
+  const panel = page.getByRole('dialog', { name: 'Период и условия' });
   // выезжает справа
   await expect.poll(async () => { const b = (await panel.boundingBox())!; return Math.round(b.x + b.width); }).toBe(PHONE.width);
   await expect(panel.getByRole('button', { name: 'Колонки' })).toHaveCount(0);
@@ -298,10 +298,12 @@ test('фильтры на телефоне — в панели справа: п�
   await panel.getByLabel('Сумма от').press('Enter');
   await expect(list).toHaveCount(2);
 
-  // окно «Фильтр» открывается поверх панели; «Готово» возвращает в панель
+  // окно «Фильтры» открывается поверх панели; «Готово» возвращает в панель
   await panel.getByRole('button', { name: 'Фильтр', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Фильтры', exact: true });
+  await dialog.getByRole('button', { name: /^Типы платежей и категории/ }).click();
   await dialog.getByRole('checkbox', { name: 'Расход', exact: true }).check();
+  await page.keyboard.press('Escape');
   await dialog.getByRole('button', { name: 'Готово' }).click();
   await expect(dialog).toBeHidden();
   await expect(panel).toBeVisible();
@@ -349,7 +351,7 @@ test('фильтры на телефоне — в панели справа: п�
 });
 
 /**
- * Ни страница, ни открытые окна (`dialog[open]` — форма, «Фильтр», выезжающие панели лежат в верхнем слое,
+ * Ни страница, ни открытые окна (`dialog[open]` — форма, «Фильтры», выезжающие панели лежат в верхнем слое,
  * ширину страницы они не меняют) не шире своей видимой области: ничего не прокручивается вбок.
  */
 /** Намеренная отрицательная проверка: за 300 мс не должно уйти ни одного изменяющего запроса (ожидание обязано истечь). */
@@ -436,12 +438,14 @@ test('ширина 390 px: журнал, все разделы настроек,
   await page.keyboard.press('Escape');
   await expect(newForm(page)).toBeHidden();
 
-  // окно «Фильтр» поверх панели: длинное название категории переносится, разделы не шире экрана
+  // окно «Фильтры» поверх панели: длинное название категории переносится, панель поля не шире экрана
   await page.getByRole('button', { name: /^Фильтры/ }).click();
-  await page.getByRole('dialog', { name: 'Фильтры' }).getByRole('button', { name: 'Фильтр', exact: true }).click();
-  const filter = page.getByRole('dialog', { name: 'Фильтр', exact: true });
+  await page.getByRole('dialog', { name: 'Период и условия' }).getByRole('button', { name: 'Фильтр', exact: true }).click();
+  const filter = page.getByRole('dialog', { name: 'Фильтры', exact: true });
+  // длинное название — в списке поля «Типы платежей и категории»: переносится, панель не шире экрана
+  await filter.getByRole('button', { name: /^Типы платежей и категории/ }).click();
   await expect(filter.getByRole('checkbox', { name: 'Оборудование_для_компьютерного_клуба_без_пробелов' })).toBeVisible();
-  await expectNoSideScroll(page, 'окно «Фильтр»');
+  await expectNoSideScroll(page, 'окно «Фильтры»');
   const rights = await filter.locator('fieldset').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().right));
   expect(Math.max(...rights)).toBeLessThanOrEqual(PHONE.width);
   // Tab и Shift+Tab ходят по кругу внутри окна: фокус не уходит на панель под ним и в адресную строку

@@ -66,7 +66,7 @@ async function assignVia(page: Page, row: Locator, chip: string, list: string, o
   await expect(dialog).toBeHidden();
 }
 
-test('сохранённые фильтры: сохранить из окна «Фильтр», применить, переименовать, удалить; предупреждение о недоступных условиях', async ({ page }) => {
+test('сохранённые фильтры: сохранить из окна «Фильтры», применить, переименовать, удалить; предупреждение о недоступных условиях', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Сохранённые ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
@@ -79,7 +79,7 @@ test('сохранённые фильтры: сохранить из окна «
   await expect.poll(() => letters(page)).toBe('CBA');
 
   const filterButton = page.getByRole('button', { name: /^Фильтр/ });
-  const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Фильтры', exact: true });
   const menuButton = page.getByRole('button', { name: 'Быстрые фильтры' });
 
   // пустое меню «Быстрые фильтры»: пояснение и «Создать новый фильтр» — открывает окно фильтра, после окна фокус на ▾
@@ -95,7 +95,9 @@ test('сохранённые фильтры: сохранить из окна «
   // период «Сегодня» в тулбаре + доходы в окне → «Сохранить фильтр»
   await choosePeriod(page, 'За сегодня');
   await filterButton.click();
-  await dialog.getByRole('checkbox', { name: 'Доход' }).check();
+  await dialog.getByRole('button', { name: /^Типы платежей и категории/ }).click();
+  await dialog.getByRole('checkbox', { name: 'Доход', exact: true }).check();
+  await page.keyboard.press('Escape');
   await dialog.getByRole('button', { name: 'Сохранить фильтр' }).click();
   await dialog.getByLabel('Название фильтра').fill('   ');
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
@@ -127,7 +129,9 @@ test('сохранённые фильтры: сохранить из окна «
   // фильтр по тегу; тег уходит в архив — при применении предупреждение, условие отброшено (инвариант 10)
   await page.getByRole('button', { name: 'Сбросить фильтр' }).click();
   await filterButton.click();
+  await dialog.getByRole('button', { name: /^Теги/ }).click();
   await dialog.getByRole('checkbox', { name: 'Смена' }).check();
+  await page.keyboard.press('Escape');
   await dialog.getByRole('button', { name: 'Сохранить фильтр' }).click();
   await dialog.getByLabel('Название фильтра').fill('Смены');
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
@@ -612,7 +616,7 @@ test('архивная компания: журнал только для чте
   await expect(quick).not.toContainText('Сохранить фильтр');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: /^Фильтр/ }).click();
-  const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Фильтры', exact: true });
   await expect(dialog.getByRole('button', { name: 'Готово' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Сохранить фильтр' })).toHaveCount(0);
 });
@@ -666,8 +670,10 @@ test('сохранённые фильтры: повреждённый не пр�
     await route.fallback();
   });
   await page.getByRole('button', { name: /^Фильтр/ }).click();
-  const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
-  await dialog.getByRole('checkbox', { name: 'Доход' }).check();
+  const dialog = page.getByRole('dialog', { name: 'Фильтры', exact: true });
+  await dialog.getByRole('button', { name: /^Типы платежей и категории/ }).click();
+  await dialog.getByRole('checkbox', { name: 'Доход', exact: true }).check();
+  await page.keyboard.press('Escape');
   await dialog.getByRole('button', { name: 'Сохранить фильтр' }).click();
   const name = dialog.getByLabel('Название фильтра');
   await name.fill('Доходы');

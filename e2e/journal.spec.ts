@@ -529,7 +529,7 @@ test('«Ещё» → ⟳ «Обновить»: операция с другог�
   await expect(kaspiLink).toContainText(/₸\s100$/);
 });
 
-test('модалка «Фильтр»: все условия §6, «Готово» применяет, Esc закрывает без изменений; счёт из левой панели отмечен', async ({ page }) => {
+test('окно «Фильтры»: мультивыборы в порядке Finmap, «Готово» применяет, Esc и «×» закрывают без изменений; счёт из левой панели отмечен; недоступный id снимается', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Фильтр ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
@@ -558,15 +558,34 @@ test('модалка «Фильтр»: все условия §6, «Готово
   await page.reload();
   await expect(bodyRows(page)).toHaveCount(4);
   const filterButton = page.getByRole('button', { name: /^Фильтр/ });
-  const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Фильтры', exact: true });
+  const field = (label: string) => dialog.getByRole('button', { name: new RegExp(`^${label}`) });
+  const panelOf = (label: string) => dialog.getByRole('dialog', { name: label, exact: true });
+  const done = async () => {
+    await dialog.getByRole('button', { name: 'Готово' }).click();
+    await expect(dialog).toBeHidden();
+  };
 
-  // тип и родительская категория (включает дочернюю)
+  // поля в порядке Finmap; «Отмены» нет — закрывает «×»
   await filterButton.click();
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('checkbox', { name: 'Расход' }).check();
-  await dialog.getByRole('checkbox', { name: 'Помещение' }).check();
-  await dialog.getByRole('button', { name: 'Готово' }).click();
-  await expect(dialog).toBeHidden();
+  await expect(dialog.locator('button[aria-haspopup="dialog"]')).toHaveText([/^Типы платежей и категории/, /^Контрагенты/, /^Проекты/, /^Теги/, /^Счета/]);
+  await expect(dialog.getByRole('button', { name: 'Отмена' })).toHaveCount(0);
+  await expect(field('Проекты')).toHaveAccessibleName('Проекты: Все проекты');
+
+  // тип и родительская категория (включает дочернюю) — в одном поле; счётчик в подписи
+  await field('Типы платежей и категории').click();
+  const types = panelOf('Типы платежей и категории');
+  await expect(types.getByRole('group', { name: 'Тип' })).toBeVisible();
+  await types.getByRole('checkbox', { name: 'Расход', exact: true }).check();
+  await types.getByRole('checkbox', { name: 'Помещение', exact: true }).check();
+  await expect(field('Типы платежей и категории')).toHaveAccessibleName('Типы платежей и категории (2): Расход, Помещение');
+  // Esc закрывает только список, окно остаётся
+  await page.keyboard.press('Escape');
+  await expect(types).toBeHidden();
+  await expect(dialog).toBeVisible();
+  await expect(field('Типы платежей и категории')).toBeFocused();
+  await done();
   await expect(filterButton).toBeFocused();
   await expect(page).toHaveURL(new RegExp(`type=expense&category=${room}$`));
   await expect(filterButton).toHaveText('Фильтр · 2');
@@ -574,54 +593,93 @@ test('модалка «Фильтр»: все условия §6, «Готово
 
   // «Без категории» — вместе с выбранной категорией через ИЛИ
   await filterButton.click();
-  await expect(dialog.getByRole('checkbox', { name: 'Расход' })).toBeChecked();
-  await dialog.getByRole('checkbox', { name: 'Без категории' }).check();
-  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await field('Типы платежей и категории').click();
+  await expect(types.getByRole('checkbox', { name: 'Расход', exact: true })).toBeChecked();
+  await types.getByRole('checkbox', { name: 'Без категории' }).check();
+  await page.keyboard.press('Escape');
+  await done();
   await expect.poll(comments).toBe('BA');
 
-  // Esc закрывает без изменений
+  // Esc закрывает без изменений; «×» — тоже
   await filterButton.click();
-  await dialog.getByRole('checkbox', { name: 'Перевод' }).check();
+  await field('Типы платежей и категории').click();
+  await types.getByRole('checkbox', { name: 'Перевод', exact: true }).check();
+  await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
   await expect(filterButton).toBeFocused();
   await expect(page).toHaveURL(new RegExp(`type=expense&category=${room}&noCategory=1$`));
+  await filterButton.click();
+  await field('Типы платежей и категории').click();
+  await types.getByRole('checkbox', { name: 'Перевод', exact: true }).check();
+  await page.keyboard.press('Escape');
+  await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page).toHaveURL(new RegExp(`type=expense&category=${room}&noCategory=1$`));
 
-  // «Очистить», поиск контрагента, тег, «Без проекта»
+  // «Очистить», поиск контрагента («Без контрагента» — первым пунктом), тег, «Без проекта»
   await filterButton.click();
   await dialog.getByRole('button', { name: 'Очистить' }).click();
-  await dialog.getByLabel('Найти контрагента').fill('постав');
-  await expect(dialog.getByRole('checkbox', { name: 'ТОО Арендодатель' })).toHaveCount(0);
-  await dialog.getByLabel('Найти контрагента').press('Enter'); // Enter в поиске не применяет фильтр
+  await field('Контрагенты').click();
+  const counterparties = panelOf('Контрагенты');
+  await expect(counterparties.getByRole('checkbox').first()).toHaveAccessibleName('Без контрагента');
+  await counterparties.getByLabel('Контрагенты: поиск').fill('постав');
+  await expect(counterparties.getByRole('checkbox', { name: 'ТОО Арендодатель' })).toHaveCount(0);
+  await counterparties.getByLabel('Контрагенты: поиск').press('Enter'); // Enter в поиске не применяет фильтр
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('checkbox', { name: 'ИП Поставщик' }).check();
-  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await counterparties.getByRole('checkbox', { name: 'ИП Поставщик' }).check();
+  await page.keyboard.press('Escape');
+  await done();
   await expect(page).toHaveURL(new RegExp(`counterparty=${supplier}$`));
   await expect.poll(comments).toBe('A');
   await filterButton.click();
   await dialog.getByRole('button', { name: 'Очистить' }).click();
-  await dialog.getByRole('checkbox', { name: 'Смена' }).check();
-  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await field('Теги').click();
+  await panelOf('Теги').getByRole('checkbox', { name: 'Смена' }).check();
+  await page.keyboard.press('Escape');
+  await done();
   await expect.poll(comments).toBe('C');
   await filterButton.click();
   await dialog.getByRole('button', { name: 'Очистить' }).click();
-  await dialog.getByRole('checkbox', { name: 'Без проекта' }).check();
-  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await field('Проекты').click();
+  const projects = panelOf('Проекты');
+  await expect(projects.getByRole('checkbox').first()).toHaveAccessibleName('Без проекта');
+  await projects.getByRole('checkbox', { name: 'Без проекта' }).check();
+  await page.keyboard.press('Escape');
+  await done();
   await expect.poll(comments).toBe('DCB');
 
-  // счёт из левой панели — отмечен в модалке, его можно снять
+  // счёт из левой панели — отмечен в окне, его можно снять
   await panel(page).getByRole('link', { name: /^Наличные/ }).click();
   await expect.poll(comments).toBe('DB');
   await expect(filterButton).toHaveText('Фильтр · 1');
   await filterButton.click();
-  await expect(dialog.getByRole('checkbox', { name: 'Наличные' })).toBeChecked();
-  await dialog.getByRole('checkbox', { name: 'Наличные' }).uncheck();
-  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect(field('Счета')).toHaveAccessibleName('Счета (1): Наличные');
+  await field('Счета').click();
+  await expect(panelOf('Счета').getByRole('checkbox', { name: 'Наличные' })).toBeChecked();
+  await panelOf('Счета').getByRole('checkbox', { name: 'Наличные' }).uncheck();
+  await page.keyboard.press('Escape');
+  await done();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
+  await expect(bodyRows(page)).toHaveCount(4);
+
+  // id из адреса, которого нет в справочниках, — «Недоступный элемент»: отмечен, его можно снять (5b №5, Review Focus 5)
+  await page.goto(`/c/${cid}/log?project=999999`);
+  await expect(page.getByText('По этому фильтру операций нет.')).toBeVisible();
+  await filterButton.click();
+  await expect(field('Проекты')).toHaveAccessibleName('Проекты (1): Недоступный элемент');
+  await field('Проекты').click();
+  await expect(projects.getByRole('checkbox', { name: 'Недоступный элемент' })).toBeChecked();
+  // пункт исчезает из списка сразу после снятия, поэтому click, а не uncheck (тот ждёт нового состояния у уже убранного флажка)
+  await projects.getByRole('checkbox', { name: 'Недоступный элемент' }).click();
+  await expect(projects.getByRole('checkbox', { name: 'Недоступный элемент' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await done();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
   await expect(bodyRows(page)).toHaveCount(4);
 });
 
-test('«Готово» в окне «Фильтр» не затирает поиск, дошедший до адреса, пока окно было открыто', async ({ page }) => {
+test('«Готово» в окне «Фильтры» не затирает поиск, дошедший до адреса, пока окно было открыто', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Поиск и фильтр ${Date.now()}`);
   const kaspi = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
@@ -630,12 +688,14 @@ test('«Готово» в окне «Фильтр» не затирает пои
   await expect(bodyRows(page)).toHaveCount(1);
 
   const search = page.getByRole('searchbox', { name: 'Поиск' });
-  const dialog = page.getByRole('dialog', { name: 'Фильтр', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Фильтры', exact: true });
   // окно открывается раньше, чем истекает пауза поиска (300 мс): запрос доходит до адреса при открытом окне
   await search.fill('аренда');
   await page.getByRole('button', { name: /^Фильтр/ }).click();
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('checkbox', { name: 'Доход' }).check();
+  await dialog.getByRole('button', { name: /^Типы платежей и категории/ }).click();
+  await dialog.getByRole('checkbox', { name: 'Доход', exact: true }).check();
+  await page.keyboard.press('Escape');
   await expect(page).toHaveURL(/q=/);
   await dialog.getByRole('button', { name: 'Готово' }).click();
   await expect(dialog).toBeHidden();
