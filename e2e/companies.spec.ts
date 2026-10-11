@@ -118,9 +118,13 @@ test('проекты по шаблонам: клуб и общий', async ({ pa
   await page.getByRole('button', { name: 'Создать проект' }).click();
   await expect(page.getByText('Не меньше 1')).toBeVisible(); // клиентская проверка той же схемой
   await page.getByLabel('Количество ПК').fill('30');
+  // ответ сервера отделяет потерянное нажатие от медленного сервера
+  const created = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === `/api/v1/companies/${cid}/projects`);
   await page.getByRole('button', { name: 'Создать проект' }).click();
+  expect((await created).status()).toBe(201);
 
   const row = page.getByRole('listitem').filter({ hasText: 'Клуб на Ленина' });
+  await expect(row).toBeVisible({ timeout: 10_000 });
   await expect(row).toContainText('Компьютерный клуб');
   await expect(row).toContainText('Количество ПК: 30');
 

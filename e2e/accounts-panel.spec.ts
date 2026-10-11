@@ -98,8 +98,13 @@ test('«Мои счета»: «+» — окно «Добавление ново�
   // до ⟳ журнал и баланс ещё не знают об операции
   await expect(empty).toBeVisible();
   await expect(kaspiLink).toContainText(/₸\s0$/);
-  await panel.getByRole('button', { name: 'Обновить' }).click();
+  // с клавиатуры: фокус остаётся на ⟳ и пока идёт обновление, и после него (aria-disabled вместо disabled)
+  const refreshButton = panel.getByRole('button', { name: 'Обновить' });
+  await refreshButton.focus();
+  await page.keyboard.press('Enter');
+  await expect(refreshButton).toBeFocused();
   await expect(panel.locator('[aria-live="polite"]')).toHaveText('Данные обновлены');
+  await expect(refreshButton).toBeFocused();
   await expect(empty).toBeHidden();
   await expect(page.getByRole('table', { name: 'Операции' }).locator('tbody tr')).toHaveCount(1);
   await expect(kaspiLink).toContainText(/₸\s50$/);
@@ -135,7 +140,7 @@ test('«Мои счета»: ⟳ при сбое перечитывания жу
   const journal = (url: URL) => url.pathname === `/api/v1/companies/${cid}/operations`;
   await page.route(journal, (route) => (route.request().method() === 'GET' ? route.fulfill({ status: 500, json: { error: { code: 'INTERNAL', message: 'сбой' } } }) : route.fallback()));
   await panel.getByRole('button', { name: 'Обновить' }).click();
-  await expect(panel.locator('[aria-live="polite"]')).toHaveText('Не удалось обновить журнал');
+  await expect(panel.locator('[aria-live="polite"]')).toHaveText('Не удалось обновить журнал', { timeout: 10_000 }); // 2 повтора запроса с паузами 1 и 2 с
   // сбой прошёл — следующее ⟳ успешно
   await page.unroute(journal);
   await panel.getByRole('button', { name: 'Обновить' }).click();
@@ -154,4 +159,126 @@ test('«Мои счета»: окно из левой панели закрыв�
   await page.setViewportSize({ width: 1280, height: 720 });
   await expect(panel.getByRole('button', { name: 'Добавить счёт' })).toBeVisible();
   await expect(dialog).toHaveCount(0);
+});
+
+test('счета двух клубов: панель, окно «Счета» и раздел «Счета» показывают один порядок; двигать можно только внутри клуба; Esc при перетаскивании не закрывает окно', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Два клуба ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const clubA = (await apiPost(page, `${base}/projects`, { name: 'Клуб А', templateKey: 'general', templateParams: {} })).project.id;
+  const clubB = (await apiPost(page, `${base}/projects`, { name: 'Клуб Б', templateKey: 'general', templateParams: {} })).project.id;
+  // порядок на сервере вперемешку: клубы и «Общие» перемежаются
+  for (const [name, projectId] of [['А1', clubA], ['Общий1', undefined], ['Б1', clubB], ['А2', clubA], ['Общий2', undefined]] as const) {
+    await apiPost(page, `${base}/accounts`, { name, currency: 'KZT', openedAt: '2020-01-01', ...(projectId ? { projectId } : {}) });
+  }
+  const serverOrder = async () => ((await (await page.request.get(`${base}/accounts`)).json()).accounts as { name: string }[]).map((a) => a.name);
+  expect(await serverOrder()).toEqual(['А1', 'Общий1', 'Б1', 'А2', 'Общий2']);
+  await page.reload();
+
+  const panel = page.getByRole('navigation', { name: 'Счета' });
+  const panelLinks = panel.getByRole('link');
+  // панель: «Общие», затем клубы в порядке проектов
+  await expect(panel.getByRole('heading', { level: 3 })).toHaveText(['Общие', 'Клуб А', 'Клуб Б']);
+  await expect(panelLinks).toHaveText([/^Общий1/, /^Общий2/, /^А1/, /^А2/, /^Б1/]);
+
+  // окно «Счета» — в том же порядке; у клуба с одним счётом ручки нет
+  await panel.getByRole('button', { name: 'Изменить счета' }).click();
+  const quick = page.getByRole('dialog', { name: 'Счета', exact: true });
+  const list = quick.getByRole('list', { name: 'Список счетов' });
+  await expect(list.getByRole('listitem')).toHaveText([/Общий1/, /Общий2/, /А1/, /А2/, /Б1/]);
+  await expect(list.getByRole('button', { name: 'Переместить Б1', exact: true })).toHaveCount(0);
+
+  // Alt+↓ на последнем счёте клуба не уходит в другой клуб: ничего не меняется и запрос не уходит
+  let reorders = 0;
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.url().endsWith('/accounts/reorder')) reorders++;
+  });
+  await list.getByRole('button', { name: 'Переместить А2', exact: true }).focus();
+  await page.keyboard.press('Alt+ArrowDown');
+  await list.getByRole('button', { name: 'Переместить Общий2', exact: true }).focus();
+  await page.keyboard.press('Alt+ArrowDown');
+  // исключение из «без фиксированных пауз»: отсутствие запроса иначе не доказать, только подождать
+  await page.waitForTimeout(300);
+  expect(reorders, 'через границу клуба запрос не уходит').toBe(0);
+  await expect(list.getByRole('listitem')).toHaveText([/Общий1/, /Общий2/, /А1/, /А2/, /Б1/]);
+
+  // Alt+↑ на А2 — меняются А1 и А2; остальные счета на своих местах в порядке сервера
+  await list.getByRole('button', { name: 'Переместить А2', exact: true }).focus();
+  const moved = page.waitForResponse((r) => r.url().endsWith('/accounts/reorder'));
+  await page.keyboard.press('Alt+ArrowUp');
+  await moved;
+  await expect(list.getByRole('listitem')).toHaveText([/Общий1/, /Общий2/, /А2/, /А1/, /Б1/]);
+  await expect.poll(serverOrder).toEqual(['А2', 'Общий1', 'Б1', 'А1', 'Общий2']);
+  await expect(panelLinks).toHaveText([/^Общий1/, /^Общий2/, /^А2/, /^А1/, /^Б1/]);
+
+  // Esc во время перетаскивания отменяет его, а окно остаётся открытым; потом Esc закрывает окно
+  const grip = (await list.getByRole('button', { name: 'Переместить Общий2', exact: true }).boundingBox())!;
+  const above = (await list.getByRole('listitem').filter({ hasText: 'Общий1' }).boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2, above.y + 4, { steps: 8 });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await expect(quick).toBeVisible();
+  await expect(list.getByRole('listitem')).toHaveText([/Общий1/, /Общий2/, /А2/, /А1/, /Б1/]);
+  expect(reorders, 'отменённое перетаскивание порядка не меняет').toBe(1);
+  await page.keyboard.press('Escape');
+  await expect(quick).toBeHidden();
+
+  // мышью «Общий2» выше «Общий1» — окно и панель снова согласны
+  await panel.getByRole('button', { name: 'Изменить счета' }).click();
+  const grip2 = (await list.getByRole('button', { name: 'Переместить Общий2', exact: true }).boundingBox())!;
+  const above2 = (await list.getByRole('listitem').filter({ hasText: 'Общий1' }).boundingBox())!;
+  await page.mouse.move(grip2.x + grip2.width / 2, grip2.y + grip2.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip2.x + grip2.width / 2, above2.y + 4, { steps: 8 });
+  await page.mouse.up();
+  await expect(list.getByRole('listitem')).toHaveText([/Общий2/, /Общий1/, /А2/, /А1/, /Б1/]);
+  await expect.poll(serverOrder).toEqual(['А2', 'Общий2', 'Б1', 'А1', 'Общий1']);
+  await page.keyboard.press('Escape');
+  await expect(quick).toBeHidden();
+  await expect(panelLinks).toHaveText([/^Общий2/, /^Общий1/, /^А2/, /^А1/, /^Б1/]);
+
+  // раздел «Счета»: тот же порядок, клуб в сером тексте; через границу клуба не двигается
+  await page.goto(`/c/${cid}/settings/accounts`);
+  const settings = page.getByRole('main').getByRole('list', { name: 'Счета' });
+  await expect(settings.getByRole('listitem')).toHaveText([/Общий2/, /Общий1/, /А2\s*Клуб А/, /А1\s*Клуб А/, /Б1\s*Клуб Б/]);
+  await expect(settings.getByRole('button', { name: 'Переместить Б1', exact: true })).toHaveCount(0);
+  const before = reorders;
+  await settings.getByRole('button', { name: 'Переместить А1', exact: true }).focus();
+  await page.keyboard.press('Alt+ArrowDown');
+  await settings.getByRole('button', { name: 'Переместить А2', exact: true }).focus();
+  await page.keyboard.press('Alt+ArrowUp');
+  // исключение из «без фиксированных пауз»: отсутствие запроса иначе не доказать, только подождать
+  await page.waitForTimeout(300);
+  expect(reorders, 'на краях клуба запрос не уходит').toBe(before);
+  await expect(settings.getByRole('listitem')).toHaveText([/Общий2/, /Общий1/, /А2\s*Клуб А/, /А1\s*Клуб А/, /Б1\s*Клуб Б/]);
+});
+
+test('окно «Счета»: архив и удаление счёта возвращают в список; фокус — на ✎ счёта или на «Добавить счёт»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Окно счетов ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await apiPost(page, `${base}/accounts`, { name: 'Временный', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+  const panel = page.getByRole('navigation', { name: 'Счета' });
+  await panel.getByRole('button', { name: 'Изменить счета' }).click();
+  const quick = page.getByRole('dialog', { name: 'Счета', exact: true });
+  const list = quick.getByRole('list', { name: 'Список счетов' });
+  const edit = page.getByRole('dialog', { name: 'Счёт', exact: true });
+
+  // «В архив»: список с пометкой, фокус на ✎ этого счёта; в панели счёта больше нет
+  await list.getByRole('button', { name: 'Изменить Временный', exact: true }).click();
+  await edit.getByRole('button', { name: 'В архив' }).click();
+  await expect(list.getByRole('listitem')).toHaveText([/Касса/, /Временный.*в архиве/]);
+  await expect(list.getByRole('button', { name: 'Изменить Временный', exact: true })).toBeFocused();
+  await expect(panel.getByRole('link')).toHaveText([/^Касса/]);
+
+  // «Удалить»: подтверждение, потом список без счёта, фокус на «Добавить счёт»
+  await list.getByRole('button', { name: 'Изменить Временный', exact: true }).click();
+  await edit.getByRole('button', { name: 'Удалить' }).click();
+  await page.getByRole('alertdialog', { name: 'Удалить счёт «Временный»?' }).getByRole('button', { name: 'Удалить' }).click();
+  await expect(list.getByRole('listitem')).toHaveText([/Касса/]);
+  await expect(quick.getByRole('button', { name: 'Добавить счёт' })).toBeFocused();
 });

@@ -62,6 +62,8 @@ test('счета: «Добавление нового счёта» — валю�
   await edit.getByRole('button', { name: 'В архив' }).click();
   // ошибка — в окне, окно открыто, форму можно поправить (Review Focus 4)
   await expect(edit.getByRole('alert')).toHaveText('Счёт можно перевести в архив только при нулевом балансе');
+  // отказ не роняет фокус на body (aria-disabled вместо disabled)
+  await expect(edit.getByRole('button', { name: 'В архив' })).toBeFocused();
   await edit.getByLabel('Стартовый баланс').fill('0');
   await edit.getByRole('button', { name: 'Сохранить' }).click();
   await expect(edit).toBeHidden();
@@ -147,6 +149,8 @@ test('контрагенты: подменю типов в порядке Finmap
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/counterparties\\?type=employee$`));
   const staffDialog = page.getByRole('dialog', { name: 'Новый сотрудник' });
   for (const name of ['Пётр Админов', 'Анна Кассир']) {
+    // между сотрудниками в общем порядке стоит клиент: «остальные остаются на месте» проверяется не только на краю
+    if (name === 'Анна Кассир') await apiPost(page, `/api/v1/companies/${cid}/counterparties`, { type: 'client', name: 'ИП Сидоров', comment: '' });
     await main.getByRole('button', { name: 'Добавить сотрудника' }).click();
     await expect(staffDialog.getByRole('radio')).toHaveCount(0);
     await staffDialog.getByLabel('Название').fill(name);
@@ -156,6 +160,8 @@ test('контрагенты: подменю типов в порядке Finmap
   const staff = main.getByRole('list', { name: 'Сотрудники' });
   await expect(staff.getByRole('listitem')).toHaveText([/Пётр Админов/, /Анна Кассир/]);
   await expect(types.getByRole('link', { name: /^Сотрудники/ })).toContainText('2');
+  // имя ссылки со счётчиком читается раздельно (не «Сотрудники2»)
+  await expect(types.getByRole('link', { name: /^Сотрудники\s?,\s?2$/ })).toBeVisible();
 
   // порядок — в своей вкладке; «Мои» в общем порядке остаются на месте (Review Focus 1)
   const all = async () =>
@@ -163,7 +169,7 @@ test('контрагенты: подменю типов в порядке Finmap
   await staff.getByRole('button', { name: 'Переместить Анна Кассир', exact: true }).focus();
   await page.keyboard.press('Alt+ArrowUp');
   await expect(staff.getByRole('listitem')).toHaveText([/Анна Кассир/, /Пётр Админов/]);
-  await expect.poll(all).toEqual(['supplier:ИП Иванов', 'employee:Анна Кассир', 'employee:Пётр Админов']);
+  await expect.poll(all).toEqual(['supplier:ИП Иванов', 'employee:Анна Кассир', 'client:ИП Сидоров', 'employee:Пётр Админов']);
 
   // поиск без учёта регистра и «ё»
   await main.getByRole('searchbox', { name: 'Поиск' }).fill('петр');
@@ -179,6 +185,18 @@ test('контрагенты: подменю типов в порядке Finmap
   await edit.getByRole('button', { name: 'Сохранить' }).click();
   await expect(edit).toBeHidden();
   await expect(my.getByRole('listitem')).toHaveText([/ИП Иванов\s*Клиент · аренда зала/]);
+
+  // «Типы налогов»: своя кнопка и окно, тип — по вкладке
+  await types.getByRole('link', { name: /^Типы налогов/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/counterparties\\?type=tax$`));
+  await main.getByRole('button', { name: 'Добавить тип налога' }).click();
+  const taxDialog = page.getByRole('dialog', { name: 'Новый тип налога' });
+  await expect(taxDialog.getByRole('radio')).toHaveCount(0);
+  await taxDialog.getByLabel('Название').fill('НДС');
+  await taxDialog.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(taxDialog).toBeHidden();
+  await expect(main.getByRole('list', { name: 'Типы налогов' }).getByRole('listitem')).toHaveText([/НДС/]);
+  await expect.poll(all).toContain('tax:НДС');
 
   // неверный тип в адресе — «Мои контрагенты»
   await page.goto(`/c/${cid}/settings/counterparties?type=nope`);
@@ -432,6 +450,7 @@ test('шаблон списка: порядок за ☰ мышью и Alt+↑/�
   const sent = reorders;
   await page.keyboard.press('Alt+ArrowUp');
   await expect(list.getByRole('listitem')).toHaveText([/Альфа/, /Бета/, /Гамма/]);
+  // исключение из «без фиксированных пауз»: отсутствие запроса иначе не доказать, только подождать
   await page.waitForTimeout(300);
   expect(reorders, 'запрос на сервер не уходит').toBe(sent);
   expect(await order()).toEqual(['Альфа', 'Бета', 'Гамма']);
@@ -521,6 +540,7 @@ test('шаблон списка: две быстрые перестановки 
   await page.keyboard.press('Alt+ArrowDown');
   await expect(list.getByRole('listitem')).toHaveText([/Бета/, /Гамма/, /Альфа/]);
   // на сервере пока промежуточный порядок; ответ первого приходит — экран не откатывается к нему
+  // исключение из «без фиксированных пауз»: проверяется отсутствие отката в окне ожидания ответов
   for (let k = 0; k < 8; k++) {
     await page.waitForTimeout(100);
     expect(await list.getByRole('listitem').allInnerTexts(), 'экран не откатился к промежуточному порядку').toEqual(['Бета', 'Гамма', 'Альфа']);
@@ -529,4 +549,60 @@ test('шаблон списка: две быстрые перестановки 
   await expect(list.getByRole('listitem')).toHaveText([/Бета/, /Гамма/, /Альфа/]);
   await expect.poll(order).toEqual(['Бета', 'Гамма', 'Альфа']);
   await expect(alpha).toBeFocused();
+});
+
+test('контрагенты: «Назад» в браузере при открытом «Новый …» — окно создаёт контрагента типа открытой вкладки', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Назад ${Date.now()}`);
+  await page.goto(`/c/${cid}/settings/counterparties`);
+  const main = page.getByRole('main');
+  const types = main.getByRole('navigation', { name: 'Типы контрагентов' });
+  await types.getByRole('link', { name: /^Сотрудники/ }).click();
+  await expect(page).toHaveURL(/type=employee$/);
+  await main.getByRole('button', { name: 'Добавить сотрудника' }).click();
+  await expect(page.getByRole('dialog', { name: 'Новый сотрудник' })).toBeVisible();
+
+  await page.goBack();
+  await expect(types.getByRole('link', { name: /^Мои контрагенты/ })).toHaveAttribute('aria-current', 'page');
+  // окно переключилось вместе с вкладкой: заголовок и поле «Тип» — как у «Моих контрагентов»
+  const created = page.getByRole('dialog', { name: 'Новый контрагент' });
+  await expect(created.getByRole('radio', { name: 'Клиент' })).toBeChecked();
+  await created.getByLabel('Название').fill('ИП Назад');
+  await created.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(created).toBeHidden();
+  const all = ((await (await page.request.get(`/api/v1/companies/${cid}/counterparties`)).json()).counterparties as { name: string; type: string }[]).map((c) => `${c.type}:${c.name}`);
+  expect(all).toEqual(['client:ИП Назад']);
+});
+
+test('архивная компания: на «Тегах», «Контрагентах» и «Счетах» нет «Добавить», ☰ и ✎', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Архив разделов ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  for (const name of ['Альфа', 'Бета']) await apiPost(page, `${base}/tags`, { name });
+  for (const name of ['Один', 'Два']) await apiPost(page, `${base}/counterparties`, { type: 'client', name, comment: '' });
+  const first = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  const second = (await apiPost(page, `${base}/accounts`, { name: 'Сейф', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  // у активной компании управление есть — иначе проверка ниже ничего не доказывает
+  await page.goto(`/c/${cid}/settings/tags`);
+  await expect(page.getByRole('main').getByRole('button', { name: 'Добавить тег' })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('button', { name: /^Переместить/ })).toHaveCount(2);
+
+  await apiPost(page, `${base}/accounts/${first}/archive`, {});
+  await apiPost(page, `${base}/accounts/${second}/archive`, {});
+  await apiPost(page, `${base}/archive`, {});
+
+  for (const [path, heading, add] of [
+    ['tags', 'Теги', 'Добавить тег'],
+    ['counterparties', 'Контрагенты', 'Добавить контрагента'],
+    ['accounts', 'Счета', 'Добавить счёт'],
+  ] as const) {
+    await page.goto(`/c/${cid}/settings/${path}`);
+    const main = page.getByRole('main');
+    await expect(main.getByRole('heading', { level: 1, name: heading })).toBeVisible();
+    await expect(main.getByText('Компания в архиве — изменения недоступны.')).toBeVisible();
+    await expect(main.getByRole('listitem').first()).toBeVisible();
+    await expect(main.getByRole('button', { name: add })).toHaveCount(0);
+    await expect(main.getByRole('button', { name: /^Переместить/ })).toHaveCount(0);
+    await expect(main.getByRole('button', { name: /^Изменить/ })).toHaveCount(0);
+  }
 });
