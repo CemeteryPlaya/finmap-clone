@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { formatDateTimeField, parseTimeInput } from '../../../shared/dates';
 import { Calendar } from '../Calendar';
 import { Field } from '../Field';
@@ -21,18 +21,25 @@ function DateTimePanel(props: {
   date: string;
   time: string;
   today: string;
+  /** Последний день, который можно выбрать. */
+  max: string;
   onDate: (date: string) => void;
   onTime: (time: string) => void;
   close: () => void;
 }) {
-  const [text, setText] = useState(props.time);
+  // пока время не набирали, строка «Время» показывает то же, что поле: выбор дня и смена минуты её обновляют
+  const [typed, setTyped] = useState(props.time);
   const [edited, setEdited] = useState(false);
+  const text = edited ? typed : props.time;
+  const timeRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const apply = () => {
     if (edited) {
       const time = parseTimeInput(text);
       if (time === null) {
         setError('Введите время в виде ЧЧ:ММ');
+        // ошибку объявляет фокус на поле: без него «Готово» молчит для программ чтения с экрана
+        timeRef.current?.focus();
         return;
       }
       // то же время, что уже в поле, не «задаётся руками»: «живое» время остаётся живым
@@ -42,7 +49,7 @@ function DateTimePanel(props: {
   };
   return (
     <div>
-      <Calendar value={props.date} today={props.today} max={props.today} onSelect={props.onDate} />
+      <Calendar value={props.date} today={props.today} max={props.max} onSelect={props.onDate} />
       <div className="mt-3 grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 border-t border-field pt-3">
         <span aria-hidden="true" className="mt-8 text-muted">
           <ClockIcon />
@@ -51,12 +58,13 @@ function DateTimePanel(props: {
           {(c) => (
             <input
               {...c}
+              ref={timeRef}
               inputMode="numeric"
               autoComplete="off"
               placeholder="ЧЧ:ММ"
               value={text}
               onChange={(e) => {
-                setText(e.target.value);
+                setTyped(e.target.value);
                 setEdited(true);
                 setError(null);
               }}
@@ -91,6 +99,8 @@ export function DateTimeField(props: {
   time: string;
   nowTime: string;
   today: string;
+  /** День существующей операции: её собственный день выбрать можно, даже если часы устройства отстают от сервера. */
+  originalDate?: string | null;
   error?: string;
   hint?: string;
   disabled?: boolean;
@@ -113,7 +123,8 @@ export function DateTimeField(props: {
           ariaLabel={`${props.label}: ${shown}`}
           panelLabel={`${props.label}: календарь`}
           buttonClassName={fieldButtonClass}
-          panelClassName="w-80"
+          // на касании ячейки дней не уже 44 px (R6): 7 × 44 + поля панели помещаются на телефон 390 px
+          panelClassName="w-80 pointer-coarse:w-[336px]"
           disabled={props.disabled}
         >
           {(close) => (
@@ -121,6 +132,7 @@ export function DateTimeField(props: {
               date={props.date}
               time={shownTime}
               today={props.today}
+              max={props.originalDate && props.originalDate > props.today ? props.originalDate : props.today}
               onDate={props.onDateChange}
               onTime={props.onTimeChange}
               close={() => close(true)}

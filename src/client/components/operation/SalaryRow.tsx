@@ -1,8 +1,12 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { firstOfMonth } from '../../lib/operation-form';
 import { HistoryIcon } from '../icons';
 import { Popover } from '../Popover';
 import { actionRowClass } from './ActionRow';
+
+/** Годы сетки месяцев: вне диапазона `YYYY-MM-DD` не бывает верной даты сделки (isValidDate), дальше не листаем. */
+const MIN_YEAR = 1900;
+const MAX_YEAR = 2100;
 
 const MONTH_NAMES = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
@@ -14,8 +18,8 @@ function MonthGrid(props: { selected: string | null; active: string; onPick: (da
       type="button"
       aria-label={label}
       title={label}
-      onClick={() => setYear((y) => y + delta)}
-      className="grid size-8 shrink-0 place-items-center rounded-lg text-sm font-semibold hover:bg-field focus-visible:outline-2 focus-visible:outline-focus"
+      onClick={() => setYear((y) => Math.min(MAX_YEAR, Math.max(MIN_YEAR, y + delta)))}
+      className="grid size-8 pointer-coarse:size-11 shrink-0 place-items-center rounded-lg text-sm font-semibold hover:bg-field focus-visible:outline-2 focus-visible:outline-focus"
     >
       <span aria-hidden="true">{sign}</span>
     </button>
@@ -48,7 +52,7 @@ function MonthGrid(props: { selected: string | null; active: string; onPick: (da
           );
         })}
       </div>
-      <button type="button" onClick={props.onClear} className="mt-2 w-full rounded-lg px-3 py-2 text-sm font-semibold text-income-strong hover:bg-field">
+      <button type="button" onClick={props.onClear} className="mt-2 w-full rounded-lg px-3 py-2 pointer-coarse:min-h-11 text-sm font-semibold text-income-strong hover:bg-field">
         Как дата оплаты
       </button>
     </div>
@@ -70,10 +74,14 @@ export function SalaryRow(props: {
   onClear: () => void;
   /** Только просмотр (архивная компания): строка видна, но не открывается. */
   disabled?: boolean;
+  /** Ошибка даты сделки (например, «Укажите дату сделки»): под строкой, кнопка помечена aria-invalid. */
+  error?: string;
 }) {
+  const errorId = useId();
   return (
     <div className="border-b border-field">
       <Popover
+        control={props.error ? ({ id: `${errorId}-row`, 'aria-invalid': true, 'aria-describedby': errorId } as const) : undefined}
         disabled={props.disabled}
         label={
           <>
@@ -83,7 +91,8 @@ export function SalaryRow(props: {
             <span className={`min-w-0 flex-1 ${props.muted ? 'text-muted' : ''}`}>{props.text}</span>
           </>
         }
-        ariaLabel={props.text}
+        // приглушённый месяц взят из даты оплаты: без цвета это слышно только в имени
+        ariaLabel={props.muted ? `${props.text} (по дате оплаты)` : props.text}
         panelLabel="Месяц начисления"
         buttonClassName={`${actionRowClass} text-ink`}
         panelClassName="w-72"
@@ -103,6 +112,11 @@ export function SalaryRow(props: {
           />
         )}
       </Popover>
+      {props.error && (
+        <span id={errorId} className="mb-2 block px-1 text-sm text-expense">
+          {props.error}
+        </span>
+      )}
     </div>
   );
 }

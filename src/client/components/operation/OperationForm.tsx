@@ -19,6 +19,7 @@ import {
   initialFocusField,
   FIELD_LABELS,
   operationTitle,
+  paidDateOf,
   positiveAmount,
   salaryRowText,
   shownPaidTime,
@@ -302,6 +303,8 @@ function OperationEditor(p: {
   };
 
   const account = draft.accountId === null ? undefined : accounts.get(draft.accountId);
+  // дата оплаты: не тронутая руками у новой операции следует за «сегодня» (R5: форма, открытая до полуночи)
+  const paidDate = paidDateOf(draft, clock.today);
   const toAccount = draft.toAccountId === null ? undefined : accounts.get(draft.toAccountId);
   const currency = getCurrency(account?.currency ?? p.company.baseCurrency);
   const toCurrency = toAccount ? getCurrency(toAccount.currency) : null;
@@ -408,7 +411,7 @@ function OperationEditor(p: {
         return;
       }
       // «создать похожий» есть только у новой операции (при правке — «Дублировать платёж»)
-      const next = similarDraft(draft);
+      const next = similarDraft(draft, todayInTimezone(p.timeZone, now));
       setOp(null);
       p.onEditingChange(false);
       setDraft(next);
@@ -562,15 +565,16 @@ function OperationEditor(p: {
   const paidDateField = (
     <DateTimeField
       label={labels.paidDate}
-      date={draft.paidDate}
+      date={paidDate}
       // то время, которое сохранится (shownPaidTime): «сейчас», время операции или заданное руками
-      time={shownPaidTime(draft, clock.time, clock.today, op ? dayOf(op.paidAt, p.timeZone) : null)}
+      time={shownPaidTime({ ...draft, paidDate }, clock.time, clock.today, op ? dayOf(op.paidAt, p.timeZone) : null)}
       nowTime={clock.time}
       today={clock.today}
+      originalDate={op ? dayOf(op.paidAt, p.timeZone) : null}
       error={errors.paidAt}
       hint={lockHint}
       disabled={!!locked}
-      onDateChange={(paidDate) => set({ paidDate }, 'paidAt')}
+      onDateChange={(picked) => set({ paidDate: picked, paidDateSet: true }, 'paidAt')}
       onTimeChange={(paidTime) => set({ paidTime, paidTimeSet: true }, 'paidAt')}
     />
   );
@@ -600,7 +604,7 @@ function OperationEditor(p: {
           aria-label="Убрать дату сделки"
           title="Убрать дату сделки"
           onClick={() => {
-            set({ accrualOn: false, accrualDate: accrualBefore.current ?? draft.accrualDate }, 'accrualDate');
+            set({ accrualOn: false, accrualDate: accrualBefore.current ?? initial.accrualDate }, 'accrualDate');
             setAccrualFocus('row');
           }}
           className={`${btnIcon} mt-3`}
@@ -660,12 +664,13 @@ function OperationEditor(p: {
       {!transfer &&
         (salary ? (
           <SalaryRow
-            {...salaryRowText(salary.name, draft.accrualOn ? draft.accrualDate : null, draft.paidDate)}
+            {...salaryRowText(salary.name, draft.accrualOn ? draft.accrualDate : null, paidDate)}
             selectedMonth={draft.accrualOn ? draft.accrualDate.slice(0, 7) : null}
-            activeMonth={(draft.accrualOn ? draft.accrualDate : draft.paidDate).slice(0, 7)}
+            activeMonth={(draft.accrualOn ? draft.accrualDate : paidDate).slice(0, 7)}
             onPick={(accrualDate) => set({ accrualOn: true, accrualDate }, 'accrualDate')}
             // дата сделки возвращается к исходной: иначе «Как дата оплаты» оставила бы форму «грязной» с невидимой датой
             onClear={() => set({ accrualOn: false, accrualDate: initial.accrualDate }, 'accrualDate')}
+            error={errors.accrualDate}
           />
         ) : draft.accrualOn ? (
           accrualField
@@ -678,7 +683,7 @@ function OperationEditor(p: {
             onClick={() => {
               // прежняя дата сделки запоминается: «✕» вернёт форму точно в прежнее состояние (она не «грязная»)
               accrualBefore.current = draft.accrualDate;
-              set({ accrualOn: true, accrualDate: draft.paidDate }, 'accrualDate');
+              set({ accrualOn: true, accrualDate: paidDate }, 'accrualDate');
               setAccrualFocus('field');
             }}
           />
@@ -797,11 +802,12 @@ function OperationEditor(p: {
               {!transfer &&
                 (salary ? (
                   <SalaryRow
-                    {...salaryRowText(salary.name, draft.accrualOn ? draft.accrualDate : null, draft.paidDate)}
+                    {...salaryRowText(salary.name, draft.accrualOn ? draft.accrualDate : null, paidDate)}
                     selectedMonth={draft.accrualOn ? draft.accrualDate.slice(0, 7) : null}
-                    activeMonth={(draft.accrualOn ? draft.accrualDate : draft.paidDate).slice(0, 7)}
+                    activeMonth={(draft.accrualOn ? draft.accrualDate : paidDate).slice(0, 7)}
                     onPick={() => undefined}
                     onClear={() => undefined}
+                    error={errors.accrualDate}
                     disabled
                   />
                 ) : (

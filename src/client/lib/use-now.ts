@@ -17,13 +17,22 @@ export function useNow(timeZone: string): { today: string; time: string } {
   useEffect(() => {
     let timer = 0;
     const tick = () => {
+      window.clearTimeout(timer);
       const next = nowParts(Date.now(), timeZone);
       // тот же день и минута — прежний объект, перерисовки не будет
       setNow((prev) => (prev.today === next.today && prev.time === next.time ? prev : next));
       timer = window.setTimeout(tick, msToNextMinute(Date.now()));
     };
+    // фоновая вкладка и «спящий» телефон замедляют таймеры: при возвращении время обновляется сразу, а не через минуту
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') tick();
+    };
     tick();
-    return () => window.clearTimeout(timer);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [timeZone]);
   return now;
 }

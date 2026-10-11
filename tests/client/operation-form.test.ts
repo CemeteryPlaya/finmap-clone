@@ -8,6 +8,7 @@ import {
   FIELD_LABELS,
   operationTitle,
   paidAtFor,
+  paidDateOf,
   salaryRowText,
   shownPaidTime,
   similarDraft,
@@ -35,7 +36,12 @@ const ctx: DraftContext = {
   timeOfDayFrom: NOW,
 };
 
-const draft = (patch: Partial<OperationDraft>): OperationDraft => ({ ...emptyDraft('expense', '2026-10-07', 1), ...patch });
+// дата, переданная в patch, считается выбранной руками (paidDateSet), если не сказано иное
+const draft = (patch: Partial<OperationDraft>): OperationDraft => ({
+  ...emptyDraft('expense', '2026-10-07', 1),
+  ...(patch.paidDate !== undefined ? { paidDateSet: true } : {}),
+  ...patch,
+});
 const body = (d: OperationDraft) => {
   const r = buildBody(d, ctx);
   if (!r.ok) throw new Error(JSON.stringify(r.errors));
@@ -162,11 +168,12 @@ describe('changeType, similarDraft, transferRateText', () => {
 
   it('«создать похожий» — без суммы и комментария, остальное как было', () => {
     const d = draft({ amount: '5', toAmount: '6', comment: 'к', categoryId: 7, tagIds: [1], paidDate: '2026-10-01' });
-    expect(similarDraft(d)).toEqual({ ...d, amount: '', toAmount: '', comment: '' });
+    // дата выбрана руками — остаётся
+    expect(similarDraft(d, '2026-10-07')).toEqual({ ...d, amount: '', toAmount: '', comment: '' });
     const percent = { mode: 'percent' as const, lines: [newLine({ categoryId: 7, value: '60' }), newLine({ categoryId: 8, value: '40' })] };
-    expect(similarDraft(draft({ split: percent })).split).toBe(percent);
+    expect(similarDraft(draft({ split: percent }), '2026-10-07').split).toBe(percent);
     const amounts = { mode: 'amount' as const, lines: [newLine({ categoryId: 7, value: '60' })] };
-    expect(similarDraft(draft({ split: amounts })).split!.lines[0]).toMatchObject({ categoryId: 7, value: '' });
+    expect(similarDraft(draft({ split: amounts }), '2026-10-07').split!.lines[0]).toMatchObject({ categoryId: 7, value: '' });
     expect(changeType(draft({ split: amounts }), 'income').split).toBeNull();
   });
 
@@ -279,9 +286,32 @@ describe('время оплаты (§2.3 этапа 1.5)', () => {
 
   it('«создать похожий»: время, заданное руками, и дата переносятся; «живое» время остаётся живым', () => {
     const manual = draft({ amount: '5', paidDate: '2026-10-06', paidTime: '22:09', paidTimeSet: true });
-    expect(similarDraft(manual)).toMatchObject({ paidDate: '2026-10-06', paidTime: '22:09', paidTimeSet: true, amount: '' });
+    expect(similarDraft(manual, '2026-10-07')).toMatchObject({ paidDate: '2026-10-06', paidDateSet: true, paidTime: '22:09', paidTimeSet: true, amount: '' });
     const fromEdit = draft({ amount: '5', paidDate: '2026-10-06', paidTime: '18:15', paidTimeSet: false });
-    expect(similarDraft(fromEdit)).toMatchObject({ paidDate: '2026-10-06', paidTime: '', paidTimeSet: false });
+    expect(similarDraft(fromEdit, '2026-10-07')).toMatchObject({ paidDate: '2026-10-06', paidDateSet: true, paidTime: '', paidTimeSet: false });
+  });
+
+  it('дату не трогали (R5): форма, открытая до полуночи, сохраняет операцию на настоящий день, а не «вчера 00:0x»', () => {
+    // форма открыта 06.10, сейчас 07.10 10:30 по Алматы: paidDate остался от открытия, paidDateSet = false
+    const opened = emptyDraft('expense', '2026-10-06', 1);
+    expect(paidDateOf(opened, '2026-10-07')).toBe('2026-10-07');
+    expect(body({ ...opened, amount: '1' }).paidAt).toBe(NOW.toISOString());
+    // дату выбрали руками — остаётся, хотя день сменился
+    expect(body({ ...opened, amount: '1', paidDateSet: true }).paidAt).toBe('2026-10-06T05:30:00.123Z');
+    // время руками при нетронутой дате — на сегодняшний день
+    expect(body({ ...opened, amount: '1', paidTime: '09:05', paidTimeSet: true }).paidAt).toBe('2026-10-07T04:05:00.000Z');
+  });
+
+  it('«создать похожий» (R5): нетронутая дата снова следует за «сегодня»; время руками забирает с собой дату, которая сохранилась', () => {
+    const opened = emptyDraft('expense', '2026-10-06', 1);
+    expect(similarDraft(opened, '2026-10-07')).toMatchObject({ paidDate: '2026-10-07', paidDateSet: false, paidTimeSet: false });
+    // время руками, дату не трогали: сохранилась сегодняшняя — она и переносится
+    expect(similarDraft({ ...opened, paidTime: '16:00', paidTimeSet: true }, '2026-10-07')).toMatchObject({
+      paidDate: '2026-10-07',
+      paidDateSet: true,
+      paidTime: '16:00',
+      paidTimeSet: true,
+    });
   });
 });
 

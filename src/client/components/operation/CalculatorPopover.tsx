@@ -8,7 +8,7 @@ import { Popover } from '../Popover';
  * и кнопки не меньше 44×44 px. Кнопки пишут в выражение поля; «=» вычисляет его (`onEquals` — то же, что уход из поля)
  * и закрывает панель — ошибка видна у поля. Esc закрывает панель и возвращает фокус на иконку.
  */
-export function CalculatorPopover(props: { value: string; onChange: (text: string) => void; onEquals: () => void; onClose: () => void }) {
+export function CalculatorPopover(props: { value: string; onChange: (text: string) => void; onEquals: () => boolean; onClose: () => void }) {
   return (
     <Popover
       label={<CalculatorIcon />}
@@ -29,8 +29,8 @@ export function CalculatorPopover(props: { value: string; onChange: (text: strin
                 aria-label={CALC_KEY_NAMES[key]}
                 onClick={() => {
                   if (key === '=') {
-                    props.onEquals();
-                    close(true);
+                    // ошибка: поле уже взяло фокус себе — на иконку его не возвращаем
+                    close(props.onEquals());
                   } else props.onChange(pressCalcKey(props.value, key));
                 }}
                 className={`min-h-11 min-w-11 rounded-xl text-lg font-semibold outline-none focus-visible:ring-2 focus-visible:ring-focus ${

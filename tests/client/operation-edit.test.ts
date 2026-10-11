@@ -70,7 +70,7 @@ describe('draftFromOperation', () => {
   });
 
   it('время операции — в поле (ЧЧ:ММ по Алматы), но не «задано руками»', () => {
-    expect(draftFromOperation(op(), accounts, TZ)).toMatchObject({ paidDate: '2026-10-05', paidTime: '18:15', paidTimeSet: false });
+    expect(draftFromOperation(op(), accounts, TZ)).toMatchObject({ paidDate: '2026-10-05', paidTime: '18:15', paidTimeSet: false, paidDateSet: true });
   });
 });
 
@@ -146,7 +146,7 @@ describe('duplicateDraft, archivedAccountOf', () => {
       comment: 'аренда',
     });
     // «Дублировать»: дата «сегодня», время «живое»
-    expect(duplicateDraft({ ...d, paidTime: '18:15', paidTimeSet: true }, available, '2026-10-07')).toMatchObject({ paidDate: '2026-10-07', paidTime: '', paidTimeSet: false });
+    expect(duplicateDraft({ ...d, paidTime: '18:15', paidTimeSet: true }, available, '2026-10-07')).toMatchObject({ paidDate: '2026-10-07', paidDateSet: false, paidTime: '', paidTimeSet: false });
   });
 
   it('без архивных ссылок — для «Сохранить и создать похожий» после правки; дата остаётся', () => {

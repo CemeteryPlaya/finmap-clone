@@ -3,15 +3,15 @@ import { CALC_MAX_LENGTH, evaluateAmount } from '../../src/shared/calc';
 import { CALC_KEY_NAMES, CALC_ROWS, pressCalcKey } from '../../src/client/lib/calculator';
 
 describe('калькулятор поля суммы (§6.10 этапа 1.5)', () => {
-  it('раскладка кнопок: 7 8 9 ÷ / 4 5 6 × / 1 2 3 − / 0 , = + / ( ) C ⌫; минус — U+2212', () => {
+  it('раскладка кнопок: 7 8 9 ÷ / 4 5 6 × / 1 2 3 \u2212 / 0 , = + / ( ) C ⌫; минус — U+2212', () => {
     expect(CALC_ROWS).toEqual([
       ['7', '8', '9', '÷'],
       ['4', '5', '6', '×'],
-      ['1', '2', '3', '−'],
+      ['1', '2', '3', '\u2212'],
       ['0', ',', '=', '+'],
       ['(', ')', 'C', '⌫'],
     ]);
-    expect(CALC_KEY_NAMES['−']).toBe('Минус');
+    expect(CALC_KEY_NAMES['\u2212']).toBe('Минус');
     expect(CALC_KEY_NAMES['=']).toBe('Вычислить');
   });
 
@@ -23,7 +23,7 @@ describe('калькулятор поля суммы (§6.10 этапа 1.5)', (
     expect(pressCalcKey('12', '⌫')).toBe('1');
     expect(pressCalcKey('', '⌫')).toBe('');
     expect(pressCalcKey('12+3', 'C')).toBe('');
-    expect(evaluateAmount(pressCalcKey('10', '−') + '4', 2)).toEqual({ ok: true, minor: 600 });
+    expect(evaluateAmount(pressCalcKey('10', '\u2212') + '4', 2)).toEqual({ ok: true, minor: 600 });
   });
 
   it('у предела длины выражение не растёт (Review Focus 5)', () => {

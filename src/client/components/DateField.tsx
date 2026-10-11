@@ -43,7 +43,7 @@ export function DateField(props: {
           ariaLabel={`${props.label}: ${shown ?? 'не выбрана'}`}
           panelLabel={`${props.label}: календарь`}
           buttonClassName={props.floating ? floatingDateButtonClass : dateButtonClass}
-          panelClassName="w-72"
+          panelClassName="w-72 pointer-coarse:w-[336px]"
         >
           {(close) => (
             <Calendar

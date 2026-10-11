@@ -102,7 +102,7 @@ export function PeriodMenu(props: { state: JournalUrlState; today: string; onCha
       ariaLabel={`Период: ${label}`}
       panelLabel="Период"
       buttonClassName={pillClass}
-      panelClassName="w-72"
+      panelClassName="w-72 pointer-coarse:w-[336px]"
     >
       {(close) => <PeriodPanel state={props.state} today={props.today} onChange={props.onChange} close={close} />}
     </Popover>

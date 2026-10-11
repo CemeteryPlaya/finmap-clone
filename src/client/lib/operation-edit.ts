@@ -45,6 +45,8 @@ export function draftFromOperation(op: OperationRecord, accounts: ReadonlyMap<nu
     toAccountId: op.toAccountId,
     toAmount: op.toAmount !== null && to !== undefined && to !== from ? amountInputText(op.toAmount, minorOf(accounts, op.toAccountId)) : '',
     paidDate,
+    // дата существующей операции остаётся (R5): за «сегодня» она не следует
+    paidDateSet: true,
     // поле показывает время операции, но оно не «задано руками»: без правки времени paidAt не меняется (§2.3)
     paidTime: timeOfDay(op.paidAt, timeZone),
     paidTimeSet: false,
@@ -125,7 +127,7 @@ export function withoutArchived(draft: OperationDraft, available: Available): Op
 
 /** «Дублировать платёж» (§7, §2.3 этапа 1.5): новая операция с теми же значениями, без архивных ссылок, «сегодня» и живое время. */
 export function duplicateDraft(draft: OperationDraft, available: Available, today: string): OperationDraft {
-  return { ...withoutArchived(draft, available), paidDate: today, paidTime: '', paidTimeSet: false };
+  return { ...withoutArchived(draft, available), paidDate: today, paidDateSet: false, paidTime: '', paidTimeSet: false };
 }
 
 /** Архивный счёт, который затрагивает операция: сумму, дату оплаты и счета менять нельзя, удалить нельзя (инвариант 7). */

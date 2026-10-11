@@ -63,19 +63,30 @@ export function AmountField(props: {
     if (props.refocusSignal) ref.current?.focus();
   }, [props.refocusSignal]);
 
-  const evaluate = () => {
-    if (props.value.trim() === '') return;
+  /** Вычислить выражение поля; true — результат записан (или поле пусто), false — ошибка показана у поля. */
+  const evaluate = (): boolean => {
+    if (props.value.trim() === '') return true;
     const r = positiveAmount(props.value, props.minorUnits);
     if (r.ok) props.onChange(amountInputText(r.minor, props.minorUnits));
     setCalcError(r.ok ? null : r.error);
+    return r.ok;
   };
 
   // свежий evaluate для отложенного вызова (закрытие панели)
   const evaluateRef = useRef(evaluate);
   evaluateRef.current = evaluate;
+  /** Кадр отложенного решения при закрытии панели: после размонтирования поля он не нужен. */
+  const closeFrame = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(closeFrame.current), []);
 
-  /** Узел — иконка калькулятора или его панель. */
-  const inCalc = (node: Element | null) => !!node && (!!calcBox.current?.contains(node) || !!node.closest('[data-popover-panel]'));
+  /** Узел — иконка калькулятора или его собственная панель (не любая панель: поле может стоять рядом с другими). */
+  const inCalc = (node: Element | null) => {
+    if (!node) return false;
+    if (calcBox.current?.contains(node)) return true;
+    const panel = node.closest('[data-popover-panel]');
+    const owned = calcBox.current?.querySelector('button[aria-controls]')?.getAttribute('aria-controls');
+    return !!panel && !!owned && panel.id === owned;
+  };
 
   const insert = (symbol: string) => {
     const input = ref.current;
@@ -168,10 +179,16 @@ export function AmountField(props: {
                   props.onChange(text);
                   setCalcError(null);
                 }}
-                onEquals={evaluate}
+                onEquals={() => {
+                  const ok = evaluate();
+                  // ошибка: фокус — в поле, где она показана (и объявлена); иначе фокус вернётся на иконку
+                  if (!ok) ref.current?.focus();
+                  return ok;
+                }}
                 onClose={() => {
                   // после щелчка в поле фокус переходит в него не сразу: решаем в следующем кадре; в поле — вычислит его уход
-                  requestAnimationFrame(() => {
+                  cancelAnimationFrame(closeFrame.current);
+                  closeFrame.current = requestAnimationFrame(() => {
                     if (document.activeElement !== ref.current) evaluateRef.current();
                   });
                 }}

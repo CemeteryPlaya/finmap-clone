@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 async function login(page: Page) {
   await page.goto('/login');
@@ -611,5 +611,73 @@ test.describe('касание (pointer: coarse), ширина 390 px', () => {
     await page.waitForTimeout(300);
     await expect(dialog.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
     await expect(dialog.getByRole('combobox', { name: 'Со счёта', exact: true })).not.toBeFocused();
+  });
+});
+
+test.describe('касание (pointer: coarse), панели календаря на телефоне 390×844', () => {
+  test.use({ hasTouch: true });
+
+  test('панель даты: фокус на дне, не в поле «Время»; ячейки не меньше 44 px, заголовок месяца в одну строку, панель внутри экрана — и у «Даты сделки», и у меню периода', async ({
+    page,
+  }) => {
+    await login(page);
+    const cid = await createCompany(page, `ТОО Календарь касание ${Date.now()}`);
+    await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+    await page.reload();
+    await page.setViewportSize(PHONE);
+    expect(await page.evaluate(() => window.matchMedia('(pointer: coarse)').matches)).toBe(true);
+
+    /** Панель календаря: ячейки ≥ 44 px, заголовок одной строкой, панель целиком в видимой области. */
+    const expectComfortable = async (panel: Locator) => {
+      await expect(panel).toBeVisible();
+      // ширина колонок таблицы неравная: проверяем самую узкую ячейку
+      const cells = await panel.getByRole('gridcell').evaluateAll((els) => els.map((el) => el.getBoundingClientRect()).map((r) => ({ w: r.width, h: r.height })));
+      expect(Math.min(...cells.map((c) => c.w)), 'ширина самой узкой ячейки дня').toBeGreaterThanOrEqual(44);
+      expect(Math.min(...cells.map((c) => c.h)), 'высота ячейки дня').toBeGreaterThanOrEqual(44);
+      const title = (await panel.locator('p[aria-live="polite"]').first().boundingBox())!;
+      expect(title.height, 'заголовок месяца в одну строку').toBeLessThan(26);
+      const box = (await panel.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(PHONE.width);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.y + box.height).toBeLessThanOrEqual(PHONE.height);
+    };
+
+    await bar(page).getByRole('button', { name: 'Расход', exact: true }).click();
+    const dialog = newForm(page);
+    await dialog.getByRole('button', { name: /^Указать дату списания:/ }).click();
+    const panel = page.getByRole('dialog', { name: 'Указать дату списания: календарь' });
+    // клавиатура не выезжает: фокус на дне календаря, а не в поле «Время»
+    await expect(panel.locator('[role="gridcell"][tabindex="0"]')).toBeFocused();
+    await expect(panel.getByLabel('Время')).not.toBeFocused();
+    await expectComfortable(panel);
+    // «Время» и «Готово» — тоже цели касания не меньше 44 px
+    const done = (await panel.getByRole('button', { name: 'Готово' }).boundingBox())!;
+    expect(done.height).toBeGreaterThanOrEqual(44);
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+
+    // «Дата сделки» — тот же календарь в панели поля даты
+    await dialog.getByRole('button', { name: 'Дата сделки отличается' }).click();
+    await dialog.getByRole('button', { name: /^Дата сделки:/ }).click();
+    const deal = page.getByRole('dialog', { name: 'Дата сделки: календарь' });
+    await expectComfortable(deal);
+    await page.keyboard.press('Escape');
+    await expect(deal).toBeHidden();
+    // дата сделки включена — форма «грязная»: закрытие спрашивает
+    await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+    await page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' }).getByRole('button', { name: 'Закрыть', exact: true }).click();
+    await expect(dialog).toBeHidden();
+
+    // период журнала: меню внутри панели «Период и условия», ширина та же, что у остальных календарей
+    await page.getByRole('button', { name: /^Период и условия/ }).click();
+    const filters = page.getByRole('dialog', { name: 'Период и условия' });
+    await filters.getByRole('button', { name: /^Период:/ }).click();
+    const period = page.getByRole('dialog', { name: 'Период', exact: true });
+    await expect(period).toBeVisible();
+    const box = (await period.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(PHONE.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(PHONE.height);
   });
 });

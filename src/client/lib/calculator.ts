@@ -4,7 +4,7 @@ import { CALC_MAX_LENGTH } from '../../shared/calc';
 export const CALC_ROWS: readonly (readonly string[])[] = [
   ['7', '8', '9', '÷'],
   ['4', '5', '6', '×'],
-  ['1', '2', '3', '−'],
+  ['1', '2', '3', '\u2212'],
   ['0', ',', '=', '+'],
   ['(', ')', 'C', '⌫'],
 ];
@@ -13,7 +13,7 @@ export const CALC_ROWS: readonly (readonly string[])[] = [
 export const CALC_KEY_NAMES: Readonly<Record<string, string>> = {
   '÷': 'Деление',
   '×': 'Умножение',
-  '−': 'Минус',
+  '\u2212': 'Минус',
   '+': 'Плюс',
   '=': 'Вычислить',
   ',': 'Запятая',

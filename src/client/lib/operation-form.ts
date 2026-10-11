@@ -20,6 +20,11 @@ export interface OperationDraft {
   toAmount: string;
   paidDate: string;
   /**
+   * Дату выбрали руками (или она у существующей операции). Нет — у новой операции дата следует за «сегодня» (§2.3 этапа 1.5):
+   * форма, открытая до полуночи, сохраняет операцию на настоящий день. См. `paidDateOf`.
+   */
+  paidDateSet: boolean;
+  /**
    * Время оплаты «ЧЧ:ММ» в APP_TIMEZONE (§2.3 этапа 1.5). Пусто — у новой операции «живое» время (поле показывает
    * «сейчас»); у правки — время операции. Используется при сохранении, только если `paidTimeSet`.
    */
@@ -85,6 +90,7 @@ export function emptyDraft(type: OperationType, today: string, accountId: number
     toAccountId: type === 'transfer' ? toAccountId : null,
     toAmount: '',
     paidDate: today,
+    paidDateSet: false,
     paidTime: '',
     paidTimeSet: false,
     accrualOn: false,
@@ -112,13 +118,22 @@ export function changeType(draft: OperationDraft, type: OperationType): Operatio
   };
 }
 
+/** Дата оплаты черновика: выбранная руками (или дата существующей операции), иначе — «сегодня» (R5 плана 1.5-3c). */
+export function paidDateOf(draft: Pick<OperationDraft, 'paidDate' | 'paidDateSet'>, today: string): string {
+  return draft.paidDateSet ? draft.paidDate : today;
+}
+
 /**
  * «+ Добавить и создать похожий» (§7, §2.3 этапа 1.5): те же значения, кроме суммы, комментария и файлов (суммы строк
- * разбиения — тоже). Время, заданное руками, остаётся вместе с датой (выручка за смену двумя операциями); иначе — «живое».
+ * разбиения — тоже). Дата остаётся, только если её или время выбрали руками (выручка за смену двумя операциями); иначе
+ * дата снова следует за «сегодня», а время — «живое». `today` — «сегодня» на момент сохранения.
  */
-export function similarDraft(draft: OperationDraft): OperationDraft {
+export function similarDraft(draft: OperationDraft, today: string): OperationDraft {
+  const keep = draft.paidDateSet || draft.paidTimeSet;
   return {
     ...draft,
+    paidDate: keep ? paidDateOf(draft, today) : today,
+    paidDateSet: keep,
     amount: '',
     toAmount: '',
     comment: '',
@@ -199,12 +214,14 @@ export function buildBody(draft: OperationDraft, ctx: DraftContext): BuildResult
 
   // время, заданное руками (§2.3 этапа 1.5): «ЧЧ:ММ», не позже «сейчас»
   const time = draft.paidTimeSet ? parseTimeInput(draft.paidTime) : undefined;
+  // дата, которую не трогали, у новой операции — «сегодня» на момент сохранения (R5)
+  const paidDate = paidDateOf(draft, ctx.today);
   // правка без смены даты: день операции может быть «позже» сегодняшнего по часам этого устройства — это не повод не сохранять
-  const dateUnchanged = ctx.originalPaidAt !== undefined && dayOf(ctx.originalPaidAt, ctx.timeZone) === draft.paidDate;
-  if (!isValidDate(draft.paidDate)) errors.paidAt = 'Укажите дату оплаты';
-  else if (draft.paidDate > ctx.today && !dateUnchanged) errors.paidAt = 'Дата оплаты в будущем — так нельзя';
+  const dateUnchanged = ctx.originalPaidAt !== undefined && dayOf(ctx.originalPaidAt, ctx.timeZone) === paidDate;
+  if (!isValidDate(paidDate)) errors.paidAt = 'Укажите дату оплаты';
+  else if (paidDate > ctx.today && !dateUnchanged) errors.paidAt = 'Дата оплаты в будущем — так нельзя';
   else if (time === null) errors.paidAt = 'Укажите время в виде ЧЧ:ММ';
-  else if (time !== undefined && Date.parse(paidAtFor(draft.paidDate, ctx.now, ctx.now, ctx.timeZone, time)) > ctx.now.getTime()) {
+  else if (time !== undefined && Date.parse(paidAtFor(paidDate, ctx.now, ctx.now, ctx.timeZone, time)) > ctx.now.getTime()) {
     errors.paidAt = 'Это время ещё не наступило';
   }
   // у перевода даты сделки нет (§7): переключатель есть только у дохода и расхода
@@ -221,7 +238,7 @@ export function buildBody(draft: OperationDraft, ctx: DraftContext): BuildResult
     ok: true,
     body: {
       type: draft.type,
-      paidAt: original ?? paidAtFor(draft.paidDate, ctx.timeOfDayFrom, ctx.now, ctx.timeZone, time ?? undefined),
+      paidAt: original ?? paidAtFor(paidDate, ctx.timeOfDayFrom, ctx.now, ctx.timeZone, time ?? undefined),
       accrualDate: accrual ? draft.accrualDate : null,
       accountId: account!.id,
       amount,

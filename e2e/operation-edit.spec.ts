@@ -575,3 +575,138 @@ test('правка времени оплаты (§2.3): поле показыв�
   const saved = (await (await page.request.get(`${base}/operations/${id}`)).json()).operation as { paidAt: string };
   expect(saved.paidAt).toBe(midnight);
 });
+
+/** «ЧЧ:ММ» сейчас по Алматы. */
+const almatyHm = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Almaty', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
+const almatyDay = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date());
+const shiftDay = (iso: string, days: number) => {
+  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+};
+const ruDay = (iso: string) => iso.split('-').reverse().join('.');
+const GENITIVE = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+const cellName = (iso: string) => {
+  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
+  return `${d} ${GENITIVE[m - 1]} ${y}`;
+};
+
+test('правка: перенос даты на сегодня при позднем прежнем времени — строка «Время» в панели показывает «сейчас», как и поле', async ({ page }) => {
+  test.skip(almatyHm() < '00:03' || almatyHm() >= '23:58', 'у границы суток фиксированное «сейчас» теста уходит в другой день');
+  test.skip(almatyDay().endsWith('-01'), 'первого числа вчерашний день — прошлый месяц, вне периода журнала по умолчанию');
+  const today = almatyDay();
+  const eve = shiftDay(today, -1);
+  const fixed = new Date(`${today}T12:34:56+05:00`);
+  await page.clock.install({ time: fixed });
+  await page.clock.setFixedTime(fixed);
+  await login(page);
+  const cid = await createCompany(page, `ТОО Время строка ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: `${eve}T18:15:00+05:00`, accountId: cash, amount: 10000, comment: 'вчера вечером' });
+  await page.reload();
+
+  await rows(page).first().getByText('вчера вечером').click();
+  const dialog = editForm(page);
+  const when = dialog.getByRole('button', { name: /^Указать дату списания:/ });
+  await expect(when).toHaveAccessibleName(`Указать дату списания: Вчера, ${ruDay(eve)}, 18:15`);
+  await when.click();
+  const panel = page.getByRole('dialog', { name: 'Указать дату списания: календарь' });
+  await expect(panel.getByLabel('Время')).toHaveValue('18:15');
+  // сегодня 18:15 ещё не наступило: сохранится «сейчас» — его и поле, и строка «Время»
+  await panel.getByRole('gridcell', { name: cellName(today), exact: true }).click();
+  await expect(panel).toBeVisible();
+  await expect(panel.getByLabel('Время')).toHaveValue('12:34');
+  await page.keyboard.press('Escape');
+  await expect(when).toHaveAccessibleName(`Указать дату списания: Сегодня, ${ruDay(today)}, 12:34`);
+});
+
+test('правка при отстающих часах устройства: собственный день операции остаётся доступным в календаре', async ({ page }) => {
+  test.skip(almatyHm() < '00:03' || almatyHm() >= '23:58', 'у границы суток «сегодня» в тесте расходится');
+  test.skip(almatyDay().endsWith('-01'), 'первого числа вчерашний день — прошлый месяц, вне периода журнала по умолчанию');
+  const today = almatyDay();
+  const eve = shiftDay(today, -1);
+  await login(page);
+  const cid = await createCompany(page, `ТОО Часы отстают ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(100), accountId: cash, amount: 10000, comment: 'сегодняшняя' });
+  // часы устройства — вчерашний день: «сегодня» устройства раньше дня операции
+  const lagging = new Date(`${eve}T12:00:00+05:00`);
+  await page.clock.install({ time: lagging });
+  await page.clock.setFixedTime(lagging);
+  await page.reload();
+
+  await rows(page).first().getByText('сегодняшняя').click();
+  const dialog = editForm(page);
+  const when = dialog.getByRole('button', { name: /^Указать дату списания:/ });
+  await when.click();
+  const panel = page.getByRole('dialog', { name: 'Указать дату списания: календарь' });
+  // день операции не заблокирован; завтра относительно часов устройства — тоже нет, послезавтра заблокирован
+  await expect(panel.getByRole('gridcell', { name: cellName(today), exact: true })).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(panel.getByRole('gridcell', { name: cellName(shiftDay(today, 1)), exact: true })).toHaveAttribute('aria-disabled', 'true');
+  // уйти на вчера и вернуться на собственный день можно
+  await panel.getByRole('gridcell', { name: cellName(eve), exact: true }).click();
+  await panel.getByRole('gridcell', { name: cellName(today), exact: true }).click();
+  await expect(panel.getByRole('gridcell', { name: cellName(today), exact: true })).toHaveAttribute('aria-selected', 'true');
+});
+
+test('«Зарплата за {месяц}» в правке: «Как дата оплаты» возвращает форму к исходной — вопроса о несохранённом нет', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Зарплата правка ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  const tree = (await (await page.request.get(`${base}/categories`)).json()) as { expense: { id: number; systemKey: string | null }[] };
+  const salary = tree.expense.find((c) => c.systemKey === 'salary')!.id;
+  await apiPost(page, `${base}/operations`, {
+    type: 'expense',
+    paidAt: todayAgo(100),
+    accountId: cash,
+    amount: 10000,
+    comment: 'оклад',
+    lines: [{ categoryId: salary, projectId: null, amount: 10000 }],
+  });
+  await page.reload();
+
+  await rows(page).first().getByText('оклад').click();
+  const dialog = editForm(page);
+  const row = dialog.getByRole('button', { name: /^Зарплата за .+ \(по дате оплаты\)$/ });
+  const months = page.getByRole('dialog', { name: 'Месяц начисления' });
+  const year = Number(almatyDay().slice(0, 4));
+  await row.click();
+  await months.getByRole('button', { name: `Январь ${year}`, exact: true }).click();
+  await expect(dialog.getByRole('button', { name: /^Зарплата за январь/ })).toBeFocused();
+  await dialog.getByRole('button', { name: /^Зарплата за январь/ }).click();
+  await months.getByRole('button', { name: 'Как дата оплаты' }).click();
+  await expect(row).toBeFocused();
+  // форма снова как открыли: Esc закрывает без вопроса
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' })).toHaveCount(0);
+});
+
+test('архивная компания: строка «Зарплата за {месяц}» видна, но недоступна', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Зарплата архив ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 10000 })).account.id;
+  const tree = (await (await page.request.get(`${base}/categories`)).json()) as { expense: { id: number; systemKey: string | null }[] };
+  const salary = tree.expense.find((c) => c.systemKey === 'salary')!.id;
+  await apiPost(page, `${base}/operations`, {
+    type: 'expense',
+    paidAt: todayAgo(100),
+    accountId: cash,
+    amount: 10000,
+    comment: 'оклад',
+    lines: [{ categoryId: salary, projectId: null, amount: 10000 }],
+  });
+  await apiPost(page, `${base}/accounts/${cash}/archive`, {});
+  await apiPost(page, `${base}/archive`, {});
+  await page.reload();
+
+  await rows(page).first().getByText('оклад').click();
+  const view = page.getByRole('dialog', { name: 'Расход', exact: true });
+  await expect(view).toContainText('Компания в архиве — изменения недоступны');
+  const row = view.getByRole('button', { name: /^Зарплата за .+ \(по дате оплаты\)$/ });
+  await expect(row).toBeVisible();
+  await expect(row).toBeDisabled();
+});

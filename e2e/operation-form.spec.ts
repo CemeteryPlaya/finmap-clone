@@ -34,6 +34,8 @@ const shiftDay = (iso: string, days: number) => {
 };
 /** `YYYY-MM-DD` → «ДД.ММ.ГГГГ». */
 const ru = (iso: string) => iso.split('-').reverse().join('.');
+/** «ЧЧ:ММ» сейчас по Алматы. */
+const almatyHm = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Almaty', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
 const MONTHS_GENITIVE = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 
 /**
@@ -683,6 +685,8 @@ test('последний счёт и фокус при открытии: пус�
 });
 
 test('дата и время оплаты: «Сегодня, …, ЧЧ:ММ», свой календарь и строка «Время»; время руками переносится в «похожий»', async ({ page }) => {
+  // «сегодня» читается после работы с панелью: у границы суток тест перешагнул бы её
+  test.skip(almatyHm() < '00:03' || almatyHm() >= '23:58', 'у границы суток «сегодня» и «вчера» в тесте расходятся');
   await login(page);
   const cid = await createCompany(page, `ТОО Время ${Date.now()}`);
   await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
@@ -731,6 +735,8 @@ test('дата и время оплаты: «Сегодня, …, ЧЧ:ММ», �
   await panel.getByLabel('Время').fill('25:00');
   await panel.getByRole('button', { name: 'Готово' }).click();
   await expect(panel).toContainText('Введите время в виде ЧЧ:ММ');
+  // ошибку слышно: фокус — на поле «Время»
+  await expect(panel.getByLabel('Время')).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
   await expect(again).toBeVisible();
@@ -783,7 +789,7 @@ test('«Зарплата за {месяц}»: месяц оплаты серым
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('8000');
   await pick(page, 'Категория', 'Зарплата');
   // без даты сделки — месяц даты оплаты; строки «Дата сделки отличается» нет
-  const current = dialog.getByRole('button', { name: `Зарплата за ${MONTHS[m - 1]}`, exact: true });
+  const current = dialog.getByRole('button', { name: `Зарплата за ${MONTHS[m - 1]} (по дате оплаты)`, exact: true });
   await expect(current).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Дата сделки отличается' })).toHaveCount(0);
 
@@ -848,6 +854,8 @@ test('калькулятор по иконке в поле суммы: кноп�
   await expect(amount).toHaveAttribute('aria-invalid', 'true');
   await expect(dialog).toContainText('Деление на ноль');
   await expect(amount).toHaveValue('2000÷0');
+  // ошибка объявляется в поле: фокус после «=» — в нём, а не на иконке
+  await expect(amount).toBeFocused();
   // «C» очищает; Esc закрывает только панель — окно открыто
   await calc.click();
   await panel.getByRole('button', { name: 'Очистить' }).click();
@@ -941,4 +949,92 @@ test('Tab через иконку калькулятора без открыти
   await expect(amount).toBeFocused();
   await amount.blur();
   await expect(amount).toHaveValue('5');
+});
+
+test('форма, открытая до полуночи (R5): нетронутая дата переходит на новый день, «сейчас» в поле тикает, операция сохраняется на настоящий день', async ({ page }) => {
+  const today = almatyToday();
+  const eve = shiftDay(today, -1);
+  // часы страницы: вечер накануне; идут в обычном темпе, затем сдвигаем их вперёд за полночь
+  await page.clock.install({ time: new Date(`${eve}T23:50:00+05:00`) });
+  await login(page);
+  const cid = await createCompany(page, `ТОО Полночь ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+
+  const dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Касса');
+  const when = dialog.getByRole('button', { name: /^Указать дату списания:/ });
+  await expect(when).toHaveAccessibleName(new RegExp(`^Указать дату списания: Сегодня, ${ru(eve).replaceAll('.', '\\.')}, 23:5\\d$`));
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('100');
+
+  // наступила полночь: поле показывает новый день и новое время, а не «Вчера, …, 00:0x»
+  await page.clock.fastForward(10 * 60_000);
+  await expect(when).toHaveAccessibleName(new RegExp(`^Указать дату списания: Сегодня, ${ru(today).replaceAll('.', '\\.')}, 00:0\\d$`));
+  const request = nextCreate(page);
+  await submit(dialog).click();
+  const paidAt = Date.parse((await request).postDataJSON().paidAt);
+  const dayStart = Date.parse(`${today}T00:00:00+05:00`);
+  expect(paidAt).toBeGreaterThanOrEqual(dayStart);
+  expect(paidAt).toBeLessThan(dayStart + 5 * 60_000);
+  await expect(dialog).toBeHidden();
+});
+
+test('время, набранное в панели и равное показанному, не «задаётся руками» (R4a); другое время — ЧЧ:ММ:00', async ({ page }) => {
+  test.skip(almatyHm() < '00:03' || almatyHm() >= '23:58', 'у границы суток фиксированное «сейчас» теста уходит в другой день');
+  const fixed = new Date(`${almatyToday()}T12:34:56+05:00`);
+  await page.clock.install({ time: fixed });
+  await page.clock.setFixedTime(fixed);
+  await login(page);
+  const cid = await createCompany(page, `ТОО R4a ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+
+  const dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Касса');
+  const when = dialog.getByRole('button', { name: /^Указать дату списания:/ });
+  await expect(when).toHaveAccessibleName(`Указать дату списания: Сегодня, ${ru(almatyToday())}, 12:34`);
+  const panel = page.getByRole('dialog', { name: 'Указать дату списания: календарь' });
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('100');
+
+  // то же время, что уже в поле, — время остаётся «живым»: в теле точный момент сохранения (с секундами)
+  await when.click();
+  await expect(panel.getByLabel('Время')).toHaveValue('12:34');
+  await panel.getByLabel('Время').fill('12:34');
+  await panel.getByRole('button', { name: 'Готово' }).click();
+  await expect(panel).toBeHidden();
+  let request = nextCreate(page);
+  await dialog.getByRole('button', { name: 'Добавить и создать похожий' }).click();
+  expect((await request).postDataJSON().paidAt).toBe(fixed.toISOString());
+
+  // другое время — задано руками: ЧЧ:ММ:00
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('200');
+  await when.click();
+  await panel.getByLabel('Время').fill('12:30');
+  await panel.getByRole('button', { name: 'Готово' }).click();
+  request = nextCreate(page);
+  await submit(dialog).click();
+  expect((await request).postDataJSON().paidAt).toBe(new Date(`${almatyToday()}T12:30:00+05:00`).toISOString());
+  await expect(dialog).toBeHidden();
+});
+
+test('калькулятор у суммы перевода: «=» вычисляет выражение', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Калькулятор перевод ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await apiPost(page, `${base}/accounts`, { name: 'Каспи', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+
+  const dialog = await openForm(page, 'Перевод');
+  await pick(page, 'Со счёта', 'Касса');
+  await pick(page, 'На счёт', 'Каспи');
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  await amount.fill('2+3');
+  await dialog.getByRole('button', { name: 'Калькулятор' }).click();
+  const panel = page.getByRole('dialog', { name: 'Калькулятор' });
+  await panel.getByRole('button', { name: 'Умножение' }).click();
+  await panel.getByRole('button', { name: '4', exact: true }).click();
+  await panel.getByRole('button', { name: 'Вычислить' }).click();
+  await expect(panel).toBeHidden();
+  await expect(amount).toHaveValue('14');
 });
