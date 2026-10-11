@@ -586,6 +586,7 @@ function OperationEditor(p: {
       refocusSignal={refocusAmount}
       disabled={!!locked}
       hint={lockHint}
+      calculator={!readOnly}
     />
   );
 

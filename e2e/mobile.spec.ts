@@ -160,6 +160,9 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   await amount.click();
   await page.keyboard.type('1000');
   await dialog.getByRole('button', { name: 'Оператор умножение' }).click();
+  // ряд операторов — цель касания не меньше 44 px (отложенное 6a №1); рядом — иконка калькулятора
+  expect((await dialog.getByRole('button', { name: 'Оператор умножение' }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await expect(dialog.getByRole('button', { name: 'Калькулятор' })).toBeVisible();
   await expect(amount).toBeFocused();
   await page.keyboard.type('3');
   await dialog.getByRole('button', { name: 'Оператор минус' }).click();

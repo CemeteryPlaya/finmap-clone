@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useAutoFocus } from '../useAutoFocus';
+import { CalculatorPopover } from './CalculatorPopover';
 import { CALC_MAX_LENGTH } from '../../../shared/calc';
 import { positiveAmount } from '../../lib/operation-form';
 import { amountInputText } from '../../lib/journal-format';
@@ -13,6 +14,9 @@ const OPERATORS = [
   { symbol: '×', name: 'умножение' },
   { symbol: '÷', name: 'деление' },
 ] as const;
+
+/** Подсказка поля суммы с калькулятором (§6.10 этапа 1.5). */
+export const CALC_HINT = 'Можно писать выражения: 1500+250*2';
 
 /**
  * Поле суммы (§7): принимает выражение (`+ - × /`, скобки, запятая или точка) и вычисляет его при уходе
@@ -32,6 +36,8 @@ export function AmountField(props: {
   /** Поставить фокус в поле при каждом изменении значения (после «Добавить и создать похожий»). */
   refocusSignal?: number;
   className?: string;
+  /** Иконка калькулятора в поле и подсказка про выражения (§6.10): у основной суммы формы. */
+  calculator?: boolean;
 }) {
   const ref = useRef<HTMLInputElement>(null);
   const [calcError, setCalcError] = useState<string | null>(null);
@@ -84,7 +90,7 @@ export function AmountField(props: {
           onPointerDown={(e) => e.preventDefault()}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => insert(op.symbol)}
-          className="rounded-xl bg-field py-2 text-lg font-semibold"
+          className="min-h-11 rounded-xl bg-field py-2 text-lg font-semibold"
         >
           {op.symbol}
         </button>
@@ -96,29 +102,43 @@ export function AmountField(props: {
     <Field
       label={props.label}
       error={props.error ?? calcError ?? undefined}
-      hint={props.hint}
+      hint={props.hint ?? (props.calculator && !props.disabled ? CALC_HINT : undefined)}
       className={props.className}
       floating
       filled={props.value !== ''}
       below={operators}
     >
       {(c) => (
-        <input
-          {...c}
-          ref={ref}
-          inputMode="decimal"
-          autoComplete="off"
-          maxLength={CALC_MAX_LENGTH}
-          disabled={props.disabled}
-          value={props.value}
-          onChange={(e) => {
-            props.onChange(e.target.value);
-            setCalcError(null);
-          }}
-          onBlur={evaluate}
-          // сумма — крупная, как раньше (text-lg): размер — отдельно от floatingControlBase
-          className={`${floatingControlBase} text-lg font-semibold tabular-nums`}
-        />
+        <>
+          <input
+            {...c}
+            ref={ref}
+            inputMode="decimal"
+            autoComplete="off"
+            maxLength={CALC_MAX_LENGTH}
+            disabled={props.disabled}
+            value={props.value}
+            onChange={(e) => {
+              props.onChange(e.target.value);
+              setCalcError(null);
+            }}
+            onBlur={evaluate}
+            // сумма — крупная, как раньше (text-lg): размер — отдельно от floatingControlBase
+            className={`${floatingControlBase} text-lg font-semibold tabular-nums ${props.calculator && !props.disabled ? 'pr-14' : ''}`}
+          />
+          {props.calculator && !props.disabled && (
+            <div className="absolute top-1/2 right-2 -translate-y-1/2">
+              <CalculatorPopover
+                value={props.value}
+                onChange={(text) => {
+                  props.onChange(text);
+                  setCalcError(null);
+                }}
+                onEquals={evaluate}
+              />
+            </div>
+          )}
+        </>
       )}
     </Field>
   );

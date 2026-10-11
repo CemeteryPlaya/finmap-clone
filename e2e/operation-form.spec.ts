@@ -814,3 +814,46 @@ test('«Зарплата за {месяц}»: месяц оплаты серым
   expect((await request).postDataJSON().accrualDate).toBe(`${prev.y}-${pad(prev.m)}-01`);
   await expect(dialog).toBeHidden();
 });
+
+test('калькулятор по иконке в поле суммы: кнопки пишут в выражение, «=» вычисляет и закрывает; ошибка — у поля; кнопки не меньше 44 px', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Калькулятор ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+
+  const dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Касса');
+  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
+  await expect(amount).toHaveAccessibleDescription('Можно писать выражения: 1500+250*2');
+  const calc = dialog.getByRole('button', { name: 'Калькулятор' });
+  await calc.click();
+  const panel = page.getByRole('dialog', { name: 'Калькулятор' });
+  for (const key of ['1', '5', '0', '0', 'Плюс', '2', '5', '0', 'Умножение', '2']) await panel.getByRole('button', { name: key, exact: true }).click();
+  await expect(amount).toHaveValue('1500+250×2');
+  await expect(panel.locator('output')).toHaveText('1500+250×2');
+  const box = (await panel.getByRole('button', { name: '7', exact: true }).boundingBox())!;
+  expect(box.width).toBeGreaterThanOrEqual(44);
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  await panel.getByRole('button', { name: 'Вычислить' }).click();
+  await expect(panel).toBeHidden();
+  await expect(amount).toHaveValue('2000');
+  await expect(calc).toBeFocused();
+
+  // деление на ноль: «=» закрывает панель, ошибка — у поля, выражение остаётся для правки (Review Focus 5)
+  await calc.click();
+  await panel.getByRole('button', { name: 'Деление' }).click();
+  await panel.getByRole('button', { name: '0', exact: true }).click();
+  await panel.getByRole('button', { name: 'Вычислить' }).click();
+  await expect(panel).toBeHidden();
+  await expect(amount).toHaveAttribute('aria-invalid', 'true');
+  await expect(dialog).toContainText('Деление на ноль');
+  await expect(amount).toHaveValue('2000÷0');
+  // «C» очищает; Esc закрывает только панель — окно открыто
+  await calc.click();
+  await panel.getByRole('button', { name: 'Очистить' }).click();
+  await expect(amount).toHaveValue('');
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await expect(dialog).toBeVisible();
+  await expect(calc).toBeFocused();
+});
