@@ -9,9 +9,13 @@ function MultiPanel(props: { label: string; options: MultiOption[]; selected: re
   const [query, setQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   // снятый «Недоступный элемент» пропадает из списка вместе с флажком: фокус не теряется, а уходит на поиск (Esc и Tab остаются в панели)
+  // зависит от набора ключей, а не от нового массива на каждую перерисовку; фокус «потерян», если он вне панели
+  const keys = props.options.map((o) => o.key).join('|');
   useEffect(() => {
-    if (document.activeElement === document.body) searchRef.current?.focus();
-  }, [props.options]);
+    const panel = searchRef.current?.closest('[data-popover-panel]');
+    const active = document.activeElement;
+    if (!active || active === document.body || (panel && !panel.contains(active))) searchRef.current?.focus();
+  }, [keys]);
   // отмеченные видны и при поиске — их можно снять
   const shown = props.options.filter((o) => props.selected.includes(o.key) || matchesQuery(o.label, query));
   const groups: { section?: string; items: MultiOption[] }[] = [];
@@ -53,8 +57,11 @@ function MultiPanel(props: { label: string; options: MultiOption[]; selected: re
             <div key={`plain-${i}`}>{g.items.map(item)}</div>
           ),
         )}
-        {shown.length === 0 && <p className="px-2 py-1.5 text-sm text-muted">Ничего не найдено</p>}
       </div>
+      {/* область есть всегда: «Ничего не найдено» объявляется, когда появляется */}
+      <p role="status" className={shown.length === 0 ? 'px-2 py-1.5 text-sm text-muted' : 'sr-only'}>
+        {shown.length === 0 ? 'Ничего не найдено' : ''}
+      </p>
     </div>
   );
 }
@@ -70,6 +77,8 @@ export function MultiSelectField(props: { label: string; allLabel: string; optio
   const title = count > 0 ? `${props.label} (${count})` : props.label;
   const chosen = props.options.filter((o) => props.selected.includes(o.key)).map((o) => o.label);
   const value = chosen.length > 0 ? chosen.join(', ') : props.allLabel;
+  // доступное имя: больше трёх — счётом («Проекты: выбрано 5»), иначе названия
+  const accessibleName = chosen.length > 3 ? `${props.label}: выбрано ${chosen.length}` : `${title}: ${value}`;
   return (
     <Popover
       label={
@@ -83,7 +92,7 @@ export function MultiSelectField(props: { label: string; allLabel: string; optio
           </span>
         </>
       }
-      ariaLabel={`${title}: ${value}`}
+      ariaLabel={accessibleName}
       panelLabel={props.label}
       buttonClassName={fieldClass}
       panelClassName="w-80 max-w-[calc(100vw-2rem)]"

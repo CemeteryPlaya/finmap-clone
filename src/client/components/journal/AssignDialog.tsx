@@ -65,19 +65,16 @@ function AssignForm(props: { request: AssignRequest; data: AssignData; onSave: (
  * строке: плашки уже нет. Esc и «×» закрывают без изменений, фокус — на плашке.
  */
 export function AssignDialog(props: { request: AssignRequest | null; data: AssignData; onSave: (request: AssignRequest, id: number) => void; onClose: () => void }) {
-  // заголовок нужен и в кадре закрытия, когда запроса уже нет
-  const [title, setTitle] = useState('');
   // строка, где сохранили: туда возвращается фокус; Esc и «×» — null (фокус на плашку)
   const savedId = useRef<number | null>(null);
   useEffect(() => {
     if (!props.request) return;
-    setTitle(ASSIGN_TITLES[props.request.field]);
     savedId.current = null;
   }, [props.request]);
   return (
     <Modal
       open={props.request !== null}
-      title={props.request ? ASSIGN_TITLES[props.request.field] : title}
+      title={props.request ? ASSIGN_TITLES[props.request.field] : ''}
       onClose={props.onClose}
       className="max-w-[480px]"
       returnFocus={() => (savedId.current === null ? null : rowOpenButton(savedId.current))}

@@ -6,6 +6,9 @@ import { useFloating } from './useFloating';
 
 const FOCUSABLE = 'input:not([disabled]), button:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"], a[href]';
 
+/** Настоящие фокусируемые элементы: на них mousedown не отменяется. */
+const CONTROL = 'input, button, select, textarea, a[href], [tabindex]:not([tabindex="-1"])';
+
 /** Стрелка ▾ на кнопке Popover: при открытой панели переворачивается (▴); для чтения с экрана скрыта. */
 export function Caret() {
   return (
@@ -138,6 +141,11 @@ export function Popover(props: {
             aria-label={name}
             data-popover-panel=""
             style={style}
+            onMouseDown={(e) => {
+              // щелчок по тексту, заголовку группы, пустому месту или полосе прокрутки не должен переводить фокус
+              // на <dialog tabindex=-1> (иначе уход фокуса закрыл бы панель до click); click по label это не отменяет
+              if (!(e.target as Element).closest(CONTROL)) e.preventDefault();
+            }}
             onKeyDown={(e) => {
               // клавишу уже обработала вложенная панель или кнопка внутри (Tab на краю вложенной панели)
               if (e.defaultPrevented) return;

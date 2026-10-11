@@ -140,7 +140,7 @@ export function FilterDialog(props: {
   onSave?: (draft: DialogFields, name: string) => Promise<void>;
 }) {
   return (
-    <Modal open={props.open} title="Фильтры" onClose={props.onClose}>
+    <Modal open={props.open} title="Фильтры" onClose={props.onClose} className="max-w-[818px]">
       <FilterForm
         state={props.state}
         data={props.data}

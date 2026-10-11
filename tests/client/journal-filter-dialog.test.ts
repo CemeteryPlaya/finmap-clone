@@ -36,12 +36,19 @@ const empty: DialogFields = pickDialogFields(EMPTY_JOURNAL_STATE);
 describe('окно «Фильтры» (§5.6 этапа 1.5)', () => {
   it('поля в порядке Finmap', () => {
     expect(DIMENSIONS.map((d) => [d.label, d.allLabel])).toEqual([
-      ['Типы платежей и категории', 'Все типы и категории'],
+      ['Типы платежей и категории', 'Все типы платежей и категорий'],
       ['Контрагенты', 'Все контрагенты'],
       ['Проекты', 'Все проекты'],
       ['Теги', 'Все теги'],
       ['Счета', 'Все счета'],
     ]);
+  });
+
+  it('снятый архивный пункт пропадает из списка, пока он отмечен — виден', () => {
+    const selected = { ...empty, categoryIds: [22] };
+    expect(dimensionOptions('typesCategories', data, selected).some((o) => o.key === 'category:22')).toBe(true);
+    const cleared = toggleDimension('typesCategories', selected, 'category:22');
+    expect(dimensionOptions('typesCategories', data, cleared).some((o) => o.key === 'category:22')).toBe(false);
   });
 
   it('«Типы платежей и категории»: группа «Тип», категории дохода и расхода деревом, «Без категории»; архивные — только выбранные', () => {

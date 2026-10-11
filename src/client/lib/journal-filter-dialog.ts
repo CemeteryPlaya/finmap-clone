@@ -22,7 +22,7 @@ export type FilterDimension = 'typesCategories' | 'counterparties' | 'projects' 
 
 /** Поля окна в порядке Finmap: подпись (со счётчиком выбранного) и значение, когда ничего не выбрано. */
 export const DIMENSIONS: readonly { dim: FilterDimension; label: string; allLabel: string }[] = [
-  { dim: 'typesCategories', label: 'Типы платежей и категории', allLabel: 'Все типы и категории' },
+  { dim: 'typesCategories', label: 'Типы платежей и категории', allLabel: 'Все типы платежей и категорий' },
   { dim: 'counterparties', label: 'Контрагенты', allLabel: 'Все контрагенты' },
   { dim: 'projects', label: 'Проекты', allLabel: 'Все проекты' },
   { dim: 'tags', label: 'Теги', allLabel: 'Все теги' },

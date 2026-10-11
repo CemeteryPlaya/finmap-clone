@@ -84,13 +84,16 @@ export function useAssign(companyId: number, onError: (message: string) => void)
 
 /** Одно «Указать»: свой observer, который снимается по завершении, — иначе мутация (с переменными и снимком журнала) остаётся в кэше. */
 export function runAssign(companyId: number, vars: AssignVars, onError: (message: string) => void): Promise<unknown> {
+  // в очереди за предыдущим «Указать» той же операции версию берём из кэша в момент запроса (после его ответа); иначе — ту, с которой
+  // открыто окно: чужая правка, пришедшая при открытом окне, даёт обычный 409 «Загрузить актуальную», а не молчаливую перезапись
+  const chained = queryClient.isMutating({ predicate: (m) => m.options.scope?.id === operationScope(vars.item.id) }) > 0;
   const observer = new MutationObserver<SavedOperation, unknown, AssignVars, { snapshot: [readonly unknown[], JournalData | undefined][] }>(queryClient, {
           gcTime: 0,
           scope: { id: operationScope(vars.item.id) },
           mutationFn: ({ item, field, id }) =>
             api<SavedOperation>(`/companies/${companyId}/operations/${item.id}`, {
               method: 'PATCH',
-              body: assignPatch(cachedOperation(companyId, item.id) ?? item, field, id),
+              body: assignPatch(chained ? (cachedOperation(companyId, item.id) ?? item) : item, field, id),
             }),
           onMutate: async ({ item, field, id }) => {
             await queryClient.cancelQueries({ queryKey: ['journal', companyId] });

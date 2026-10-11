@@ -175,6 +175,18 @@ function JournalScreen(props: {
     summaryRef.current?.focus();
     setFocusSummary(false);
   }, [focusSummary]);
+  // выделение опустело (строки ушли из фильтра после «Изменить данные», удалены), полоса исчезла вместе с сфокусированным
+  // элементом, и фокус на <body>: итог, если он показан, иначе «Выбрать все», иначе заголовок страницы
+  const selectedBefore = useRef(0);
+  useEffect(() => {
+    const before = selectedBefore.current;
+    selectedBefore.current = selected.size;
+    if (before === 0 || selected.size > 0) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    const target = summaryRef.current ?? document.querySelector<HTMLElement>('[data-select-all]') ?? document.getElementById(HEADING_ID);
+    target?.focus();
+  }, [selected]);
   // «Повторить» получает фокус, когда ошибка появилась, а не при каждой сборке экрана (смена компании)
   const retryRef = useRef<HTMLButtonElement>(null);
   const failureShown = useRef(props.undoFailure);
@@ -499,11 +511,6 @@ function JournalScreen(props: {
                 pending={bulkPending}
                 onRun={(action) => run(action, selectedIds)}
                 onEdit={() => setBulkEditOpen(true)}
-                onClear={() => {
-                  setSelected(new Set());
-                  // полоса исчезла вместе с фокусом — он переходит на флажок «Выбрать все» в открывшейся строке заголовков
-                  requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-select-all]')?.focus());
-                }}
               />
             ) : undefined
           }

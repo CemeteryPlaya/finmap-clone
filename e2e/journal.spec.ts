@@ -813,3 +813,54 @@ test('самая высокая строка: перевод между валю
     await page.request.put('/api/v1/preferences/journal.wrap', { data: { value: before['journal.wrap'] ?? null }, headers: csrf(page) });
   }
 });
+
+test('окно «Фильтры»: щелчок по тексту пункта отмечает его, по заголовку группы и пустому месту — список остаётся открытым', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Текст пункта ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' });
+  await apiPost(page, `${base}/tags`, { name: 'Смена' });
+  for (let i = 1; i <= 30; i++) await apiPost(page, `${base}/tags`, { name: `Тег ${String(i).padStart(2, '0')}` });
+  await page.reload();
+  await page.getByRole('button', { name: /^Фильтр/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Фильтры', exact: true });
+  const panelOf = (label: string) => dialog.getByRole('dialog', { name: label, exact: true });
+
+  // полоса прокрутки длинного списка: нажатие и перетаскивание не закрывают панель
+  await dialog.getByRole('button', { name: /^Теги/ }).click();
+  const longTags = panelOf('Теги');
+  const scroller = longTags.locator('.overflow-y-auto');
+  await expect.poll(() => scroller.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  const sb = (await scroller.boundingBox())!;
+  await page.mouse.move(sb.x + sb.width - 4, sb.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(sb.x + sb.width - 4, sb.y + sb.height - 20, { steps: 5 });
+  await page.mouse.up();
+  await expect(longTags).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // текст пункта: флажок отмечается, список остаётся
+  await dialog.getByRole('button', { name: /^Теги/ }).click();
+  const tags = panelOf('Теги');
+  await tags.getByText('Смена', { exact: true }).click();
+  await expect(tags).toBeVisible();
+  await expect(tags.getByRole('checkbox', { name: 'Смена' })).toBeChecked();
+  await tags.getByText('Смена', { exact: true }).click();
+  await expect(tags.getByRole('checkbox', { name: 'Смена' })).not.toBeChecked();
+  await page.keyboard.press('Escape');
+
+  // заголовок группы и пустое место внутри панели
+  await dialog.getByRole('button', { name: /^Типы платежей и категории/ }).click();
+  const types = panelOf('Типы платежей и категории');
+  await types.getByText('Тип', { exact: true }).click();
+  await expect(types).toBeVisible();
+  const box = (await types.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + 4); // отступ панели над поиском
+  await expect(types).toBeVisible();
+  await types.getByText('Расход', { exact: true }).click();
+  await expect(types.getByRole('checkbox', { name: 'Расход', exact: true })).toBeChecked();
+  await expect(types).toBeVisible();
+  // щелчок за пределами панели, но внутри окна, по-прежнему закрывает её
+  await dialog.getByRole('heading', { name: 'Фильтры' }).click();
+  await expect(types).toBeHidden();
+});

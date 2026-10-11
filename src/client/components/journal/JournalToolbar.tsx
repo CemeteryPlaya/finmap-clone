@@ -136,9 +136,9 @@ export function JournalToolbar(props: {
           onClick={() => setPanelOpen(true)}
           className={`${btnSmall} shrink-0 py-2.5`}
         >
-          Фильтры{count > 0 && ` · ${count}`}
+          Период и условия{count > 0 && ` · ${count}`}
         </button>
-        {/* до плана 1.5-5; название не совпадает с окном «Фильтры», которое открывается поверх */}
+        {/* до плана 1.5-5; имя кнопки совпадает с названием панели */}
         <Drawer open={panelOpen} title="Период и условия" side="right" onClose={() => setPanelOpen(false)}>
           <div className="flex flex-col gap-4">
             <div>{period}</div>

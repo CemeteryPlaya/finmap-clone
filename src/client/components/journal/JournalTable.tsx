@@ -1,4 +1,4 @@
-import { useEffect, useRef, type MouseEvent, type ReactNode } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 import { formatDateShortRu } from '../../../shared/dates';
 import { formatMoney, MONEY_SCREEN } from '../../../shared/money';
 import { canAssign, type AssignField } from '../../lib/journal-assign';
@@ -47,8 +47,8 @@ export interface JournalTableProps {
     onToggleAll: (select: boolean) => void;
   };
   /**
-   * Полоса массовых действий (§5.5 этапа 1.5): пока есть выделение, лежит поверх строки заголовков. Заголовки
-   * остаются в таблице для программ чтения, их кнопки на это время выходят из порядка Tab.
+   * Полоса массовых действий (§5.5 этапа 1.5): пока есть выделение, стоит над строкой заголовков (как в Finmap);
+   * заголовки остаются на месте и доступны.
    */
   bulkBar?: ReactNode;
 }
@@ -75,14 +75,13 @@ const tdClass = 'h-[4.5rem] px-3 py-2 align-middle';
 /** Флажки выделения (§5.2): 18 px, цвет акцента. */
 const checkboxClass = 'size-[18px] shrink-0 cursor-pointer accent-income';
 
-function SortHeader(props: { label: string; column: JournalSortKey; sort: JournalSortKey; order: JournalSortOrder; onSort: JournalTableProps['onSort']; className?: string; covered?: boolean }) {
+function SortHeader(props: { label: string; column: JournalSortKey; sort: JournalSortKey; order: JournalSortOrder; onSort: JournalTableProps['onSort']; className?: string }) {
   const active = props.sort === props.column;
   const next: JournalSortOrder = active && props.order === 'desc' ? 'asc' : 'desc';
   return (
     <th scope="col" className={`${thClass} ${props.className ?? ''}`} aria-sort={active ? (props.order === 'asc' ? 'ascending' : 'descending') : undefined}>
       <button
         type="button"
-        tabIndex={props.covered ? -1 : undefined}
         onClick={() => props.onSort(props.column, next)}
         className="group inline-flex items-center gap-1 rounded hover:text-ink focus-visible:outline-2 focus-visible:outline-focus"
       >
@@ -137,17 +136,6 @@ function Balance({ account, balance }: { account: Account | undefined; balance: 
 
 export function JournalTable(props: JournalTableProps) {
   const { lookups, columns, selection, wrap } = props;
-  const covered = Boolean(props.bulkBar);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  // полоса легла на строку заголовков, а фокус остался на её (теперь закрытом) элементе — например, Space на «Выбрать все»:
-  // переносим фокус на общий чекбокс полосы. Выделение мышью по строке в теле таблицы фокус не трогает.
-  useEffect(() => {
-    if (!covered) return;
-    const active = document.activeElement;
-    if (active && wrapRef.current?.querySelector('thead')?.contains(active)) {
-      wrapRef.current.querySelector<HTMLElement>('[data-bulk-clear]')?.focus({ preventScroll: true });
-    }
-  }, [covered]);
   const shown = JOURNAL_COLUMNS.filter((c) => columns.includes(c.id));
   const selectedCount = selection ? props.items.filter((i) => selection.selected.has(i.id)).length : 0;
   const allSelected = props.items.length > 0 && selectedCount === props.items.length;
@@ -174,9 +162,9 @@ export function JournalTable(props: JournalTableProps) {
   const projectName = (id: number): ReactNode => <CellText text={lookups.projects.get(id) ?? '…'} wrap={wrap} />;
 
   return (
-    // полоса действий — вне горизонтальной прокрутки таблицы (§5.5): при узком окне таблица уезжает вбок, полоса — нет
-    <div ref={wrapRef} className="relative">
-      {props.bulkBar && <div className="absolute inset-x-0 top-0 z-10">{props.bulkBar}</div>}
+    // полоса действий — над строкой заголовков, вне горизонтальной прокрутки таблицы (§5.5): при узком окне таблица уезжает вбок, полоса — нет
+    <div>
+      {props.bulkBar}
       <div className="overflow-x-auto">
       <table aria-busy={props.busy} className={`w-full min-w-[56rem] table-fixed border-collapse text-sm ${props.busy ? 'opacity-60' : ''}`}>
         <caption className="sr-only">Операции</caption>
@@ -187,20 +175,20 @@ export function JournalTable(props: JournalTableProps) {
                 <input
                   type="checkbox"
                   data-select-all=""
-                  tabIndex={covered ? -1 : undefined}
                   aria-label="Выбрать все загруженные операции"
                   checked={allSelected}
                   ref={(el) => {
                     if (el) el.indeterminate = selectedCount > 0 && !allSelected;
                   }}
-                  onChange={() => selection.onToggleAll(!allSelected)}
+                  // есть выделение (в том числе частичное, «−») — снимает его; нет выделения — выбирает все загруженные
+                  onChange={() => selection.onToggleAll(selectedCount === 0)}
                   className={checkboxClass}
                 />
               </th>
             )}
             {shown.map((c) =>
               c.id === 'date' || c.id === 'amount' ? (
-                <SortHeader key={c.id} label={c.label} column={c.id} sort={props.sort} order={props.order} onSort={props.onSort} className={COLUMN_WIDTH[c.id]} covered={covered} />
+                <SortHeader key={c.id} label={c.label} column={c.id} sort={props.sort} order={props.order} onSort={props.onSort} className={COLUMN_WIDTH[c.id]} />
               ) : (
                 <th key={c.id} scope="col" className={`${thClass} ${COLUMN_WIDTH[c.id] ?? ''}`}>
                   {c.label}

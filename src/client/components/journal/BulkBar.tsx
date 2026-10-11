@@ -7,9 +7,10 @@ const barButton =
   'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-white disabled:opacity-60 aria-disabled:opacity-60';
 
 /**
- * Полоса массовых действий (§5.5 этапа 1.5): пока есть выделение, лежит на месте строки заголовков таблицы,
- * акцентным цветом, в одну строку той же высоты (не переносится и не наезжает на первую строку таблицы).
- * Слева — общий чекбокс со знаком минус (снимает выделение), «Изменить данные» (окно открывает страница)
+ * Полоса массовых действий (§5.5 этапа 1.5): пока есть выделение, стоит над строкой заголовков таблицы, как в Finmap
+ * (таблица сдвигается вниз на её высоту, заголовки остаются), акцентным цветом, в одну строку высотой в строку заголовков.
+ * Выделение снимает общий чекбокс в заголовке таблицы (он один — «Выбрать все»).
+ * Слева — «Изменить данные» (окно открывает страница)
  * и «Удалить» с подтверждением в полосе; справа — итог выделения по типам в базовой валюте, длинный обрезается
  * (полный — в title). Пока на экране подтверждение, «Изменить данные» и итог скрыты; итог для программ чтения
  * объявляет постоянная живая область страницы. Не больше BULK_MAX операций за раз. Пока действие выполняется,
@@ -23,7 +24,6 @@ export function BulkBar(props: {
   onRun: (action: BulkAction) => Promise<void> | void;
   /** «Изменить данные»: окно открывает страница. */
   onEdit: () => void;
-  onClear: () => void;
 }) {
   const [confirm, setConfirm] = useState(false);
   const deleteRef = useRef<HTMLButtonElement>(null);
@@ -44,18 +44,6 @@ export function BulkBar(props: {
 
   return (
     <div role="region" aria-label="Действия с выбранными" className="flex h-12 flex-nowrap items-center gap-2 overflow-hidden bg-income-strong px-3 text-white">
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked="mixed"
-        data-bulk-clear=""
-        aria-label="Снять выделение"
-        title="Снять выделение"
-        onClick={props.onClear}
-        className="grid size-[18px] shrink-0 place-items-center rounded bg-white text-sm leading-none font-bold text-income-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-      >
-        <span aria-hidden="true">{'\u2212'}</span>
-      </button>
       {tooMany ? (
         <span className="min-w-0 truncate text-sm" title={`Не больше ${BULK_MAX} операций за раз — снимите часть выделения`}>
           Не больше {BULK_MAX} операций за раз — снимите часть выделения

@@ -269,8 +269,8 @@ test('фильтры на телефоне — в панели справа: п�
   await expect(page.getByRole('searchbox', { name: 'Поиск' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Период:/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Колонки' })).toHaveCount(0);
-  const open = page.getByRole('button', { name: /^Фильтры/ });
-  await expect(open).toHaveText('Фильтры');
+  const open = page.getByRole('button', { name: /^Период и условия/ });
+  await expect(open).toHaveText('Период и условия');
 
   await open.click();
   const panel = page.getByRole('dialog', { name: 'Период и условия' });
@@ -323,7 +323,7 @@ test('фильтры на телефоне — в панели справа: п�
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
   await expect(open).toBeFocused();
-  await expect(open).toHaveText('Фильтры · 2');
+  await expect(open).toHaveText('Период и условия · 2');
 
   // касание фона слева от панели закрывает её; «Сбросить фильтр» в панели снимает всё
   await open.click();
@@ -333,7 +333,7 @@ test('фильтры на телефоне — в панели справа: п�
   await panel.getByRole('button', { name: 'Сбросить фильтр' }).click();
   await expect(list).toHaveCount(3);
   await page.keyboard.press('Escape');
-  await expect(open).toHaveText('Фильтры');
+  await expect(open).toHaveText('Период и условия');
 
   // поиск — без панели
   await page.getByRole('searchbox', { name: 'Поиск' }).fill('вчерашн');
@@ -439,7 +439,7 @@ test('ширина 390 px: журнал, все разделы настроек,
   await expect(newForm(page)).toBeHidden();
 
   // окно «Фильтры» поверх панели: длинное название категории переносится, панель поля не шире экрана
-  await page.getByRole('button', { name: /^Фильтры/ }).click();
+  await page.getByRole('button', { name: /^Период и условия/ }).click();
   await page.getByRole('dialog', { name: 'Период и условия' }).getByRole('button', { name: 'Фильтр', exact: true }).click();
   const filter = page.getByRole('dialog', { name: 'Фильтры', exact: true });
   // длинное название — в списке поля «Типы платежей и категории»: переносится, панель не шире экрана

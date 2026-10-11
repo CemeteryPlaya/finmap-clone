@@ -277,6 +277,18 @@ test('«Указать»: окно «Редактирование …» с од�
   await expect(row('A')).not.toContainText('Клуб 1');
   expect(patches).toBe(0);
 
+  // Esc при открытом списке: закрывается только список, окно остаётся; второй Esc закрывает окно
+  await projectChip.click();
+  await projectDialog.getByRole('button', { name: /^Проект:/ }).click();
+  const projectList = page.getByRole('listbox', { name: 'Проекты' });
+  await expect(projectList).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(projectList).toBeHidden();
+  await expect(projectDialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(projectDialog).toBeHidden();
+  await expect(projectChip).toBeFocused();
+
   // проект переводу без строк — мышью
   await row('C').getByRole('button', { name: 'Указать проект' }).click();
   // журнал перечитывается после сохранения — дождёмся его, чтобы правка «в другом окне» ниже пришла позже
@@ -357,20 +369,23 @@ test('массовые действия: полоса на месте загол
   await selectAll.check();
   await expect(bar).toContainText(/Доход • 1 платёж • 40\s₸ · Расход • 3 платежа • 60\s₸/);
   await expect(liveTotals).toHaveText(/Доход • 1 платёж • 40\s₸ · Расход • 3 платежа • 60\s₸/);
-  const clear = bar.getByRole('checkbox', { name: 'Снять выделение' });
-  await expect(clear).toHaveAttribute('aria-checked', 'mixed');
-  // полоса — ровно на месте строки заголовков: та же высота, на первую строку таблицы не наезжает
+  // общий чекбокс один — в заголовке таблицы; в полосе второго «Выбрать все» нет
+  await expect(page.getByRole('checkbox', { name: /Выбрать все|Снять выделение/ })).toHaveCount(1);
+  await expect(bar.getByRole('checkbox')).toHaveCount(0);
+  // полоса — над строкой заголовков (как в Finmap): её нижняя граница совпадает с верхней границей заголовков, высота та же
   // оба прямоугольника читаются в одном вызове — раскладка не успевает сдвинуться между замерами
   const barVsHead = () =>
     page.evaluate(() => {
       const b = document.querySelector('[aria-label="Действия с выбранными"]')!.getBoundingClientRect();
       const h = document.querySelector('thead tr')!.getBoundingClientRect();
-      return { dy: Math.abs(b.y - h.y), dh: Math.abs(b.height - h.height) };
+      return { dy: Math.abs(b.bottom - h.top), dh: Math.abs(b.height - h.height) };
     });
   await expect.poll(async () => (await barVsHead()).dy).toBeLessThanOrEqual(1);
   await expect.poll(async () => (await barVsHead()).dh).toBeLessThanOrEqual(1);
-  // кнопки строки заголовков под полосой не попадают в порядок Tab
-  await expect(selectAll).toHaveAttribute('tabindex', '-1');
+  // заголовки остаются на виду и доступны
+  await expect(selectAll).toBeVisible();
+  await expect(selectAll).not.toHaveAttribute('tabindex', '-1');
+  await expect(table(page).getByRole('button', { name: /^Дата/ })).toBeVisible();
 
   // «Изменить данные»: категория и проект одним сохранением; что не подходит — пропущено с причинами
   const edit = bar.getByRole('button', { name: 'Изменить данные' });
@@ -401,23 +416,17 @@ test('массовые действия: полоса на месте загол
   // выделение остаётся
   await expect(bar).toContainText(/Расход • 3 платежа/);
 
-  // общий чекбокс снимает выделение; фокус — на флажке «Выбрать все» (Review Focus 6)
-  await clear.click();
+  // общий чекбокс в заголовке снимает выделение (он в «−»); фокус остаётся на нём
+  await expect(selectAll).toHaveJSProperty('indeterminate', false);
+  await selectAll.click();
   await expect(bar).toHaveCount(0);
   await expect(selectAll).toBeFocused();
-  // кнопки строки заголовков снова в порядке Tab
-  await expect(selectAll).not.toHaveAttribute('tabindex', '-1');
-  await expect(table(page).locator('thead').getByRole('button').first()).not.toHaveAttribute('tabindex', '-1');
-  // с клавиатуры: Space на «Выбрать все» — фокус уходит на общий чекбокс полосы (не прячется под ней), Tab идёт дальше по полосе
+  // с клавиатуры: Space на «Выбрать все» — полоса появляется, фокус остаётся на нём (ничего не скрыто), Tab идёт в полосу не сразу
   await selectAll.press('Space');
   await expect(bar).toBeVisible();
-  await expect(clear).toBeFocused();
-  await expect(clear).toBeInViewport();
-  await page.keyboard.press('Tab');
-  await expect(edit).toBeFocused();
-  // и обратно: Shift+Tab, Space на общем чекбоксе — выделение снято, фокус на «Выбрать все»
-  await page.keyboard.press('Shift+Tab');
-  await page.keyboard.press('Space');
+  await expect(selectAll).toBeFocused();
+  // и обратно: Space — выделение снято, фокус на месте
+  await selectAll.press('Space');
   await expect(bar).toHaveCount(0);
   await expect(selectAll).toBeFocused();
 
@@ -717,4 +726,33 @@ test('удаление без тоста «Отменить»: после оши
   await expect(summary).toContainText('Операция уже удалена — 1');
   await expect(bar).toHaveCount(0);
   await expect(summary).toBeFocused();
+});
+
+test('«Изменить данные» в фильтре «Без категории»: строки ушли из фильтра — фокус не на <body>', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Без категории ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(2), accountId: kaspi, amount: 100, comment: 'операция A' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: kaspi, amount: 200, comment: 'операция B' });
+  await page.goto(`/c/${cid}/log?noCategory=1`);
+  await expect.poll(() => letters(page)).toBe('BA');
+
+  await table(page).getByRole('checkbox', { name: 'Выбрать все загруженные операции' }).check();
+  const bar = page.getByRole('region', { name: 'Действия с выбранными' });
+  await bar.getByRole('button', { name: 'Изменить данные' }).click();
+  const editDialog = page.getByRole('dialog', { name: 'Изменить данные' });
+  await editDialog.getByRole('button', { name: /^Категория:/ }).click();
+  await page.getByRole('listbox', { name: 'Категории' }).getByRole('option', { name: 'Аренда', exact: true }).click();
+  await editDialog.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(editDialog).toBeHidden();
+  // обе операции получили категорию и ушли из «Без категории»: полосы нет, фокус не потерян
+  await expect(page.getByText('По этому фильтру операций нет.')).toBeVisible();
+  await expect(bar).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.activeElement === document.body)).toBe(false);
+  // фокус — на итоге (он показан) или на заголовке страницы: «Выбрать все» в пустой таблице уже нет
+  await expect
+    .poll(() => page.evaluate(() => document.activeElement?.id === 'journal-heading' || (document.activeElement?.getAttribute('role') === 'status' && /Категория:/.test(document.activeElement.textContent ?? ''))))
+    .toBe(true);
 });
