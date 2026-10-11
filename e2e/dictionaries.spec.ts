@@ -287,35 +287,45 @@ test('контрагенты: подменю типов в порядке Finmap
   await expect(types.getByRole('link', { name: /^Мои контрагенты/ })).toHaveAttribute('aria-current', 'page');
 });
 
-test('шаблон разделения: сохранить можно только при 100%', async ({ page }) => {
+test('шаблоны разделения — вкладка «Проектов»: «Создать шаблон» в окне, сохранить можно только при 100%; ✎ и удаление', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Разделение ${Date.now()}`);
+  for (const name of ['Клуб 1', 'Клуб 2']) await apiPost(page, `/api/v1/companies/${cid}/projects`, { name, templateKey: 'general' });
   await page.goto(`/c/${cid}/settings/projects`);
-  for (const name of ['Клуб 1', 'Клуб 2']) {
-    await page.getByRole('button', { name: 'Добавить проект' }).click();
-    await page.getByLabel('Название проекта').fill(name);
-    await page.getByLabel('Тип бизнеса').selectOption('general');
-    await page.getByRole('button', { name: 'Создать проект' }).click();
-    await expect(page.getByRole('listitem').filter({ hasText: name })).toBeVisible();
-  }
-
-  await section(page, 'Проекты').click();
-  await page.getByRole('navigation', { name: 'Проекты и шаблоны' }).getByRole('link', { name: 'Шаблоны разделения' }).click();
+  const main = page.getByRole('main');
+  await expect(main.getByRole('heading', { level: 1, name: 'Проекты' })).toBeVisible();
+  const tabs = main.getByRole('navigation', { name: 'Проекты и шаблоны' });
+  await tabs.getByRole('link', { name: 'Шаблоны разделения' }).click();
   await expect(page).toHaveURL(/\/settings\/projects\/split-presets$/);
-  await page.getByRole('button', { name: 'Добавить шаблон' }).click();
-  await page.getByLabel('Название шаблона').fill('Аренда пополам');
-  await page.getByLabel('Проект, строка 1').selectOption({ label: 'Клуб 1' });
-  await page.getByLabel('Доля %, строка 1').fill('50');
-  await page.getByLabel('Проект, строка 2').selectOption({ label: 'Клуб 2' });
-  await page.getByLabel('Доля %, строка 2').fill('40');
-  await expect(page.getByRole('status').filter({ hasText: 'Распределено' })).toHaveText('Распределено 90% из 100% · осталось 10%');
-  await expect(page.getByRole('button', { name: 'Сохранить шаблон' })).toBeDisabled();
-  await page.getByLabel('Доля %, строка 2').fill('50');
-  await page.getByRole('button', { name: 'Сохранить шаблон' }).click();
+  await expect(tabs.getByRole('link', { name: 'Шаблоны разделения' })).toHaveAttribute('aria-current', 'page');
+  // заголовок раздела один и тот же, вкладка показывает, где вы (как в Finmap)
+  await expect(main.getByRole('heading', { level: 1, name: 'Проекты' })).toBeVisible();
 
-  const row = page.getByRole('listitem').filter({ hasText: 'Аренда пополам' });
+  await main.getByRole('button', { name: 'Создать шаблон' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Новый шаблон' });
+  await dialog.getByLabel('Название шаблона').fill('Аренда пополам');
+  await dialog.getByLabel('Проект, строка 1').selectOption({ label: 'Клуб 1' });
+  await dialog.getByLabel('Доля %, строка 1').fill('50');
+  await dialog.getByLabel('Проект, строка 2').selectOption({ label: 'Клуб 2' });
+  await dialog.getByLabel('Доля %, строка 2').fill('40');
+  await expect(dialog.getByRole('status').filter({ hasText: 'Распределено' })).toHaveText('Распределено 90% из 100% · осталось 10%');
+  await expect(dialog.getByRole('button', { name: 'Сохранить шаблон' })).toBeDisabled();
+  await dialog.getByLabel('Доля %, строка 2').fill('50');
+  await dialog.getByRole('button', { name: 'Сохранить шаблон' }).click();
+  await expect(dialog).toBeHidden();
+
+  const row = main.getByRole('listitem').filter({ hasText: 'Аренда пополам' });
   await expect(row).toContainText('Клуб 1 — 50%');
   await expect(row).toContainText('Клуб 2 — 50%');
+
+  // ✎ — окно «Шаблон разделения» с долями; «Удалить» через подтверждение
+  await row.getByRole('button', { name: 'Изменить Аренда пополам', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: 'Шаблон разделения', exact: true });
+  await expect(edit.getByLabel('Доля %, строка 2')).toHaveValue('50');
+  await edit.getByRole('button', { name: 'Удалить', exact: true }).click();
+  await page.getByRole('alertdialog', { name: 'Удалить шаблон «Аренда пополам»?' }).getByRole('button', { name: 'Удалить' }).click();
+  await expect(edit).toBeHidden();
+  await expect(main.getByRole('listitem').filter({ hasText: 'Аренда пополам' })).toHaveCount(0);
 });
 
 test('переименование проекта переименовывает его счета; Alt+↓ меняет порядок счетов', async ({ page }) => {
@@ -323,19 +333,26 @@ test('переименование проекта переименовывает
   const cid = await createCompany(page, `ТОО Переименование ${Date.now()}`);
   await page.goto(`/c/${cid}/settings/projects`);
   await page.getByRole('button', { name: 'Добавить проект' }).click();
-  await page.getByLabel('Название проекта').fill('Клуб А');
-  await page.getByLabel('Тип бизнеса').selectOption('computer-club');
-  await page.getByLabel('Количество ПК').fill('1e3');
-  await page.getByRole('button', { name: 'Создать проект' }).click();
-  await expect(page.getByText('Введите целое число')).toBeVisible();
-  await page.getByLabel('Количество ПК').fill('10');
-  await page.getByRole('button', { name: 'Создать проект' }).click();
+  const created = page.getByRole('dialog', { name: 'Новый проект' });
+  // окно проекта: сначала шаблон (на нём начальный фокус), затем название и параметры (§7.4)
+  await expect(created.getByLabel('Тип бизнеса')).toBeFocused();
+  await created.getByLabel('Тип бизнеса').selectOption('computer-club');
+  await expect(created.locator('label')).toHaveText(['Тип бизнеса', 'Название проекта', 'Количество ПК', 'Количество консолей']);
+  await created.getByLabel('Название проекта').fill('Клуб А');
+  await created.getByLabel('Количество ПК').fill('1e3');
+  await created.getByRole('button', { name: 'Создать проект' }).click();
+  await expect(created.getByText('Введите целое число')).toBeVisible();
+  await created.getByLabel('Количество ПК').fill('10');
+  await created.getByRole('button', { name: 'Создать проект' }).click();
+  await expect(created).toBeHidden();
 
-  await page.getByRole('listitem').filter({ hasText: 'Клуб А' }).getByRole('button', { name: 'Изменить' }).click();
-  await page.getByLabel('Название проекта').fill('Клуб Б');
-  await expect(page.getByLabel('Переименовать счета')).toBeChecked();
-  await page.getByRole('button', { name: 'Сохранить' }).click();
-  await expect(page.getByRole('status')).toHaveText('Переименовано счетов: 2');
+  await page.getByRole('button', { name: 'Изменить Клуб А', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: 'Проект', exact: true });
+  await edit.getByLabel('Название проекта').fill('Клуб Б');
+  await expect(edit.getByLabel('Переименовать счета')).toBeChecked();
+  await edit.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(edit).toBeHidden();
+  await expect(page.getByRole('main').getByRole('status')).toHaveText('Переименовано счетов: 2');
 
   await section(page, 'Счета').click();
   const accounts = page.getByRole('main').getByRole('list', { name: 'Счета' });
@@ -402,7 +419,8 @@ test('зона настроек: разделы по группам, без па
   // старый адрес шаблонов разделения — вкладка раздела «Проекты»
   await page.goto(`/c/${cid}/settings/split-presets`);
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/projects/split-presets$`));
-  await expect(page.getByRole('heading', { level: 1, name: 'Шаблоны разделения' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Проекты' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Проекты и шаблоны' }).getByRole('link', { name: 'Шаблоны разделения' })).toHaveAttribute('aria-current', 'page');
   await expect(nav.getByRole('link', { name: 'Проекты' })).toHaveAttribute('aria-current', 'page');
   await page.getByRole('navigation', { name: 'Проекты и шаблоны' }).getByRole('link', { name: 'Проекты' }).click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/projects$`));

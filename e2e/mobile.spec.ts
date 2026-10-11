@@ -449,7 +449,7 @@ test('ширина 390 px: журнал, все разделы настроек,
 
   // шаблон разделения в правке: строка — карточкой, у категории вся ширина
   await page.goto(`/c/${cid}/settings/split-presets`);
-  await page.getByRole('button', { name: 'Изменить', exact: true }).click();
+  await page.getByRole('button', { name: 'Изменить Аренда целиком', exact: true }).click();
   const category = page.getByRole('combobox', { name: 'Категория, строка 1' });
   await expect(category).toBeVisible();
   expect((await category.boundingBox())!.width).toBeGreaterThan(250);

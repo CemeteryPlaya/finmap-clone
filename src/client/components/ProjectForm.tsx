@@ -69,10 +69,7 @@ export function ProjectForm(props: {
   };
 
   return (
-    <form onSubmit={onSubmit} noValidate className="space-y-4 rounded-2xl bg-canvas p-4">
-      <Field label="Название проекта" error={fields.name}>
-        {(c) => <input {...c} autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Клуб на Ленина" className={inputClass} />}
-      </Field>
+    <form onSubmit={onSubmit} noValidate className="space-y-4">
       <Field label="Тип бизнеса" error={fields.templateKey}>
         {(c) => (
           <select
@@ -93,6 +90,9 @@ export function ProjectForm(props: {
             ))}
           </select>
         )}
+      </Field>
+      <Field label="Название проекта" error={fields.name}>
+        {(c) => <input {...c} value={name} onChange={(e) => setName(e.target.value)} placeholder="Клуб на Ленина" className={inputClass} />}
       </Field>
       {info?.paramsUi.map((p) => (
         <Field key={p.key} label={p.label} hint={p.hint} error={fields[`templateParams.${p.key}`]}>
@@ -118,7 +118,7 @@ export function ProjectForm(props: {
           {props.serverError}
         </p>
       )}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button type="submit" disabled={props.pending || !name.trim()} className={btnPrimary}>
           {props.mode === 'create' ? 'Создать проект' : 'Сохранить'}
         </button>

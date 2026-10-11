@@ -3,18 +3,21 @@ import { useState, type FormEvent } from 'react';
 import { useOutletContext } from 'react-router';
 import { formatBp, parsePercentToBp } from '../../../shared/percent';
 import { SPLIT_TOTAL_BP } from '../../../shared/schemas/split-presets';
-import { ConfirmDelete } from '../../components/ConfirmDelete';
+import { ArchivedNote, EntityActions } from '../../components/EntityActions';
 import { Field } from '../../components/Field';
+import { Modal } from '../../components/Modal';
 import { Pending, StaleNotice } from '../../components/QueryState';
+import { SettingsList } from '../../components/SettingsList';
 import { alertClass, btnIcon, btnPrimary, btnSecondary, btnSmall, inputClass, noticeClass } from '../../components/ui';
 import { api, type ApiError } from '../../lib/api';
+import { mergeSubsetOrder } from '../../lib/order';
 import { queryClient } from '../../lib/query';
 import { useCategories, useProjects, useSplitPresets, type CategoryNode, type CategoryTree, type Project, type SplitLine, type SplitPreset } from '../../lib/queries';
+import { useEntityActions, useReorder } from '../../lib/settings-mutations';
 import type { CompanyOutletContext } from '../CompanyLayout';
-import { ProjectsTabs } from './ProjectsTabs';
+import { ProjectsHeader } from './ProjectsTabs';
 
 type Kind = 'income' | 'expense';
-type Action = { path: string; method: 'POST' | 'DELETE' };
 
 interface LineDraft {
   categoryId: string;
@@ -131,7 +134,7 @@ function PresetForm(props: {
   };
 
   return (
-    <form onSubmit={submit} noValidate className="space-y-4 rounded-2xl bg-canvas p-4">
+    <form onSubmit={submit} noValidate className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2">
         <Field label="Название шаблона" error={props.serverFields?.name}>
           {(c) => <input {...c} autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className={inputClass} />}
@@ -224,7 +227,7 @@ function PresetForm(props: {
           {alertMessages.join('. ')}
         </p>
       )}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button type="submit" disabled={!canSave} className={btnPrimary}>
           {props.submitLabel}
         </button>
@@ -236,49 +239,29 @@ function PresetForm(props: {
   );
 }
 
+
+/** Окно шаблона: 'new' — «Новый шаблон», id — «Шаблон разделения» (свежие данные из списка), null — закрыто. */
+type Editing = number | 'new' | null;
+
+/**
+ * «Шаблоны разделения» — вкладка раздела «Проекты» (§7.4 этапа 1.5): шаблон списка, «Создать шаблон» и ✎ —
+ * окно редактора; серый текст строки — доли шаблона.
+ */
 export function SplitPresetsSettings() {
   const { company } = useOutletContext<CompanyOutletContext>();
   const presets = useSplitPresets(company.id);
   const categories = useCategories(company.id);
   const projects = useProjects(company.id);
-  const [creating, setCreating] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [editing, setEditing] = useState<Editing>(null);
+  const [listError, setListError] = useState<string | null>(null);
   const readOnly = company.archivedAt !== null;
-  const base = `/companies/${company.id}/split-presets`;
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['split-presets', company.id] });
-
-  const create = useMutation<unknown, ApiError, { name: string; lines: SplitLine[] }>({
-    mutationFn: (body) => api(base, { method: 'POST', body }),
-    onSuccess: async () => {
-      await invalidate();
-      setCreating(false);
-    },
-  });
-  const update = useMutation<unknown, ApiError, { id: number; body: { name: string; lines: SplitLine[] } }>({
-    mutationFn: ({ id, body }) => api(`${base}/${id}`, { method: 'PATCH', body }),
-    onSuccess: async () => {
-      await invalidate();
-      setEditingId(null);
-    },
-  });
-  const action = useMutation<unknown, ApiError, Action>({
-    mutationFn: (a) => api(a.path, { method: a.method }),
-    onSuccess: async () => {
-      setDeletingId(null);
-      await invalidate();
-    },
-  });
-  const resetMessages = () => {
-    create.reset();
-    update.reset();
-    action.reset();
-  };
+  const reorder = useReorder<SplitPreset>(['split-presets', company.id], `/companies/${company.id}/split-presets/reorder`, setListError);
 
   if (!presets.data || !categories.data || !projects.data) return <Pending queries={[presets, categories, projects]} />;
   const list = presets.data;
   const tree = categories.data;
   const projectList = projects.data;
+  const editingPreset = typeof editing === 'number' ? (list.find((p) => p.id === editing) ?? null) : null;
   const categoryLabel = new Map([...flatten(tree.income), ...flatten(tree.expense)].map((o) => [o.id, o.label]));
   const projectName = new Map(projectList.map((p) => [p.id, p.name]));
   const summary = (p: SplitPreset) =>
@@ -294,127 +277,87 @@ export function SplitPresetsSettings() {
 
   return (
     <section>
-      <ProjectsTabs companyId={company.id} />
+      <ProjectsHeader companyId={company.id} />
       <StaleNotice queries={[presets, categories, projects]} />
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold">Шаблоны разделения</h1>
-        {!readOnly && !creating && (
-          <button
-            type="button"
-            onClick={() => {
-              resetMessages();
-              setEditingId(null);
-              setCreating(true);
-            }}
-            className={btnPrimary}
-          >
-            Добавить шаблон
-          </button>
-        )}
-      </div>
       <p className="mb-4 text-sm text-muted">Шаблон делит сумму операции между категориями и проектами в заданных долях; сумма долей — ровно 100%.</p>
       {readOnly && <p className={noticeClass}>Компания в архиве — изменения недоступны.</p>}
-      {action.error && (
+      {listError && (
         <p role="alert" className={alertClass}>
-          {action.error.message}
+          {listError}
         </p>
       )}
-      {creating && (
-        <div className="mb-6">
-          <PresetForm
-            initial={{ name: '', kind: 'expense', lines: [emptyLine(), emptyLine()] }}
-            tree={tree}
-            projects={projectList}
-            submitLabel="Сохранить шаблон"
-            pending={create.isPending}
-            serverFields={create.error?.fields}
-            serverError={create.error && !create.error.fields ? create.error.message : undefined}
-            onSubmit={(body) => create.mutate(body)}
-            onCancel={() => {
-              setCreating(false);
-              create.reset();
-            }}
-          />
-        </div>
-      )}
-      {list.length === 0 && !creating && <p className="text-muted">Шаблонов пока нет.</p>}
-      <ul className="space-y-2">
-        {list.map((p) => (
-          <li key={p.id} className={`rounded-2xl border border-field p-4 ${p.archivedAt ? 'opacity-60' : ''}`}>
-            {editingId === p.id ? (
-              <PresetForm
-                initial={toDraft(p, tree)}
-                tree={tree}
-                projects={projectList}
-                submitLabel="Сохранить шаблон"
-                pending={update.isPending}
-                serverFields={update.error?.fields}
-                serverError={update.error && !update.error.fields ? update.error.message : undefined}
-                onSubmit={(body) => update.mutate({ id: p.id, body })}
-                onCancel={() => {
-                  setEditingId(null);
-                  update.reset();
-                }}
-              />
-            ) : (
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-semibold">
-                    {p.name}
-                    {p.archivedAt && <span className="ml-2 rounded-full bg-field px-2 py-0.5 text-xs text-muted">В архиве</span>}
-                  </div>
-                  <div className="text-sm text-muted">{summary(p)}</div>
-                </div>
-                {!readOnly &&
-                  (deletingId === p.id ? (
-                    <ConfirmDelete
-                      what={`шаблон «${p.name}»`}
-                      pending={action.isPending}
-                      onConfirm={() => action.mutate({ path: `${base}/${p.id}`, method: 'DELETE' })}
-                      onCancel={() => setDeletingId(null)}
-                    />
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {!p.archivedAt && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            resetMessages();
-                            setCreating(false);
-                            setEditingId(p.id);
-                          }}
-                          className={btnSmall}
-                        >
-                          Изменить
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          resetMessages();
-                          action.mutate({ path: `${base}/${p.id}/${p.archivedAt ? 'unarchive' : 'archive'}`, method: 'POST' });
-                        }}
-                        className={btnSmall}
-                      >
-                        {p.archivedAt ? 'Вернуть из архива' : 'В архив'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          resetMessages();
-                          setDeletingId(p.id);
-                        }}
-                        className={btnSmall}
-                      >
-                        Удалить
-                      </button>
-                    </div>
-                  ))}
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
+      <SettingsList
+        label="Шаблоны разделения"
+        rows={list.map((p) => ({ id: p.id, name: p.name, secondary: summary(p), archived: p.archivedAt !== null }))}
+        addLabel={readOnly ? null : 'Создать шаблон'}
+        onAdd={() => setEditing('new')}
+        onReorder={
+          readOnly
+            ? undefined
+            : (group) =>
+                reorder.mutate(
+                  mergeSubsetOrder(
+                    list.map((p) => p.id),
+                    group,
+                  ),
+                )
+        }
+        onEdit={readOnly ? undefined : (row) => setEditing(row.id)}
+        empty="Шаблонов пока нет."
+      />
+      <Modal open={editing !== null} title={editing === 'new' ? 'Новый шаблон' : 'Шаблон разделения'} onClose={() => setEditing(null)} className="max-w-2xl">
+        {editing === 'new' && <PresetEditor key="new" companyId={company.id} preset={null} tree={tree} projects={projectList} onDone={() => setEditing(null)} />}
+        {typeof editing === 'number' &&
+          (editingPreset ? (
+            <PresetEditor key={editing} companyId={company.id} preset={editingPreset} tree={tree} projects={projectList} onDone={() => setEditing(null)} />
+          ) : (
+            <p className="text-muted">Шаблон не найден — возможно, его удалили.</p>
+          ))}
+      </Modal>
     </section>
+  );
+}
+
+function PresetEditor(props: { companyId: number; preset: SplitPreset | null; tree: CategoryTree; projects: Project[]; onDone: () => void }) {
+  const { preset, onDone } = props;
+  const base = `/companies/${props.companyId}/split-presets`;
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['split-presets', props.companyId] });
+  const save = useMutation<unknown, ApiError, { name: string; lines: SplitLine[] }>({
+    mutationFn: (body) => (preset ? api(`${base}/${preset.id}`, { method: 'PATCH', body }) : api(base, { method: 'POST', body })),
+    onSuccess: async () => {
+      await refresh();
+      onDone();
+    },
+  });
+  const actions = useEntityActions(preset ? `${base}/${preset.id}` : base, refresh, onDone);
+
+  return (
+    <>
+      {preset?.archivedAt ? (
+        <ArchivedNote />
+      ) : (
+        <PresetForm
+          initial={preset ? toDraft(preset, props.tree) : { name: '', kind: 'expense', lines: [emptyLine(), emptyLine()] }}
+          tree={props.tree}
+          projects={props.projects}
+          submitLabel="Сохранить шаблон"
+          pending={save.isPending}
+          serverFields={save.error?.fields}
+          serverError={save.error && !save.error.fields ? save.error.message : undefined}
+          onSubmit={(body) => save.mutate(body)}
+          onCancel={onDone}
+        />
+      )}
+      {preset && (
+        <EntityActions
+          archived={preset.archivedAt !== null}
+          onArchiveToggle={() => actions.toggleArchive(preset.archivedAt !== null)}
+          what={`шаблон «${preset.name}»`}
+          onDelete={actions.remove}
+          pending={actions.pending}
+          error={actions.error}
+        />
+      )}
+    </>
   );
 }
