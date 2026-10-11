@@ -309,7 +309,7 @@ test('«Указать»: окно «Редактирование …» с од�
   await expect(row('C')).toContainText('Клуб 1');
 });
 
-test('массовые действия: категория с итогом и причинами, проект, удаление с подтверждением и «Отменить» — балансы в панели обновляются', async ({ page }) => {
+test('массовые действия: полоса на месте заголовков с итогом выделения, «Изменить данные» с итогом и причинами, удаление с подтверждением и «Отменить» — балансы в панели обновляются', async ({ page }) => {
   // часы подменены: тост «Отменить» живёт 10 с только пока тест сам не продвинет время (медленная машина его не сожжёт)
   await page.clock.install();
   await login(page);
@@ -344,30 +344,61 @@ test('массовые действия: категория с итогом и �
   // 1000 - 10 - 20 - 30 + 40 = 980 ₸
   await expect(kaspiLink).toContainText(/₸\s980$/);
 
-  // выбрать все загруженные → «Категория»: расходы с одной строкой меняются, разбитая и доход пропущены с причинами
-  await table(page).getByRole('checkbox', { name: 'Выбрать все загруженные операции' }).check();
-  await expect(bar).toContainText('Выбрано: 4');
-  await bar.getByRole('button', { name: 'Категория', exact: true }).click();
-  await page.getByRole('listbox', { name: 'Категории' }).getByRole('option', { name: 'Расход: Аренда' }).click();
+  // выбрать все загруженные: полоса встаёт на место строки заголовков, справа — итог выделения по типам (§5.5)
+  const selectAll = table(page).getByRole('checkbox', { name: 'Выбрать все загруженные операции' });
+  // живая область итога есть до выделения — первая сумма тоже объявляется
+  const liveTotals = page.locator('#selection-totals');
+  await expect(liveTotals).toHaveAttribute('aria-live', 'polite');
+  await expect(liveTotals).toHaveText('');
+  await selectAll.check();
+  await expect(bar).toContainText(/Доход • 1 платёж • 40\s₸ · Расход • 3 платежа • 60\s₸/);
+  await expect(liveTotals).toHaveText(/Доход • 1 платёж • 40\s₸ · Расход • 3 платежа • 60\s₸/);
+  const clear = bar.getByRole('checkbox', { name: 'Снять выделение' });
+  await expect(clear).toHaveAttribute('aria-checked', 'mixed');
+  // полоса — ровно на месте строки заголовков: та же высота, на первую строку таблицы не наезжает
+  const headRow = table(page).locator('thead tr');
+  const barBox = (await bar.boundingBox())!;
+  const headBox = (await headRow.boundingBox())!;
+  expect(Math.abs(barBox.y - headBox.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(barBox.height - headBox.height)).toBeLessThanOrEqual(1);
+  // кнопки строки заголовков под полосой не попадают в порядок Tab
+  await expect(selectAll).toHaveAttribute('tabindex', '-1');
+
+  // «Изменить данные»: категория и проект одним сохранением; что не подходит — пропущено с причинами
+  const edit = bar.getByRole('button', { name: 'Изменить данные' });
+  await edit.click();
+  const editDialog = page.getByRole('dialog', { name: 'Изменить данные' });
+  await expect(editDialog).toContainText('Выбрано: 4');
+  const editSave = editDialog.getByRole('button', { name: 'Сохранить' });
+  await expect(editSave).toBeDisabled();
+  await editDialog.getByRole('button', { name: /^Категория:/ }).click();
+  const categoryList = page.getByRole('listbox', { name: 'Категории' });
+  await expect(categoryList.getByRole('group', { name: 'Доходы' })).toBeVisible();
+  await categoryList.getByRole('group', { name: 'Расходы' }).getByRole('option', { name: 'Аренда', exact: true }).click();
+  await expect(editSave).toBeEnabled();
+  await editDialog.getByRole('button', { name: /^Проект:/ }).click();
+  await page.getByRole('listbox', { name: 'Проекты' }).getByRole('option', { name: 'Клуб 2' }).click();
+  await editSave.click();
+  await expect(editDialog).toBeHidden();
+  // фокус — снова на «Изменить данные»
+  await expect(edit).toBeFocused();
   const summary = page.getByRole('status').filter({ hasText: 'Категория:' });
-  await expect(summary).toContainText('Категория: изменено 2, пропущено 2');
-  // фокус после выбора — на кнопке списка, а не на body
-  await expect(bar.getByRole('button', { name: 'Категория', exact: true })).toBeFocused();
-  await expect(summary).toContainText('Разбитая операция — измените её в форме — 1');
-  await expect(summary).toContainText('Категория расходов не подходит для дохода — 1');
+  await expect(summary).toContainText('Категория: изменено 2, пропущено 2. Проект: изменено 3, пропущено 1');
+  await expect(summary).toContainText('Категория: Разбитая операция — измените её в форме — 1');
+  await expect(summary).toContainText('Категория: Категория расходов не подходит для дохода — 1');
   await expect(row('A')).toContainText('Аренда');
   await expect(row('B')).toContainText('Аренда');
   await expect(row('D')).not.toContainText('Аренда');
-  // выделение остаётся — можно назначить ещё и проект
-  await expect(bar).toContainText('Выбрано: 4');
-  await bar.getByRole('button', { name: 'Проект', exact: true }).click();
-  await page.getByRole('listbox', { name: 'Проекты' }).getByRole('option', { name: 'Клуб 2' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Проект:' })).toContainText('Проект: изменено 3, пропущено 1');
   await expect(row('D')).toContainText('Клуб 2');
+  // выделение остаётся
+  await expect(bar).toContainText(/Расход • 3 платежа/);
+
+  // общий чекбокс снимает выделение; фокус — на флажке «Выбрать все» (Review Focus 6)
+  await clear.click();
+  await expect(bar).toHaveCount(0);
+  await expect(selectAll).toBeFocused();
 
   // удалить две операции: подтверждение, тост с фокусом на «Отменить», балансы пересчитаны
-  await bar.getByRole('button', { name: 'Снять выделение' }).click();
-  await expect(bar).toHaveCount(0);
 
   // отступ ячейки с флажком — тоже флажок: клик по краю ячейки отмечает строку, а не открывает операцию
   await row('B').locator('td').first().click({ position: { x: 2, y: 2 } });
@@ -377,7 +408,7 @@ test('массовые действия: категория с итогом и �
 
   // смена фильтра снимает выделение: действие не уйдёт на строки, которых уже не видно (Review Focus 4)
   await row('A').getByRole('checkbox').check();
-  await expect(bar).toContainText('Выбрано: 1');
+  await expect(bar).toContainText(/Расход • 1 платёж • 10\s₸/);
   await choosePeriod(page, 'За вчера');
   await expect(bar).toHaveCount(0);
   await choosePeriod(page, 'За все время');
@@ -400,6 +431,21 @@ test('массовые действия: категория с итогом и �
     }).toPass();
   await bar.getByRole('button', { name: 'Удалить', exact: true }).click();
   await expect(bar.getByRole('button', { name: 'Отмена' })).toBeFocused();
+  // подтверждение — в той же одной строке: высота полосы равна высоте строки заголовков, итог на это время скрыт
+  const confirmBox = (await bar.boundingBox())!;
+  const headRowBox = (await table(page).locator('thead tr').boundingBox())!;
+  expect(Math.abs(confirmBox.height - headRowBox.height)).toBeLessThanOrEqual(1);
+  await expect(bar).not.toContainText('платёж');
+  await expect(bar.getByRole('button', { name: 'Да, удалить' })).toBeVisible();
+  // узкое окно (R1): полоса не прокручивается и обрезает лишнее — кнопки подтверждения целиком внутри её правой границы
+  await page.setViewportSize({ width: 800, height: 720 });
+  await expect(bar).toBeVisible();
+  const narrowBar = (await bar.boundingBox())!;
+  for (const label of ['Да, удалить', 'Отмена']) {
+    const box = (await bar.getByRole('button', { name: label }).boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(narrowBar.x + narrowBar.width + 0.5);
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
   // «Отмена» возвращает фокус на «Удалить», а не на body
   await bar.getByRole('button', { name: 'Отмена' }).click();
   await expect(bar.getByRole('button', { name: 'Удалить', exact: true })).toBeFocused();

@@ -228,7 +228,7 @@ test('выделение из широкого окна на телефоне с
 
   await page.getByRole('checkbox', { name: 'Выбрать все загруженные операции' }).check();
   const bulk = page.getByRole('region', { name: 'Действия с выбранными' });
-  await expect(bulk).toContainText('Выбрано: 1');
+  await expect(bulk).toContainText('Доход • 1 платёж');
   await page.setViewportSize(PHONE);
   await expect(cards(page).getByRole('listitem')).toHaveCount(1);
   await expect(bulk).toHaveCount(0);

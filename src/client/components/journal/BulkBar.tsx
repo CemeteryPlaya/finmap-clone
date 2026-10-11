@@ -1,16 +1,30 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AssignData } from '../../lib/journal-assign';
-import { BULK_MAX, type BulkAction } from '../../lib/journal-bulk';
-import { categoryOptions } from '../../lib/operation-options';
-import { SearchPicker } from '../SearchPicker';
-import { btnDanger, btnSecondary, btnSmall } from '../ui';
+import { BULK_MAX, selectionTotals, type BulkAction } from '../../lib/journal-bulk';
+import type { JournalItem } from '../../lib/queries';
+import { PencilIcon, TrashIcon } from '../icons';
+
+const barButton =
+  'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-white disabled:opacity-60 aria-disabled:opacity-60';
 
 /**
- * Массовые действия с выбранными строками (§7): «Категория», «Проект», «Контрагент» (только назначают значение),
- * «Удалить» с подтверждением. Не больше BULK_MAX операций за раз. Пока действие выполняется, списки только помечены
- * недоступными (aria-disabled): после выбора фокус возвращается на кнопку списка и там остаётся.
+ * Полоса массовых действий (§5.5 этапа 1.5): пока есть выделение, лежит на месте строки заголовков таблицы,
+ * акцентным цветом, в одну строку той же высоты (не переносится и не наезжает на первую строку таблицы).
+ * Слева — общий чекбокс со знаком минус (снимает выделение), «Изменить данные» (окно открывает страница)
+ * и «Удалить» с подтверждением в полосе; справа — итог выделения по типам в базовой валюте, длинный обрезается
+ * (полный — в title). Пока на экране подтверждение, «Изменить данные» и итог скрыты; итог для программ чтения
+ * объявляет постоянная живая область страницы. Не больше BULK_MAX операций за раз. Пока действие выполняется,
+ * «Изменить данные» только помечена недоступной (aria-disabled): фокус, вернувшийся на неё после окна, не теряется.
  */
-export function BulkBar(props: { count: number; data: AssignData; pending: boolean; onRun: (action: BulkAction) => Promise<void> | void; onClear: () => void }) {
+export function BulkBar(props: {
+  /** Выбранные загруженные операции — для итога. */
+  items: readonly Pick<JournalItem, 'type' | 'baseAmount'>[];
+  baseCurrency: string;
+  pending: boolean;
+  onRun: (action: BulkAction) => Promise<void> | void;
+  /** «Изменить данные»: окно открывает страница. */
+  onEdit: () => void;
+  onClear: () => void;
+}) {
   const [confirm, setConfirm] = useState(false);
   const deleteRef = useRef<HTMLButtonElement>(null);
   // «Отмена» убирает сфокусированную кнопку: фокус возвращается на «Удалить», как только она снова на месте
@@ -22,55 +36,56 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
       deleteRef.current?.focus();
     }
   }, [confirm, props.pending]);
-  const tooMany = props.count > BULK_MAX;
+  const count = props.items.length;
+  const tooMany = count > BULK_MAX;
   const disabled = props.pending || tooMany;
-  const pickerClass = btnSmall;
-  const categoryChoices = [
-    ...categoryOptions(props.data.categories, 'income', []).map((o) => ({ ...o, label: `Доход: ${o.label}` })),
-    ...categoryOptions(props.data.categories, 'expense', []).map((o) => ({ ...o, label: `Расход: ${o.label}` })),
-  ];
+  const totals = selectionTotals(props.items, props.baseCurrency);
+  const question = `Удалить выбранные операции (${count})? Отменить можно будет 10 секунд.`;
 
   return (
-    <div role="region" aria-label="Действия с выбранными" className="mb-3 flex flex-wrap items-center gap-2 rounded-2xl bg-field/60 px-3 py-2">
-      <span className="text-sm font-semibold">Выбрано: {props.count}</span>
+    <div role="region" aria-label="Действия с выбранными" className="flex h-12 flex-nowrap items-center gap-2 overflow-hidden bg-income-strong px-3 text-white">
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked="mixed"
+        aria-label="Снять выделение"
+        title="Снять выделение"
+        onClick={props.onClear}
+        className="grid size-[18px] shrink-0 place-items-center rounded bg-white text-sm leading-none font-bold text-income-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+      >
+        <span aria-hidden="true">{'−'}</span>
+      </button>
       {tooMany ? (
-        <span className="text-sm text-expense">Не больше {BULK_MAX} операций за раз — снимите часть выделения</span>
+        <span className="min-w-0 truncate text-sm" title={`Не больше ${BULK_MAX} операций за раз — снимите часть выделения`}>
+          Не больше {BULK_MAX} операций за раз — снимите часть выделения
+        </span>
       ) : (
-        <>
-          <SearchPicker
-            label="Категория"
-            listLabel="Категории"
-            options={categoryChoices}
-            onPick={(categoryId) => props.onRun({ action: 'setCategory', categoryId })}
-            buttonClassName={pickerClass}
-            inactive={props.pending}
-          />
-          <SearchPicker
-            label="Проект"
-            listLabel="Проекты"
-            options={props.data.projects.filter((p) => !p.archivedAt).map((p) => ({ id: p.id, label: p.name }))}
-            onPick={(projectId) => props.onRun({ action: 'setProject', projectId })}
-            buttonClassName={pickerClass}
-            inactive={props.pending}
-          />
-          <SearchPicker
-            label="Контрагент"
-            listLabel="Контрагенты"
-            options={props.data.counterparties.filter((c) => !c.archivedAt).map((c) => ({ id: c.id, label: c.name }))}
-            onPick={(counterpartyId) => props.onRun({ action: 'setCounterparty', counterpartyId })}
-            buttonClassName={pickerClass}
-            inactive={props.pending}
-          />
-          {!confirm && (
-            <button ref={deleteRef} type="button" disabled={disabled} onClick={() => setConfirm(true)} className={`${btnSmall} text-expense`}>
+        !confirm && (
+          <>
+            <button
+              type="button"
+              aria-haspopup="dialog"
+              aria-disabled={props.pending || undefined}
+              onClick={() => {
+                if (!props.pending) props.onEdit();
+              }}
+              className={barButton}
+            >
+              <PencilIcon />
+              Изменить данные
+            </button>
+            <button ref={deleteRef} type="button" disabled={disabled} onClick={() => setConfirm(true)} className={barButton}>
+              <TrashIcon />
               Удалить
             </button>
-          )}
-        </>
+          </>
+        )
       )}
       {confirm && !tooMany && (
-        <span role="group" aria-label="Подтверждение удаления" className="flex flex-wrap items-center gap-2 text-sm">
-          <span>Удалить выбранные операции ({props.count})? Отменить можно будет 10 секунд.</span>
+        <span role="group" aria-label="Подтверждение удаления" className="flex min-w-0 items-center gap-2 text-sm">
+          <span className="min-w-0 truncate" title={question}>
+            {question}
+          </span>
           <button
             type="button"
             disabled={disabled}
@@ -80,7 +95,7 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
               setConfirm(false);
               void props.onRun({ action: 'delete' });
             }}
-            className={`${btnDanger} px-3 py-1.5 text-sm`}
+            className="shrink-0 rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-expense hover:brightness-95 disabled:opacity-60"
           >
             Да, удалить
           </button>
@@ -91,14 +106,17 @@ export function BulkBar(props: { count: number; data: AssignData; pending: boole
               refocusDelete.current = true;
               setConfirm(false);
             }}
-            className={`${btnSecondary} px-3 py-1.5 text-sm`}>
+            className={barButton}
+          >
             Отмена
           </button>
         </span>
       )}
-      <button type="button" onClick={props.onClear} className="ml-auto text-sm font-semibold underline">
-        Снять выделение
-      </button>
+      {!confirm && (
+        <p title={totals} className="ml-auto min-w-0 truncate text-sm font-semibold">
+          {totals}
+        </p>
+      )}
     </div>
   );
 }

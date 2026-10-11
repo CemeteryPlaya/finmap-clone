@@ -3,6 +3,7 @@ import { useLocation, useOutletContext, useSearchParams } from 'react-router';
 import { todayInTimezone } from '../../shared/dates';
 import { AssignChip, AssignDialog, rowOpenButton, type AssignRequest } from '../components/journal/AssignDialog';
 import { BulkBar } from '../components/journal/BulkBar';
+import { BulkEditDialog } from '../components/journal/BulkEditDialog';
 import { FilterButton } from '../components/journal/FilterButton';
 import { JournalCards } from '../components/journal/JournalCards';
 import { FilterDialog } from '../components/journal/FilterDialog';
@@ -29,7 +30,7 @@ import {
   type JournalUrlState,
 } from '../lib/journal-filter';
 import { categoryLookup, uniqueById } from '../lib/journal-format';
-import { bulkSummary, type BulkAction, type BulkSummary } from '../lib/journal-bulk';
+import { bulkEditSummary, bulkSummary, selectionTotals, type BulkAction, type BulkEditAction, type BulkResult, type BulkSummary } from '../lib/journal-bulk';
 import { operationErrorText, refreshOperations, runBulk, useAssign } from '../lib/journal-mutations';
 import { rememberJournal } from '../lib/last-journal';
 import { journalWrap } from '../lib/preferences';
@@ -159,6 +160,13 @@ function JournalScreen(props: {
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const [summary, setSummary] = useState<BulkSummary | null>(null);
   const [bulkPending, setBulkPending] = useState(false);
+  // «Изменить данные» (§5.5): окно живёт на странице, а не в полосе — полоса исчезает вместе с выделением,
+  // а открытый <dialog> нельзя просто убрать со страницы
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  // выделение опустело при открытом окне (другой фильтр, строки ушли из загруженных) — окно закрывается штатно
+  useEffect(() => {
+    if (selected.size === 0) setBulkEditOpen(false);
+  }, [selected]);
   // итог без тоста (ничего не удалено) получает фокус: полоса действий исчезла вместе с выделением
   const summaryRef = useRef<HTMLDivElement>(null);
   const [focusSummary, setFocusSummary] = useState(false);
@@ -243,7 +251,8 @@ function JournalScreen(props: {
   const items = uniqueById(journal.data?.pages.flatMap((p) => p.items) ?? []);
   const columns = visibleColumns(prefs.data?.[JOURNAL_COLUMNS_PREF]);
   const conditions = filterConditionCount(state);
-  const selectedIds = items.filter((i) => selected.has(i.id)).map((i) => i.id);
+  const selectedItems = items.filter((i) => selected.has(i.id));
+  const selectedIds = selectedItems.map((i) => i.id);
   const undoShown = props.undoSummary;
   const otherCompany = (id: number) => id !== company.id;
   const shownSummary: BulkSummary | null = undoShown
@@ -272,6 +281,27 @@ function JournalScreen(props: {
       setBulkPending(false);
     }
   };
+  // «Изменить данные» (§5.5): по очереди только заполненные поля; упал запрос — следующие не выполняются, итог это показывает
+  const runEdit = async (actions: BulkEditAction[], ids: number[]) => {
+    setBulkPending(true);
+    setActionError(null);
+    setSummary(null);
+    props.onClearUndoSummary();
+    const done: { action: BulkEditAction['action']; result: BulkResult }[] = [];
+    let failed: { action: BulkEditAction['action']; message: string } | null = null;
+    let next = 0;
+    for (; next < actions.length; next++) {
+      const action = actions[next]!;
+      try {
+        done.push({ action: action.action, result: await runBulk(company.id, ids, action) });
+      } catch (e) {
+        failed = { action: action.action, message: operationErrorText(e) };
+        break;
+      }
+    }
+    setSummary(bulkEditSummary(done, failed, failed ? actions.slice(next + 1).map((a) => a.action) : []));
+    setBulkPending(false);
+  };
   // сохраняются поля окна поверх ТЕКУЩЕГО фильтра — как у «Готово», без устаревшего поиска из снимка
   const saveFilter = async (draft: DialogFields, name: string) => {
     await api(`/companies/${company.id}/saved-filters`, { method: 'POST', body: { name, filter: savedFilterFromState(applyDialogFields(state, draft), today) } });
@@ -286,6 +316,10 @@ function JournalScreen(props: {
       <h1 id={HEADING_ID} tabIndex={-1} className="sr-only">
         Журнал
       </h1>
+      {/* итог выделения для программ чтения (§5.5): область есть всегда, без выделения пустая — первый итог тоже объявляется */}
+      <p id="selection-totals" aria-live="polite" className="sr-only">
+        {!mobile && selectedItems.length > 0 ? selectionTotals(selectedItems, company.baseCurrency) : ''}
+      </p>
       <JournalToolbar
         state={state}
         onChange={update}
@@ -333,6 +367,21 @@ function JournalScreen(props: {
             // строка может уйти из выборки («Без категории»): эффект выше переведёт фокус на соседнюю
             assigned.current = { id: item.id, index: items.findIndex((i) => i.id === item.id) };
           }}
+        />
+      )}
+      {!readOnly && (
+        <BulkEditDialog
+          open={bulkEditOpen}
+          count={selectedIds.length}
+          data={assignData}
+          onClose={() => setBulkEditOpen(false)}
+          onSave={(actions) => {
+            setBulkEditOpen(false);
+            void runEdit(actions, selectedIds);
+          }}
+          // окно закрылось, потому что выделение опустело: «Изменить данные» уже нет — фокус на «Выбрать все»
+          // (если и таблицы нет — Modal поставит фокус на заголовок страницы)
+          returnFocus={() => (selected.size === 0 ? document.querySelector<HTMLElement>('[data-select-all]') : null)}
         />
       )}
       {readOnly && <p className={noticeClass}>Компания в архиве — изменения недоступны.</p>}
@@ -399,9 +448,6 @@ function JournalScreen(props: {
           </button>
         </p>
       )}
-      {!mobile && selectedIds.length > 0 && (
-        <BulkBar count={selectedIds.length} data={assignData} pending={bulkPending} onRun={(action) => run(action, selectedIds)} onClear={() => setSelected(new Set())} />
-      )}
       {!journal.data && !journal.error ? (
         <p className="py-8 text-center text-muted">Загрузка…</p>
       ) : !journal.data ? (
@@ -441,6 +487,22 @@ function JournalScreen(props: {
           busy={journal.isPlaceholderData}
           onOpenOperation={openOperation}
           renderAssign={readOnly ? undefined : (item, field) => <AssignChip field={field} onClick={() => setAssignRequest({ item, field })} />}
+          bulkBar={
+            !mobile && selectedItems.length > 0 ? (
+              <BulkBar
+                items={selectedItems}
+                baseCurrency={company.baseCurrency}
+                pending={bulkPending}
+                onRun={(action) => run(action, selectedIds)}
+                onEdit={() => setBulkEditOpen(true)}
+                onClear={() => {
+                  setSelected(new Set());
+                  // полоса исчезла вместе с фокусом — он переходит на флажок «Выбрать все» в открывшейся строке заголовков
+                  requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-select-all]')?.focus());
+                }}
+              />
+            ) : undefined
+          }
           selection={readOnly ? undefined : {
             selected,
             onToggle: (id) =>
