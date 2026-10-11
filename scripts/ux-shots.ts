@@ -49,9 +49,10 @@ const openForm = (label: 'Доход' | 'Расход' | 'Перевод') => as
   await banner(p).getByRole('button', { name: label, exact: true }).click();
   await newForm(p).getByRole('textbox', { name: /^Сумма,/ }).waitFor();
 };
-const formList = (field: RegExp) => async (p: Page) => {
+/** Список поля формы дохода: поле со списком (§6.6 этапа 1.5), имя — подпись поля. */
+const formList = (field: string) => async (p: Page) => {
   await openForm('Доход')(p);
-  await newForm(p).getByRole('button', { name: field }).click();
+  await newForm(p).getByRole('combobox', { name: field, exact: true }).click();
   await p.getByRole('listbox').first().waitFor();
 };
 
@@ -97,9 +98,32 @@ const SCENARIOS: Scenario[] = [
       await newForm(p).getByRole('button', { name: /^Проект, теги, комментарий/ }).click();
     },
   },
-  { ours: 'c08-income-account-dd.png', finmap: '08-income-account-dd.png', path: 'log', act: formList(/^Счёт:/) },
-  { ours: 'c09-income-category-dd.png', finmap: '09-income-category-dd.png', path: 'log', act: formList(/^Категория:/) },
-  { ours: 'c10-income-counterparty-dd.png', finmap: '10-income-counterparty-dd.png', path: 'log', act: formList(/^Контрагент:/) },
+  { ours: 'c08-income-account-dd.png', finmap: '08-income-account-dd.png', path: 'log', act: formList('Счёт') },
+  { ours: 'c09-income-category-dd.png', finmap: '09-income-category-dd.png', path: 'log', act: formList('Категория') },
+  {
+    ours: 'c09b-category-typed.png',
+    finmap: '09b-category-typed.png',
+    path: 'log',
+    act: async (p) => {
+      // как на снимке Finmap: расход, в поле категории набрано «аре» — найденное и «+ Создать „аре“» после него
+      await openForm('Расход')(p);
+      await newForm(p).getByRole('combobox', { name: 'Категория', exact: true }).fill('аре');
+      await p.getByRole('listbox').first().waitFor();
+    },
+  },
+  { ours: 'c10-income-counterparty-dd.png', finmap: '10-income-counterparty-dd.png', path: 'log', act: formList('Мой контрагент') },
+  {
+    ours: 'c11-income-project-dd.png',
+    finmap: '11-income-project-dd.png',
+    path: 'log',
+    act: async (p) => {
+      // «+ Создать проект» — первым пунктом пустого запроса
+      await openForm('Доход')(p);
+      await newForm(p).getByRole('button', { name: /^Проект, теги, комментарий/ }).click();
+      await newForm(p).getByRole('combobox', { name: 'Проект', exact: true }).click();
+      await p.getByRole('listbox').first().waitFor();
+    },
+  },
   {
     ours: 'c14-after-escape.png',
     finmap: '14-after-escape.png',
