@@ -1,5 +1,5 @@
 import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
-import { cycleTab, firstTabbable, focusPageHeading } from './focus-trap';
+import { cycleTab, firstTabbable, focusPageHeading, markInitialFocus } from './focus-trap';
 import { btnClose } from './ui';
 
 /**
@@ -49,6 +49,8 @@ export function Modal(props: {
       if (document.activeElement === closeRef.current) {
         const first = contentRef.current ? firstTabbable(contentRef.current) : null;
         (first ?? dialog).focus();
+        // фокус поставило окно, а не человек: поле с автофокусом (сумма, пустой счёт) его заберёт
+        if (first) markInitialFocus(first);
       }
     } else if (!props.open && dialog.open) {
       dialog.close();

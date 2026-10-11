@@ -30,13 +30,18 @@ const panel = (page: Page) => page.getByRole('navigation', { name: 'Счета' 
 /** Тело следующего запроса создания операции. */
 const nextCreate = (page: Page) =>
   page.waitForRequest((r) => r.method() === 'POST' && /\/operations$/.test(new URL(r.url()).pathname));
-const form = (page: Page) => page.getByRole('dialog', { name: 'Новая операция' });
+/** Окно новой операции (§6.1 этапа 1.5): своё на тип. */
+const form = (page: Page) => page.getByRole('dialog', { name: /^Новый (доход|расход|перевод)$/ });
+const TITLES = { Доход: 'Новый доход', Расход: 'Новый расход', Перевод: 'Новый перевод' } as const;
+/** Главная кнопка формы (§6.9 этапа 1.5). */
+const submit = (scope: Locator) => scope.getByRole('button', { name: /^(Добавить (доход|расход|перевод)|Сохранить изменения)$/ });
 
 /** Открыть форму кнопкой шапки: «Доход», «Расход» или «Перевод». */
 async function openForm(page: Page, button: 'Доход' | 'Расход' | 'Перевод') {
   await page.getByRole('banner').getByRole('button', { name: button, exact: true }).click();
-  await expect(form(page)).toBeVisible();
-  return form(page);
+  const dialog = page.getByRole('dialog', { name: TITLES[button], exact: true });
+  await expect(dialog).toBeVisible();
+  return dialog;
 }
 
 /** Поле со списком (§6.6 этапа 1.5): `input role="combobox"`, имя — подпись поля. */
@@ -63,11 +68,23 @@ test('доход, расход и перевод KZT → USD через форм
 
   // доход: выражение вычисляется при уходе из поля, Enter в поле суммы сохраняет
   let dialog = await openForm(page, 'Доход');
-  await expect(dialog.getByRole('radio', { name: 'Доход' })).toBeChecked();
+  // отдельное окно на тип: вкладок нет, окно не шире 480 px, кнопка — «Добавить доход» (§6.1, §6.9)
+  await expect(dialog.getByRole('radio')).toHaveCount(0);
+  expect((await dialog.boundingBox())!.width).toBeLessThanOrEqual(480);
+  await expect(submit(dialog)).toHaveText('Добавить доход');
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
   await expect(amount).toBeFocused();
-  await pick(page, 'Счёт', 'Касса');
+  await pick(page, 'На счёт', 'Касса');
   await pick(page, 'Категория', 'Выручка');
+  // «Валюта» — значок валюты счёта рядом с суммой (§6.2)
+  await expect(dialog.getByText('KZT (₸)')).toBeVisible();
+  // «Дата сделки отличается» — строка-действие: открывает поле «Дата сделки», «✕» возвращает строку (§6.7)
+  const accrualRow = dialog.getByRole('button', { name: 'Дата сделки отличается' });
+  await expect(accrualRow).toHaveAccessibleDescription('Дата начисления для отчёта о прибылях и убытках');
+  await accrualRow.click();
+  await expect(dialog.getByRole('button', { name: /^Дата сделки:/ })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Убрать дату сделки' }).click();
+  await expect(accrualRow).toBeFocused();
   await amount.fill('1 500 + 500');
   await amount.blur();
   await expect(amount).toHaveValue('2000');
@@ -80,11 +97,11 @@ test('доход, расход и перевод KZT → USD через форм
   dialog = await openForm(page, 'Расход');
   await pick(page, 'Категория', 'Аренда');
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('100+200');
-  await dialog.getByRole('button', { name: 'Проект, теги, комментарий' }).click();
+  await dialog.getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
   await dialog.getByLabel('Комментарий').fill('за октябрь');
   // click без ухода фокуса из поля (dispatchEvent): сумма уходит на сервер уже вычисленной
   const rentRequest = nextCreate(page);
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).dispatchEvent('click');
+  await submit(dialog).dispatchEvent('click');
   expect((await rentRequest).postDataJSON().amount).toBe(30000);
   await expect(dialog).toBeHidden();
   const rent = table(page).locator('tbody tr').filter({ hasText: 'Аренда' });
@@ -93,13 +110,19 @@ test('доход, расход и перевод KZT → USD через форм
 
   // перевод в другую валюту: «Сумма зачисления» и вычисленный курс
   dialog = await openForm(page, 'Перевод');
+  // у перевода дата — первой, затем «Со счёта», «На счёт», сумма; значка «Валюта» нет (§6.2)
+  const top = async (l: Locator) => (await l.boundingBox())!.y;
+  expect(await top(dialog.getByLabel('Дата перевода денег'))).toBeLessThan(await top(field(dialog, 'Со счёта')));
+  expect(await top(field(dialog, 'Со счёта'))).toBeLessThan(await top(field(dialog, 'На счёт')));
+  expect(await top(field(dialog, 'На счёт'))).toBeLessThan(await top(dialog.getByRole('textbox', { name: /^Сумма,/ })));
+  await expect(dialog.getByText('Валюта', { exact: true })).toHaveCount(0);
   await expect(dialog.getByRole('textbox', { name: /^Сумма зачисления/ })).toHaveCount(0);
   await pick(page, 'Со счёта', 'Касса');
   await pick(page, 'На счёт', 'Валютный');
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('500');
   await dialog.getByRole('textbox', { name: /^Сумма зачисления/ }).fill('1');
   await expect(dialog.getByText('Курс: 1 USD = 500 KZT')).toBeVisible();
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(dialog).toBeHidden();
   await expect(panel(page).getByRole('link', { name: /^Касса/ })).toContainText(/₸\s2\s200$/);
   await expect(panel(page).getByRole('link', { name: /^Валютный/ })).toContainText(/\$\s1$/);
@@ -119,7 +142,7 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   // пустая сумма и деление на ноль — ошибки у поля, окно остаётся открытым
   const dialog = await openForm(page, 'Расход');
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(amount).toHaveAttribute('aria-invalid', 'true');
   await expect(dialog).toContainText('Введите сумму');
   await amount.fill('5/0');
@@ -217,9 +240,9 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   // «Сохранить и создать похожий»: категория и контрагент остаются, сумма и комментарий — нет
   await pick(page, 'Мой контрагент', 'ТОО Ромашка');
   await amount.fill('100');
-  await dialog.getByRole('button', { name: 'Проект, теги, комментарий' }).click();
+  await dialog.getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
   await dialog.getByLabel('Комментарий').fill('первый');
-  await dialog.getByRole('button', { name: 'Сохранить и создать похожий' }).click();
+  await dialog.getByRole('button', { name: 'Добавить и создать похожий' }).click();
   await expect(dialog.getByRole('status')).toContainText('Операция сохранена');
   await expect(amount).toHaveValue('');
   await expect(amount).toBeFocused();
@@ -268,16 +291,23 @@ test('«Разделить» в процентах на два проекта; �
   // проценты: остаток виден, сохранить можно только при 0
   let dialog = await openForm(page, 'Расход');
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('1000');
-  await dialog.getByRole('button', { name: 'Разделить', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Разделить платёж' }).click();
   const split = dialog.getByRole('region', { name: 'Разбиение' });
-  // в первой строке уже стоит вся сумма: смена режима сбрасывает значения — сначала вопрос
+  // в первой строке уже стоит вся сумма: смена способа сбрасывает значения — сначала вопрос (вложенное окно)
   await split.getByRole('radio', { name: 'В процентах' }).click();
-  await expect(split.getByRole('group', { name: 'Подтверждение' })).toContainText('Значения строк будут сброшены');
-  await split.getByRole('button', { name: 'Оставить как есть' }).click();
+  const reset = page.getByRole('alertdialog', { name: 'Сменить способ деления?' });
+  await expect(reset).toHaveAccessibleDescription('Значения строк будут сброшены.');
+  // Esc закрывает только вопрос: окно открыто, вопроса о несохранённом нет (Review Focus 2, отложенное 6a №2)
+  await page.keyboard.press('Escape');
+  await expect(reset).toBeHidden();
+  await expect(page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' })).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await split.getByRole('radio', { name: 'В процентах' }).click();
+  await reset.getByRole('button', { name: 'Отменить' }).click();
   await expect(split.getByRole('radio', { name: 'Суммами' })).toBeChecked();
   await expect(split.getByRole('group', { name: 'Строка 1' }).getByRole('textbox', { name: /^Сумма/ })).toHaveValue('1000');
   await split.getByRole('radio', { name: 'В процентах' }).click();
-  await split.getByRole('button', { name: 'Сбросить значения' }).click();
+  await reset.getByRole('button', { name: 'Сбросить значения' }).click();
   await expect(split.getByRole('radio', { name: 'В процентах' })).toBeChecked();
   const line1 = split.getByRole('group', { name: 'Строка 1' });
   const line2 = split.getByRole('group', { name: 'Строка 2' });
@@ -293,14 +323,14 @@ test('«Разделить» в процентах на два проекта; �
   await expect(field(split.getByRole('group', { name: 'Строка 3' }), 'Категория')).toBeFocused();
   await split.getByRole('button', { name: 'Убрать строку 3' }).click();
   await expect(split.getByRole('button', { name: 'Убрать строку 2' })).toBeFocused();
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(split.getByRole('alert')).toContainText('Распределите всю сумму');
   await expect(dialog).toBeVisible();
   await line2.getByLabel('Доля, %').fill('40');
   await expect(split.getByRole('status').first()).toHaveText('Распределено полностью');
   await expect(line1).toContainText(/= 600\s₸/);
   await expect(line2).toContainText(/= 400\s₸/);
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(dialog).toBeHidden();
   const row = table(page).locator('tbody tr').first();
   await expect(row).toContainText('Аренда');
@@ -310,11 +340,13 @@ test('«Разделить» в процентах на два проекта; �
   // шаблон: категория «Свет» в архиве — отброшена с предупреждением, её строка остаётся с проектом
   dialog = await openForm(page, 'Расход');
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('100');
-  await dialog.getByRole('button', { name: 'Разделить', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Разделить платёж' }).click();
   await split.getByRole('button', { name: 'Применить шаблон' }).click();
   await dialog.getByRole('option', { name: 'Север и Юг' }).click();
   // в первой строке стоит сумма операции: шаблон заменит строки — сначала вопрос
-  await split.getByRole('button', { name: 'Сбросить значения' }).click();
+  await page.getByRole('alertdialog', { name: 'Применить шаблон «Север и Юг»?' }).getByRole('button', { name: 'Применить' }).click();
+  // строка 2 стала «Отменить разделение»
+  await expect(dialog.getByRole('button', { name: 'Отменить разделение' })).toBeVisible();
   await expect(split).toContainText('Шаблон «Север и Юг»: 1 элемент недоступен');
   await expect(field(line1, 'Категория')).toHaveValue('Аренда');
   await expect(field(line1, 'Проект')).toHaveValue('Север');
@@ -328,7 +360,7 @@ test('«Разделить» в процентах на два проекта; �
   await split.getByLabel('Название шаблона').fill('Без света');
   await split.getByRole('button', { name: 'Сохранить шаблон' }).click();
   await expect(split).toContainText('Шаблон «Без света» сохранён.');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(dialog).toBeHidden();
   const presets = (await (await page.request.get(`${base}/split-presets`)).json()).splitPresets as { name: string; lines: unknown[] }[];
   expect(presets.find((p) => p.name === 'Без света')!.lines).toEqual([
@@ -356,18 +388,18 @@ test('сценарий 3 §10 через форму: доход, расход н
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
   await expect(amount).toBeFocused();
   await amount.fill('500');
-  await pick(page, 'Счёт', 'Касса');
+  await pick(page, 'На счёт', 'Касса');
   await pick(page, 'Категория', 'Выручка');
-  await dialog.getByRole('button', { name: 'Проект, теги, комментарий' }).click();
+  await dialog.getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
   await pick(page, 'Проект', 'Север');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(dialog).toBeHidden();
 
   // расход 300: «Аренда» на два проекта суммами — 100 и 200
   dialog = await openForm(page, 'Расход');
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('300');
-  await dialog.getByRole('button', { name: 'Разделить', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Разделить платёж' }).click();
   const split = dialog.getByRole('region', { name: 'Разбиение' });
   const line1 = split.getByRole('group', { name: 'Строка 1' });
   const line2 = split.getByRole('group', { name: 'Строка 2' });
@@ -383,7 +415,7 @@ test('сценарий 3 §10 через форму: доход, расход н
   await pick(page, 'Проект', 'Юг', line2);
   await line2.getByRole('textbox', { name: /^Сумма/ }).fill('200');
   await expect(split.getByRole('status').first()).toHaveText('Распределено полностью');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(dialog).toBeHidden();
 
   // перевод 500 ₸ → 1 $
@@ -393,7 +425,7 @@ test('сценарий 3 §10 через форму: доход, расход н
   await pick(page, 'Со счёта', 'Касса');
   await pick(page, 'На счёт', 'Валютный');
   await dialog.getByRole('textbox', { name: /^Сумма зачисления/ }).fill('1');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(dialog).toBeHidden();
 
   // левая панель: 1 000 + 500 - 300 - 500 = 700 ₸ и 1 $ (= 500 ₸ по курсу компании)
@@ -458,7 +490,7 @@ test('«+ Создать „…“» прямо из формы: контраг�
   await expect(dialog.getByRole('option', { name: /Создать/ })).toHaveCount(0);
   await category.press('Escape');
 
-  await dialog.getByRole('button', { name: 'Проект, теги, комментарий' }).click();
+  await dialog.getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
   const project = field(dialog, 'Проект');
   await project.fill('Клуб Центр');
   await dialog.getByRole('option', { name: '+ Создать проект „Клуб Центр“' }).click();
@@ -474,7 +506,7 @@ test('«+ Создать „…“» прямо из формы: контраг�
   await dialog.getByRole('option', { name: '+ Создать тег „старый“' }).click();
   await expect(dialog.getByRole('alert')).toContainText('Не удалось создать «старый»');
 
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(dialog).toBeHidden();
   const row = table(page).locator('tbody tr').first();
   await expect(row).toContainText('Интернет');
@@ -493,8 +525,8 @@ test('нет курса на дату: «Указать курс на {D}» со
 
   const dialog = await openForm(page, 'Расход');
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('10');
-  await dialog.getByLabel('Дата оплаты').fill('2021-06-15');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await dialog.getByLabel('Указать дату списания').fill('2021-06-15');
+  await submit(dialog).click();
   const alert = dialog.getByRole('alert').filter({ hasText: 'Нет курса CHF на 15.06.2021' });
   await expect(alert).toBeVisible();
   await expect(alert.getByRole('button', { name: 'Указать курс на 15.06.2021' })).toBeFocused();

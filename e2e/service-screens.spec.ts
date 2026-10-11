@@ -226,7 +226,7 @@ test('панель «История действий»: последние де�
   // запись о доходе открывает его в форме, панель закрывается
   await items.nth(1).getByRole('button').click();
   await expect(drawer).toBeHidden();
-  const form = page.getByRole('dialog', { name: 'Изменить операцию' });
+  const form = page.getByRole('dialog', { name: 'Доход', exact: true });
   await expect(form.getByLabel('Комментарий')).toHaveValue('выручка за смену');
   await page.keyboard.press('Escape');
   await expect(form).toBeHidden();

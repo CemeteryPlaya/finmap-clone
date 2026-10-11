@@ -3,8 +3,11 @@ import {
   buildBody,
   changeType,
   emptyDraft,
+  FIELD_LABELS,
+  operationTitle,
   paidAtFor,
   similarDraft,
+  submitLabel,
   transferRateText,
   type DraftContext,
   type OperationDraft,
@@ -171,5 +174,31 @@ describe('changeType, similarDraft, transferRateText', () => {
     expect(transferRateText(100000, 'KZT', 2100, 'KWD')).toBe('1 KWD = 476,1904762 KZT');
     expect(transferRateText(0, 'KZT', 10000, 'USD')).toBeNull();
     expect(transferRateText(100, 'KZT', 100, 'KZT')).toBeNull();
+  });
+});
+
+describe('окно по типу (§6.1, §6.2, §6.9 этапа 1.5)', () => {
+  it('заголовок: «Новый доход» при создании, «Доход» при правке', () => {
+    expect(operationTitle('income', false)).toBe('Новый доход');
+    expect(operationTitle('expense', false)).toBe('Новый расход');
+    expect(operationTitle('transfer', false)).toBe('Новый перевод');
+    expect(operationTitle('income', true)).toBe('Доход');
+    expect(operationTitle('expense', true)).toBe('Расход');
+    expect(operationTitle('transfer', true)).toBe('Перевод');
+  });
+
+  it('главная кнопка: «Добавить доход / расход / перевод», при правке — «Сохранить изменения»', () => {
+    expect(submitLabel('income', false)).toBe('Добавить доход');
+    expect(submitLabel('expense', false)).toBe('Добавить расход');
+    expect(submitLabel('transfer', false)).toBe('Добавить перевод');
+    expect(submitLabel('transfer', true)).toBe('Сохранить изменения');
+  });
+
+  it('подписи счёта и даты оплаты — как в Finmap', () => {
+    expect(FIELD_LABELS).toEqual({
+      income: { account: 'На счёт', paidDate: 'Дата поступления денег' },
+      expense: { account: 'Со счёта', paidDate: 'Указать дату списания' },
+      transfer: { account: 'Со счёта', paidDate: 'Дата перевода денег' },
+    });
   });
 });

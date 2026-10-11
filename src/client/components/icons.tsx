@@ -106,3 +106,34 @@ export function TrashIcon() {
     </Svg>
   );
 }
+
+/** Иконки строк-действий формы операции (§6.7 этапа 1.5). */
+export function SplitIcon() {
+  return (
+    <Svg>
+      <circle cx="6" cy="5" r="2" />
+      <circle cx="18" cy="5" r="2" />
+      <circle cx="12" cy="19" r="2" />
+      <path d="M6 7v1a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4V7" />
+      <line x1="12" y1="12" x2="12" y2="17" />
+    </Svg>
+  );
+}
+
+export function CopyIcon() {
+  return (
+    <Svg>
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </Svg>
+  );
+}
+
+/** Стрелка раскрывающей строки: ˅ свёрнуто, ˄ раскрыто. */
+export function ChevronIcon({ up }: { up?: boolean }) {
+  return (
+    <Svg className={up ? 'rotate-180' : undefined}>
+      <polyline points="6 9 12 15 18 9" />
+    </Svg>
+  );
+}

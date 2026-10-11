@@ -18,6 +18,7 @@ import {
   type SplitLineDraft,
   type SplitMode,
 } from '../../lib/split';
+import { ConfirmDialog } from '../ConfirmDialog';
 import { Field } from '../Field';
 import { SearchPicker } from '../SearchPicker';
 import { btnSmall, floatingControlClass, inputClass } from '../ui';
@@ -38,8 +39,6 @@ export function SplitEditor(props: {
   kind: 'income' | 'expense';
   value: SplitDraft;
   onChange: (split: SplitDraft) => void;
-  /** Отменить разбиение: вернуться к одной категории и проекту. */
-  onCancel: () => void;
   /** Сумма операции в минимальных единицах; null — ещё не введена. */
   total: number | null;
   currency: string;
@@ -51,6 +50,8 @@ export function SplitEditor(props: {
   /** «+ Создать „…“» в строке: создать категорию или проект и выбрать его в строке с ключом key. */
   onCreateCategory?: (name: string, key: number) => void | Promise<boolean>;
   onCreateProject?: (name: string, key: number) => void | Promise<boolean>;
+  /** Элемент, с которого спросили подтверждение, исчез: куда вернуть фокус (форма — в поле суммы, §11). */
+  onFocusLost?: () => void;
 }) {
   const modeName = useId();
   const [notice, setNotice] = useState<string | null>(null);
@@ -138,7 +139,7 @@ export function SplitEditor(props: {
   };
 
   return (
-    <section ref={sectionRef} aria-label="Разбиение" className="grid grid-cols-[minmax(0,1fr)] gap-3 rounded-2xl bg-canvas p-4 md:col-span-2">
+    <section ref={sectionRef} aria-label="Разбиение" className="grid grid-cols-[minmax(0,1fr)] gap-3 rounded-2xl bg-canvas p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <fieldset className="inline-flex gap-1 rounded-xl bg-field p-1">
           <legend className="sr-only">Как делить</legend>
@@ -171,25 +172,10 @@ export function SplitEditor(props: {
           </button>
         </div>
       </div>
-      {confirm && (
-        <div role="group" aria-label="Подтверждение" className="flex flex-wrap items-center gap-2 rounded-xl bg-field px-3 py-2 text-sm">
-          <span>{confirm.kind === 'mode' ? 'Значения строк будут сброшены.' : 'Строки будут заменены шаблоном, значения сброшены.'}</span>
-          <button
-            type="button"
-            autoFocus
-            onClick={() => (confirm.kind === 'mode' ? switchMode(confirm.mode) : apply(confirm.preset))}
-            className={btnSmall}
-          >
-            Сбросить значения
-          </button>
-          <button type="button" onClick={() => setConfirm(null)} className={btnSmall}>
-            Оставить как есть
-          </button>
-        </div>
-      )}
 
+      {/* окно 480 px (§6.1 этапа 1.5): категория и проект — в одну строку, ниже сумма (или доля) и «×» */}
       {split.lines.map((line, i) => (
-        <div key={line.key} role="group" aria-label={`Строка ${i + 1}`} className="grid grid-cols-[minmax(0,1fr)] items-start gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_10rem_auto]">
+        <div key={line.key} role="group" aria-label={`Строка ${i + 1}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-2">
           <ComboSelect
             label="Категория"
             listLabel="Категории"
@@ -208,6 +194,7 @@ export function SplitEditor(props: {
             onChange={(projectId) => setLine(i, { projectId })}
             {...createProps<void | Promise<boolean>>(props.onCreateProject ? { onCreate: (name) => props.onCreateProject!(name, line.key), createNoun: 'проект' } : {})}
           />
+          <div className="col-span-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
           {split.mode === 'amount' ? (
             <AmountField
               label="Сумма"
@@ -237,10 +224,11 @@ export function SplitEditor(props: {
               focusAfter.current = { kind: 'remove', index: i };
               props.onChange({ ...split, lines: split.lines.filter((_, j) => j !== i) });
             }}
-            className={`${btnSmall} md:mt-3`}
+            className={`${btnSmall} mt-3`}
           >
             ×
           </button>
+          </div>
         </div>
       ))}
 
@@ -301,9 +289,20 @@ export function SplitEditor(props: {
           </button>
         </div>
       )}
-      <button type="button" onClick={props.onCancel} className="justify-self-start text-sm font-semibold text-muted underline">
-        Отменить разбиение
-      </button>
+      {/* подтверждение — вложенное окно (§2.4 этапа 1.5): Esc закрывает только его, вопроса формы нет (отложенное 6a №2) */}
+      <ConfirmDialog
+        open={confirm !== null}
+        title={confirm?.kind === 'preset' ? `Применить шаблон «${confirm.preset.name}»?` : 'Сменить способ деления?'}
+        text={confirm?.kind === 'preset' ? 'Строки будут заменены шаблоном, значения сброшены.' : 'Значения строк будут сброшены.'}
+        confirmLabel={confirm?.kind === 'preset' ? 'Применить' : 'Сбросить значения'}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          if (confirm?.kind === 'mode') switchMode(confirm.mode);
+          else if (confirm?.kind === 'preset') apply(confirm.preset);
+        }}
+        // переключатель или кнопка шаблона исчезли (или фокус был ничей) — как у всех подтверждений формы (§11): в поле суммы
+        onFocusLost={props.onFocusLost}
+      />
     </section>
   );
 }

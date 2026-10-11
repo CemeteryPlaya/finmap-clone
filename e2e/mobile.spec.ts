@@ -28,7 +28,7 @@ async function apiPost(page: Page, url: string, data: unknown) {
 /** Телефон из §10 (сценарий 4): ширина 390 px. */
 const PHONE = { width: 390, height: 844 };
 const bar = (page: Page) => page.getByRole('group', { name: 'Добавить операцию' });
-const newForm = (page: Page) => page.getByRole('dialog', { name: 'Новая операция' });
+const newForm = (page: Page) => page.getByRole('dialog', { name: /^Новый (доход|расход|перевод)$/ });
 
 test('нижняя панель «Доход», «Расход», «Перевод» на телефоне; на компьютере кнопки — в шапке', async ({ page }) => {
   await login(page);
@@ -49,7 +49,7 @@ test('нижняя панель «Доход», «Расход», «Перево
 
   // кнопка открывает форму своего типа; Esc без изменений закрывает, фокус — снова на кнопке панели
   await bar(page).getByRole('button', { name: 'Перевод', exact: true }).click();
-  await expect(newForm(page).getByRole('radio', { name: 'Перевод' })).toBeChecked();
+  await expect(page.getByRole('dialog', { name: 'Новый перевод', exact: true })).toBeVisible();
   await expect(newForm(page).getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(newForm(page)).toBeHidden();
@@ -164,7 +164,7 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   await expect(amount).toHaveValue('1000×3\u2212500');
   await amount.blur();
   await expect(amount).toHaveValue('2500');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Добавить расход' }).click();
   await expect(dialog).toBeHidden();
 
   // журнал — карточки: сумма, категория, счёт, дата; таблицы и флажков выделения нет
@@ -178,7 +178,7 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
 
   // правка: карточка открывает операцию на весь экран; оператор дописывается в конец суммы
   await card.getByRole('button').click();
-  const edit = page.getByRole('dialog', { name: 'Изменить операцию' });
+  const edit = page.getByRole('dialog', { name: 'Расход', exact: true });
   const editAmount = edit.getByRole('textbox', { name: /^Сумма,/ });
   await expect(editAmount).toBeFocused();
   await expect(editAmount).toHaveValue('2500');
@@ -189,7 +189,7 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   await page.keyboard.type('2');
   await editAmount.blur();
   await expect(editAmount).toHaveValue('1250');
-  await edit.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await edit.getByRole('button', { name: 'Сохранить изменения' }).click();
   await expect(edit).toBeHidden();
   await expect(cards(page).getByRole('listitem')).toHaveCount(1);
   await expect(card).toContainText(/\u22121\s250\s₸/);
@@ -429,10 +429,10 @@ test('ширина 390 px: журнал, все разделы настроек,
   // форма операции на весь экран с раскрытым блоком «Проект, теги, комментарий»
   await page.goto(`/c/${cid}/log`);
   await bar(page).getByRole('button', { name: 'Расход', exact: true }).click();
-  await newForm(page).getByRole('button', { name: 'Проект, теги, комментарий' }).click();
+  await newForm(page).getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
   await expect(newForm(page).getByLabel('Комментарий')).toBeVisible();
   // счёт по умолчанию — «Касса_без_пробелов_…»: поле со списком не растягивает форму
-  await expect(newForm(page).getByRole('combobox', { name: 'Счёт', exact: true })).toHaveValue(/^Касса_без_пробелов/);
+  await expect(newForm(page).getByRole('combobox', { name: 'Со счёта', exact: true })).toHaveValue(/^Касса_без_пробелов/);
   await expectNoSideScroll(page, 'форма операции');
   const close = newForm(page).getByRole('button', { name: 'Закрыть', exact: true });
   expect((await close.boundingBox())!.x + (await close.boundingBox())!.width).toBeLessThanOrEqual(PHONE.width);
@@ -458,14 +458,14 @@ test('ширина 390 px: журнал, все разделы настроек,
   }
 });
 
-test('форма «Новая операция» с «Расход»: Tab и Shift+Tab ходят по кругу, фокус не покидает окно', async ({ page }) => {
+test('форма «Новый расход»: Tab и Shift+Tab ходят по кругу, фокус не покидает окно', async ({ page }) => {
   await page.setViewportSize(PHONE);
   await login(page);
   const cid = await createCompany(page, `ТОО Tab ${Date.now()}`);
   await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
   await page.goto(`/c/${cid}/log`);
   await bar(page).getByRole('button', { name: 'Расход', exact: true }).click();
-  await expect(newForm(page).getByRole('radio', { name: 'Расход' })).toBeChecked();
+  await expect(page.getByRole('dialog', { name: 'Новый расход', exact: true })).toBeVisible();
   for (const key of ['Tab', 'Shift+Tab']) {
     for (let i = 0; i < 15; i++) {
       await page.keyboard.press(key);
@@ -489,13 +489,13 @@ test('архивная компания: форма операции тольк�
   // компьютер: кнопок новых операций в шапке нет, операция открывается только для просмотра
   await expect(page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true })).toHaveCount(0);
   await page.getByRole('table', { name: 'Операции' }).getByRole('button', { name: /^Открыть операцию/ }).click();
-  const view = page.getByRole('dialog', { name: 'Изменить операцию' });
+  const view = page.getByRole('dialog', { name: 'Расход', exact: true });
   await expect(view).toContainText('Компания в архиве — изменения недоступны');
   await expect(view.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('300');
   await expect(view.getByRole('textbox', { name: /^Сумма,/ })).toBeDisabled();
   await expect(view.getByLabel('Комментарий')).toHaveValue('до архива');
   await expect(view.getByLabel('Комментарий')).toBeDisabled();
-  for (const name of ['Сохранить', 'Сохранить и создать похожий', 'Дублировать', 'Удалить']) {
+  for (const name of ['Сохранить изменения', 'Добавить и создать похожий', 'Дублировать платёж', 'Удалить платёж']) {
     await expect(view.getByRole('button', { name, exact: true })).toHaveCount(0);
   }
   await expect(view.getByLabel('Добавить файл')).toHaveCount(0);
@@ -528,7 +528,7 @@ test('архивная компания: форма операции тольк�
   await expect(bar(page)).toHaveCount(0);
   await cards(page).getByRole('button').first().click();
   await expect(view).toContainText('Компания в архиве — изменения недоступны');
-  await expect(view.getByRole('button', { name: 'Сохранить', exact: true })).toHaveCount(0);
+  await expect(view.getByRole('button', { name: 'Сохранить изменения' })).toHaveCount(0);
   await expect(view.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(view).toBeHidden();

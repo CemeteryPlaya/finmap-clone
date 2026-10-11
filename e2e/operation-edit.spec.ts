@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 async function login(page: Page) {
   await page.goto('/login');
@@ -41,7 +41,10 @@ const todayAgo = (n: number) => {
 };
 const table = (page: Page) => page.getByRole('table', { name: 'Операции' });
 const rows = (page: Page) => table(page).locator('tbody tr');
-const editForm = (page: Page) => page.getByRole('dialog', { name: 'Изменить операцию' });
+/** Окно правки (§6.1 этапа 1.5): заголовок — тип операции. */
+const editForm = (page: Page) => page.getByRole('dialog', { name: /^(Доход|Расход|Перевод)$/ });
+/** Главная кнопка формы (§6.9 этапа 1.5). */
+const submit = (scope: Locator) => scope.getByRole('button', { name: /^(Добавить (доход|расход|перевод)|Сохранить изменения)$/ });
 
 test('правка из журнала: клик по строке и с клавиатуры, в PATCH — только изменённое; «Дублировать», «Удалить»', async ({ page }) => {
   await login(page);
@@ -64,14 +67,18 @@ test('правка из журнала: клик по строке и с кла�
   let dialog = editForm(page);
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('radio')).toHaveCount(0); // тип не меняется
-  await expect(dialog.getByRole('combobox', { name: 'Счёт', exact: true })).toHaveValue('Касса');
+  // окно правки называется по типу; счёт расхода — «Со счёта»; кнопка — «Сохранить изменения» (§6.1, §6.2, §6.9)
+  await expect(page.getByRole('dialog', { name: 'Расход', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('combobox', { name: 'Со счёта', exact: true })).toHaveValue('Касса');
+  await expect(submit(dialog)).toHaveText('Сохранить изменения');
+  await expect(dialog.getByRole('button', { name: 'Добавить и создать похожий' })).toHaveCount(0);
   await expect(dialog.getByRole('combobox', { name: 'Категория', exact: true })).toHaveValue('Аренда');
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('300');
   // форма ставит фокус в сумму кадр спустя — дождаться, прежде чем заполнять другие поля
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
   await dialog.getByLabel('Комментарий').fill('новый');
   const patch = page.waitForRequest((r) => r.method() === 'PATCH');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   expect((await patch).postDataJSON()).toEqual({ version: 1, comment: 'новый' });
   await expect(dialog).toBeHidden();
   await expect(rows(page).first()).toContainText('новый');
@@ -91,28 +98,31 @@ test('правка из журнала: клик по строке и с кла�
 
   // «Дублировать»: новая операция с теми же значениями; закрыть без сохранения — с вопросом
   await open.click();
-  await editForm(page).getByRole('button', { name: 'Дублировать' }).click();
-  dialog = page.getByRole('dialog', { name: 'Новая операция' });
+  await editForm(page).getByRole('button', { name: 'Дублировать платёж' }).click();
+  dialog = page.getByRole('dialog', { name: 'Новый расход' });
   await expect(dialog.getByRole('status')).toHaveText('Это копия — проверьте и сохраните');
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('350');
   await expect(dialog.getByRole('combobox', { name: 'Категория', exact: true })).toHaveValue('Аренда');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(dialog).toBeHidden();
   await expect(rows(page)).toHaveCount(2);
 
-  // «Удалить» с подтверждением; Esc отменяет только подтверждение
+  // «Удалить платёж» — вложенное окно «Удалить платёж?»: Esc закрывает только его, фокус — на строке (Review Focus 2)
   await rows(page).first().getByText('новый').click();
   dialog = editForm(page);
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
-  const remove = dialog.getByRole('button', { name: 'Удалить', exact: true });
+  const remove = dialog.getByRole('button', { name: 'Удалить платёж' });
   await remove.click();
-  await expect(dialog.getByRole('button', { name: 'Не удалять' })).toBeFocused();
+  const confirm = page.getByRole('alertdialog', { name: 'Удалить платёж?' });
+  await expect(confirm.getByRole('button')).toHaveText(['×', 'Отменить', 'Удалить']);
+  await expect(confirm.getByRole('button', { name: 'Отменить' })).toBeFocused();
   await page.keyboard.press('Escape');
-  await expect(dialog.getByRole('button', { name: 'Да, удалить' })).toHaveCount(0);
+  await expect(confirm).toBeHidden();
   await expect(dialog).toBeVisible();
+  await expect(page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' })).toHaveCount(0);
   await expect(remove).toBeFocused();
   await remove.click();
-  await dialog.getByRole('button', { name: 'Да, удалить' }).click();
+  await confirm.getByRole('button', { name: 'Удалить', exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(rows(page)).toHaveCount(1);
   // строки, с которой открыли форму, больше нет — фокус на заголовке журнала
@@ -134,15 +144,18 @@ test('операция на архивном счёте: сумма, дата и
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
   await expect(amount).toBeDisabled();
   await expect(amount).toHaveAccessibleDescription('счёт в архиве');
-  const account = dialog.getByRole('combobox', { name: 'Счёт', exact: true });
+  const account = dialog.getByRole('combobox', { name: 'На счёт', exact: true });
   await expect(account).toHaveValue('Старый (в архиве)');
   await expect(account).toBeDisabled();
-  await expect(dialog.getByLabel('Дата оплаты')).toBeDisabled();
-  const remove = dialog.getByRole('button', { name: 'Удалить', exact: true });
-  await expect(remove).toBeDisabled();
+  await expect(dialog.getByLabel('Дата поступления денег')).toBeDisabled();
+  // «Удалить платёж» видна и в порядке Tab, но неактивна с причиной; нажатие ничего не делает (Review Focus 3)
+  const remove = dialog.getByRole('button', { name: 'Удалить платёж' });
+  await expect(remove).toHaveAttribute('aria-disabled', 'true');
   await expect(remove).toHaveAccessibleDescription('Удалить нельзя: счёт в архиве («Старый»)');
+  await remove.dispatchEvent('click');
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
   await dialog.getByLabel('Комментарий').fill('приход из кассы');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(dialog).toBeHidden();
   await expect(rows(page).filter({ hasText: 'приход из кассы' })).toHaveCount(1);
 });
@@ -168,7 +181,7 @@ test('перевод KZT → USD: новая сумма списания сох�
   await amount.fill('500');
   await expect(dialog.getByText('Курс: 1 USD = 5 KZT')).toBeVisible();
   const patch = page.waitForRequest((r) => r.method() === 'PATCH');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   expect((await patch).postDataJSON()).toEqual({ version: 1, amount: 50000, toAmount: 10000 });
   await expect(dialog).toBeHidden();
   const row = table(page).locator('tbody tr').first();
@@ -185,7 +198,7 @@ test('фокус и закрытие формы: «×» → «Отменить»
   await page.reload();
 
   await page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Новая операция' });
+  const dialog = page.getByRole('dialog', { name: 'Новый расход' });
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
   await expect(amount).toBeFocused();
   await amount.fill('100');
@@ -203,8 +216,8 @@ test('фокус и закрытие формы: «×» → «Отменить»
     if (route.request().method() === 'POST') await gate;
     await route.continue();
   });
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Сохранить', exact: true })).toBeDisabled();
+  await submit(dialog).click();
+  await expect(submit(dialog)).toBeDisabled();
   await page.keyboard.press('Escape');
   await close.click();
   await expect(dialog).toBeVisible();
@@ -233,7 +246,7 @@ test('409: операцию изменили в другом окне — «За
   const res = await page.request.patch(`${base}/operations/${id}`, { data: { version: 1, comment: 'чужая правка' }, headers: csrf(page) });
   expect(res.status()).toBe(200);
   await amount.fill('150');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(dialog.getByRole('alert')).toContainText('Операция изменена другим пользователем');
   // поля были недоступны во время запроса — фокус переходит на действие в сообщении
   await expect(dialog.getByRole('button', { name: 'Загрузить актуальную' })).toBeFocused();
@@ -243,7 +256,7 @@ test('409: операцию изменили в другом окне — «За
   await expect(amount).toHaveValue('100');
   await expect(amount).toBeFocused();
   await amount.fill('150');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(dialog).toBeHidden();
   const edited = rows(page).filter({ hasText: 'чужая правка' });
   await expect(edited).toContainText(/150\s₸/);
@@ -256,7 +269,7 @@ test('409: операцию изменили в другом окне — «За
   expect((await page.request.delete(`${base}/operations/${other}`, { headers: csrf(page) })).status()).toBe(200);
   await dialog.getByLabel('Комментарий').fill('поздно');
   await expect(dialog.getByLabel('Комментарий')).toHaveValue('поздно');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(dialog.getByRole('alert')).toContainText('Операция удалена другим пользователем');
   await dialog.getByRole('alert').getByRole('button', { name: 'Закрыть', exact: true }).click();
   await expect(dialog).toBeHidden();
@@ -280,10 +293,10 @@ test('409: «Дублировать» убирает сообщение о ко�
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
   expect((await page.request.patch(`${base}/operations/${first}`, { data: { version: 1, comment: 'чужая правка' }, headers: csrf(page) })).status()).toBe(200);
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('150');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(dialog.getByRole('alert')).toContainText('Операция изменена другим пользователем');
-  await dialog.getByRole('button', { name: 'Дублировать' }).click();
-  const copy = page.getByRole('dialog', { name: 'Новая операция' });
+  await dialog.getByRole('button', { name: 'Дублировать платёж' }).click();
+  const copy = page.getByRole('dialog', { name: 'Новый расход' });
   await expect(copy).toBeVisible();
   await expect(copy.getByRole('alert')).toHaveCount(0);
   await page.keyboard.press('Escape');
@@ -296,7 +309,7 @@ test('409: «Дублировать» убирает сообщение о ко�
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
   expect((await page.request.patch(`${base}/operations/${second}`, { data: { version: 1, comment: 'чужая правка 2' }, headers: csrf(page) })).status()).toBe(200);
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('70');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(dialog.getByRole('alert')).toContainText('Операция изменена другим пользователем');
   expect((await page.request.delete(`${base}/operations/${second}`, { headers: csrf(page) })).status()).toBe(200);
   await dialog.getByRole('button', { name: 'Загрузить актуальную' }).click();
@@ -321,7 +334,7 @@ test('операция только с файлом: блок «Проект, т
 
   await rows(page).first().getByText(/70\s₸/).first().click();
   const dialog = editForm(page);
-  await expect(dialog.getByRole('button', { name: 'Проект, теги, комментарий, файл' })).toHaveAttribute('aria-expanded', 'true');
+  await expect(dialog.getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' })).toHaveAttribute('aria-expanded', 'true');
   await expect(dialog.getByRole('link', { name: 'чек.png' })).toBeVisible();
 });
 
@@ -336,9 +349,9 @@ test('файлы: выбранный до сохранения загружае�
 
   // новая операция: файл ждёт сохранения
   await page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true }).click();
-  let dialog = page.getByRole('dialog', { name: 'Новая операция' });
+  let dialog = page.getByRole('dialog', { name: 'Новый расход' });
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('100');
-  await dialog.getByRole('button', { name: 'Проект, теги, комментарий, файл' }).click();
+  await dialog.getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
   await dialog.getByLabel('Комментарий').fill('с чеком');
   await dialog.getByLabel('Добавить файл').setInputFiles({ name: 'чек.png', mimeType: 'image/png', buffer: PNG });
   const files = dialog.getByRole('group', { name: 'Файлы' });
@@ -347,7 +360,7 @@ test('файлы: выбранный до сохранения загружае�
   // больше 10 МБ — отказ до отправки
   await dialog.getByLabel('Добавить файл').setInputFiles({ name: 'большой.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(10 * 1024 * 1024 + 1) });
   await expect(files.getByRole('alert')).toContainText('«большой.pdf»: Файл больше 10 МБ');
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   await expect(dialog).toBeHidden();
 
   // в правке: блок раскрыт (есть комментарий), файл в списке и скачивается как файл
@@ -398,11 +411,11 @@ test('файл, который сервер не принял после соз�
   await page.reload();
 
   await page.getByRole('banner').getByRole('button', { name: 'Доход', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Новая операция' });
+  const dialog = page.getByRole('dialog', { name: 'Новый доход' });
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('50');
-  await dialog.getByRole('button', { name: 'Проект, теги, комментарий, файл' }).click();
+  await dialog.getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
   await dialog.getByLabel('Добавить файл').setInputFiles({ name: 'плохой.png', mimeType: 'image/png', buffer: HTML });
-  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await submit(dialog).click();
   const edit = editForm(page);
   await expect(edit).toBeVisible();
   await expect(edit.getByRole('alert')).toContainText('Операция сохранена, но не загружено: «плохой.png»: Допустимые файлы');

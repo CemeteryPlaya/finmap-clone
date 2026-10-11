@@ -12,6 +12,11 @@ export const badgeClass = 'shrink-0 rounded bg-income-soft px-1.5 py-0.5 text-[1
 export const btnPrimary = 'rounded-xl bg-income px-4 py-2.5 font-semibold text-white hover:brightness-95 disabled:opacity-50';
 export const btnSecondary = 'rounded-xl bg-field px-4 py-2.5 font-medium text-ink hover:brightness-95 disabled:opacity-50';
 export const btnDanger = 'rounded-xl bg-expense-soft px-4 py-2.5 font-medium text-expense hover:brightness-95 disabled:opacity-50';
+/** Главная кнопка формы операции (§6.9 этапа 1.5): на всю ширину, 56 px, цвет типа; тёмный текст на income и expense — 5,3:1 и 4,6:1. */
+const btnMain = 'h-14 w-full rounded-xl px-4 text-base font-semibold hover:brightness-95 disabled:opacity-50';
+export const btnIncome = `${btnMain} bg-income text-ink`;
+export const btnExpense = `${btnMain} bg-expense text-ink`;
+export const btnTransfer = `${btnMain} bg-chrome text-white`;
 export const btnSmall = 'rounded-lg bg-field px-3 py-1.5 text-sm font-medium text-ink hover:brightness-95 disabled:opacity-50';
 export const btnIcon = 'rounded-lg bg-field px-2.5 py-1.5 text-sm font-semibold text-ink hover:brightness-95 disabled:opacity-30';
 /** «×» в шапке окна: на телефоне цель касания не меньше 44×44 px, знак по центру; на компьютере размер как у btnIcon. */

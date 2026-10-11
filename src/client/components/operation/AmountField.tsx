@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useAutoFocus } from '../useAutoFocus';
 import { CALC_MAX_LENGTH } from '../../../shared/calc';
 import { positiveAmount } from '../../lib/operation-form';
 import { amountInputText } from '../../lib/journal-format';
@@ -26,9 +27,9 @@ export function AmountField(props: {
   error?: string;
   hint?: string;
   disabled?: boolean;
-  /** Поставить фокус в поле при появлении, если он ничей (страница, окно, радиокнопка); иначе не трогать. */
+  /** Поставить фокус в поле при появлении, если он ничей (страница, окно, «×», элемент, сфокусированный окном при открытии); иначе не трогать. */
   autoFocus?: boolean;
-  /** Поставить фокус в поле при каждом изменении значения (после «Сохранить и создать похожий»). */
+  /** Поставить фокус в поле при каждом изменении значения (после «Добавить и создать похожий»). */
   refocusSignal?: number;
   className?: string;
 }) {
@@ -45,33 +46,10 @@ export function AmountField(props: {
     caret.current = null;
   }, [props.value]);
 
-  useEffect(() => {
-    // кадр спустя: окно <dialog> к этому моменту уже открыто через showModal()
-    if (!props.autoFocus) return;
-    const isRadio = (el: unknown) => el instanceof HTMLInputElement && el.type === 'radio';
-    // «×» окна (Modal) — тоже «ничей» фокус: на ней он оказывается только до переноса на содержимое
-    const isModalClose = (el: unknown) => el instanceof HTMLElement && el.hasAttribute('data-modal-close');
-    let frame = 0;
-    const stop = () => {
-      cancelAnimationFrame(frame);
-      document.removeEventListener('focusin', onFocusIn);
-    };
-    // пользователь уже выбрал что-то другое в окне — фокус не перехватываем
-    const onFocusIn = (e: FocusEvent) => {
-      if (e.target !== ref.current && !isRadio(e.target) && !isModalClose(e.target)) stop();
-    };
-    document.addEventListener('focusin', onFocusIn);
-    frame = requestAnimationFrame(() => {
-      stop();
-      const active = document.activeElement;
-      // фокус «ничей»: на странице, на самом окне, на «×» окна или на радиокнопке типа (туда его ставит showModal())
-      const free = active === document.body || active instanceof HTMLDialogElement || isRadio(active) || isModalClose(active);
-      if (free) ref.current?.focus();
-    });
-    return stop;
-  }, [props.autoFocus]);
+  // фокус в поле при появлении, если он «ничей» (окно только что открылось) — useAutoFocus
+  useAutoFocus(ref, props.autoFocus);
 
-  // явный возврат фокуса после «Сохранить и создать похожий»: один раз, когда новое состояние уже в DOM
+  // явный возврат фокуса после «Добавить и создать похожий»: один раз, когда новое состояние уже в DOM
   useEffect(() => {
     if (props.refocusSignal) ref.current?.focus();
   }, [props.refocusSignal]);

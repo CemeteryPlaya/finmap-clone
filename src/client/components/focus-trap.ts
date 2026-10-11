@@ -93,3 +93,19 @@ export function tabTarget<T>(items: T[], active: unknown, root: unknown, shift: 
   if (active === root || active === (shift ? first : last)) return shift ? last : first;
   return null;
 }
+
+/** Элементы, на которые фокус поставило само окно при открытии (Modal), — пока фокус на них. */
+const initialFocus = new WeakSet<Element>();
+
+/**
+ * Отметить элемент, на который окно поставило фокус при открытии (§6.2 этапа 1.5): для автофокуса полей формы он
+ * «ничей» — сумма или пустой счёт его заберут. Отметка снимается, как только элемент теряет фокус.
+ */
+export function markInitialFocus(el: HTMLElement): void {
+  initialFocus.add(el);
+  el.addEventListener('blur', () => initialFocus.delete(el), { once: true });
+}
+
+export function isInitialFocus(el: unknown): boolean {
+  return el instanceof Element && initialFocus.has(el);
+}

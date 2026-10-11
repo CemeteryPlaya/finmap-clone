@@ -213,3 +213,27 @@ export function transferRateText(amount: number, from: string, toAmount: number,
   const [unit, other, num, den] = b >= a ? [from, to, b, a] : [to, from, a, b];
   return `1 ${unit} = ${roundSignificant(divDec(num, den)).replace('.', ',')} ${other}`;
 }
+
+/** Заголовки окна и текст главной кнопки по типу (§6.1, §6.9 этапа 1.5). */
+const TYPE_TEXTS: Record<OperationType, { create: string; edit: string; submit: string }> = {
+  income: { create: 'Новый доход', edit: 'Доход', submit: 'Добавить доход' },
+  expense: { create: 'Новый расход', edit: 'Расход', submit: 'Добавить расход' },
+  transfer: { create: 'Новый перевод', edit: 'Перевод', submit: 'Добавить перевод' },
+};
+
+/** Заголовок окна формы: «Новый доход» при создании, «Доход» при правке (§6.1 этапа 1.5). */
+export function operationTitle(type: OperationType, editing: boolean): string {
+  return editing ? TYPE_TEXTS[type].edit : TYPE_TEXTS[type].create;
+}
+
+/** Текст главной кнопки: «Добавить доход» при создании, «Сохранить изменения» при правке (§6.9 этапа 1.5). */
+export function submitLabel(type: OperationType, editing: boolean): string {
+  return editing ? 'Сохранить изменения' : TYPE_TEXTS[type].submit;
+}
+
+/** Подписи счёта и даты оплаты по типу, как в Finmap (§6.2 этапа 1.5); второй счёт перевода — «На счёт». */
+export const FIELD_LABELS: Record<OperationType, { account: string; paidDate: string }> = {
+  income: { account: 'На счёт', paidDate: 'Дата поступления денег' },
+  expense: { account: 'Со счёта', paidDate: 'Указать дату списания' },
+  transfer: { account: 'Со счёта', paidDate: 'Дата перевода денег' },
+};

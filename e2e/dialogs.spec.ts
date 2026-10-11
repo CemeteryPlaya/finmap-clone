@@ -33,7 +33,7 @@ test('закрытие формы не прокручивает журнал, д
   await expect.poll(scrolled).toBeGreaterThan(100);
   const before = await scrolled();
 
-  const form = page.getByRole('dialog', { name: 'Изменить операцию' });
+  const form = page.getByRole('dialog', { name: 'Доход', exact: true });
   // обычный возврат: фокус на кнопку строки без прокрутки
   await open.last().click();
   await expect(form).toBeVisible();
@@ -62,7 +62,7 @@ test('телефон: «×» окна и вопроса о несохранён�
   await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
   await page.reload();
   await page.getByRole('group', { name: 'Добавить операцию' }).getByRole('button', { name: 'Расход', exact: true }).click();
-  const form = page.getByRole('dialog', { name: 'Новая операция' });
+  const form = page.getByRole('dialog', { name: 'Новый расход' });
   const size = async (b: ReturnType<typeof form.getByRole>) => (await b.boundingBox())!;
   const cross = await size(form.getByRole('button', { name: 'Закрыть', exact: true }));
   expect(cross.width).toBeGreaterThanOrEqual(44);
@@ -109,12 +109,12 @@ test('окно: «×» закрывает форму и «Фильтры»; на
   // новая операция: фокус в сумме, «×» — в шапке окна
   const income = page.getByRole('banner').getByRole('button', { name: 'Доход', exact: true });
   await income.click();
-  const form = page.getByRole('dialog', { name: 'Новая операция' });
+  const form = page.getByRole('dialog', { name: /^Новый (доход|расход|перевод)$/ });
   const close = form.getByRole('button', { name: 'Закрыть', exact: true });
   await expect(form.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
   await expect(close).toHaveAttribute('title', 'Закрыть');
-  // Shift+Tab с первого элемента содержимого — на «×»; ещё раз — по кругу, но внутри окна
-  await form.getByRole('radio', { name: 'Доход' }).focus();
+  // Shift+Tab с первого элемента содержимого (поле счёта: вкладок типа нет) — на «×»; ещё раз — по кругу, но внутри окна
+  await form.getByRole('combobox', { name: 'На счёт', exact: true }).focus();
   await page.keyboard.press('Shift+Tab');
   await expect(close).toBeFocused();
   await page.keyboard.press('Shift+Tab');
@@ -134,7 +134,7 @@ test('окно: «×» закрывает форму и «Фильтры»; на
 
   // правка: окно открывается, пока операция грузится — фокус всё равно в сумме, а не на «×»
   await page.getByRole('table', { name: 'Операции' }).getByRole('button', { name: /^Открыть операцию/ }).click();
-  const edit = page.getByRole('dialog', { name: 'Изменить операцию' });
+  const edit = page.getByRole('dialog', { name: 'Доход', exact: true });
   await expect(edit.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
   await edit.getByRole('button', { name: 'Закрыть', exact: true }).click();
   await expect(edit).toBeHidden();
@@ -152,8 +152,8 @@ test('окно: «×» закрывает форму и «Фильтры»; на
   // телефон: форма на весь экран, шапка с «×» липкая
   await page.setViewportSize(PHONE);
   await page.getByRole('group', { name: 'Добавить операцию' }).getByRole('button', { name: 'Расход', exact: true }).click();
-  const phoneForm = page.getByRole('dialog', { name: 'Новая операция' });
-  await phoneForm.getByRole('button', { name: /^Проект, теги, комментарий/ }).click();
+  const phoneForm = page.getByRole('dialog', { name: 'Новый расход' });
+  await phoneForm.getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
   await expect(phoneForm.getByLabel('Комментарий')).toBeVisible();
   await phoneForm.evaluate((d) => (d.scrollTop = d.scrollHeight));
   await expect.poll(() => phoneForm.evaluate((d) => d.scrollTop)).toBeGreaterThan(0);
@@ -168,7 +168,7 @@ test('вопрос о несохранённом: вложенное окно, E
   await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
   await page.reload();
   const expense = page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true });
-  const form = page.getByRole('dialog', { name: 'Новая операция' });
+  const form = page.getByRole('dialog', { name: 'Новый расход' });
   const amount = form.getByRole('textbox', { name: /^Сумма,/ });
   const question = page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' });
   const dontAsk = question.getByRole('checkbox', { name: 'Больше не спрашивать' });
@@ -308,7 +308,7 @@ test('«Настройки журнала»: «Применить» только
     // «Показывать полностью» — название счёта до двух строк
     await expect(page.getByRole('table', { name: 'Операции' }).locator('[data-column="account"] [title]').first()).toHaveClass(/line-clamp-2/);
     await page.getByRole('banner').getByRole('button', { name: 'Доход', exact: true }).click();
-    const amount = page.getByRole('dialog', { name: 'Новая операция' }).getByRole('textbox', { name: /^Сумма,/ });
+    const amount = page.getByRole('dialog', { name: 'Новый доход' }).getByRole('textbox', { name: /^Сумма,/ });
     await amount.fill('5');
     await amount.press('Escape');
     const question = page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' });

@@ -100,7 +100,7 @@ export function AttachmentsField(props: {
   };
 
   return (
-    <div role="group" aria-label="Файлы" className="md:col-span-2">
+    <div role="group" aria-label="Файлы">
       <span className="mb-1 block text-sm text-muted">Файлы</span>
       {attachments.isError && <p className="mb-1 text-sm text-expense">Не удалось загрузить список файлов</p>}
       <ul className="mb-2 grid gap-1 text-sm">
