@@ -14,6 +14,8 @@ export interface SettingsRow {
   archived: boolean;
   /** Родитель подкатегории (§7.2): строка — с отступом сразу под ним. Нет — верхний уровень. */
   parentId?: number | null;
+  /** Клуб счёта: строка двигается только среди строк того же клуба (общие счета — свой клуб). Нет — один общий круг. */
+  group?: string;
 }
 
 const parentOf = (r: SettingsRow): number | null => r.parentId ?? null;
@@ -42,7 +44,7 @@ export function visibleRows<T extends SettingsRow>(rows: readonly T[], query: st
   return out;
 }
 
-/** Кого можно переставлять вместе со строкой id: соседи её уровня без архивных, в порядке показа. Архивная — []. */
+/** Кого можно переставлять вместе со строкой id: соседи её уровня и её group без архивных, в порядке показа. Архивная — []. */
 export function moveGroup(shown: readonly SettingsRow[], id: number): number[] {
   const present = new Set(shown.map((r) => r.id));
   const level = (r: SettingsRow) => {
@@ -52,7 +54,7 @@ export function moveGroup(shown: readonly SettingsRow[], id: number): number[] {
   const target = shown.find((r) => r.id === id);
   if (!target || target.archived) return [];
   const lv = level(target);
-  return shown.filter((r) => !r.archived && level(r) === lv).map((r) => r.id);
+  return shown.filter((r) => !r.archived && level(r) === lv && r.group === target.group).map((r) => r.id);
 }
 
 /** Alt+↑ / Alt+↓: новый порядок группы; на краю и не из группы — null. */

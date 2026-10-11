@@ -16,9 +16,28 @@ export function groupAccounts(accounts: Account[], projects: Project[]): Account
   ].filter((g) => g.items.length > 0);
 }
 
-/** Серый текст строки раздела «Счета» (§7.4 этапа 1.5): «{Клуб} · ₸ 114 997»; у общего счёта — только баланс. */
+/** Клуб счёта для SettingsRow.group: «Общие» и каждый проект — свой круг перестановки. */
+export const accountGroupKey = (account: Account): string => (account.projectId === null ? 'common' : String(account.projectId));
+
+/**
+ * Счета в порядке левой панели (общий источник для панели, окна «Счета» и раздела «Счета»): «Общие», затем клубы
+ * в порядке проектов, внутри клуба — порядок сервера (orderIndex); активные счета клуба, которого нет в списке,
+ * — после них; архивные — в конце в прежнем порядке.
+ */
+export function panelOrder(accounts: Account[], projects: Project[]): Account[] {
+  const grouped = groupAccounts(accounts, projects).flatMap((g) => g.items);
+  const shown = new Set(grouped.map((a) => a.id));
+  return [
+    ...grouped,
+    ...accounts.filter((a) => !a.archivedAt && !shown.has(a.id)),
+    ...accounts.filter((a) => a.archivedAt),
+  ];
+}
+
+/** Серый текст строки раздела «Счета» (§7.4 этапа 1.5): «{Клуб} · ₸ 114 997»; у клуба в архиве — «{Клуб} (в архиве)»; у общего счёта — только баланс. */
 export function accountSecondary(account: Account, projects: Project[], balance: number | undefined): string {
-  const club = account.projectId === null ? null : (projects.find((p) => p.id === account.projectId)?.name ?? null);
+  const project = account.projectId === null ? undefined : projects.find((p) => p.id === account.projectId);
+  const club = project ? (project.archivedAt ? `${project.name} (в архиве)` : project.name) : null;
   const money = balance === undefined ? null : formatMoney(balance, account.currency, MONEY_SCREEN_BEFORE);
   return [club, money].filter((s): s is string => s !== null).join(' · ');
 }

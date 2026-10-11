@@ -27,6 +27,14 @@ describe('mergeSubsetOrder — порядок видимой части в по�
     expect(mergeSubsetOrder([1, 2, 3], [1, 2, 3])).toEqual([1, 2, 3]);
     expect(mergeSubsetOrder([1, 2, 3], [9, 3, 1])).toEqual([3, 2, 1]);
   });
+
+  it('краевые случаи: пустое подмножество, группа из одного, повторы в подмножестве', () => {
+    expect(mergeSubsetOrder([1, 2, 3], [])).toEqual([1, 2, 3]);
+    expect(mergeSubsetOrder([], [1, 2])).toEqual([]);
+    expect(mergeSubsetOrder([1, 2, 3], [2])).toEqual([1, 2, 3]);
+    // повтор не должен породить дубль id в полном порядке
+    expect(mergeSubsetOrder([1, 2, 3, 4], [3, 3, 1])).toEqual([3, 2, 1, 4]);
+  });
 });
 
 describe('sortByIds — оптимистичный порядок в кэше', () => {

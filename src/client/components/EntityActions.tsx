@@ -41,7 +41,15 @@ export function EntityActions(props: {
       )}
       <div className="flex flex-wrap gap-2">
         {props.onArchiveToggle && (
-          <button type="button" disabled={props.pending} onClick={props.onArchiveToggle} className={btnSecondary}>
+          // aria-disabled, а не disabled: после отказа сервера фокус остаётся на кнопке
+          <button
+            type="button"
+            aria-disabled={props.pending || undefined}
+            onClick={() => {
+              if (!props.pending) props.onArchiveToggle?.();
+            }}
+            className={`${btnSecondary} aria-disabled:opacity-50`}
+          >
             {props.archived ? 'Вернуть из архива' : 'В архив'}
           </button>
         )}

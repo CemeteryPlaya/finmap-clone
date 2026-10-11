@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { accountGroupKey, panelOrder } from '../lib/accounts-panel';
 import { mergeSubsetOrder } from '../lib/order';
-import { useAccounts, type Account, type Company } from '../lib/queries';
+import { useAccounts, useProjects, type Account, type Company } from '../lib/queries';
 import { useReorder } from '../lib/settings-mutations';
 import { AccountEditor } from './AccountEditor';
 import { firstTabbable } from './focus-trap';
@@ -13,11 +14,12 @@ type View = { kind: 'list' } | { kind: 'create' } | { kind: 'edit'; id: number }
 
 /**
  * ✎ «Изменить счета» в «Моих счетах» (§7.6 этапа 1.5): окно «Счета» прямо над журналом — «Добавить счёт» и список
- * ☰ имя ✎ (порядок — тот же, что в разделе «Счета»). ✎ и «Добавить счёт» переключают это же окно на форму счёта
+ * ☰ имя ✎ (порядок — как в левой панели: «Общие», затем клубы; двигать можно только внутри клуба). ✎ и «Добавить счёт» переключают это же окно на форму счёта
  * с «← Назад»; после сохранения, архива или удаления — снова список, фокус на ✎ счёта (или на «Добавить счёт»).
  */
 export function AccountsQuickEdit({ company, open, onClose }: { company: Company; open: boolean; onClose: () => void }) {
   const accounts = useAccounts(company.id);
+  const projects = useProjects(company.id);
   const [view, setView] = useState<View>({ kind: 'list' });
   const [listError, setListError] = useState<string | null>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -50,6 +52,7 @@ export function AccountsQuickEdit({ company, open, onClose }: { company: Company
     onClose();
   };
   const list = accounts.data ?? [];
+  const sorted = panelOrder(list, projects.data ?? []);
   const account = view.kind === 'edit' ? (list.find((a) => a.id === view.id) ?? null) : null;
   const back: number | 'add' = view.kind === 'edit' ? view.id : 'add';
   const title = view.kind === 'list' ? 'Счета' : view.kind === 'create' ? 'Добавление нового счёта' : 'Счёт';
@@ -58,8 +61,8 @@ export function AccountsQuickEdit({ company, open, onClose }: { company: Company
     <Modal open={open} title={title} onClose={close} className="max-w-lg">
       <div ref={body}>
         {view.kind === 'list' ? (
-          !accounts.data ? (
-            <Pending queries={[accounts]} />
+          !accounts.data || !projects.data ? (
+            <Pending queries={[accounts, projects]} />
           ) : (
             <>
               {listError && (
@@ -69,7 +72,7 @@ export function AccountsQuickEdit({ company, open, onClose }: { company: Company
               )}
               <SettingsList
                 label="Список счетов"
-                rows={list.map((a) => ({ id: a.id, name: a.name, secondary: a.currency, archived: a.archivedAt !== null }))}
+                rows={sorted.map((a) => ({ id: a.id, name: a.name, secondary: a.currency, archived: a.archivedAt !== null, group: accountGroupKey(a) }))}
                 search={false}
                 addLabel="Добавить счёт"
                 onAdd={() => setView({ kind: 'create' })}

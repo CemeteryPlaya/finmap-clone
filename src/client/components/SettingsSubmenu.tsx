@@ -28,7 +28,12 @@ export function SettingsSubmenu<K extends string>(props: { label: string; param:
           >
             <span className="min-w-0">
               {item.label}
-              {item.count !== undefined && <span className="ml-1.5 font-normal text-muted">{item.count}</span>}
+              {item.count !== undefined && (
+                <span className="ml-1.5 font-normal text-muted">
+                  <span className="sr-only">, </span>
+                  {item.count}
+                </span>
+              )}
             </span>
             <span aria-hidden="true" className="shrink-0 text-muted">
               {item.icon === 'bank' ? <BankIcon /> : <InfoIcon />}

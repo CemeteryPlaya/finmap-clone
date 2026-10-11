@@ -16,7 +16,7 @@ import { Modal } from './Modal';
 
 /** Иконка в строке «Мои счета»; на телефоне цель касания 44 px. */
 const headIcon =
-  'grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-field hover:text-ink disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-focus max-md:size-11';
+  'grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-field hover:text-ink aria-disabled:cursor-wait aria-disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-focus max-md:size-11';
 
 /**
  * Содержимое левой панели (§7, §7.6 этапа 1.5): «Всего на счетах» крупно; строка «Мои счета» с «+» (окно
@@ -40,13 +40,19 @@ function AccountsSummary({ company, onNavigate }: { company: Company; onNavigate
   const click = (to: string) => (e: MouseEvent) => {
     if (onNavigate && isPlainLeftClick(e)) onNavigate(pathOf(to));
   };
+  const refreshing = useRef(false);
   const runRefresh = async () => {
+    // aria-disabled не гасит нажатие, а disabled уронил бы фокус клавиатуры на body
+    if (refreshing.current) return;
+    refreshing.current = true;
     setRefresh({ pending: true, failed: false, text: '' });
     try {
       await refreshOperations(company.id);
       setRefresh({ pending: false, failed: false, text: 'Данные обновлены' });
     } catch {
       setRefresh({ pending: false, failed: true, text: 'Не удалось обновить журнал' });
+    } finally {
+      refreshing.current = false;
     }
   };
   const close = () => setDialog(null);
@@ -74,7 +80,7 @@ function AccountsSummary({ company, onNavigate }: { company: Company; onNavigate
             <PencilIcon />
           </button>
         )}
-        <button type="button" aria-label="Обновить" title="Обновить" disabled={refresh.pending} onClick={() => void runRefresh()} className={headIcon}>
+        <button type="button" aria-label="Обновить" title="Обновить" aria-disabled={refresh.pending || undefined} onClick={() => void runRefresh()} className={headIcon}>
           <RefreshIcon spinning={refresh.pending} />
         </button>
       </div>

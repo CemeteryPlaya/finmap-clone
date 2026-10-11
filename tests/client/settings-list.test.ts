@@ -50,6 +50,15 @@ describe('moveGroup — соседи одного уровня без архив
     expect(moveGroup(shown, 11)).toEqual([10, 11]);
   });
 
+  it('group — отдельный круг: строки другой группы не соседи, даже на одном уровне', () => {
+    const rows = [row(1, 'А', { group: 'common' }), row(2, 'Б', { group: '10' }), row(3, 'В', { group: 'common' }), row(4, 'Г', { group: '10' }), row(5, 'Д', { group: '20' })];
+    const flat = visibleRows(rows, '');
+    expect(moveGroup(flat, 1)).toEqual([1, 3]);
+    expect(moveGroup(flat, 4)).toEqual([2, 4]);
+    // клуб с одной активной строкой: двигать некого
+    expect(moveGroup(flat, 5)).toEqual([5]);
+  });
+
   it('архивная и неизвестная строка не двигаются', () => {
     expect(moveGroup(shown, 3)).toEqual([]);
     expect(moveGroup(shown, 99)).toEqual([]);

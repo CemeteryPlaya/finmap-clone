@@ -1,4 +1,5 @@
 import { useMutation, type QueryKey } from '@tanstack/react-query';
+import { useState } from 'react';
 import { api, type ApiError } from './api';
 import { sortByIds } from './order';
 import { queryClient } from './query';
@@ -23,6 +24,10 @@ export function useReorder<T extends { id: number }>(queryKey: QueryKey, path: s
       if (previous) queryClient.setQueryData<T[]>(queryKey, sortByIds(previous, ids));
       return { previous };
     },
+    // последняя удалась — показанный порядок верен, ошибка более ранней (отказ 409 при другой в пути) устарела
+    onSuccess: () => {
+      if (lastOne()) onError(null);
+    },
     onError: (e, _ids, context) => {
       if (context?.previous && lastOne()) queryClient.setQueryData(queryKey, context.previous);
       onError(e.message);
@@ -41,18 +46,26 @@ export function useEntityActions(path: string, refresh: () => Promise<unknown>, 
   const action = useMutation<unknown, ApiError, EntityAction>({
     mutationFn: (a) => api(`${path}${a.suffix}`, { method: a.method }),
   });
+  // от нажатия до onDone: во время перечитывания списка кнопки окна не должны снова стать доступными
+  const [busy, setBusy] = useState(false);
   const run = async (a: EntityAction): Promise<boolean> => {
+    setBusy(true);
     try {
       await action.mutateAsync(a);
     } catch {
+      setBusy(false);
       return false;
     }
-    await refresh();
+    try {
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
     onDone();
     return true;
   };
   return {
-    pending: action.isPending,
+    pending: action.isPending || busy,
     error: action.error?.message ?? null,
     toggleArchive: (archived: boolean) => void run({ suffix: archived ? '/unarchive' : '/archive', method: 'POST' }),
     remove: () => run({ suffix: '', method: 'DELETE' }),

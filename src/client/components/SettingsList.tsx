@@ -77,11 +77,15 @@ export function SettingsList<T extends SettingsRow>(props: {
   const dragging = drag !== null;
   useEffect(() => {
     if (!dragging) return;
+    // в фазе перехвата и без стандартного действия: иначе Esc закрыл бы ещё и окно «Счета» (нативный cancel диалога)
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') setDrag(null);
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDrag(null);
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [dragging]);
 
   const commit = (row: T, next: number[]) => {

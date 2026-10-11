@@ -17,11 +17,11 @@ export function moveWithinGroup(ids: readonly number[], group: readonly number[]
 
 /**
  * Полный порядок после перестановки видимой части (§7.1 этапа 1.5): строки subset занимают в full свои прежние
- * места, но в новом порядке; остальные (другая вкладка, архивные) не двигаются. id не из full пропускаются.
+ * места, но в новом порядке; остальные (другая вкладка, архивные) не двигаются. id не из full и повторы пропускаются.
  */
 export function mergeSubsetOrder(full: readonly number[], subset: readonly number[]): number[] {
   const known = new Set(full);
-  const queue = subset.filter((id) => known.has(id));
+  const queue = [...new Set(subset)].filter((id) => known.has(id));
   const moving = new Set(queue);
   return full.map((id) => (moving.has(id) ? queue.shift()! : id));
 }

@@ -19,8 +19,8 @@ import type { CompanyOutletContext } from '../CompanyLayout';
 /** То же сравнение, что у сервера (name_key): без учёта регистра, «ё» и невидимых символов. */
 const sameTag = (a: string, b: string) => foldCase(cleanName(a)) === foldCase(cleanName(b));
 
-/** Окно тега: 'new' — «Новый тег», тег — «Тег», null — закрыто. */
-type Editing = Tag | 'new' | null;
+/** Окно тега: 'new' — «Новый тег», id — «Тег» (свежие данные из списка), null — закрыто. */
+type Editing = number | 'new' | null;
 
 /** «Теги» на шаблоне списка (§7.1, §7.4 этапа 1.5): создание и правка — в окне, порядок — за ☰. */
 export function TagsSettings() {
@@ -33,6 +33,7 @@ export function TagsSettings() {
 
   if (!tags.data) return <Pending queries={[tags]} />;
   const list = tags.data;
+  const editingTag = typeof editing === 'number' ? (list.find((t) => t.id === editing) ?? null) : null;
 
   return (
     <section>
@@ -60,19 +61,17 @@ export function TagsSettings() {
                   ),
                 )
         }
-        onEdit={readOnly ? undefined : (row) => setEditing(list.find((t) => t.id === row.id) ?? null)}
+        onEdit={readOnly ? undefined : (row) => setEditing(row.id)}
         empty="Тегов пока нет. Теги помогают отмечать операции поперёк категорий и проектов."
       />
       <Modal open={editing !== null} title={editing === 'new' ? 'Новый тег' : 'Тег'} onClose={() => setEditing(null)} className="max-w-lg">
-        {editing !== null && (
-          <TagEditor
-            key={editing === 'new' ? 'new' : editing.id}
-            companyId={company.id}
-            tag={editing === 'new' ? null : editing}
-            tags={list}
-            onDone={() => setEditing(null)}
-          />
-        )}
+        {editing === 'new' && <TagEditor key="new" companyId={company.id} tag={null} tags={list} onDone={() => setEditing(null)} />}
+        {typeof editing === 'number' &&
+          (editingTag ? (
+            <TagEditor key={editing} companyId={company.id} tag={editingTag} tags={list} onDone={() => setEditing(null)} />
+          ) : (
+            <p className="text-muted">Тег не найден — возможно, его удалили.</p>
+          ))}
       </Modal>
     </section>
   );

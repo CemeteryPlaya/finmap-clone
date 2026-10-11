@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountSecondary, groupAccounts, showGroupTitles } from '../../src/client/lib/accounts-panel';
+import { accountGroupKey, accountSecondary, groupAccounts, panelOrder, showGroupTitles } from '../../src/client/lib/accounts-panel';
 import type { Account, Project } from '../../src/client/lib/queries';
 
 const account = (id: number, projectId: number | null, archived = false): Account => ({
@@ -50,7 +50,28 @@ describe('accountSecondary — серый текст строки раздела
     expect(accountSecondary(account(1, 10), projects, 11499700)).toBe('Клуб 1 · ₸\u00A0114\u202F997');
     expect(accountSecondary(account(2, null), projects, -50050)).toBe('\u2212₸\u00A0500,50');
     expect(accountSecondary(account(3, 10), projects, undefined)).toBe('Клуб 1');
+    // клуб в архиве — пометка в тексте строки
+    expect(accountSecondary(account(5, 11), [{ ...project(11, 'Старый'), archivedAt: '2026-10-02T00:00:00.000Z' }], undefined)).toBe('Старый (в архиве)');
     expect(accountSecondary(account(4, null), projects, undefined)).toBe('');
+  });
+});
+
+describe('panelOrder — порядок панели для окна «Счета» и раздела «Счета» (R6)', () => {
+  const projects = [project(20, 'Клуб 2'), project(10, 'Клуб 1')];
+
+  it('«Общие», клубы в порядке проектов, внутри клуба — порядок сервера; архивные и счета неизвестного клуба — в конце', () => {
+    const accounts = [account(1, 10), account(2, 20), account(3, null), account(4, 10), account(5, null, true), account(6, 99), account(7, 20)];
+    expect(panelOrder(accounts, projects).map((a) => a.id)).toEqual([3, 2, 7, 1, 4, 6, 5]);
+  });
+
+  it('тот же порядок активных счетов, что показывает панель', () => {
+    const accounts = [account(1, 10), account(2, 20), account(3, null), account(4, 10)];
+    expect(panelOrder(accounts, projects).map((a) => a.id)).toEqual(groupAccounts(accounts, projects).flatMap((g) => g.items.map((a) => a.id)));
+  });
+
+  it('accountGroupKey — «Общие» и каждый проект отдельно', () => {
+    expect(accountGroupKey(account(1, null))).toBe('common');
+    expect(accountGroupKey(account(2, 10))).toBe('10');
   });
 });
 

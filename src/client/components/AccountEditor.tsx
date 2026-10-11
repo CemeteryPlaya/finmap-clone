@@ -26,7 +26,8 @@ export function AccountEditor({ company, account, onDone }: { company: Company; 
   const projects = useProjects(company.id);
   const base = `/companies/${company.id}/accounts`;
   // ['accounts', cid] обновляет и балансы (['accounts', cid, 'balances'])
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['accounts', company.id] });
+  // и «Компании» (итог в меню компаний)
+  const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['accounts', company.id] }), queryClient.invalidateQueries({ queryKey: ['companies', 'summary'] })]);
   const save = useMutation<unknown, ApiError, AccountFormValues>({
     mutationFn: (v) => (account ? api(`${base}/${account.id}`, { method: 'PATCH', body: toBody(v) }) : api(base, { method: 'POST', body: toBody(v) })),
     onSuccess: async () => {

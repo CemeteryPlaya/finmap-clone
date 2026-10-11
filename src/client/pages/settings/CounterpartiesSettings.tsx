@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router';
 import { COUNTERPARTY_TYPE_SINGULAR } from '../../../shared/counterparties';
 import type { CounterpartyType } from '../../../shared/system-categories';
@@ -18,8 +18,8 @@ import { useCounterparties, type Counterparty } from '../../lib/queries';
 import { useEntityActions, useReorder } from '../../lib/settings-mutations';
 import type { CompanyOutletContext } from '../CompanyLayout';
 
-/** Окно контрагента: 'new' — создание во вкладке, контрагент — правка, null — закрыто. */
-type Editing = Counterparty | 'new' | null;
+/** Окно контрагента: 'new' — создание во вкладке, id — правка (свежие данные из списка), null — закрыто. */
+type Editing = number | 'new' | null;
 
 /**
  * «Контрагенты» (§7.3 этапа 1.5): подменю типов слева в порядке Finmap (`?type=`), справа — шаблон списка.
@@ -36,9 +36,13 @@ export function CounterpartiesSettings() {
   const readOnly = company.archivedAt !== null;
   const reorder = useReorder<Counterparty>(['counterparties', company.id], `/companies/${company.id}/counterparties/reorder`, setListError);
 
+  // ошибка перестановки относится к вкладке, где она случилась
+  useEffect(() => setListError(null), [tab]);
+
   if (!counterparties.data) return <Pending queries={[counterparties]} />;
   const all = counterparties.data;
   const inTab = all.filter((c) => tabOfType(c.type) === tab);
+  const editingCounterparty = typeof editing === 'number' ? (all.find((c) => c.id === editing) ?? null) : null;
 
   return (
     <section>
@@ -86,21 +90,20 @@ export function CounterpartiesSettings() {
                       ),
                     )
             }
-            onEdit={readOnly ? undefined : (row) => setEditing(all.find((c) => c.id === row.id) ?? null)}
+            onEdit={readOnly ? undefined : (row) => setEditing(row.id)}
             empty="Контрагентов этого типа пока нет."
           />
         </div>
       </div>
       <Modal open={editing !== null} title={editing === 'new' ? info.createTitle : info.editTitle} onClose={() => setEditing(null)} className="max-w-lg">
-        {editing !== null && (
-          <CounterpartyEditor
-            key={editing === 'new' ? 'new' : editing.id}
-            companyId={company.id}
-            tab={tab}
-            counterparty={editing === 'new' ? null : editing}
-            onDone={() => setEditing(null)}
-          />
-        )}
+        {/* новое — со своим ключом на каждую вкладку: «Назад» в браузере меняет вкладку и тип создаваемого */}
+        {editing === 'new' && <CounterpartyEditor key={`new-${tab}`} companyId={company.id} tab={tab} counterparty={null} onDone={() => setEditing(null)} />}
+        {typeof editing === 'number' &&
+          (editingCounterparty ? (
+            <CounterpartyEditor key={editing} companyId={company.id} tab={tab} counterparty={editingCounterparty} onDone={() => setEditing(null)} />
+          ) : (
+            <p className="text-muted">Контрагент не найден — возможно, его удалили.</p>
+          ))}
       </Modal>
     </section>
   );
