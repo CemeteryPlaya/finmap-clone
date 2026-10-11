@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { initialActive, pickerItems, type PickerItem, type PickerOption } from '../lib/picker';
+import { initialActive, pickerItems, typedQuery, type PickerItem, type PickerOption } from '../lib/picker';
 import { PickerListbox, pickerItemId } from './SearchPicker';
 import { useFloating } from './useFloating';
 
@@ -51,7 +51,7 @@ export interface ComboList {
  * и фильтрует его (без учёта регистра и «ё»); ↓ и нажатие открывают; Enter выбирает активный пункт, а в закрытом
  * поле открывает список (форму не отправляет); Esc закрывает только список (окно клавишу не видит); Tab, нажатие
  * вне поля и списка и уход из поля закрывают список без смены значения; нажатие внутри открытого поля его не закрывает. При открытом списке поле пустое, выбранное — в подсказке поля:
- * печатают с чистого поля. Печать в закрытом поле с выбранным значением начинает новый запрос (только напечатанные символы). Активный пункт при открытии — выбранный, после печати — первый найденный.
+ * печатают с чистого поля. Правка закрытого поля с выбранным значением начинает новый запрос (разница между новым значением и показанным названием). Активный пункт при открытии — выбранный, после печати — первый найденный.
  * «+ Создать категорию» без названия оставляет список открытым, фокус — в поле с подсказкой «Введите название».
  */
 export function useComboList(o: ComboListOptions): ComboList {
@@ -141,9 +141,8 @@ export function useComboList(o: ComboListOptions): ComboList {
     value: open ? query : o.text,
     placeholder: open ? (naming ? 'Введите название' : o.text || undefined) : undefined,
     onChange: (e) => {
-      // закрытое поле с выбранным значением: запрос — только напечатанные символы, а не прежнее название со вставкой
-      const typed = (e.nativeEvent as InputEvent).data;
-      search(!open && o.text !== '' && typed ? typed : e.target.value);
+      // закрытое поле с выбранным значением: запрос — правка относительно показанного названия, а не название со вставкой
+      search(!open && o.text !== '' ? typedQuery(o.text, e.target.value) : e.target.value);
     },
     // нажатие только открывает: нажатие внутри открытого поля (поставить курсор) не закрывает список и не сбрасывает набранное
     onClick: () => {

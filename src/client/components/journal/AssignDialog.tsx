@@ -1,9 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ASSIGN_LABELS, ASSIGN_LIST_LABELS, ASSIGN_TITLES, assignLabel, assignOptions, type AssignData, type AssignField } from '../../lib/journal-assign';
+import { ApiError } from '../../lib/api';
+import {
+  ASSIGN_CREATE_NOUNS,
+  ASSIGN_LABELS,
+  ASSIGN_LIST_LABELS,
+  ASSIGN_TITLES,
+  assignCreate,
+  assignLabel,
+  assignOptions,
+  type AssignData,
+  type AssignField,
+} from '../../lib/journal-assign';
+import { createFromForm } from '../../lib/operation-create';
 import type { JournalItem } from '../../lib/queries';
 import { Modal } from '../Modal';
 import { ComboSelect } from '../operation/ComboSelect';
-import { btnPrimary } from '../ui';
+import { alertClass, btnPrimary } from '../ui';
 
 export interface AssignRequest {
   item: JournalItem;
@@ -30,11 +42,22 @@ export function AssignChip(props: { field: AssignField; onClick: () => void }) {
   );
 }
 
-function AssignForm(props: { request: AssignRequest; data: AssignData; onSave: (id: number) => void }) {
+function AssignForm(props: { companyId: number; request: AssignRequest; data: AssignData; onSave: (id: number) => void }) {
   const { item, field } = props.request;
   const [value, setValue] = useState<number | null>(null);
-  // список строится один раз на окно, а не на каждую перерисовку журнала
+  const [error, setError] = useState<string | null>(null);
+  // список строится один раз на окно, а не на каждую перерисовку журнала; новый элемент справочника его обновит
   const options = useMemo(() => assignOptions(item, field, props.data), [item, field, props.data]);
+  /** «+ Создать „…“» (§5.4, §6.6): элемент создаётся и выбирается в поле; операция меняется только по «Сохранить». */
+  const create = async (name: string) => {
+    setError(null);
+    const c = assignCreate(item, field, props.data.categories);
+    try {
+      setValue(await createFromForm(props.companyId, c.what, name, { kind: c.kind, counterpartyType: c.counterpartyType }));
+    } catch (e) {
+      setError(`Не удалось создать «${name}»: ${e instanceof ApiError ? (e.fields?.name ?? e.message) : 'Ошибка сервера'}`);
+    }
+  };
   return (
     <form
       onSubmit={(e) => {
@@ -48,8 +71,18 @@ function AssignForm(props: { request: AssignRequest; data: AssignData; onSave: (
         value={value}
         options={options}
         emptyLabel={null}
-        onChange={setValue}
+        onChange={(id) => {
+          setError(null);
+          setValue(id);
+        }}
+        onCreate={(name) => void create(name)}
+        createNoun={ASSIGN_CREATE_NOUNS[field]}
       />
+      {error && (
+        <p role="alert" className={`${alertClass} mt-3 mb-0`}>
+          {error}
+        </p>
+      )}
       <button type="submit" disabled={value === null} className={`${btnPrimary} mt-6 w-full py-3`}>
         Сохранить
       </button>
@@ -63,7 +96,7 @@ function AssignForm(props: { request: AssignRequest; data: AssignData; onSave: (
  * закрывается, значение применяет владелец (оптимистично, с version); фокус — на кнопку открытия операции в той же
  * строке: плашки уже нет. Esc и «×» закрывают без изменений, фокус — на плашке.
  */
-export function AssignDialog(props: { request: AssignRequest | null; data: AssignData; onSave: (request: AssignRequest, id: number) => void; onClose: () => void }) {
+export function AssignDialog(props: { companyId: number; request: AssignRequest | null; data: AssignData; onSave: (request: AssignRequest, id: number) => void; onClose: () => void }) {
   // строка, где сохранили: туда возвращается фокус; Esc и «×» — null (фокус на плашку)
   const savedId = useRef<number | null>(null);
   useEffect(() => {
@@ -80,6 +113,7 @@ export function AssignDialog(props: { request: AssignRequest | null; data: Assig
     >
       {props.request && (
         <AssignForm
+          companyId={props.companyId}
           key={`${props.request.item.id}-${props.request.field}`}
           request={props.request}
           data={props.data}

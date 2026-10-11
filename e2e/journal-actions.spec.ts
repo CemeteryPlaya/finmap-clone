@@ -235,7 +235,7 @@ test('«Указать»: окно «Редактирование …» с од�
   await page.keyboard.press('Enter');
   // доход видит только доходные категории; у системных — бейдж «системная» (его текст входит в текст пункта, но не в имя)
   const categoryOptions = page.getByRole('listbox', { name: 'Категории' }).getByRole('option');
-  await expect(categoryOptions).toHaveText([/^Инвестиции/, /^Возврат займа/, /^Получение кредита/, 'Бар', 'Игровое время']);
+  await expect(categoryOptions).toHaveText(['+ Создать категорию', /^Инвестиции/, /^Возврат займа/, /^Получение кредита/, 'Бар', 'Игровое время']);
   await expect(categoryField).toBeFocused();
   await categoryField.fill('БАР');
   await expect(categoryOptions).toHaveText(['Бар']);
@@ -757,4 +757,44 @@ test('«Изменить данные» в фильтре «Без катего�
   await expect
     .poll(() => page.evaluate(() => document.activeElement?.id === 'journal-heading' || (document.activeElement?.getAttribute('role') === 'status' && /Категория:/.test(document.activeElement.textContent ?? ''))))
     .toBe(true);
+});
+
+test('«Указать»: «+ Создать» в окне — проект по названию; «+ Создать контрагента» без названия просит ввести название', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Указать создать ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(1), accountId: kaspi, amount: 100, comment: 'операция A' });
+  await page.reload();
+  const row = bodyRows(page).filter({ hasText: 'операция A' });
+
+  // проект: набранное название — «+ Создать „…“» после найденного; созданный выбран в поле, сохраняет «Сохранить»
+  await row.getByRole('button', { name: 'Указать проект' }).click();
+  const projectDialog = page.getByRole('dialog', { name: 'Редактирование проекта' });
+  const project = projectDialog.getByRole('combobox', { name: 'Проект', exact: true });
+  await project.fill('Клуб Новый');
+  await page.getByRole('listbox', { name: 'Проекты' }).getByRole('option', { name: '+ Создать „Клуб Новый“' }).click();
+  await expect(project).toHaveValue('Клуб Новый');
+  await projectDialog.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(projectDialog).toBeHidden();
+  await expect(row).toContainText('Клуб Новый');
+
+  // контрагент: «+ Создать контрагента» без названия — ничего не создаётся, фокус в поле, подсказка (Review Focus 4)
+  await row.getByRole('button', { name: 'Указать контрагента' }).click();
+  const cpDialog = page.getByRole('dialog', { name: 'Редактирование контрагента' });
+  const person = cpDialog.getByRole('combobox', { name: 'Мой контрагент', exact: true });
+  await person.click();
+  await page.getByRole('listbox', { name: 'Контрагенты' }).getByRole('option', { name: '+ Создать контрагента' }).click();
+  await expect(person).toBeFocused();
+  await expect(person).toHaveAttribute('placeholder', 'Введите название');
+  await expect(page.getByRole('listbox', { name: 'Контрагенты' })).toBeVisible();
+  await page.keyboard.type('ИП Новый');
+  // найденного нет — активен «+ Создать „ИП Новый“», Enter создаёт
+  await person.press('Enter');
+  await expect(person).toHaveValue('ИП Новый');
+  await cpDialog.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(row).toContainText('ИП Новый');
+  // у дохода без системной категории — «Клиент»
+  const people = (await (await page.request.get(`${base}/counterparties`)).json()).counterparties as { name: string; type: string }[];
+  expect(people.find((c) => c.name === 'ИП Новый')!.type).toBe('client');
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createItemLabel, initialActive, pickerItems, type PickerOption } from '../../src/client/lib/picker';
+import { createItemLabel, initialActive, pickerItems, typedQuery, type PickerOption } from '../../src/client/lib/picker';
 
 const options: PickerOption[] = [
   { id: 0, label: 'Без категории' },
@@ -41,5 +41,32 @@ describe('initialActive — активный пункт при открытии 
     expect(initialActive(pickerItems(options, 'арен', 'категорию'), undefined)).toBe(0);
     expect(initialActive(pickerItems(options, 'Интернет', 'категорию'), undefined)).toBe(0);
     expect(initialActive([], null)).toBe(0);
+  });
+});
+
+describe('typedQuery — запрос из разницы между показанным названием и новым значением поля', () => {
+  it('печать в конец: напечатанное', () => {
+    expect(typedQuery('Аренда', 'Арендаб')).toBe('б');
+    expect(typedQuery('Аренда', 'Аренда склад')).toBe(' склад');
+  });
+  it('перекомпоновка IME (Gboard): «Аренда» → «Арендаи» даёт «и»', () => {
+    expect(typedQuery('Аренда', 'Арендаи')).toBe('и');
+  });
+  it('Backspace и вырезание: «Аренда» → «Арен» даёт пустой запрос', () => {
+    expect(typedQuery('Аренда', 'Арен')).toBe('');
+    expect(typedQuery('Аренда', '')).toBe('');
+  });
+  it('вставка в середину: «Аренда» → «Арезанда» даёт «за»', () => {
+    expect(typedQuery('Аренда', 'Арезанда')).toBe('за');
+  });
+  it('замена выделенного: «Аренда» → «Х» даёт «Х»; без изменений — пусто', () => {
+    expect(typedQuery('Аренда', 'Х')).toBe('Х');
+    expect(typedQuery('Аренда', 'Аренда')).toBe('');
+  });
+  it('пустое показанное название: запрос — всё значение', () => {
+    expect(typedQuery('', 'бар')).toBe('бар');
+  });
+  it('повторяющиеся символы не дают наложения префикса и суффикса: «аа» → «ааа» даёт «а»', () => {
+    expect(typedQuery('аа', 'ааа')).toBe('а');
   });
 });

@@ -1,4 +1,6 @@
+import type { CounterpartyType } from '../../shared/system-categories';
 import { categoryOptions, counterpartyLabel, counterpartyOptions, preferredCounterpartyType, projectOptions } from './operation-options';
+import type { CreatableKind } from './operation-create';
 import type { PickerOption } from './picker';
 import type { CategoryTree, Counterparty, JournalItem, Project } from './queries';
 
@@ -102,4 +104,21 @@ export function assignOptions(item: AssignTarget, field: AssignField, data: Assi
   if (field === 'counterparty') return counterpartyOptions(data.counterparties, null, preferredCounterpartyType(data.categories, singleCategory(item)));
   if (field === 'project') return projectOptions(data.projects, []);
   return item.type === 'transfer' ? [] : categoryOptions(data.categories, item.type, []);
+}
+
+/** Что создаёт «+ Создать» в окне «Указать» (§5.4, §6.6 этапа 1.5). */
+export const ASSIGN_CREATE_NOUNS: Record<AssignField, string> = {
+  counterparty: 'контрагента',
+  category: 'категорию',
+  project: 'проект',
+};
+
+/**
+ * «+ Создать» в окне «Указать» — те же правила, что в форме (план 6a): категория — верхнего уровня вида операции,
+ * контрагент — типа под системную категорию операции, иначе «Клиент» у дохода и «Поставщик» у расхода.
+ */
+export function assignCreate(item: AssignTarget, field: AssignField, tree: CategoryTree): { what: CreatableKind; kind: 'income' | 'expense'; counterpartyType: CounterpartyType } {
+  const kind = item.type === 'income' ? 'income' : 'expense';
+  const counterpartyType = preferredCounterpartyType(tree, singleCategory(item)) ?? (kind === 'income' ? 'client' : 'supplier');
+  return { what: field, kind, counterpartyType };
 }

@@ -442,6 +442,8 @@ test('«+ Создать „…“» прямо из формы: контраг�
   await category.press('Enter');
   await expect(category).toHaveValue('Интернет');
   // такое название уже есть (без учёта регистра) — «Создать» не предлагается
+  // (замена всего названия: открываем список — запрос тогда весь набранный текст, а не разница с «Интернет»)
+  await category.click();
   await category.fill('интернет');
   await expect(dialog.getByRole('option', { name: /Создать/ })).toHaveCount(0);
   await category.press('Escape');

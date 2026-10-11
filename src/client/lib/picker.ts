@@ -43,3 +43,17 @@ export function initialActive(items: readonly PickerItem[], selectedId: number |
   const first = items.findIndex((it) => it.kind === 'option');
   return first >= 0 ? first : 0;
 }
+
+/**
+ * Запрос поиска по правке закрытого поля: новое значение сравнивается с показанным названием — общее начало и
+ * общий конец отбрасываются, середина и есть запрос. Верно для печати, перекомпоновки IME («Аренда» → «Арендаи» даёт «и»),
+ * стирания («Арен» даёт ''), вырезания, вставки и автозамены — не зависит от `InputEvent.data` (его нет у части клавиатур телефонов).
+ */
+export function typedQuery(shown: string, next: string): string {
+  const max = Math.min(shown.length, next.length);
+  let head = 0;
+  while (head < max && shown[head] === next[head]) head++;
+  let tail = 0;
+  while (tail < max - head && shown[shown.length - 1 - tail] === next[next.length - 1 - tail]) tail++;
+  return next.slice(head, next.length - tail);
+}

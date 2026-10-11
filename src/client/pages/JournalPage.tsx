@@ -373,6 +373,7 @@ function JournalScreen(props: {
       />
       {!readOnly && (
         <AssignDialog
+          companyId={company.id}
           request={assignRequest}
           data={assignData}
           onClose={() => setAssignRequest(null)}

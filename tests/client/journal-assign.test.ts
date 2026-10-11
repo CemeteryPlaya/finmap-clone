@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../src/client/lib/api';
-import { ASSIGN_TITLES, assignLabel, assignOptions, assignPatch, canAssign, withAssigned, type AssignData, type AssignTarget } from '../../src/client/lib/journal-assign';
+import { ASSIGN_CREATE_NOUNS, ASSIGN_TITLES, assignCreate, assignLabel, assignOptions, assignPatch, canAssign, withAssigned, type AssignData, type AssignTarget } from '../../src/client/lib/journal-assign';
 import type { CategoryNode, Counterparty, Project } from '../../src/client/lib/queries';
 import { operationErrorText } from '../../src/client/lib/journal-mutations';
 
@@ -145,6 +145,14 @@ describe('окно «Указать» (§5.4 этапа 1.5)', () => {
       { id: 7, label: 'ИП Клиент' },
       { id: 8, label: 'Алина' },
     ]);
+  });
+
+  it('«+ Создать» в окне: что создаётся — по правилам формы (категория — вида операции, контрагент — под системную категорию)', () => {
+    expect(ASSIGN_CREATE_NOUNS).toEqual({ counterparty: 'контрагента', category: 'категорию', project: 'проект' });
+    expect(assignCreate(op({ type: 'income' }), 'category', data.categories)).toEqual({ what: 'category', kind: 'income', counterpartyType: 'client' });
+    expect(assignCreate(op({}), 'counterparty', data.categories)).toEqual({ what: 'counterparty', kind: 'expense', counterpartyType: 'supplier' });
+    expect(assignCreate(op({ lines: [line(10, null)] }), 'counterparty', data.categories)).toEqual({ what: 'counterparty', kind: 'expense', counterpartyType: 'employee' });
+    expect(assignCreate(op({ type: 'transfer', lines: [] }), 'project', data.categories)).toMatchObject({ what: 'project' });
   });
 });
 
