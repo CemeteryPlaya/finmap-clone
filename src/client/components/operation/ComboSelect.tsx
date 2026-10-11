@@ -45,6 +45,7 @@ export function ComboSelect(props: {
     createNoun: props.createNoun,
   });
   const suffix = combo.open ? undefined : selected?.suffix;
+  const placeholder = combo.inputProps.placeholder ?? (text === '' ? props.emptyText : undefined);
   return (
     <Field
       label={props.label}
@@ -52,7 +53,8 @@ export function ComboSelect(props: {
       hint={props.hint}
       className={props.className}
       floating
-      filled={combo.open || text !== '' || props.emptyText !== undefined}
+      // подпись поднимается, когда в поле есть что показать (значение, набранное, подсказка); пустое открытое поле — крупная подпись (Finmap 09)
+      filled={combo.inputProps.value !== '' || placeholder !== undefined}
       boxRef={combo.anchorRef}
     >
       {(control) => (
@@ -60,13 +62,13 @@ export function ComboSelect(props: {
           <input
             {...control}
             {...combo.inputProps}
-            placeholder={combo.inputProps.placeholder ?? (text === '' ? props.emptyText : undefined)}
+            placeholder={placeholder}
             disabled={props.disabled}
             className={`${floatingControlClass} truncate ${suffix ? 'pr-20' : 'pr-10'}`}
           />
-          {/* символ валюты выбранного счёта — справа в закрытом поле, только для глаз (значение поля — название) */}
+          {/* символ валюты выбранного счёта — справа в закрытом поле на строке значения (pt-5 pb-1: центр на 0,5 rem ниже), только для глаз */}
           {suffix && (
-            <span aria-hidden="true" className="pointer-events-none absolute top-1/2 right-10 -translate-y-1/2 text-label">
+            <span aria-hidden="true" className="pointer-events-none absolute top-[calc(50%+0.5rem)] right-10 -translate-y-1/2 text-label">
               {suffix}
             </span>
           )}

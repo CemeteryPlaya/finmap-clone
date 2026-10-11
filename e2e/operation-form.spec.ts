@@ -140,6 +140,9 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   const category = field(dialog, 'Категория');
   await category.click();
   await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeVisible();
+  // пустое открытое поле: подпись остаётся крупной (Finmap 09), поднимается, когда есть значение
+  const categoryBox = category.locator('xpath=..');
+  await expect(categoryBox).not.toHaveAttribute('data-filled', /.*/);
   // нажатие внутри открытого поля его не закрывает; нажатие вне поля и списка (на заголовок окна) — закрывает
   await category.click();
   await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeVisible();
@@ -157,6 +160,7 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   await expect(dialog.getByRole('listbox', { name: 'Категории' }).getByRole('option')).toHaveText(['Аренда', '+ Создать „АРЕН“']);
   await category.press('Enter');
   await expect(category).toHaveValue('Аренда');
+  await expect(categoryBox).toHaveAttribute('data-filled', '');
   await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeHidden();
   // печать поверх выбранного: ищется набранное; Esc возвращает прежнее значение (Review Focus 1)
   await category.fill('интернет');
@@ -188,6 +192,27 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeHidden();
   await expect(category).toHaveValue('Аренда');
   await expect(dialog).toBeVisible();
+
+  // ↓ открывает закрытое поле; набранное и не выбранное возвращается при уходе по Tab и по нажатию вне поля
+  await category.focus();
+  await category.press('ArrowDown');
+  await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeVisible();
+  await category.press('Escape');
+  await category.fill('ин');
+  await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeVisible();
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeHidden();
+  await expect(category).toHaveValue('Аренда');
+  await category.fill('ин');
+  await dialog.getByRole('heading').click();
+  await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeHidden();
+  await expect(category).toHaveValue('Аренда');
+  // печать в закрытом поле со значением: запрос — только напечатанное, без прежнего названия
+  await category.focus();
+  await category.pressSequentially('интернет');
+  await expect(dialog.getByRole('listbox', { name: 'Категории' }).getByRole('option')).toHaveText(['+ Создать „интернет“']);
+  await category.press('Escape');
+  await expect(category).toHaveValue('Аренда');
 
   // «Сохранить и создать похожий»: категория и контрагент остаются, сумма и комментарий — нет
   await pick(page, 'Мой контрагент', 'ТОО Ромашка');
