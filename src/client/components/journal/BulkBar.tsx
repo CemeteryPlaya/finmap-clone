@@ -48,12 +48,13 @@ export function BulkBar(props: {
         type="button"
         role="checkbox"
         aria-checked="mixed"
+        data-bulk-clear=""
         aria-label="Снять выделение"
         title="Снять выделение"
         onClick={props.onClear}
         className="grid size-[18px] shrink-0 place-items-center rounded bg-white text-sm leading-none font-bold text-income-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
       >
-        <span aria-hidden="true">{'−'}</span>
+        <span aria-hidden="true">{'\u2212'}</span>
       </button>
       {tooMany ? (
         <span className="min-w-0 truncate text-sm" title={`Не больше ${BULK_MAX} операций за раз — снимите часть выделения`}>

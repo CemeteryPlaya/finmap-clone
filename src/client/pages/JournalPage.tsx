@@ -30,7 +30,7 @@ import {
   type JournalUrlState,
 } from '../lib/journal-filter';
 import { categoryLookup, uniqueById } from '../lib/journal-format';
-import { bulkEditSummary, bulkSummary, selectionTotals, type BulkAction, type BulkEditAction, type BulkResult, type BulkSummary } from '../lib/journal-bulk';
+import { BULK_MAX, bulkEditSummary, bulkSummary, selectionTotals, type BulkAction, type BulkEditAction, type BulkResult, type BulkSummary } from '../lib/journal-bulk';
 import { operationErrorText, refreshOperations, runBulk, useAssign } from '../lib/journal-mutations';
 import { rememberJournal } from '../lib/last-journal';
 import { journalWrap } from '../lib/preferences';
@@ -318,7 +318,11 @@ function JournalScreen(props: {
       </h1>
       {/* итог выделения для программ чтения (§5.5): область есть всегда, без выделения пустая — первый итог тоже объявляется */}
       <p id="selection-totals" aria-live="polite" className="sr-only">
-        {!mobile && selectedItems.length > 0 ? selectionTotals(selectedItems, company.baseCurrency) : ''}
+        {!mobile && selectedItems.length > 0
+          ? selectedItems.length > BULK_MAX
+            ? `Не больше ${BULK_MAX} операций за раз — снимите часть выделения`
+            : selectionTotals(selectedItems, company.baseCurrency)
+          : ''}
       </p>
       <JournalToolbar
         state={state}

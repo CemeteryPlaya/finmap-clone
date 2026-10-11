@@ -27,7 +27,7 @@ describe('итог массового действия (§7)', () => {
 describe('итог выделения (§5.5 этапа 1.5)', () => {
   const op = (type: 'income' | 'expense' | 'transfer', baseAmount: number) => ({ type, baseAmount });
   /** Неразрывные пробелы денег (U+00A0, U+202F) → обычные: так ожидания читаются. */
-  const plain = (s: string) => s.replace(/[  ]/g, ' ');
+  const plain = (s: string) => s.replace(/[\u00A0\u202F]/g, ' ');
 
   it('по типам в порядке Доход, Расход, Перевод; «платёж / платежа / платежей»; сумма — в базовой валюте; копейки только ненулевые (Review Focus 4)', () => {
     expect(plain(selectionTotals([op('expense', 800000), op('income', 4500000), op('income', 66600)], 'KZT'))).toBe('Доход • 2 платежа • 45 666 ₸ · Расход • 1 платёж • 8 000 ₸');
@@ -35,6 +35,9 @@ describe('итог выделения (§5.5 этапа 1.5)', () => {
     expect(plain(selectionTotals(Array.from({ length: 21 }, () => op('income', 150050)), 'KZT'))).toBe('Доход • 21 платёж • 31 510,50 ₸');
     // у счёта в долларах baseAmount уже в базовой валюте компании
     expect(plain(selectionTotals([op('income', 150050)], 'USD'))).toBe('Доход • 1 платёж • 1 500,50 $');
+    // 11–14 — «платежей», 21 — «платёж», большая сумма с группами разрядов
+    for (const n of [11, 12, 14]) expect(plain(selectionTotals(Array.from({ length: n }, () => op('expense', 100)), 'KZT'))).toBe(`Расход • ${n} платежей • ${n} ₸`);
+    expect(plain(selectionTotals([op('income', 12345678950)], 'KZT'))).toBe('Доход • 1 платёж • 123 456 789,50 ₸');
     expect(selectionTotals([], 'KZT')).toBe('');
   });
 });

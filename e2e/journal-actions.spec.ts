@@ -356,11 +356,15 @@ test('массовые действия: полоса на месте загол
   const clear = bar.getByRole('checkbox', { name: 'Снять выделение' });
   await expect(clear).toHaveAttribute('aria-checked', 'mixed');
   // полоса — ровно на месте строки заголовков: та же высота, на первую строку таблицы не наезжает
-  const headRow = table(page).locator('thead tr');
-  const barBox = (await bar.boundingBox())!;
-  const headBox = (await headRow.boundingBox())!;
-  expect(Math.abs(barBox.y - headBox.y)).toBeLessThanOrEqual(1);
-  expect(Math.abs(barBox.height - headBox.height)).toBeLessThanOrEqual(1);
+  // оба прямоугольника читаются в одном вызове — раскладка не успевает сдвинуться между замерами
+  const barVsHead = () =>
+    page.evaluate(() => {
+      const b = document.querySelector('[aria-label="Действия с выбранными"]')!.getBoundingClientRect();
+      const h = document.querySelector('thead tr')!.getBoundingClientRect();
+      return { dy: Math.abs(b.y - h.y), dh: Math.abs(b.height - h.height) };
+    });
+  await expect.poll(async () => (await barVsHead()).dy).toBeLessThanOrEqual(1);
+  await expect.poll(async () => (await barVsHead()).dh).toBeLessThanOrEqual(1);
   // кнопки строки заголовков под полосой не попадают в порядок Tab
   await expect(selectAll).toHaveAttribute('tabindex', '-1');
 
@@ -395,6 +399,21 @@ test('массовые действия: полоса на месте загол
 
   // общий чекбокс снимает выделение; фокус — на флажке «Выбрать все» (Review Focus 6)
   await clear.click();
+  await expect(bar).toHaveCount(0);
+  await expect(selectAll).toBeFocused();
+  // кнопки строки заголовков снова в порядке Tab
+  await expect(selectAll).not.toHaveAttribute('tabindex', '-1');
+  await expect(table(page).locator('thead').getByRole('button').first()).not.toHaveAttribute('tabindex', '-1');
+  // с клавиатуры: Space на «Выбрать все» — фокус уходит на общий чекбокс полосы (не прячется под ней), Tab идёт дальше по полосе
+  await selectAll.press('Space');
+  await expect(bar).toBeVisible();
+  await expect(clear).toBeFocused();
+  await expect(clear).toBeInViewport();
+  await page.keyboard.press('Tab');
+  await expect(edit).toBeFocused();
+  // и обратно: Shift+Tab, Space на общем чекбоксе — выделение снято, фокус на «Выбрать все»
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Space');
   await expect(bar).toHaveCount(0);
   await expect(selectAll).toBeFocused();
 
@@ -432,10 +451,8 @@ test('массовые действия: полоса на месте загол
   await bar.getByRole('button', { name: 'Удалить', exact: true }).click();
   await expect(bar.getByRole('button', { name: 'Отмена' })).toBeFocused();
   // подтверждение — в той же одной строке: высота полосы равна высоте строки заголовков, итог на это время скрыт
-  const confirmBox = (await bar.boundingBox())!;
-  const headRowBox = (await table(page).locator('thead tr').boundingBox())!;
-  expect(Math.abs(confirmBox.height - headRowBox.height)).toBeLessThanOrEqual(1);
-  await expect(bar).not.toContainText('платёж');
+  await expect.poll(async () => (await barVsHead()).dh).toBeLessThanOrEqual(1);
+  await expect(bar).not.toContainText(/плат[её]ж/);
   await expect(bar.getByRole('button', { name: 'Да, удалить' })).toBeVisible();
   // узкое окно (R1): полоса не прокручивается и обрезает лишнее — кнопки подтверждения целиком внутри её правой границы
   await page.setViewportSize({ width: 800, height: 720 });

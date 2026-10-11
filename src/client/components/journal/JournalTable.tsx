@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode } from 'react';
+import { useEffect, useRef, type MouseEvent, type ReactNode } from 'react';
 import { formatDateShortRu } from '../../../shared/dates';
 import { formatMoney, MONEY_SCREEN } from '../../../shared/money';
 import { canAssign, type AssignField } from '../../lib/journal-assign';
@@ -137,7 +137,17 @@ function Balance({ account, balance }: { account: Account | undefined; balance: 
 
 export function JournalTable(props: JournalTableProps) {
   const { lookups, columns, selection, wrap } = props;
-  const covered = props.bulkBar !== undefined;
+  const covered = Boolean(props.bulkBar);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  // полоса легла на строку заголовков, а фокус остался на её (теперь закрытом) элементе — например, Space на «Выбрать все»:
+  // переносим фокус на общий чекбокс полосы. Выделение мышью по строке в теле таблицы фокус не трогает.
+  useEffect(() => {
+    if (!covered) return;
+    const active = document.activeElement;
+    if (active && wrapRef.current?.querySelector('thead')?.contains(active)) {
+      wrapRef.current.querySelector<HTMLElement>('[data-bulk-clear]')?.focus({ preventScroll: true });
+    }
+  }, [covered]);
   const shown = JOURNAL_COLUMNS.filter((c) => columns.includes(c.id));
   const selectedCount = selection ? props.items.filter((i) => selection.selected.has(i.id)).length : 0;
   const allSelected = props.items.length > 0 && selectedCount === props.items.length;
@@ -165,7 +175,7 @@ export function JournalTable(props: JournalTableProps) {
 
   return (
     // полоса действий — вне горизонтальной прокрутки таблицы (§5.5): при узком окне таблица уезжает вбок, полоса — нет
-    <div className="relative">
+    <div ref={wrapRef} className="relative">
       {props.bulkBar && <div className="absolute inset-x-0 top-0 z-10">{props.bulkBar}</div>}
       <div className="overflow-x-auto">
       <table aria-busy={props.busy} className={`w-full min-w-[56rem] table-fixed border-collapse text-sm ${props.busy ? 'opacity-60' : ''}`}>
