@@ -4,7 +4,7 @@ import { Link } from 'react-router';
 import { getCurrency } from '../../../shared/currencies';
 import { todayInTimezone } from '../../../shared/dates';
 import { api, ApiError } from '../../lib/api';
-import { uploadAttachment, uploadErrorText, useAttachments } from '../../lib/attachments';
+import { isFileDrag, uploadAttachment, uploadErrorText, useAttachments } from '../../lib/attachments';
 import type { OperationType } from '../../lib/journal-filter';
 import { invalidateOperations } from '../../lib/journal-mutations';
 import { defaultAccounts, readLastAccounts, saveLastAccounts, withSaved } from '../../lib/last-account';
@@ -229,6 +229,20 @@ function OperationEditor(p: {
   useEffect(() => {
     if (hasFiles) setMore(true);
   }, [hasFiles]);
+  /** Файлы, брошенные на форму мимо зоны файлов: блок раскрывается, `AttachmentsField` их принимает. */
+  const [incoming, setIncoming] = useState<File[] | null>(null);
+  // пока форма открыта, файл, брошенный мимо неё, не должен открыться в браузере (страница с формой была бы потеряна)
+  useEffect(() => {
+    const guard = (e: DragEvent) => {
+      if (e.dataTransfer && isFileDrag([...e.dataTransfer.types])) e.preventDefault();
+    };
+    window.addEventListener('dragover', guard);
+    window.addEventListener('drop', guard);
+    return () => {
+      window.removeEventListener('dragover', guard);
+      window.removeEventListener('drop', guard);
+    };
+  }, []);
   /** Файлы, выбранные до создания операции: загружаются сразу после него (§7). */
   const [files, setFiles] = useState<File[]>([]);
   /** Ошибка сохранения: фокус — на первое поле с ошибкой или действие в сообщении (поля были недоступны, фокус потерян). */
@@ -600,7 +614,7 @@ function OperationEditor(p: {
         tags={p.data.tags}
         value={draft.tagIds}
         onChange={(tagIds) => set({ tagIds }, 'tagIds')}
-        onCreate={(name) => void createItem('tag', name, (d, id) => ({ ...d, tagIds: [...d.tagIds, id] }))}
+        onCreate={(name) => createItem('tag', name, (d, id) => ({ ...d, tagIds: [...d.tagIds, id] }))}
         error={errors.tagIds}
       />
       <Field label="Комментарий" error={errors.comment} floating filled={draft.comment !== ''}>
@@ -615,7 +629,7 @@ function OperationEditor(p: {
           />
         )}
       </Field>
-      <AttachmentsField companyId={p.company.id} operationId={op?.id ?? null} pending={files} onPendingChange={setFiles} readOnly={readOnly} />
+      <AttachmentsField companyId={p.company.id} operationId={op?.id ?? null} pending={files} onPendingChange={setFiles} readOnly={readOnly} incoming={incoming} onIncomingHandled={() => setIncoming(null)} />
     </div>
   );
 
@@ -659,7 +673,25 @@ function OperationEditor(p: {
 
   return (
     <>
-      <form ref={formRef} onSubmit={onSubmit} noValidate aria-label="Операция" className="grid grid-cols-[minmax(0,1fr)] gap-4">
+      <form
+        ref={formRef}
+        onSubmit={onSubmit}
+        noValidate
+        aria-label="Операция"
+        onDragOver={(e) => {
+          if (!isFileDrag([...e.dataTransfer.types])) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = readOnly ? 'none' : 'copy';
+        }}
+        onDrop={(e) => {
+          if (!isFileDrag([...e.dataTransfer.types])) return;
+          e.preventDefault();
+          if (readOnly) return;
+          // бросили не в зону файлов: блок раскрывается и файлы добавляются так же, как из зоны
+          setMore(true);
+          setIncoming([...e.dataTransfer.files]);
+        }}
+        className="grid grid-cols-[minmax(0,1fr)] gap-4">
         {readOnly && <p className={`${noticeClass} mb-0`}>Компания в архиве — изменения недоступны.</p>}
         {/* пока запрос идёт, поля недоступны: «похожий» копирует ровно то, что ушло на сервер */}
         <fieldset disabled={pending || readOnly} className="contents">
@@ -842,10 +874,12 @@ function rateHint(draft: OperationDraft, from: string, fromMinor: number, to: st
 
 /**
  * Теги (§6.7 строка 3 этапа 1.5): поле-мультивыбор — выбранные плашками внутри поля с плавающей подписью «Теги»,
- * печать ищет и добавляет («+ Создать „…“» — новый тег). Выбор пункта добавляет тег и закрывает список; Backspace
- * в пустом поле убирает последний тег; «×» на плашке убирает её тег.
+ * печать ищет и добавляет («+ Создать тег „…“» — новый тег; не удалось — набранное название остаётся в поле). Выбор
+ * пункта добавляет тег и закрывает список; Backspace в пустом поле при закрытом списке убирает последний тег (не при
+ * автоповторе клавиши); «×» на плашке убирает её тег, фокус уходит на «×» следующей плашки, иначе предыдущей, иначе
+ * в поле. Добавление и удаление объявляет скрытая область `role="status"`.
  */
-function TagsField(props: { tags: Tag[]; value: number[]; onChange: (ids: number[]) => void; onCreate: (name: string) => void; error?: string }) {
+function TagsField(props: { tags: Tag[]; value: number[]; onChange: (ids: number[]) => void; onCreate: (name: string) => Promise<boolean>; error?: string }) {
   const names = new Map(props.tags.map((t) => [t.id, t.name]));
   const options = tagOptions(props.tags, props.value).filter((o) => !props.value.includes(o.id));
   const combo = useComboList({
@@ -858,34 +892,76 @@ function TagsField(props: { tags: Tag[]; value: number[]; onChange: (ids: number
     createNoun: 'тег',
   });
   const { onKeyDown, ...inputProps } = combo.inputProps;
+  const removeButtons = useRef(new Map<number, HTMLButtonElement>());
+  /** Куда вернуть фокус после удаления плашки «×»: «×» соседней плашки или поле. */
+  const refocus = useRef<number | 'input' | null>(null);
+  useEffect(() => {
+    const target = refocus.current;
+    if (target === null) return;
+    const el = target === 'input' ? combo.inputProps.ref.current : (removeButtons.current.get(target) ?? null);
+    if (el) {
+      el.focus();
+      refocus.current = null;
+    }
+  });
+  // объявления: имена тегов, когда-либо виденные (убранный тег уже нет в списке выбранных), и очередь ещё не объявленного
+  const known = useRef(new Map<number, string>());
+  for (const [id, name] of names) known.current.set(id, name);
+  const previous = useRef(props.value);
+  const queue = useRef<{ id: number; added: boolean }[]>([]);
+  const [announcement, setAnnouncement] = useState('');
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = props.value;
+    for (const id of props.value) if (!before.includes(id)) queue.current.push({ id, added: true });
+    for (const id of before) if (!props.value.includes(id)) queue.current.push({ id, added: false });
+    const ready = queue.current.filter((q) => known.current.has(q.id));
+    if (ready.length === 0) return;
+    queue.current = queue.current.filter((q) => !known.current.has(q.id));
+    setAnnouncement(ready.map((q) => `Тег ${known.current.get(q.id)} ${q.added ? 'добавлен' : 'убран'}`).join('. '));
+  });
   return (
     <Field label="Теги" error={props.error} floating filled={props.value.length > 0 || combo.open} boxRef={combo.anchorRef}>
       {(control) => (
         <div className="flex min-h-14 flex-wrap items-center gap-1.5 rounded-xl bg-field px-4 pt-6 pb-2 focus-within:ring-2 focus-within:ring-focus">
-          {props.value.map((id) => (
-            <span key={id} className="inline-flex items-center gap-1 rounded-full bg-card px-2.5 py-0.5 text-sm">
-              {names.get(id) ?? '…'}
-              <button
-                type="button"
-                aria-label={`Убрать тег «${names.get(id) ?? ''}»`}
-                onClick={() => props.onChange(props.value.filter((x) => x !== id))}
-                className="text-muted hover:text-ink"
-              >
-                ×
-              </button>
-            </span>
-          ))}
+          {props.value.length > 0 && (
+            <ul role="list" aria-label="Выбранные теги" className="contents">
+              {props.value.map((id, at) => (
+                <li key={id} className="inline-flex items-center gap-1 rounded-full bg-card px-2.5 py-0.5 text-sm">
+                  {names.get(id) ?? '…'}
+                  <button
+                    type="button"
+                    ref={(el) => {
+                      if (el) removeButtons.current.set(id, el);
+                      else removeButtons.current.delete(id);
+                    }}
+                    aria-label={`Убрать тег «${names.get(id) ?? ''}»`}
+                    onClick={() => {
+                      refocus.current = props.value[at + 1] ?? props.value[at - 1] ?? 'input';
+                      props.onChange(props.value.filter((x) => x !== id));
+                    }}
+                    className="text-muted hover:text-ink"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           <input
             {...control}
             {...inputProps}
             onKeyDown={(e) => {
-              // Backspace в пустом поле убирает последний тег
-              if (e.key === 'Backspace' && e.currentTarget.value === '' && props.value.length > 0) props.onChange(props.value.slice(0, -1));
+              // Backspace в пустом поле при закрытом списке убирает последний тег (удержание клавиши не стирает все)
+              if (e.key === 'Backspace' && !e.repeat && !combo.open && e.currentTarget.value === '' && props.value.length > 0) props.onChange(props.value.slice(0, -1));
               onKeyDown(e);
             }}
             className="min-w-24 flex-1 bg-transparent py-1 text-base outline-none"
           />
           {combo.list}
+          <span role="status" className="sr-only">
+            {announcement}
+          </span>
         </div>
       )}
     </Field>

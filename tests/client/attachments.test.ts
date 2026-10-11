@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../src/client/lib/api';
-import { ATTACHMENT_MAX_BYTES, attachmentSizeError, attachmentUrl, formatFileSize, isFileDrag, uploadErrorText } from '../../src/client/lib/attachments';
+import { ATTACHMENT_MAX_BYTES, attachmentSizeError, attachmentTypeError, attachmentUrl, formatFileSize, isFileDrag, uploadErrorText } from '../../src/client/lib/attachments';
 
 describe('вложения в форме операции', () => {
   it('размер проверяется до отправки: пустой и больше 10 МБ (§8)', () => {
@@ -32,5 +32,14 @@ describe('перетаскивание в зону файлов (§6.7 этап�
     expect(isFileDrag(['text/plain'])).toBe(false);
     expect(isFileDrag(['text/uri-list', 'text/html'])).toBe(false);
     expect(isFileDrag([])).toBe(false);
+  });
+});
+
+describe('тип файла при сбросе (как в окне выбора)', () => {
+  it('допустимо расширение из списка, регистр не важен; остальное — отказ с текстом сервера', () => {
+    expect(attachmentTypeError('чек.PNG')).toBeNull();
+    expect(attachmentTypeError('выписка.csv')).toBeNull();
+    expect(attachmentTypeError('скрипт.exe')).toBe('Допустимые файлы: PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV');
+    expect(attachmentTypeError('без-расширения')).not.toBeNull();
   });
 });

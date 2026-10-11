@@ -247,7 +247,7 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   await dialog.getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
   await dialog.getByLabel('Комментарий').fill('первый');
   await dialog.getByRole('button', { name: 'Добавить и создать похожий' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Операция сохранена');
+  await expect(dialog.getByRole('status').filter({ hasText: 'Операция сохранена' })).toContainText('Операция сохранена');
   await expect(amount).toHaveValue('');
   await expect(amount).toBeFocused();
   await expect(dialog.getByLabel('Комментарий')).toHaveValue('');
@@ -519,6 +519,19 @@ test('«+ Создать „…“» прямо из формы: контраг�
   await tags.fill('старый');
   await dialog.getByRole('option', { name: '+ Создать тег „старый“' }).click();
   await expect(dialog.getByRole('alert')).toContainText('Не удалось создать «старый»');
+  // набранное название остаётся в поле, чтобы его поправить
+  await expect(tags).toHaveValue('старый');
+  await expect(tags).toBeFocused();
+  // добавление объявляется скрытой областью; после «×» фокус на «×» соседней плашки, у последней — в поле
+  await tags.fill('вторая');
+  await dialog.getByRole('option', { name: '+ Создать тег „вторая“' }).click();
+  await expect(dialog.getByRole('status').filter({ hasText: 'Тег вторая добавлен' })).toHaveCount(1);
+  await expect(dialog.getByRole('list', { name: 'Выбранные теги' }).getByRole('listitem')).toHaveCount(2);
+  await dialog.getByRole('button', { name: 'Убрать тег «нал»' }).click();
+  await expect(dialog.getByRole('button', { name: 'Убрать тег «вторая»' })).toBeFocused();
+  await expect(dialog.getByRole('status').filter({ hasText: 'Тег нал убран' })).toHaveCount(1);
+  await dialog.getByRole('button', { name: 'Убрать тег «вторая»' }).click();
+  await expect(tags).toBeFocused();
 
   await submit(dialog).click();
   await expect(dialog).toBeHidden();

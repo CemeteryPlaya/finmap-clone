@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import {
   ATTACHMENT_ACCEPT,
   attachmentSizeError,
+  attachmentTypeError,
   attachmentUrl,
   formatFileSize,
   isFileDrag,
@@ -24,6 +25,9 @@ export function AttachmentsField(props: {
   onPendingChange: (files: File[]) => void;
   /** Только просмотр (архивная компания): файлы можно скачать, но не добавить и не удалить. */
   readOnly?: boolean;
+  /** Файлы, брошенные на форму мимо зоны (блок мог быть свёрнут): добавляются как выбранные; `onIncomingHandled` сообщает форме, что они приняты. */
+  incoming?: File[] | null;
+  onIncomingHandled?: () => void;
 }) {
   const inputId = useId();
   const hintId = useId();
@@ -49,14 +53,22 @@ export function AttachmentsField(props: {
     }
   });
 
+  // файлы, брошенные на форму мимо зоны
+  useEffect(() => {
+    if (!props.incoming) return;
+    const dropped = props.incoming;
+    props.onIncomingHandled?.();
+    if (!uploading) void choose(dropped);
+  }, [props.incoming]);
+
   // другая операция — прежние ошибки загрузки не относятся к ней
   useEffect(() => setErrors([]), [props.operationId]);
 
-  const choose = async (list: FileList | null) => {
+  const choose = async (list: Iterable<File> | null) => {
     const files = [...(list ?? [])];
     const problems: string[] = [];
     const ok = files.filter((f) => {
-      const error = attachmentSizeError(f.size);
+      const error = attachmentSizeError(f.size) ?? attachmentTypeError(f.name);
       if (error) problems.push(`«${f.name}»: ${error}`);
       return !error;
     });
@@ -166,8 +178,10 @@ export function AttachmentsField(props: {
         <div
           data-drop-zone=""
           onDragOver={(e) => {
-            if (uploading || !isFileDrag([...e.dataTransfer.types])) return;
+            // файл над зоной не должен открываться браузером, даже пока идёт загрузка
+            if (!isFileDrag([...e.dataTransfer.types])) return;
             e.preventDefault();
+            if (uploading) return;
             e.dataTransfer.dropEffect = 'copy';
             setDragging(true);
           }}
@@ -176,9 +190,11 @@ export function AttachmentsField(props: {
           }}
           onDrop={(e) => {
             setDragging(false);
-            if (uploading || !isFileDrag([...e.dataTransfer.types])) return;
+            if (!isFileDrag([...e.dataTransfer.types])) return;
             e.preventDefault();
-            void choose(e.dataTransfer.files);
+            // форма не должна принять тот же файл второй раз
+            e.stopPropagation();
+            if (!uploading) void choose(e.dataTransfer.files);
           }}
           className={`rounded-xl border-2 border-dashed px-4 py-4 text-center text-sm has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-focus ${dragging ? 'border-income bg-income-soft' : 'border-field'}`}
         >

@@ -100,7 +100,7 @@ test('правка из журнала: клик по строке и с кла�
   await open.click();
   await editForm(page).getByRole('button', { name: 'Дублировать платёж' }).click();
   dialog = page.getByRole('dialog', { name: 'Новый расход' });
-  await expect(dialog.getByRole('status')).toHaveText('Это копия — проверьте и сохраните');
+  await expect(dialog.getByRole('status').filter({ hasText: 'Это копия' })).toHaveText('Это копия — проверьте и сохраните');
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('350');
   await expect(dialog.getByRole('combobox', { name: 'Категория', exact: true })).toHaveValue('Аренда');
   await submit(dialog).click();
@@ -350,6 +350,11 @@ test('файлы: выбранный до сохранения загружае�
   await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
   await page.reload();
 
+  // загрузок на сервер до сохранения операции быть не должно (сброс текста и отклонённых файлов ничего не отправляет)
+  let uploads = 0;
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && /\/attachments$/.test(new URL(r.url()).pathname)) uploads += 1;
+  });
   // новая операция: файл ждёт сохранения
   await page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true }).click();
   let dialog = page.getByRole('dialog', { name: 'Новый расход' });
@@ -370,8 +375,15 @@ test('файлы: выбранный до сохранения загружае�
     dt.items.add(new File(['a;b\n1;2\n'], 'перетащен.csv', { type: 'text/csv' }));
     return dt;
   });
+  // над зоной она подсвечена; уход и сброс снимают подсветку
   await zone.dispatchEvent('dragover', { dataTransfer: dropped });
+  await expect(zone).toHaveClass(/bg-income-soft/);
+  await zone.dispatchEvent('dragleave', { dataTransfer: dropped });
+  await expect(zone).not.toHaveClass(/bg-income-soft/);
+  await zone.dispatchEvent('dragover', { dataTransfer: dropped });
+  await expect(zone).toHaveClass(/bg-income-soft/);
   await zone.dispatchEvent('drop', { dataTransfer: dropped });
+  await expect(zone).not.toHaveClass(/bg-income-soft/);
   await expect(files).toContainText('перетащен.csv');
   // перетаскивание текста — не файл: ничего не добавляется (Review Focus 5)
   const text = await page.evaluateHandle(() => {
@@ -379,8 +391,24 @@ test('файлы: выбранный до сохранения загружае�
     dt.setData('text/plain', 'просто текст');
     return dt;
   });
+  const fileButtons = files.getByRole('button', { name: /^(Убрать|Удалить) файл/ });
+  await expect(fileButtons).toHaveCount(2);
+  await zone.dispatchEvent('dragover', { dataTransfer: text });
+  await expect(zone).not.toHaveClass(/bg-income-soft/);
   await zone.dispatchEvent('drop', { dataTransfer: text });
-  await expect(files.getByText('просто текст')).toHaveCount(0);
+  await expect(fileButtons).toHaveCount(2);
+  expect(uploads).toBe(0);
+  // файл неподходящего типа и больше 10 МБ при сбросе отклоняются так же, как в окне выбора файла
+  const bad = await page.evaluateHandle(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(['x'], 'скрипт.exe', { type: 'application/x-msdownload' }));
+    dt.items.add(new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'огромный.pdf', { type: 'application/pdf' }));
+    return dt;
+  });
+  await zone.dispatchEvent('drop', { dataTransfer: bad });
+  await expect(files.getByRole('alert')).toContainText('«скрипт.exe»: Допустимые файлы: PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV');
+  await expect(files.getByRole('alert')).toContainText('«огромный.pdf»: Файл больше 10 МБ');
+  await expect(fileButtons).toHaveCount(2);
   // больше 10 МБ — отказ до отправки
   await dialog.getByLabel('Добавить файл').setInputFiles({ name: 'большой.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(10 * 1024 * 1024 + 1) });
   await expect(files.getByRole('alert')).toContainText('«большой.pdf»: Файл больше 10 МБ');
@@ -425,9 +453,39 @@ test('файлы: выбранный до сохранения загружае�
   await expect(dialog.getByRole('link', { name: 'чек.png' })).toHaveCount(0);
   await expect(dialog.getByRole('link', { name: 'выписка.csv' })).toBeVisible();
   // после удаления фокус на «×» соседней строки
-  await expect(dialog.locator(':focus')).toHaveAttribute('aria-label', /^Удалить файл «(перетащен|выписка)\.csv»$/);
+  await expect(dialog.getByRole('button', { name: 'Удалить файл «перетащен.csv»' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
+});
+
+test('файл, брошенный на форму при свёрнутом блоке: блок раскрывается, файл добавляется; вне формы страница остаётся', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Сброс на форму ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+
+  await page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Новый расход' });
+  const more = dialog.getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' });
+  await expect(more).toHaveAttribute('aria-expanded', 'false');
+  const dropped = await page.evaluateHandle(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(['a;b\n1;2\n'], 'брошен.csv', { type: 'text/csv' }));
+    return dt;
+  });
+  await dialog.getByRole('form', { name: 'Операция' }).dispatchEvent('drop', { dataTransfer: dropped });
+  await expect(more).toHaveAttribute('aria-expanded', 'true');
+  await expect(dialog.getByRole('group', { name: 'Файлы' })).toContainText('брошен.csv');
+  // файл, брошенный мимо формы, не открывается браузером: событие отменено
+  const prevented = await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(['x'], 'мимо.csv', { type: 'text/csv' }));
+    const ev = new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true });
+    document.body.dispatchEvent(ev);
+    return ev.defaultPrevented;
+  });
+  expect(prevented).toBe(true);
+  await expect(dialog).toBeVisible();
 });
 
 test('файл, который сервер не принял после создания: операция сохранена, форма переходит к её правке', async ({ page }) => {
