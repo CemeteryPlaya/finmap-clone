@@ -1,122 +1,102 @@
-import { useMutation } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
-import { useOutletContext } from 'react-router';
 import { Field } from '../../components/Field';
+import { LockIcon } from '../../components/icons';
 import { Pending } from '../../components/QueryState';
-import { btnPrimary, inputClass } from '../../components/ui';
-import { api, type ApiError } from '../../lib/api';
+import { alertClass, btnPrimary, inputClass } from '../../components/ui';
+import { api, ApiError } from '../../lib/api';
+import { profileDirty, profilePlan, profileServerFields, type ProfileDraft, type ProfileFields } from '../../lib/profile';
 import { queryClient, useMe, type Me } from '../../lib/query';
-import type { CompanyOutletContext } from '../CompanyLayout';
 
-const card = 'space-y-4 rounded-2xl border border-field p-4';
-
-function NameCard({ user }: { user: Me['user'] }) {
-  const [name, setName] = useState(user.name);
-  const save = useMutation<unknown, ApiError>({
-    mutationFn: () => api(`/users/${user.id}`, { method: 'PATCH', body: { name } }),
-    onSuccess: () =>
-      Promise.all([queryClient.invalidateQueries({ queryKey: ['me'] }), queryClient.invalidateQueries({ queryKey: ['users'] })]),
-  });
-  return (
-    <form
-      noValidate
-      onSubmit={(e) => {
-        e.preventDefault();
-        save.mutate();
-      }}
-      className={card}
-    >
-      <h2 className="text-lg font-semibold">Имя</h2>
-      <p className="text-sm text-muted">Логин: {user.login}</p>
-      <Field label="Имя" error={save.error?.fields?.name}>
-        {(c) => (
-          <input
-            {...c}
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              save.reset();
-            }}
-            className={inputClass}
-          />
-        )}
-      </Field>
-      {save.isSuccess && (
-        <p role="status" className="text-sm text-muted">
-          Имя сохранено
-        </p>
-      )}
-      <button type="submit" disabled={save.isPending || !name.trim() || name.trim() === user.name} className={btnPrimary}>
-        Сохранить имя
-      </button>
-    </form>
-  );
-}
-
-function PasswordCard() {
-  const [current, setCurrent] = useState('');
-  const [next, setNext] = useState('');
-  const [again, setAgain] = useState('');
-  const [mismatch, setMismatch] = useState(false);
-  const change = useMutation<unknown, ApiError>({
-    mutationFn: () => api('/auth/password', { method: 'POST', body: { currentPassword: current, newPassword: next } }),
-    onSuccess: () => {
-      setCurrent('');
-      setNext('');
-      setAgain('');
-    },
-  });
-  const fields = change.error?.fields ?? {};
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    change.reset();
-    if (next !== again) {
-      setMismatch(true);
-      return;
-    }
-    setMismatch(false);
-    change.mutate();
-  };
-  return (
-    <form noValidate onSubmit={submit} className={card}>
-      <h2 className="text-lg font-semibold">Пароль</h2>
-      <Field label="Текущий пароль" error={fields.currentPassword}>
-        {(c) => <input {...c} type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} className={inputClass} />}
-      </Field>
-      <Field label="Новый пароль" error={fields.newPassword} hint="Не короче 10 символов">
-        {(c) => <input {...c} type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} className={inputClass} />}
-      </Field>
-      <Field label="Повторите новый пароль" error={mismatch ? 'Пароли не совпадают' : undefined}>
-        {(c) => <input {...c} type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} className={inputClass} />}
-      </Field>
-      {change.isSuccess && (
-        <p role="status" className="text-sm text-income">
-          Пароль изменён. Остальные сеансы завершены.
-        </p>
-      )}
-      {change.error && !change.error.fields && (
-        <p role="alert" className="rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense-strong">
-          {change.error.message}
-        </p>
-      )}
-      <button type="submit" disabled={change.isPending || !current || !next || !again} className={btnPrimary}>
-        Сменить пароль
-      </button>
-    </form>
-  );
-}
-
+/**
+ * «Профиль» (§7.4 этапа 1.5): одна колонка около 430 px — логин, «Имя», «Изменить пароль» и три поля пароля,
+ * одна «Сохранить». Что отправлять, решает `profilePlan`: имя — если изменилось, пароль — если начат.
+ */
 export function ProfileSettings() {
-  const { company } = useOutletContext<CompanyOutletContext>();
   const me = useMe();
   if (!me.data) return <Pending queries={[me]} />;
   return (
-    <section>
-      <h1 className="mb-4 text-2xl font-bold">Профиль</h1>
-      <div className="grid max-w-4xl gap-6 lg:grid-cols-2">
-        <NameCard key={me.data.user.id} user={me.data.user} />
-        <PasswordCard />
-      </div>
+    <section className="max-w-[430px]">
+      <h1 className="mb-6 text-2xl font-bold">Профиль</h1>
+      <ProfileForm key={me.data.user.id} user={me.data.user} />
     </section>
+  );
+}
+
+function ProfileForm({ user }: { user: Me['user'] }) {
+  const [draft, setDraft] = useState<ProfileDraft>({ name: user.name, current: '', next: '', again: '' });
+  const [fields, setFields] = useState<ProfileFields>({});
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const change = (patch: Partial<ProfileDraft>) => {
+    setStatus(null);
+    setDraft((d) => ({ ...d, ...patch }));
+  };
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setStatus(null);
+    setError(null);
+    const plan = profilePlan(draft, user.name);
+    if (!plan.ok) {
+      setFields(plan.fields);
+      return;
+    }
+    setFields({});
+    setPending(true);
+    const done: string[] = [];
+    try {
+      if (plan.name !== null) {
+        await api(`/users/${user.id}`, { method: 'PATCH', body: { name: plan.name } });
+        await Promise.all([queryClient.invalidateQueries({ queryKey: ['me'] }), queryClient.invalidateQueries({ queryKey: ['users'] })]);
+        done.push('Имя сохранено.');
+      }
+      if (plan.password) {
+        await api('/auth/password', { method: 'POST', body: plan.password });
+        setDraft((d) => ({ ...d, current: '', next: '', again: '' }));
+        done.push('Пароль изменён. Остальные сеансы завершены.');
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.fields) setFields(profileServerFields(err.fields));
+      else setError(err instanceof ApiError ? err.message : 'Ошибка сервера');
+    } finally {
+      setPending(false);
+      setStatus(done.length > 0 ? done.join(' ') : null);
+    }
+  };
+
+  return (
+    <form noValidate onSubmit={(e) => void submit(e)} className="grid gap-4">
+      <p className="text-sm text-muted">Логин: {user.login}</p>
+      <Field label="Имя" error={fields.name}>
+        {(c) => <input {...c} value={draft.name} onChange={(e) => change({ name: e.target.value })} className={inputClass} />}
+      </Field>
+      <h2 className="mt-2 flex items-center gap-2 text-lg font-semibold">
+        <LockIcon />
+        Изменить пароль
+      </h2>
+      <Field label="Текущий пароль" error={fields.current}>
+        {(c) => <input {...c} type="password" autoComplete="current-password" value={draft.current} onChange={(e) => change({ current: e.target.value })} className={inputClass} />}
+      </Field>
+      <Field label="Новый пароль" hint="Не короче 10 символов" error={fields.next}>
+        {(c) => <input {...c} type="password" autoComplete="new-password" value={draft.next} onChange={(e) => change({ next: e.target.value })} className={inputClass} />}
+      </Field>
+      <Field label="Повторите пароль" error={fields.again}>
+        {(c) => <input {...c} type="password" autoComplete="new-password" value={draft.again} onChange={(e) => change({ again: e.target.value })} className={inputClass} />}
+      </Field>
+      {status && (
+        <p role="status" className="text-sm text-income-strong">
+          {status}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className={`${alertClass} mb-0`}>
+          {error}
+        </p>
+      )}
+      <button type="submit" disabled={pending || !profileDirty(draft, user.name)} className={btnPrimary}>
+        Сохранить
+      </button>
+    </form>
   );
 }

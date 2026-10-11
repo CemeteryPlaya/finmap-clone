@@ -223,7 +223,7 @@ export function SettingsList<T extends SettingsRow>(props: {
                   <button
                     type="button"
                     data-edit-id={row.id}
-                    aria-label={`Изменить ${row.name}`}
+                    aria-label={row.editLabel ?? `Изменить ${row.name}`}
                     title="Изменить"
                     onClick={() => props.onEdit!(row)}
                     className={iconButton}
