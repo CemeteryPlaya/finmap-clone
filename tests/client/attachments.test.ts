@@ -40,6 +40,8 @@ describe('тип файла при сбросе (как в окне выбора
     expect(attachmentTypeError('чек.PNG')).toBeNull();
     expect(attachmentTypeError('выписка.csv')).toBeNull();
     expect(attachmentTypeError('скрипт.exe')).toBe('Допустимые файлы: PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV');
-    expect(attachmentTypeError('без-расширения')).not.toBeNull();
+    // без расширения — решает сервер по содержимому; неизвестное непустое расширение — отказ
+    expect(attachmentTypeError('без-расширения')).toBeNull();
+    expect(attachmentTypeError('photo.jpg.bak')).not.toBeNull();
   });
 });

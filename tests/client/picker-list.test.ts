@@ -9,16 +9,8 @@ const options = [
   { id: 3, label: 'Депозит', badge: 'системная' },
 ];
 
-const render = (selectedId: number | null, create = false) =>
-  renderToString(
-    createElement(
-      StrictMode,
-      null,
-      create
-        ? createElement(PickerList, { label: 'Счета', options, onPick: () => {}, selectedId, onCreate: () => {}, createNoun: 'счёт' })
-        : createElement(PickerList, { label: 'Счета', options, onPick: () => {}, selectedId }),
-    ),
-  );
+const render = (selectedId: number | null) =>
+  renderToString(createElement(StrictMode, null, createElement(PickerList, { label: 'Счета', options, onPick: () => {}, selectedId })));
 
 /** Пункт, на который указывает aria-activedescendant: [0] — открывающий тег и название, [1] — название. */
 const activeOption = (html: string) => {
@@ -43,13 +35,7 @@ describe('PickerList: активный пункт при первой отрис
   });
 });
 
-describe('PickerList: «+ Создать», бейдж и символ валюты (§6.6 этапа 1.5)', () => {
-  it('«+ Создать счёт» — первым пунктом, но активен первый вариант', () => {
-    const html = render(null, true);
-    expect(/<li[^>]*role="option"[^>]*><span[^>]*>([^<]*)<\/span>/.exec(html)?.[1]).toBe('+ Создать счёт');
-    expect(activeOption(html)?.[1]).toBe('Касса');
-  });
-
+describe('PickerList: бейдж и символ валюты (§6.6 этапа 1.5)', () => {
   it('бейдж и символ валюты видны, но скрыты от программ чтения: имя пункта — название', () => {
     const html = render(null);
     expect(html).toMatch(/<span aria-hidden="true"[^>]*>системная<\/span>/);

@@ -20,10 +20,14 @@ export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 /** Подсказка выбора файла (§8): png, jpg, webp, heic, pdf, xlsx, csv. */
 export const ATTACHMENT_ACCEPT = '.png,.jpg,.jpeg,.webp,.heic,.heif,.pdf,.xlsx,.csv';
 
-/** Ошибка типа до загрузки (по расширению из ATTACHMENT_ACCEPT, как в окне выбора файла); null — тип допустим. Содержимое проверяет сервер. */
+/**
+ * Ошибка типа до загрузки (по расширению из ATTACHMENT_ACCEPT, как в окне выбора файла); null — тип допустим.
+ * Файл без расширения пропускается: тип по содержимому определяет сервер. Неизвестное расширение — отказ.
+ */
 export function attachmentTypeError(name: string): string | null {
   const dot = name.lastIndexOf('.');
-  const ext = dot < 0 ? '' : name.slice(dot).toLowerCase();
+  if (dot < 0) return null;
+  const ext = name.slice(dot).toLowerCase();
   return ATTACHMENT_ACCEPT.split(',').includes(ext) ? null : 'Допустимые файлы: PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV';
 }
 

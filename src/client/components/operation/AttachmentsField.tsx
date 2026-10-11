@@ -13,6 +13,9 @@ import {
 } from '../../lib/attachments';
 import { ConfirmDelete } from '../ConfirmDelete';
 
+export const SAVING_WAIT = 'Дождитесь сохранения, затем добавьте файл';
+export const UPLOADING_WAIT = 'Дождитесь окончания загрузки';
+
 /**
  * Файлы операции (§7, §8; API — план 4b). У новой операции выбранные файлы ждут сохранения и загружаются сразу
  * после создания; у существующей файл загружается сразу после выбора. Список: скачивание и мягкое удаление.
@@ -28,6 +31,8 @@ export function AttachmentsField(props: {
   /** Файлы, брошенные на форму мимо зоны (блок мог быть свёрнут): добавляются как выбранные; `onIncomingHandled` сообщает форме, что они приняты. */
   incoming?: File[] | null;
   onIncomingHandled?: () => void;
+  /** Идёт сохранение операции: брошенный файл не примется (форма уже забрала список) — вместо него сообщение. */
+  saving?: boolean;
 }) {
   const inputId = useId();
   const hintId = useId();
@@ -58,8 +63,15 @@ export function AttachmentsField(props: {
     if (!props.incoming) return;
     const dropped = props.incoming;
     props.onIncomingHandled?.();
-    if (!uploading) void choose(dropped);
+    receive(dropped);
   }, [props.incoming]);
+
+  /** Брошенные файлы: во время сохранения или загрузки не теряются молча — сообщение (очередь не ведётся). */
+  const receive = (list: Iterable<File> | null) => {
+    if (props.saving) setErrors([SAVING_WAIT]);
+    else if (uploading) setErrors([UPLOADING_WAIT]);
+    else void choose(list);
+  };
 
   // другая операция — прежние ошибки загрузки не относятся к ней
   useEffect(() => setErrors([]), [props.operationId]);
@@ -194,7 +206,7 @@ export function AttachmentsField(props: {
             e.preventDefault();
             // форма не должна принять тот же файл второй раз
             e.stopPropagation();
-            if (!uploading) void choose(e.dataTransfer.files);
+            receive(e.dataTransfer.files);
           }}
           className={`rounded-xl border-2 border-dashed px-4 py-4 text-center text-sm has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-focus ${dragging ? 'border-income bg-income-soft' : 'border-field'}`}
         >

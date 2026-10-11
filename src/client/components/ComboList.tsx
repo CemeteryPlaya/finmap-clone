@@ -1,13 +1,9 @@
 import { useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { initialActive, pickerItems, pickQuery, type CreateProps, type PickerItem, type PickerOption } from '../lib/picker';
+import { isCoarsePointer } from './focus-trap';
 import { PickerListbox, pickerItemId } from './SearchPicker';
 import { useFloating } from './useFloating';
-
-/** Основное устройство ввода — палец (телефон, планшет): у поля при этом есть экранная клавиатура. */
-function isCoarsePointer(): boolean {
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
-}
 
 export interface ComboListOptions {
   /** Название списка для программ чтения с экрана: «Категории». */

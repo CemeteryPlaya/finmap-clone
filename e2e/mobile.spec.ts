@@ -572,3 +572,24 @@ test('список поля над экранной клавиатурой те�
   await dialog.getByRole('option', { name: 'Категория 18', exact: true }).scrollIntoViewIfNeeded();
   await expect(dialog.getByRole('option', { name: 'Категория 18', exact: true })).toBeVisible();
 });
+
+test.describe('касание (pointer: coarse), ширина 390 px', () => {
+  test.use({ hasTouch: true });
+
+  test('форма операции открывается без фокуса в поле: экранная клавиатура не поднимается, фокус на «×»', async ({ page }) => {
+    await login(page);
+    const cid = await createCompany(page, `ТОО Без клавиатуры ${Date.now()}`);
+    await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+    await page.reload();
+    await page.setViewportSize(PHONE);
+    expect(await page.evaluate(() => window.matchMedia('(pointer: coarse)').matches)).toBe(true);
+
+    await bar(page).getByRole('button', { name: 'Расход', exact: true }).click();
+    const dialog = newForm(page);
+    await expect(dialog.getByRole('combobox', { name: 'Со счёта', exact: true })).toBeVisible();
+    // автофокус срабатывает кадр спустя — дать ему шанс, затем проверить, что ни поле, ни сумма фокус не получили
+    await page.waitForTimeout(300);
+    await expect(dialog.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
+    await expect(dialog.getByRole('combobox', { name: 'Со счёта', exact: true })).not.toBeFocused();
+  });
+});

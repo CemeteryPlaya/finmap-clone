@@ -84,8 +84,9 @@ const SCENARIOS: Scenario[] = [
     finmap: '05-op-edit.png',
     path: 'log',
     act: async (p) => {
-      await table(p).getByRole('button', { name: /^Открыть операцию/ }).first().click();
-      await p.getByRole('dialog', { name: /^(Доход|Расход|Перевод)$/ }).getByRole('textbox', { name: /^Сумма,/ }).waitFor();
+      // как на снимке Finmap 05 — правка расхода (в подписи кнопки сумма со знаком «минус» U+2212)
+      await table(p).getByRole('button', { name: /^Открыть операцию.*−/ }).first().click();
+      await p.getByRole('dialog', { name: 'Расход', exact: true }).getByRole('textbox', { name: /^Сумма,/ }).waitFor();
     },
   },
   { ours: 'c06-income.png', finmap: '06-income.png', path: 'log', act: openForm('Доход') },
@@ -230,8 +231,9 @@ const SCENARIOS: Scenario[] = [
     phone: true,
     path: 'log',
     act: async (p) => {
-      await p.getByRole('list', { name: 'Операции' }).getByRole('button').first().click();
-      await p.getByRole('dialog', { name: /^(Доход|Расход|Перевод)$/ }).getByRole('textbox', { name: /^Сумма,/ }).waitFor();
+      // как на снимке Finmap m04 — правка расхода (в карточке сумма со знаком «минус» U+2212)
+      await p.getByRole('list', { name: 'Операции' }).getByRole('button').filter({ hasText: /−/ }).first().click();
+      await p.getByRole('dialog', { name: 'Расход', exact: true }).getByRole('textbox', { name: /^Сумма,/ }).waitFor();
     },
   },
   {

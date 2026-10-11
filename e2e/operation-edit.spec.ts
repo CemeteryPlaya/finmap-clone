@@ -129,6 +129,31 @@ test('правка из журнала: клик по строке и с кла�
   await expect(page.getByRole('heading', { name: 'Журнал' })).toBeFocused();
 });
 
+test('«Удалить платёж»: сервер отказал — окно остаётся, сообщение об ошибке, фокус снова на строке «Удалить платёж»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Отказ удаления ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(1), accountId: cash, amount: 10000, comment: 'приход' });
+  await page.reload();
+  await page.route(/\/operations\/\d+$/, (route) =>
+    route.request().method() === 'DELETE'
+      ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'INTERNAL', message: 'Не удалось удалить платёж' } }) })
+      : route.fallback(),
+  );
+
+  await rows(page).first().getByText('приход').click();
+  const dialog = editForm(page);
+  const remove = dialog.getByRole('button', { name: 'Удалить платёж' });
+  await remove.click();
+  await page.getByRole('alertdialog', { name: 'Удалить платёж?' }).getByRole('button', { name: 'Удалить', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('Не удалось удалить платёж');
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await expect(remove).toBeEnabled();
+  await expect(remove).toBeFocused();
+});
+
 test('операция на архивном счёте: сумма, дата и счёт заблокированы с подсказкой, «Удалить» недоступна, комментарий меняется', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Архив ${Date.now()}`);

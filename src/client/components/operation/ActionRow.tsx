@@ -2,7 +2,7 @@ import { useId, type ReactNode, type Ref } from 'react';
 
 /** Вид строки-действия (§6.7 этапа 1.5): на всю ширину, иконка слева, текст; разделитель — у обёртки. */
 export const actionRowClass =
-  'flex min-h-14 w-full items-center gap-3 rounded-lg px-1 py-3 text-left text-base outline-none hover:bg-canvas focus-visible:ring-2 focus-visible:ring-focus aria-disabled:cursor-not-allowed aria-disabled:opacity-50';
+  'flex min-h-14 w-full items-center gap-3 rounded-lg px-1 py-3 text-left text-base outline-none hover:bg-canvas focus-visible:ring-2 focus-visible:ring-focus disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent';
 
 /**
  * Строка-действие под полями формы операции (§6.7, §11 этапа 1.5): обычная `<button>` с текстом. Раскрывающая —
@@ -25,7 +25,7 @@ export function ActionRow(props: {
   const infoId = useId();
   const describedBy = [props.disabledHint ? hintId : null, props.info ? infoId : null].filter(Boolean).join(' ') || undefined;
   return (
-    <div className="border-b border-field">
+    <div className="relative border-b border-field">
       <button
         ref={props.buttonRef}
         type="button"
@@ -35,7 +35,7 @@ export function ActionRow(props: {
         onClick={() => {
           if (!props.disabledHint) props.onClick();
         }}
-        className={`${actionRowClass} ${props.danger ? 'text-expense' : 'text-ink'}`}
+        className={`peer ${actionRowClass} ${props.danger ? 'text-expense' : 'text-ink'}`}
       >
         <span aria-hidden="true" className={`grid size-6 shrink-0 place-items-center ${props.danger ? 'text-expense' : 'text-muted'}`}>
           {props.icon}
@@ -47,6 +47,15 @@ export function ActionRow(props: {
           </span>
         )}
       </button>
+      {/* с клавиатуры подсказка ⓘ видна, пока строка в фокусе (мышью — всплывающая подсказка у значка); читают её по aria-describedby */}
+      {props.info && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute top-full right-0 z-10 mt-1 hidden max-w-64 rounded-lg bg-chrome px-3 py-2 text-sm text-white shadow-lg peer-focus-visible:block"
+        >
+          {props.info}
+        </span>
+      )}
       {props.disabledHint && (
         <span id={hintId} className="block px-1 pb-2 text-sm text-muted">
           {props.disabledHint}

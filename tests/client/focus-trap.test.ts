@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { tabTarget, tabbable, type TabCandidate } from '../../src/client/components/focus-trap';
+import { fieldAutoFocusAllowed, tabTarget, tabbable, type TabCandidate } from '../../src/client/components/focus-trap';
+
+describe('fieldAutoFocusAllowed: фокус в поле при открытии формы', () => {
+  it('на компьютере ставится, на устройстве с пальцем (pointer: coarse) нет — иначе поднимется клавиатура', () => {
+    expect(fieldAutoFocusAllowed(false)).toBe(true);
+    expect(fieldAutoFocusAllowed(true)).toBe(false);
+  });
+});
 
 const el = (id: string, over: Partial<TabCandidate> = {}): TabCandidate & { id: string } => ({ id, disabled: false, hidden: false, ...over });
 const ids = (list: { id: string }[]) => list.map((c) => c.id);

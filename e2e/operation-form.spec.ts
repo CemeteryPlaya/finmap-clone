@@ -76,6 +76,13 @@ test('доход, расход и перевод KZT → USD через форм
   // счёт ещё не выбирался — поле пустое, фокус на нём (§6.2)
   await expect(field(dialog, 'На счёт')).toHaveValue('');
   await expect(field(dialog, 'На счёт')).toBeFocused();
+  // пока счёт не выбран, «Валюта» — базовая валюта компании (как в Finmap), а сумма не уже остальных полей
+  await expect(dialog.getByText('KZT (₸)')).toBeVisible();
+  const category = (await field(dialog, 'Категория').boundingBox())!;
+  const amountBox = (await dialog.getByRole('textbox', { name: /^Сумма,/ }).boundingBox())!;
+  const badge = (await dialog.getByText('Валюта', { exact: true }).locator('..').boundingBox())!;
+  expect(Math.round(badge.x + badge.width)).toBe(Math.round(category.x + category.width));
+  expect(amountBox.width).toBeLessThan(category.width);
   await pick(page, 'На счёт', 'Касса');
   await pick(page, 'Категория', 'Выручка');
   // «Валюта» — значок валюты счёта рядом с суммой (§6.2)
@@ -350,6 +357,8 @@ test('«Разделить» в процентах на два проекта; �
   await dialog.getByRole('option', { name: 'Север и Юг' }).click();
   // в первой строке стоит сумма операции: шаблон заменит строки — сначала вопрос
   await page.getByRole('alertdialog', { name: 'Применить шаблон «Север и Юг»?' }).getByRole('button', { name: 'Применить' }).click();
+  // после вопроса фокус возвращается на кнопку «Применить шаблон»
+  await expect(split.getByRole('button', { name: 'Применить шаблон' })).toBeFocused();
   // строка 2 стала «Отменить разделение»
   await expect(dialog.getByRole('button', { name: 'Отменить разделение' })).toBeVisible();
   await expect(split).toContainText('Шаблон «Север и Юг»: 1 элемент недоступен');

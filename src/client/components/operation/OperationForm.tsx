@@ -9,7 +9,7 @@ import type { OperationType } from '../../lib/journal-filter';
 import { invalidateOperations } from '../../lib/journal-mutations';
 import { defaultAccounts, readLastAccounts, saveLastAccounts, withSaved } from '../../lib/last-account';
 import { createFromForm, type CreatableKind } from '../../lib/operation-create';
-import { archivedAccountOf, draftFromOperation, duplicateDraft, patchBody, withoutArchived, type Available, type OperationRecord } from '../../lib/operation-edit';
+import { archivedAccountOf, draftFromOperation, duplicateDraft, patchBody, type Available, type OperationRecord } from '../../lib/operation-edit';
 import {
   buildBody,
   COMMENT_MAX,
@@ -224,6 +224,8 @@ function OperationEditor(p: {
   /** Строка «Дата сделки отличается» и поле «Дата сделки» сменяют друг друга: куда перевести фокус после смены. */
   const [accrualFocus, setAccrualFocus] = useState<'field' | 'row' | null>(null);
   const accrualRowRef = useRef<HTMLButtonElement>(null);
+  /** Дата сделки до включения строки «Дата сделки отличается»: «✕» возвращает её. */
+  const accrualBefore = useRef<string | null>(null);
   // файлы операции раскрывают тот же блок; их список приходит отдельным запросом (его же использует AttachmentsField)
   const hasFiles = (useAttachments(p.company.id, op?.id ?? null).data?.length ?? 0) > 0;
   useEffect(() => {
@@ -234,7 +236,10 @@ function OperationEditor(p: {
   // пока форма открыта, файл, брошенный мимо неё, не должен открыться в браузере (страница с формой была бы потеряна)
   useEffect(() => {
     const guard = (e: DragEvent) => {
-      if (e.dataTransfer && isFileDrag([...e.dataTransfer.types])) e.preventDefault();
+      if (!e.dataTransfer || !isFileDrag([...e.dataTransfer.types])) return;
+      e.preventDefault();
+      // вне формы (фон, вложенные окна) бросить файл нельзя — курсор «копировать» не показываем
+      if (!(e.target instanceof Node && formRef.current?.contains(e.target))) e.dataTransfer.dropEffect = 'none';
     };
     window.addEventListener('dragover', guard);
     window.addEventListener('drop', guard);
@@ -393,8 +398,8 @@ function OperationEditor(p: {
         p.close();
         return;
       }
-      // после правки: архивные счёт, категории и прочее в новую операцию не переносятся (инвариант 7)
-      const next = op ? withoutArchived(similarDraft(draft), available()) : similarDraft(draft);
+      // «создать похожий» есть только у новой операции (при правке — «Дублировать платёж»)
+      const next = similarDraft(draft);
       setOp(null);
       p.onEditingChange(false);
       setDraft(next);
@@ -489,7 +494,9 @@ function OperationEditor(p: {
     p.onEditingChange(false);
     setFiles([]);
     setDraft(copy);
-    setInitial(emptyDraft(copy.type, today, remembered.accountId, remembered.toAccountId));
+    // счета, выбранные с тех пор, как форму открыли, тоже считаются «прежними»
+    const last = defaultAccounts(copy.type, userId === null ? {} : readLastAccounts(userId, p.company.id), p.data.accounts);
+    setInitial(emptyDraft(copy.type, today, last.accountId, last.toAccountId));
     setErrors({});
     setFormError(null);
     setConflict(null);
@@ -583,7 +590,7 @@ function OperationEditor(p: {
           aria-label="Убрать дату сделки"
           title="Убрать дату сделки"
           onClick={() => {
-            set({ accrualOn: false }, 'accrualDate');
+            set({ accrualOn: false, accrualDate: accrualBefore.current ?? draft.accrualDate }, 'accrualDate');
             setAccrualFocus('row');
           }}
           className={`${btnIcon} mt-3`}
@@ -629,7 +636,7 @@ function OperationEditor(p: {
           />
         )}
       </Field>
-      <AttachmentsField companyId={p.company.id} operationId={op?.id ?? null} pending={files} onPendingChange={setFiles} readOnly={readOnly} incoming={incoming} onIncomingHandled={() => setIncoming(null)} />
+      <AttachmentsField companyId={p.company.id} operationId={op?.id ?? null} pending={files} onPendingChange={setFiles} readOnly={readOnly} incoming={incoming} onIncomingHandled={() => setIncoming(null)} saving={pending} />
     </div>
   );
 
@@ -639,7 +646,7 @@ function OperationEditor(p: {
    * 3, 5, 6. Строка 4 «Изменить в перевод» появится в плане 1.5-6: до тех пор её нет совсем (мёртвых кнопок нет).
    */
   const rows = (
-    <div className="border-t border-field">
+    <div>
       {!transfer &&
         (draft.accrualOn ? (
           accrualField
@@ -650,6 +657,8 @@ function OperationEditor(p: {
             label="Дата сделки отличается"
             info="Дата начисления для отчёта о прибылях и убытках"
             onClick={() => {
+              // прежняя дата сделки запоминается: «✕» вернёт форму точно в прежнее состояние (она не «грязная»)
+              accrualBefore.current = draft.accrualDate;
               set({ accrualOn: true, accrualDate: draft.paidDate }, 'accrualDate');
               setAccrualFocus('field');
             }}
@@ -704,7 +713,7 @@ function OperationEditor(p: {
           ) : (
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
               {amountField}
-              {account && <CurrencyBadge code={currency.code} symbol={currency.symbol} />}
+              <CurrencyBadge code={currency.code} symbol={currency.symbol} />
             </div>
           )}
           {crossCurrency && toCurrency && (
@@ -852,11 +861,14 @@ function OperationEditor(p: {
   );
 }
 
-/** «Валюта» рядом с суммой (§6.2 этапа 1.5): неактивный значок валюты счёта — ввод в другой валюте не делается (§1). */
+/**
+ * «Валюта» рядом с суммой (§6.2 этапа 1.5): неактивный значок валюты счёта (пока счёт не выбран — базовой валюты
+ * компании, как в Finmap) — ввод в другой валюте не делается (§1).
+ */
 function CurrencyBadge(props: { code: string; symbol: string }) {
   return (
     <div className="flex h-14 flex-col justify-center rounded-xl bg-field px-4">
-      <span className="text-xs text-muted">Валюта</span>
+      <span className="text-xs text-label">Валюта</span>
       <span className="whitespace-nowrap">
         {props.code} ({props.symbol})
       </span>
@@ -923,7 +935,7 @@ function TagsField(props: { tags: Tag[]; value: number[]; onChange: (ids: number
   return (
     <Field label="Теги" error={props.error} floating filled={props.value.length > 0 || combo.open} boxRef={combo.anchorRef}>
       {(control) => (
-        <div className="flex min-h-14 flex-wrap items-center gap-1.5 rounded-xl bg-field px-4 pt-6 pb-2 focus-within:ring-2 focus-within:ring-focus">
+        <div className="flex min-h-14 flex-wrap items-center gap-1.5 rounded-xl bg-field px-4 pt-5 pb-1 focus-within:ring-2 focus-within:ring-focus">
           {props.value.length > 0 && (
             <ul role="list" aria-label="Выбранные теги" className="contents">
               {props.value.map((id, at) => (
@@ -956,7 +968,7 @@ function TagsField(props: { tags: Tag[]; value: number[]; onChange: (ids: number
               if (e.key === 'Backspace' && !e.repeat && !combo.open && e.currentTarget.value === '' && props.value.length > 0) props.onChange(props.value.slice(0, -1));
               onKeyDown(e);
             }}
-            className="min-w-24 flex-1 bg-transparent py-1 text-base outline-none"
+            className="min-w-24 flex-1 bg-transparent py-0.5 text-base outline-none"
           />
           {combo.list}
           <span role="status" className="sr-only">

@@ -1,5 +1,5 @@
 import { useEffect, type RefObject } from 'react';
-import { isInitialFocus } from './focus-trap';
+import { fieldAutoFocusAllowed, isCoarsePointer, isInitialFocus } from './focus-trap';
 
 /**
  * «Ничей» фокус (планы 6a, 1.5-1a, §6.2 этапа 1.5): страница, само окно, «×» окна, радиокнопка или элемент, на который
@@ -22,7 +22,8 @@ export function isFreeFocus(el: Element | null): boolean {
  */
 export function useAutoFocus(ref: RefObject<HTMLElement | null>, enabled: boolean | undefined): void {
   useEffect(() => {
-    if (!enabled) return;
+    // на телефоне фокус в поле поднял бы экранную клавиатуру до всякого выбора — фокус остаётся на окне
+    if (!enabled || !fieldAutoFocusAllowed(isCoarsePointer())) return;
     let frame = 0;
     const stop = () => {
       cancelAnimationFrame(frame);

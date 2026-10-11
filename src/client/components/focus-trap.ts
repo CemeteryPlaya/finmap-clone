@@ -109,3 +109,16 @@ export function markInitialFocus(el: HTMLElement): void {
 export function isInitialFocus(el: unknown): boolean {
   return el instanceof Element && initialFocus.has(el);
 }
+
+/** Основное устройство ввода — палец (телефон, планшет): у поля при этом есть экранная клавиатура. */
+export function isCoarsePointer(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+}
+
+/**
+ * Ставить ли фокус в поле при открытии окна формы: на устройстве с пальцем — нет, иначе сразу поднимется экранная
+ * клавиатура (§6.2 этапа 1.5, итоги 1.5-3b); фокус остаётся на «×» окна. На компьютере — да.
+ */
+export function fieldAutoFocusAllowed(coarse: boolean): boolean {
+  return !coarse;
+}

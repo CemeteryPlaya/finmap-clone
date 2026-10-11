@@ -1,5 +1,5 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
-import { createItemLabel, createProps, initialActive, pickerItems, type CreateProps, type PickerItem, type PickerOption } from '../lib/picker';
+import { useEffect, useId, useState, type KeyboardEvent } from 'react';
+import { createItemLabel, initialActive, pickerItems, type PickerItem, type PickerOption } from '../lib/picker';
 import { Popover } from './Popover';
 import { badgeClass } from './ui';
 
@@ -93,9 +93,8 @@ export function PickerListbox(props: {
 /**
  * Список с полем поиска (шаблон combobox + listbox): фокус в поле поиска, стрелки двигают активный пункт
  * (`aria-activedescendant`), Enter выбирает, Esc закрывает. При открытии активен уже выбранный пункт
- * (`selectedId`, у него `aria-selected`). Поиск — без учёта регистра и «ё» (§6.1). С `onCreate` есть пункт
- * «+ Создать» (§6.6 этапа 1.5): при пустом запросе — первым («+ Создать тег»; нажатие оставляет фокус в поиске
- * с подсказкой «Введите название»), с текстом — после найденных, если такого названия ещё нет.
+ * (`selectedId`, у него `aria-selected`). Поиск — без учёта регистра и «ё» (§6.1). Пункта «+ Создать» здесь нет:
+ * создание из списка — у полей формы (`useComboList`).
  */
 export function PickerList(props: {
   label: string;
@@ -103,24 +102,15 @@ export function PickerList(props: {
   onPick: (id: number) => void;
   /** Уже выбранное значение: активно при открытии, отмечено `aria-selected`. */
   selectedId?: number | null;
-} & CreateProps) {
-  const noun = props.onCreate ? (props.createNoun ?? '') : undefined;
+}) {
   const [query, setQuery] = useState('');
-  const [naming, setNaming] = useState(false);
-  const [active, setActive] = useState(() => initialActive(pickerItems(props.options, '', noun), props.selectedId));
+  const [active, setActive] = useState(() => initialActive(pickerItems(props.options, ''), props.selectedId));
   const listId = useId();
-  const searchRef = useRef<HTMLInputElement>(null);
-  const items = pickerItems(props.options, query, noun);
+  const items = pickerItems(props.options, query);
   const current = items.length > 0 ? items[Math.min(active, items.length - 1)] : undefined;
 
   const choose = (it: PickerItem) => {
     if (it.kind === 'option') props.onPick(it.option.id);
-    else if (it.name !== '') props.onCreate?.(it.name);
-    else {
-      // «+ Создать тег» без названия: ничего не создаётся, фокус — в поиске с подсказкой
-      setNaming(true);
-      searchRef.current?.focus();
-    }
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -139,7 +129,6 @@ export function PickerList(props: {
   return (
     <div>
       <input
-        ref={searchRef}
         role="combobox"
         aria-label={`${props.label}: поиск`}
         aria-expanded="true"
@@ -150,10 +139,10 @@ export function PickerList(props: {
         onChange={(e) => {
           // новый запрос — снова первый найденный пункт (сброс здесь, а не в эффекте: эффект при открытии затёр бы выбранный пункт)
           setQuery(e.target.value);
-          setActive(initialActive(pickerItems(props.options, e.target.value, noun), undefined));
+          setActive(initialActive(pickerItems(props.options, e.target.value), undefined));
         }}
         onKeyDown={onKeyDown}
-        placeholder={naming ? 'Введите название' : 'Поиск'}
+        placeholder="Поиск"
         className="mb-2 w-full rounded-xl bg-field px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-focus"
       />
       <PickerListbox
@@ -162,7 +151,6 @@ export function PickerList(props: {
         items={items}
         active={active}
         selectedId={props.selectedId}
-        createNoun={props.createNoun}
         onChoose={choose}
         onHover={setActive}
         className="max-h-60 overflow-y-auto"
@@ -172,7 +160,7 @@ export function PickerList(props: {
   );
 }
 
-/** Кнопка с выпадающим списком с поиском: «Применить шаблон» в разбиении, «+ Тег» в форме. */
+/** Кнопка с выпадающим списком с поиском: «Применить шаблон» в разбиении. */
 export function SearchPicker(props: {
   label: string;
   ariaLabel?: string;
@@ -184,7 +172,7 @@ export function SearchPicker(props: {
   align?: 'left' | 'right';
   /** Недоступна без потери фокуса (aria-disabled) — см. Popover. */
   inactive?: boolean;
-} & CreateProps /* «+ Создать»: onCreate создаёт элемент с набранным названием (§7), createNoun — «тег» */) {
+}) {
   return (
     <Popover
       label={props.label}
@@ -202,17 +190,6 @@ export function SearchPicker(props: {
             close(true);
             props.onPick(id);
           }}
-          {...createProps<void>(
-            props.onCreate
-              ? {
-                  onCreate: (name: string) => {
-                    close(true);
-                    props.onCreate?.(name);
-                  },
-                  createNoun: props.createNoun ?? '',
-                }
-              : {},
-          )}
         />
       )}
     </Popover>

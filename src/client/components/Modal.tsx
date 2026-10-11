@@ -1,5 +1,5 @@
 import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
-import { cycleTab, firstTabbable, focusPageHeading, markInitialFocus } from './focus-trap';
+import { cycleTab, fieldAutoFocusAllowed, firstTabbable, focusPageHeading, isCoarsePointer, markInitialFocus } from './focus-trap';
 import { btnClose } from './ui';
 
 /**
@@ -46,7 +46,8 @@ export function Modal(props: {
       dialog.showModal();
       // «×» — первая кнопка окна, и showModal() ставит фокус на неё. Начальный фокус — по правилам окна:
       // первый элемент содержимого, а пока содержимое грузится — само окно (поле суммы заберёт его кадр спустя)
-      if (document.activeElement === closeRef.current) {
+      // форма на телефоне: фокус остаётся на «×», чтобы не поднимать экранную клавиатуру
+      if (document.activeElement === closeRef.current && !(props.phoneFullScreen && !fieldAutoFocusAllowed(isCoarsePointer()))) {
         const first = contentRef.current ? firstTabbable(contentRef.current) : null;
         (first ?? dialog).focus();
         // фокус поставило окно, а не человек: поле с автофокусом (сумма, пустой счёт) его заберёт
