@@ -167,6 +167,10 @@ test('резервная копия: последняя копия и «Скач
   await login(page);
   const cid = await createCompany(page, `ТОО Бэкап ${Date.now()}`);
   await page.goto(`/c/${cid}/settings/backup`);
+  const auto = page.getByRole('region', { name: 'Автоматическая копия' });
+  await expect(auto).toContainText('Включено');
+  await expect(auto).toContainText('Ежедневно в 04:00 и при запуске');
+  await expect(page.getByRole('main')).toContainText('Копия общая для всех компаний');
   await expect(page.getByText('Последняя копия')).toBeVisible();
   await expect(page.getByText('Ещё не было')).toHaveCount(0); // стартовый бэкап e2e-сервера
   const downloadPromise = page.waitForEvent('download');

@@ -99,13 +99,15 @@ test('курсы: валюта без курса — предупреждени�
   await section(page, 'Фиксированные курсы валют').click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/rates$`));
 
-  // фиксированный курс компании
+  // фиксированный курс компании — в окне «Добавить свой курс»
   const fixed = page.getByRole('region', { name: 'Фиксированные курсы компании' });
-  const fixedForm = fixed.getByRole('form', { name: 'Новый фиксированный курс' });
-  await fixedForm.getByLabel('Валюта').selectOption('EUR');
-  await fixedForm.getByLabel('Курс к KZT').fill('500');
-  await fixedForm.getByLabel('Действует с').fill('2020-01-01');
-  await fixedForm.getByRole('button', { name: 'Добавить курс' }).click();
+  await fixed.getByRole('button', { name: 'Добавить свой курс' }).click();
+  const fixedNew = page.getByRole('dialog', { name: 'Новый фиксированный курс' });
+  await fixedNew.getByLabel('Валюта').selectOption('EUR');
+  await fixedNew.getByLabel('Курс к KZT').fill('500');
+  await fixedNew.getByLabel('Действует с').fill('2020-01-01');
+  await fixedNew.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(fixedNew).toBeHidden();
   const fixedRow = fixed.getByRole('listitem').filter({ hasText: 'EUR' });
   await expect(fixedRow).toContainText('1 EUR = 500 KZT');
   await expect(fixedRow).toContainText('с 01.01.2020, бессрочно');
@@ -117,40 +119,51 @@ test('курсы: валюта без курса — предупреждени�
   await page.goBack();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/rates$`));
 
-  await fixedRow.getByRole('button', { name: 'Изменить' }).click();
-  await fixedRow.getByLabel('Курс 1 EUR').fill('510');
-  await fixedRow.getByRole('button', { name: 'Сохранить' }).click();
+  // ✎ — окно «Фиксированный курс»: валюта не меняется
+  await fixedRow.getByRole('button', { name: 'Изменить курс EUR' }).click();
+  const fixedEdit = page.getByRole('dialog', { name: 'Фиксированный курс', exact: true });
+  await expect(fixedEdit).toContainText('Валюта: EUR');
+  await fixedEdit.getByLabel('Курс 1 EUR').fill('510');
+  await fixedEdit.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(fixedEdit).toBeHidden();
   await expect(fixedRow).toContainText('1 EUR = 510 KZT');
   await back.click();
   await expect(panel).toContainText(/Всего на счетах\s*₸\s5\s100(?![\s\d])/);
   await page.goBack();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/rates$`));
 
-  // ручной курс на дату: добавить, изменить, удалить
+  // ручной курс на дату: добавить, изменить, удалить через подтверждение
   const manual = page.getByRole('region', { name: 'Ручные курсы на дату' });
-  const manualForm = manual.getByRole('form', { name: 'Новый курс на дату' });
-  await manualForm.getByLabel('Дата').fill('2020-03-15');
-  await manualForm.getByLabel('Валюта').selectOption('GBP');
-  await manualForm.getByLabel('Курс к тенге').fill('520,5');
-  await manualForm.getByRole('button', { name: 'Добавить курс' }).click();
+  const manualNew = page.getByRole('dialog', { name: 'Новый курс на дату' });
+  await manual.getByRole('button', { name: 'Добавить курс на дату' }).click();
+  await manualNew.getByLabel('Дата').fill('2020-03-15');
+  await manualNew.getByLabel('Валюта').selectOption('GBP');
+  await manualNew.getByLabel('Курс к тенге').fill('520,5');
+  await manualNew.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(manualNew).toBeHidden();
   const manualRow = manual.getByRole('listitem').filter({ hasText: '15.03.2020' });
   await expect(manualRow).toContainText('GBP');
   await expect(manualRow).toContainText('520,5');
 
-  await manualRow.getByRole('button', { name: 'Изменить' }).click();
-  await manualRow.getByLabel('Курс к тенге').fill('521');
-  await manualRow.getByRole('button', { name: 'Сохранить' }).click();
+  const manualEdit = page.getByRole('dialog', { name: 'Курс на дату', exact: true });
+  await manualRow.getByRole('button', { name: 'Изменить курс GBP на 15.03.2020' }).click();
+  await manualEdit.getByLabel('Курс к тенге').fill('521');
+  await manualEdit.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(manualEdit).toBeHidden();
   await expect(manualRow).toContainText('1 GBP = 521 KZT');
 
-  await manualRow.getByRole('button', { name: 'Удалить' }).click();
-  await manualRow.getByRole('button', { name: 'Да, удалить' }).click();
+  await manualRow.getByRole('button', { name: 'Изменить курс GBP на 15.03.2020' }).click();
+  await manualEdit.getByRole('button', { name: 'Удалить' }).click();
+  await page.getByRole('alertdialog', { name: 'Удалить курс GBP на 15.03.2020?' }).getByRole('button', { name: 'Удалить' }).click();
+  await expect(manualEdit).toBeHidden();
   await expect(manual.getByRole('listitem').filter({ hasText: '15.03.2020' })).toHaveCount(0);
 
-  // ошибка поля из сервера: неверный курс
-  await manualForm.getByLabel('Дата').fill('2020-03-16');
-  await manualForm.getByLabel('Курс к тенге').fill('abc');
-  await manualForm.getByRole('button', { name: 'Добавить курс' }).click();
-  await expect(manualForm.getByLabel('Курс к тенге')).toHaveAttribute('aria-invalid', 'true');
+  // ошибка поля из сервера: неверный курс — у поля, окно открыто
+  await manual.getByRole('button', { name: 'Добавить курс на дату' }).click();
+  await manualNew.getByLabel('Дата').fill('2020-03-16');
+  await manualNew.getByLabel('Курс к тенге').fill('abc');
+  await manualNew.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(manualNew.getByLabel('Курс к тенге')).toHaveAttribute('aria-invalid', 'true');
 });
 
 test('валюта счёта с операциями и базовая валюта компании с операциями заблокированы', async ({ page }) => {
