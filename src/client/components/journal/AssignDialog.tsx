@@ -48,7 +48,6 @@ function AssignForm(props: { request: AssignRequest; data: AssignData; onSave: (
         value={value}
         options={options}
         emptyLabel={null}
-        placeholder="Выберите"
         onChange={setValue}
       />
       <button type="submit" disabled={value === null} className={`${btnPrimary} mt-6 w-full py-3`}>

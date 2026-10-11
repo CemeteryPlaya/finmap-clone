@@ -2,17 +2,18 @@ import { useLayoutEffect, useState, type CSSProperties, type RefObject } from 'r
 import { placeFloating, type FloatingPosition } from '../lib/floating';
 
 /**
- * Стиль всплывающего элемента (панели, подсказки), который рисуется порталом в body с position: fixed:
- * место считается от кнопки до первой отрисовки и пересчитывается при прокрутке (любого контейнера),
- * изменении окна и размера самого элемента. Пока места нет — элемент невидим.
+ * Стиль всплывающего элемента (панели, подсказки, списка), который рисуется порталом с position: fixed: место
+ * считается от якоря до первой отрисовки и пересчитывается при прокрутке (любого контейнера), изменении окна и размера
+ * самого элемента. Пока места нет — элемент невидим. `matchWidth` — ширина как у якоря (список поля, §6.6 этапа 1.5).
  */
 export function useFloating(
   open: boolean,
   anchorRef: RefObject<HTMLElement | null>,
   floatingRef: RefObject<HTMLElement | null>,
   align: 'left' | 'right' = 'left',
+  matchWidth = false,
 ): CSSProperties {
-  const [pos, setPos] = useState<FloatingPosition | null>(null);
+  const [pos, setPos] = useState<(FloatingPosition & { width?: number }) | null>(null);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -23,13 +24,15 @@ export function useFloating(
       const anchor = anchorRef.current;
       const floating = floatingRef.current;
       if (!anchor || !floating) return;
-      const next = placeFloating(
-        anchor.getBoundingClientRect(),
-        { width: floating.offsetWidth, height: floating.scrollHeight },
-        { width: window.innerWidth, height: window.innerHeight },
-        align,
+      const rect = anchor.getBoundingClientRect();
+      const width = matchWidth ? rect.width : undefined;
+      const next = {
+        ...placeFloating(rect, { width: width ?? floating.offsetWidth, height: floating.scrollHeight }, { width: window.innerWidth, height: window.innerHeight }, align),
+        width,
+      };
+      setPos((prev) =>
+        prev && prev.top === next.top && prev.left === next.left && prev.maxHeight === next.maxHeight && prev.width === next.width ? prev : next,
       );
-      setPos((prev) => (prev && prev.top === next.top && prev.left === next.left && prev.maxHeight === next.maxHeight ? prev : next));
     };
     place();
     window.addEventListener('scroll', place, true);
@@ -41,7 +44,8 @@ export function useFloating(
       window.removeEventListener('resize', place);
       observer?.disconnect();
     };
-  }, [open, align, anchorRef, floatingRef]);
+  }, [open, align, anchorRef, floatingRef, matchWidth]);
 
-  return pos ? { position: 'fixed', top: pos.top, left: pos.left, maxHeight: pos.maxHeight } : { position: 'fixed', top: 0, left: 0, visibility: 'hidden' };
+  if (!pos) return { position: 'fixed', top: 0, left: 0, visibility: 'hidden' };
+  return { position: 'fixed', top: pos.top, left: pos.left, maxHeight: pos.maxHeight, ...(pos.width !== undefined ? { width: pos.width } : {}) };
 }

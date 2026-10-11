@@ -60,7 +60,7 @@ async function assignVia(page: Page, row: Locator, chip: string, list: string, o
   await row.getByRole('button', { name: chip }).click();
   const dialog = page.getByRole('dialog', { name: /^Редактирование/ });
   await expect(dialog).toBeVisible();
-  await dialog.locator('button[aria-haspopup="dialog"]').click();
+  await dialog.getByRole('combobox').click();
   await page.getByRole('listbox', { name: list }).getByRole('option', { name: option, exact: true }).click();
   await dialog.getByRole('button', { name: 'Сохранить' }).click();
   await expect(dialog).toBeHidden();
@@ -229,19 +229,18 @@ test('«Указать»: окно «Редактирование …» с од�
   await expect(categoryDialog).toBeVisible();
   const save = categoryDialog.getByRole('button', { name: 'Сохранить' });
   await expect(save).toBeDisabled();
-  const categoryField = categoryDialog.getByRole('button', { name: /^Категория:/ });
+  const categoryField = categoryDialog.getByRole('combobox', { name: 'Категория', exact: true });
   await expect(categoryField).toBeFocused();
+  // Enter в закрытом поле открывает список; фокус остаётся в поле
   await page.keyboard.press('Enter');
-  const search = page.getByRole('combobox', { name: 'Категории: поиск' });
-  await expect(search).toBeFocused();
-  // доход видит только доходные категории
+  // доход видит только доходные категории; у системных — бейдж «системная» (его текст входит в текст пункта, но не в имя)
   const categoryOptions = page.getByRole('listbox', { name: 'Категории' }).getByRole('option');
-  // у системных категорий — бейдж «системная» (его текст входит в текст пункта, но не в имя)
   await expect(categoryOptions).toHaveText([/^Инвестиции/, /^Возврат займа/, /^Получение кредита/, 'Бар', 'Игровое время']);
-  await search.fill('БАР');
+  await expect(categoryField).toBeFocused();
+  await categoryField.fill('БАР');
   await expect(categoryOptions).toHaveText(['Бар']);
-  await search.press('Enter');
-  await expect(categoryField).toHaveAccessibleName('Категория: Бар');
+  await categoryField.press('Enter');
+  await expect(categoryField).toHaveValue('Бар');
   await expect(categoryField).toBeFocused();
   // до «Сохранить» операция не меняется
   await expect(row('A').getByRole('button', { name: 'Указать категорию' })).toHaveCount(1);
@@ -267,9 +266,9 @@ test('«Указать»: окно «Редактирование …» с од�
   // пункт выбран, но не сохранён: и Esc, и «×» закрывают окно без изменений
   for (const closeWith of ['Escape', 'cross'] as const) {
     await projectChip.click();
-    await projectDialog.getByRole('button', { name: /^Проект:/ }).click();
+    await projectDialog.getByRole('combobox', { name: 'Проект', exact: true }).click();
     await page.getByRole('listbox', { name: 'Проекты' }).getByRole('option', { name: 'Клуб 1' }).click();
-    await expect(projectDialog.getByRole('button', { name: /^Проект:/ })).toHaveAccessibleName('Проект: Клуб 1');
+    await expect(projectDialog.getByRole('combobox', { name: 'Проект', exact: true })).toHaveValue('Клуб 1');
     if (closeWith === 'Escape') await page.keyboard.press('Escape');
     else await projectDialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
     await expect(projectDialog).toBeHidden();
@@ -280,7 +279,7 @@ test('«Указать»: окно «Редактирование …» с од�
 
   // Esc при открытом списке: закрывается только список, окно остаётся; второй Esc закрывает окно
   await projectChip.click();
-  await projectDialog.getByRole('button', { name: /^Проект:/ }).click();
+  await projectDialog.getByRole('combobox', { name: 'Проект', exact: true }).click();
   const projectList = page.getByRole('listbox', { name: 'Проекты' });
   await expect(projectList).toBeVisible();
   await page.keyboard.press('Escape');
@@ -294,7 +293,7 @@ test('«Указать»: окно «Редактирование …» с од�
   await row('C').getByRole('button', { name: 'Указать проект' }).click();
   // журнал перечитывается после сохранения — дождёмся его, чтобы правка «в другом окне» ниже пришла позже
   const reloaded = page.waitForResponse((r) => r.url().includes(`/companies/${cid}/operations?`) && r.request().method() === 'GET');
-  await projectDialog.getByRole('button', { name: /^Проект:/ }).click();
+  await projectDialog.getByRole('combobox', { name: 'Проект', exact: true }).click();
   await page.getByRole('listbox', { name: 'Проекты' }).getByRole('option', { name: 'Клуб 1' }).click();
   await projectDialog.getByRole('button', { name: 'Сохранить' }).click();
   await expect(row('C')).toContainText('Клуб 1');
@@ -308,7 +307,7 @@ test('«Указать»: окно «Редактирование …» с од�
   const counterpartyDialog = page.getByRole('dialog', { name: 'Редактирование контрагента' });
   const pickClient = async () => {
     await row('A').getByRole('button', { name: 'Указать контрагента' }).click();
-    await counterpartyDialog.getByRole('button', { name: /^Мой контрагент:/ }).click();
+    await counterpartyDialog.getByRole('combobox', { name: 'Мой контрагент', exact: true }).click();
     await page.getByRole('listbox', { name: 'Контрагенты' }).getByRole('option', { name: 'ИП Клиент' }).click();
     await counterpartyDialog.getByRole('button', { name: 'Сохранить' }).click();
     await expect(counterpartyDialog).toBeHidden();
@@ -395,12 +394,14 @@ test('массовые действия: полоса на месте загол
   await expect(editDialog).toContainText('Выбрано: 4');
   const editSave = editDialog.getByRole('button', { name: 'Сохранить' });
   await expect(editSave).toBeDisabled();
-  await editDialog.getByRole('button', { name: /^Категория:/ }).click();
+  // пустое поле по-прежнему читается «Не менять» (подсказка поля)
+  await expect(editDialog.getByRole('combobox', { name: 'Категория', exact: true })).toHaveAttribute('placeholder', 'Не менять');
+  await editDialog.getByRole('combobox', { name: 'Категория', exact: true }).click();
   const categoryList = page.getByRole('listbox', { name: 'Категории' });
   await expect(categoryList.getByRole('group', { name: 'Доходы' })).toBeVisible();
   await categoryList.getByRole('group', { name: 'Расходы' }).getByRole('option', { name: 'Аренда', exact: true }).click();
   await expect(editSave).toBeEnabled();
-  await editDialog.getByRole('button', { name: /^Проект:/ }).click();
+  await editDialog.getByRole('combobox', { name: 'Проект', exact: true }).click();
   await page.getByRole('listbox', { name: 'Проекты' }).getByRole('option', { name: 'Клуб 2' }).click();
   await editSave.click();
   await expect(editDialog).toBeHidden();
@@ -744,7 +745,7 @@ test('«Изменить данные» в фильтре «Без катего�
   const bar = page.getByRole('region', { name: 'Действия с выбранными' });
   await bar.getByRole('button', { name: 'Изменить данные' }).click();
   const editDialog = page.getByRole('dialog', { name: 'Изменить данные' });
-  await editDialog.getByRole('button', { name: /^Категория:/ }).click();
+  await editDialog.getByRole('combobox', { name: 'Категория', exact: true }).click();
   await page.getByRole('listbox', { name: 'Категории' }).getByRole('option', { name: 'Аренда', exact: true }).click();
   await editDialog.getByRole('button', { name: 'Сохранить' }).click();
   await expect(editDialog).toBeHidden();

@@ -64,7 +64,7 @@ export function PickerListbox(props: {
           </span>
         )}
         {it.kind === 'option' && it.option.suffix && (
-          <span aria-hidden="true" className="shrink-0 text-muted">
+          <span aria-hidden="true" className="shrink-0 text-label">
             {it.option.suffix}
           </span>
         )}

@@ -32,10 +32,11 @@ function BulkEditForm(props: { count: number; data: AssignData; onSave: (actions
         value={values.counterpartyId}
         options={counterpartyOptions(props.data.counterparties, null, null)}
         emptyLabel="Не менять"
+        emptyText="Не менять"
         onChange={set('counterpartyId')}
       />
-      <ComboSelect label="Категория" listLabel="Категории" value={values.categoryId} options={categories} emptyLabel="Не менять" onChange={set('categoryId')} />
-      <ComboSelect label="Проект" listLabel="Проекты" value={values.projectId} options={projectOptions(props.data.projects, [])} emptyLabel="Не менять" onChange={set('projectId')} />
+      <ComboSelect label="Категория" listLabel="Категории" value={values.categoryId} options={categories} emptyLabel="Не менять" emptyText="Не менять" onChange={set('categoryId')} />
+      <ComboSelect label="Проект" listLabel="Проекты" value={values.projectId} options={projectOptions(props.data.projects, [])} emptyLabel="Не менять" emptyText="Не менять" onChange={set('projectId')} />
       <p className="text-xs text-muted">Меняются только заполненные поля. Разбитые операции и переводы, которым поле не подходит, пропускаются — итог покажет причины.</p>
       <button type="submit" disabled={actions.length === 0} className={`${btnPrimary} w-full py-3`}>
         Сохранить

@@ -39,11 +39,14 @@ async function openForm(page: Page, button: 'Доход' | 'Расход' | 'П�
   return form(page);
 }
 
-/** Выбрать значение в выпадающем списке формы: кнопка «Подпись: …», затем пункт списка (список — в окне формы). */
+/** Поле со списком (§6.6 этапа 1.5): `input role="combobox"`, имя — подпись поля. */
+const field = (scope: Locator, label: string) => scope.getByRole('combobox', { name: label, exact: true });
+
+/** Выбрать значение в поле со списком: нажатие открывает список (он рисуется в окне формы), затем пункт. */
 async function pick(page: Page, label: string, option: string, scope: Locator = form(page)) {
-  await scope.getByRole('button', { name: new RegExp(`^${label}:`) }).click();
+  await field(scope, label).click();
   await form(page).getByRole('option', { name: option, exact: true }).click();
-  await expect(scope.getByRole('button', { name: new RegExp(`^${label}: ${option.replace(/[()]/g, '\\$&')}`) })).toBeVisible();
+  await expect(field(scope, label)).toHaveValue(option);
 }
 
 test('доход, расход и перевод KZT → USD через форму: выражение в сумме, курс перевода, балансы и журнал', async ({ page }) => {
@@ -133,40 +136,61 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   await expect(question).toBeHidden();
   await expect(dialog).toBeVisible();
   await expect(amount).toBeFocused();
-  // Esc внутри списка с поиском закрывает только список: окно открыто, вопроса нет, фокус на кнопке списка
-  await dialog.getByRole('button', { name: /^Категория:/ }).click();
+  // Esc при открытом списке закрывает только список: окно открыто, вопроса нет, фокус остаётся в поле (Review Focus 3)
+  const category = field(dialog, 'Категория');
+  await category.click();
+  await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeVisible();
+  // нажатие внутри открытого поля его не закрывает; нажатие вне поля и списка (на заголовок окна) — закрывает
+  await category.click();
+  await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeVisible();
+  await dialog.getByRole('heading').click();
+  await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeHidden();
+  await category.click();
   await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeHidden();
   await expect(dialog).toBeVisible();
   await expect(question).toBeHidden();
-  await expect(dialog.getByRole('button', { name: /^Категория:/ })).toBeFocused();
+  await expect(category).toBeFocused();
+  // печать в поле открывает список и фильтрует его; «+ Создать „…“» — после найденного; Enter выбирает найденное (Review Focus 2)
+  await category.fill('АРЕН');
+  await expect(dialog.getByRole('listbox', { name: 'Категории' }).getByRole('option')).toHaveText(['Аренда', '+ Создать „АРЕН“']);
+  await category.press('Enter');
+  await expect(category).toHaveValue('Аренда');
+  await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeHidden();
+  // печать поверх выбранного: ищется набранное; Esc возвращает прежнее значение (Review Focus 1)
+  await category.fill('интернет');
+  await expect(dialog.getByRole('listbox', { name: 'Категории' }).getByRole('option')).toHaveText(['+ Создать „интернет“']);
+  await category.press('Escape');
+  await expect(category).toHaveValue('Аренда');
+  await expect(dialog).toBeVisible();
 
-  // «Зарплата» (системная категория): сначала сотрудники, затем остальные
+  // «Зарплата» (системная категория): поле контрагента — «Сотрудник» (§6.4), сначала сотрудники, затем остальные
   await pick(page, 'Категория', 'Зарплата');
-  await dialog.getByRole('button', { name: /^Контрагент:/ }).click();
+  await field(dialog, 'Сотрудник').click();
   const people = dialog.getByRole('listbox', { name: 'Контрагенты' }).getByRole('option');
   await expect(people).toHaveText(['+ Создать контрагента', 'Без контрагента', 'Айгерим', 'ТОО Ромашка']);
   await expect(dialog.getByRole('listbox', { name: 'Контрагенты' })).toContainText('Сотрудники');
   await page.keyboard.press('Escape');
+  // обычная категория — «Мой контрагент»
   await pick(page, 'Категория', 'Аренда');
-  await dialog.getByRole('button', { name: /^Контрагент:/ }).click();
+  await field(dialog, 'Мой контрагент').click();
   await expect(people).toHaveText(['+ Создать контрагента', 'Без контрагента', 'ТОО Ромашка', 'Айгерим']);
   await page.keyboard.press('Escape');
 
-  // после выбора значения список открывается сразу на нём: aria-activedescendant указывает на выбранный пункт
-  await dialog.getByRole('button', { name: 'Категория: Аренда' }).click();
-  const search = dialog.getByRole('combobox', { name: 'Категории: поиск' });
+  // после выбора значения список открывается на нём: aria-activedescendant поля указывает на выбранный пункт
+  await category.click();
   const selected = dialog.getByRole('listbox', { name: 'Категории' }).getByRole('option', { name: 'Аренда', exact: true });
   await expect(selected).toHaveAttribute('aria-selected', 'true');
-  const selectedId = (await selected.getAttribute('id'))!;
-  await expect(search).toHaveAttribute('aria-activedescendant', selectedId);
-  await page.keyboard.press('Escape');
+  await expect(category).toHaveAttribute('aria-activedescendant', (await selected.getAttribute('id'))!);
+  // Tab закрывает список без смены значения
+  await page.keyboard.press('Tab');
   await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeHidden();
+  await expect(category).toHaveValue('Аренда');
   await expect(dialog).toBeVisible();
 
   // «Сохранить и создать похожий»: категория и контрагент остаются, сумма и комментарий — нет
-  await pick(page, 'Контрагент', 'ТОО Ромашка');
+  await pick(page, 'Мой контрагент', 'ТОО Ромашка');
   await amount.fill('100');
   await dialog.getByRole('button', { name: 'Проект, теги, комментарий' }).click();
   await dialog.getByLabel('Комментарий').fill('первый');
@@ -175,8 +199,8 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   await expect(amount).toHaveValue('');
   await expect(amount).toBeFocused();
   await expect(dialog.getByLabel('Комментарий')).toHaveValue('');
-  await expect(dialog.getByRole('button', { name: 'Категория: Аренда' })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Контрагент: ТОО Ромашка' })).toBeVisible();
+  await expect(category).toHaveValue('Аренда');
+  await expect(field(dialog, 'Мой контрагент')).toHaveValue('ТОО Ромашка');
   // Enter в поле суммы с невычисленным выражением: сохраняется результат, а не текст
   await amount.fill('150+50');
   const similarRequest = nextCreate(page);
@@ -241,7 +265,7 @@ test('«Разделить» в процентах на два проекта; �
   await expect(split.getByRole('status').first()).toHaveText('Не распределено: 10 %');
   // фокус в списке строк: новая строка — на её «Категории», удаление — на «Убрать» предыдущей строки
   await split.getByRole('button', { name: '+ Строка' }).click();
-  await expect(split.getByRole('group', { name: 'Строка 3' }).getByRole('button', { name: /^Категория:/ })).toBeFocused();
+  await expect(field(split.getByRole('group', { name: 'Строка 3' }), 'Категория')).toBeFocused();
   await split.getByRole('button', { name: 'Убрать строку 3' }).click();
   await expect(split.getByRole('button', { name: 'Убрать строку 2' })).toBeFocused();
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
@@ -267,11 +291,11 @@ test('«Разделить» в процентах на два проекта; �
   // в первой строке стоит сумма операции: шаблон заменит строки — сначала вопрос
   await split.getByRole('button', { name: 'Сбросить значения' }).click();
   await expect(split).toContainText('Шаблон «Север и Юг»: 1 элемент недоступен');
-  await expect(line1.getByRole('button', { name: 'Категория: Аренда' })).toBeVisible();
-  await expect(line1.getByRole('button', { name: 'Проект: Север' })).toBeVisible();
+  await expect(field(line1, 'Категория')).toHaveValue('Аренда');
+  await expect(field(line1, 'Проект')).toHaveValue('Север');
   await expect(line1.getByLabel('Доля, %')).toHaveValue('70');
-  await expect(line2.getByRole('button', { name: 'Категория: Без категории' })).toBeVisible();
-  await expect(line2.getByRole('button', { name: 'Проект: Юг' })).toBeVisible();
+  await expect(field(line2, 'Категория')).toHaveValue('');
+  await expect(field(line2, 'Проект')).toHaveValue('Юг');
   await expect(split.getByRole('status').first()).toHaveText('Распределено полностью');
 
   // текущее разбиение — новым шаблоном
@@ -326,7 +350,7 @@ test('сценарий 3 §10 через форму: доход, расход н
   await split.getByRole('button', { name: 'Убрать строку 2' }).click();
   await expect(split.getByRole('button', { name: '+ Строка' })).toBeFocused();
   await split.getByRole('button', { name: '+ Строка' }).click();
-  await expect(line2.getByRole('button', { name: /^Категория:/ })).toBeFocused();
+  await expect(field(line2, 'Категория')).toBeFocused();
   await pick(page, 'Категория', 'Аренда', line1);
   await pick(page, 'Проект', 'Север', line1);
   await line1.getByRole('textbox', { name: /^Сумма/ }).fill('100');
@@ -378,32 +402,30 @@ test('«+ Создать „…“» прямо из формы: контраг�
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('700');
   // «Зарплата» — системная категория: новый контрагент создаётся сотрудником
   await pick(page, 'Категория', 'Зарплата');
-  await dialog.getByRole('button', { name: /^Контрагент:/ }).click();
-  await dialog.getByRole('combobox', { name: 'Контрагенты: поиск' }).fill('Асель');
+  const person = field(dialog, 'Сотрудник');
+  await person.fill('Асель');
   await dialog.getByRole('option', { name: '+ Создать „Асель“' }).click();
-  await expect(dialog.getByRole('button', { name: 'Контрагент: Асель' })).toBeVisible();
+  await expect(person).toHaveValue('Асель');
 
   // категория: Enter на пункте «+ Создать» тоже создаёт
-  await dialog.getByRole('button', { name: /^Категория:/ }).click();
-  const search = dialog.getByRole('combobox', { name: 'Категории: поиск' });
-  await search.fill('Интернет');
-  await search.press('ArrowDown');
-  // активный пункт — тот, на который указывает aria-activedescendant поля поиска
+  const category = field(dialog, 'Категория');
+  await category.fill('Интернет');
+  await category.press('ArrowDown');
+  // активный пункт — тот, на который указывает aria-activedescendant поля
   const createId = await dialog.getByRole('option', { name: '+ Создать „Интернет“' }).getAttribute('id');
-  await expect(search).toHaveAttribute('aria-activedescendant', createId!);
-  await search.press('Enter');
-  await expect(dialog.getByRole('button', { name: 'Категория: Интернет' })).toBeVisible();
+  await expect(category).toHaveAttribute('aria-activedescendant', createId!);
+  await category.press('Enter');
+  await expect(category).toHaveValue('Интернет');
   // такое название уже есть (без учёта регистра) — «Создать» не предлагается
-  await dialog.getByRole('button', { name: /^Категория:/ }).click();
-  await search.fill('интернет');
+  await category.fill('интернет');
   await expect(dialog.getByRole('option', { name: /Создать/ })).toHaveCount(0);
-  await search.press('Escape');
+  await category.press('Escape');
 
   await dialog.getByRole('button', { name: 'Проект, теги, комментарий' }).click();
-  await dialog.getByRole('button', { name: /^Проект:/ }).click();
-  await dialog.getByRole('combobox', { name: 'Проекты: поиск' }).fill('Клуб Центр');
+  const project = field(dialog, 'Проект');
+  await project.fill('Клуб Центр');
   await dialog.getByRole('option', { name: '+ Создать „Клуб Центр“' }).click();
-  await expect(dialog.getByRole('button', { name: 'Проект: Клуб Центр' })).toBeVisible();
+  await expect(project).toHaveValue('Клуб Центр');
 
   await dialog.getByRole('button', { name: 'Добавить тег' }).click();
   await dialog.getByRole('combobox', { name: 'Теги: поиск' }).fill('нал');

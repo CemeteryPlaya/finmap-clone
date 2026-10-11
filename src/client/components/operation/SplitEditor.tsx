@@ -69,7 +69,8 @@ export function SplitEditor(props: {
     if (!target || !section) return;
     const rows = Array.from(section.querySelectorAll<HTMLElement>(':scope > [role="group"][aria-label^="Строка"]'));
     if (target.kind === 'add') {
-      rows[rows.length - 1]?.querySelector<HTMLElement>('button')?.focus();
+      // новая строка — фокус в её первое поле (категория — поле ввода со списком)
+      rows[rows.length - 1]?.querySelector<HTMLElement>('input, button')?.focus();
       return;
     }
     const remove = rows[Math.max(target.index - 1, 0)]?.querySelector<HTMLButtonElement>('button[aria-label^="Убрать строку"]');

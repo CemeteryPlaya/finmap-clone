@@ -64,8 +64,8 @@ test('правка из журнала: клик по строке и с кла�
   let dialog = editForm(page);
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('radio')).toHaveCount(0); // тип не меняется
-  await expect(dialog.getByRole('button', { name: 'Счёт: Касса' })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Категория: Аренда' })).toBeVisible();
+  await expect(dialog.getByRole('combobox', { name: 'Счёт', exact: true })).toHaveValue('Касса');
+  await expect(dialog.getByRole('combobox', { name: 'Категория', exact: true })).toHaveValue('Аренда');
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('300');
   // форма ставит фокус в сумму кадр спустя — дождаться, прежде чем заполнять другие поля
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
@@ -95,7 +95,7 @@ test('правка из журнала: клик по строке и с кла�
   dialog = page.getByRole('dialog', { name: 'Новая операция' });
   await expect(dialog.getByRole('status')).toHaveText('Это копия — проверьте и сохраните');
   await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('350');
-  await expect(dialog.getByRole('button', { name: 'Категория: Аренда' })).toBeVisible();
+  await expect(dialog.getByRole('combobox', { name: 'Категория', exact: true })).toHaveValue('Аренда');
   await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(rows(page)).toHaveCount(2);
@@ -134,7 +134,9 @@ test('операция на архивном счёте: сумма, дата и
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
   await expect(amount).toBeDisabled();
   await expect(amount).toHaveAccessibleDescription('счёт в архиве');
-  await expect(dialog.getByRole('button', { name: 'Счёт: Старый (в архиве)' })).toBeDisabled();
+  const account = dialog.getByRole('combobox', { name: 'Счёт', exact: true });
+  await expect(account).toHaveValue('Старый (в архиве)');
+  await expect(account).toBeDisabled();
   await expect(dialog.getByLabel('Дата оплаты')).toBeDisabled();
   const remove = dialog.getByRole('button', { name: 'Удалить', exact: true });
   await expect(remove).toBeDisabled();

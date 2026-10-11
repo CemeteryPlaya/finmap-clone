@@ -149,9 +149,10 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
   await expect(amount).toBeFocused();
   await expect(amount).toHaveAttribute('inputmode', 'decimal');
-  await dialog.getByRole('button', { name: /^Категория:/ }).click();
+  const category = dialog.getByRole('combobox', { name: 'Категория', exact: true });
+  await category.click();
   await dialog.getByRole('option', { name: 'Аренда', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Категория: Аренда' })).toBeVisible();
+  await expect(category).toHaveValue('Аренда');
   // выражение набирается цифрами, операторы — кнопками под полем; фокус остаётся в поле
   await amount.click();
   await page.keyboard.type('1000');
@@ -430,8 +431,8 @@ test('ширина 390 px: журнал, все разделы настроек,
   await bar(page).getByRole('button', { name: 'Расход', exact: true }).click();
   await newForm(page).getByRole('button', { name: 'Проект, теги, комментарий' }).click();
   await expect(newForm(page).getByLabel('Комментарий')).toBeVisible();
-  // счёт по умолчанию — «Касса_без_пробелов_…»: кнопка списка не растягивает форму
-  await expect(newForm(page).getByRole('button', { name: /^Счёт: Касса_без_пробелов/ })).toBeVisible();
+  // счёт по умолчанию — «Касса_без_пробелов_…»: поле со списком не растягивает форму
+  await expect(newForm(page).getByRole('combobox', { name: 'Счёт', exact: true })).toHaveValue(/^Касса_без_пробелов/);
   await expectNoSideScroll(page, 'форма операции');
   const close = newForm(page).getByRole('button', { name: 'Закрыть', exact: true });
   expect((await close.boundingBox())!.x + (await close.boundingBox())!.width).toBeLessThanOrEqual(PHONE.width);

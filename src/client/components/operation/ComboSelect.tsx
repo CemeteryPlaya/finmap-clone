@@ -1,17 +1,16 @@
+import type { PickerOption } from '../../lib/picker';
+import { useComboList } from '../ComboList';
 import { Field } from '../Field';
-import { Popover } from '../Popover';
-import { PickerList, type PickerOption } from '../SearchPicker';
+import { floatingControlClass } from '../ui';
 
 /** Пункт «без значения» в списке: id справочников всегда положительные. */
 const NONE = 0;
 
-export const selectButtonClass =
-  'flex w-full items-center justify-between gap-2 rounded-xl bg-field px-4 py-3 text-left outline-none focus:ring-2 focus:ring-focus disabled:opacity-60';
-
 /**
- * Выпадающий список с поиском для поля формы (§7): кнопка с текущим значением, по нажатию — панель с поиском
- * (без учёта регистра и «ё»), пункт «без значения» и, с `onCreate`, «+ Создать „…“». Имя кнопки —
- * «Подпись: значение», подпись поля и ошибка связаны с кнопкой через `Field`.
+ * Поле со списком формы (§6.6 этапа 1.5): поле ввода с плавающей подписью (§6.3), печать фильтрует список
+ * (без учёта регистра и «ё»), пункт «без значения» («Без категории»), с `onCreate` — «+ Создать». Имя поля — подпись,
+ * значение — название выбранного; пустое значение не пишется текстом — видна подпись. Подпись, подсказка и ошибка
+ * связаны с полем через `Field`. Клавиши — `useComboList`.
  */
 export function ComboSelect(props: {
   label: string;
@@ -19,9 +18,8 @@ export function ComboSelect(props: {
   listLabel: string;
   value: number | null;
   options: PickerOption[];
-  /** Подпись пустого значения: «Без категории». null — пустого значения нет (счёт). */
+  /** Пункт пустого значения в списке: «Без категории». null — пустого значения нет (счёт). */
   emptyLabel: string | null;
-  placeholder?: string;
   onChange: (id: number | null) => void;
   onCreate?: (name: string) => void;
   /** Что создаёт «+ Создать»: «категорию», «контрагента», «проект». Обязательно вместе с onCreate. */
@@ -29,50 +27,54 @@ export function ComboSelect(props: {
   error?: string;
   hint?: string;
   disabled?: boolean;
+  /** Подсказка пустого закрытого поля («Не менять» в окне «Изменить данные»); с ней подпись всегда мелкая сверху. */
+  emptyText?: string;
   className?: string;
 }) {
   const selected = props.options.find((o) => o.id === props.value);
-  const text = selected?.label ?? (props.value === null ? (props.emptyLabel ?? props.placeholder ?? 'Выберите') : '…');
+  // значение есть, а пункта нет (справочник ещё грузится) — «…»
+  const text = selected?.label ?? (props.value === null ? '' : '…');
   const options = props.emptyLabel === null ? props.options : [{ id: NONE, label: props.emptyLabel }, ...props.options];
+  const combo = useComboList({
+    listLabel: props.listLabel,
+    options,
+    selectedId: props.value ?? (props.emptyLabel === null ? null : NONE),
+    text,
+    onPick: (id) => props.onChange(id === NONE ? null : id),
+    onCreate: props.onCreate,
+    createNoun: props.createNoun,
+  });
+  const suffix = combo.open ? undefined : selected?.suffix;
   return (
-    <Field label={props.label} error={props.error} hint={props.hint} className={props.className}>
+    <Field
+      label={props.label}
+      error={props.error}
+      hint={props.hint}
+      className={props.className}
+      floating
+      filled={combo.open || text !== '' || props.emptyText !== undefined}
+      boxRef={combo.anchorRef}
+    >
       {(control) => (
-        <Popover
-          control={control}
-          label={
-            <>
-              <span className={`truncate ${props.value === null ? 'text-muted' : ''}`}>{text}</span>
-              <span aria-hidden="true" className="text-muted">
-                ▾
-              </span>
-            </>
-          }
-          ariaLabel={`${props.label}: ${text}`}
-          panelLabel={props.listLabel}
-          buttonClassName={selectButtonClass}
-          disabled={props.disabled}
-          panelClassName="w-80"
-        >
-          {(close) => (
-            <PickerList
-              label={props.listLabel}
-              options={options}
-              selectedId={props.value ?? (props.emptyLabel === null ? null : NONE)}
-              onPick={(id) => {
-                close(true);
-                props.onChange(id === NONE ? null : id);
-              }}
-              onCreate={
-                props.onCreate &&
-                ((name) => {
-                  close(true);
-                  props.onCreate!(name);
-                })
-              }
-              createNoun={props.createNoun}
-            />
+        <>
+          <input
+            {...control}
+            {...combo.inputProps}
+            placeholder={combo.inputProps.placeholder ?? (text === '' ? props.emptyText : undefined)}
+            disabled={props.disabled}
+            className={`${floatingControlClass} truncate ${suffix ? 'pr-20' : 'pr-10'}`}
+          />
+          {/* символ валюты выбранного счёта — справа в закрытом поле, только для глаз (значение поля — название) */}
+          {suffix && (
+            <span aria-hidden="true" className="pointer-events-none absolute top-1/2 right-10 -translate-y-1/2 text-label">
+              {suffix}
+            </span>
           )}
-        </Popover>
+          <span aria-hidden="true" className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-muted">
+            ▾
+          </span>
+          {combo.list}
+        </>
       )}
     </Field>
   );

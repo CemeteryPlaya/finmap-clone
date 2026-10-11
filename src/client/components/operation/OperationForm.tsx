@@ -18,7 +18,7 @@ import {
   COMMENT_MAX,
   type OperationDraft,
 } from '../../lib/operation-form';
-import { accountOptions, categoryOptions, counterpartyOptions, preferredCounterpartyType, projectOptions, tagOptions } from '../../lib/operation-options';
+import { accountOptions, categoryOptions, counterpartyLabel, counterpartyOptions, preferredCounterpartyType, projectOptions, tagOptions } from '../../lib/operation-options';
 import { useMeta } from '../../lib/query';
 import { startSplit } from '../../lib/split';
 import { SKIP_CLOSE_CONFIRM_PREF, skipCloseConfirm } from '../../lib/preferences';
@@ -482,7 +482,6 @@ function OperationEditor(p: {
       value={draft[key]}
       options={accountOptions(p.data.accounts, draft[key])}
       emptyLabel={null}
-      placeholder="Выберите счёт"
       onChange={(id) => set({ [key]: id }, key)}
       error={errors[key]}
       disabled={!!locked}
@@ -594,7 +593,7 @@ function OperationEditor(p: {
             </div>
           )}
           <ComboSelect
-            label="Контрагент"
+            label={counterpartyLabel(p.data.categories, mainCategory)}
             listLabel="Контрагенты"
             value={draft.counterpartyId}
             options={counterpartyOptions(p.data.counterparties, draft.counterpartyId, preferredCounterpartyType(p.data.categories, mainCategory))}
