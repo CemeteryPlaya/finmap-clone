@@ -50,7 +50,7 @@ test('нижняя панель «Доход», «Расход», «Перево
   // кнопка открывает форму своего типа; Esc без изменений закрывает, фокус — снова на кнопке панели
   await bar(page).getByRole('button', { name: 'Перевод', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Новый перевод', exact: true })).toBeVisible();
-  await expect(newForm(page).getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  await expect(newForm(page).getByRole('combobox', { name: 'Со счёта', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(newForm(page)).toBeHidden();
   await expect(bar(page).getByRole('button', { name: 'Перевод', exact: true })).toBeFocused();
@@ -135,7 +135,7 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   // на компьютере ряда операторов нет
   await page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true }).click();
   const dialog = newForm(page);
-  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  await expect(dialog.getByRole('combobox', { name: 'Со счёта', exact: true })).toBeFocused();
   await expect(dialog.getByRole('group', { name: /^Операторы/ })).toBeHidden();
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
@@ -147,7 +147,10 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   expect(box.width).toBeGreaterThanOrEqual(PHONE.width - 1);
   expect(box.height).toBeGreaterThanOrEqual(PHONE.height - 1);
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
-  await expect(amount).toBeFocused();
+  const account = dialog.getByRole('combobox', { name: 'Со счёта', exact: true });
+  await expect(account).toBeFocused();
+  await account.click();
+  await dialog.getByRole('option', { name: 'Касса', exact: true }).click();
   await expect(amount).toHaveAttribute('inputmode', 'decimal');
   const category = dialog.getByRole('combobox', { name: 'Категория', exact: true });
   await category.click();
@@ -431,12 +434,15 @@ test('ширина 390 px: журнал, все разделы настроек,
   await bar(page).getByRole('button', { name: 'Расход', exact: true }).click();
   await newForm(page).getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
   await expect(newForm(page).getByLabel('Комментарий')).toBeVisible();
-  // счёт по умолчанию — «Касса_без_пробелов_…»: поле со списком не растягивает форму
+  // длинное название счёта «Касса_без_пробелов_…»: поле со списком не растягивает форму
+  await newForm(page).getByRole('combobox', { name: 'Со счёта', exact: true }).click();
+  await newForm(page).getByRole('option', { name: /^Касса_без_пробелов/ }).click();
   await expect(newForm(page).getByRole('combobox', { name: 'Со счёта', exact: true })).toHaveValue(/^Касса_без_пробелов/);
   await expectNoSideScroll(page, 'форма операции');
   const close = newForm(page).getByRole('button', { name: 'Закрыть', exact: true });
   expect((await close.boundingBox())!.x + (await close.boundingBox())!.width).toBeLessThanOrEqual(PHONE.width);
   await page.keyboard.press('Escape');
+  await page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' }).getByRole('button', { name: 'Закрыть' }).click();
   await expect(newForm(page)).toBeHidden();
 
   // окно «Фильтры» поверх панели: длинное название категории переносится, панель поля не шире экрана

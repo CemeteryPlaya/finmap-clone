@@ -64,12 +64,12 @@ export type BuildResult = { ok: true; body: OperationBody } | { ok: false; error
 
 export const COMMENT_MAX = 2000;
 
-export function emptyDraft(type: OperationType, today: string, accountId: number | null = null): OperationDraft {
+export function emptyDraft(type: OperationType, today: string, accountId: number | null = null, toAccountId: number | null = null): OperationDraft {
   return {
     type,
     accountId,
     amount: '',
-    toAccountId: null,
+    toAccountId: type === 'transfer' ? toAccountId : null,
     toAmount: '',
     paidDate: today,
     accrualOn: false,
@@ -237,3 +237,14 @@ export const FIELD_LABELS: Record<OperationType, { account: string; paidDate: st
   expense: { account: 'Со счёта', paidDate: 'Указать дату списания' },
   transfer: { account: 'Со счёта', paidDate: 'Дата перевода денег' },
 };
+
+/**
+ * Поле для фокуса при открытии формы (§6.2 этапа 1.5): у новой операции — первое пустое обязательное поле: счёт
+ * (у перевода «Со счёта», затем «На счёт»), иначе сумма; при правке — сумма.
+ */
+export function initialFocusField(draft: Pick<OperationDraft, 'type' | 'accountId' | 'toAccountId'>, editing: boolean): 'accountId' | 'toAccountId' | 'amount' {
+  if (editing) return 'amount';
+  if (draft.accountId === null) return 'accountId';
+  if (draft.type === 'transfer' && draft.toAccountId === null) return 'toAccountId';
+  return 'amount';
+}

@@ -111,7 +111,7 @@ test('окно: «×» закрывает форму и «Фильтры»; на
   await income.click();
   const form = page.getByRole('dialog', { name: /^Новый (доход|расход|перевод)$/ });
   const close = form.getByRole('button', { name: 'Закрыть', exact: true });
-  await expect(form.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  await expect(form.getByRole('combobox', { name: 'На счёт', exact: true })).toBeFocused();
   await expect(close).toHaveAttribute('title', 'Закрыть');
   // Shift+Tab с первого элемента содержимого (поле счёта: вкладок типа нет) — на «×»; ещё раз — по кругу, но внутри окна
   await form.getByRole('combobox', { name: 'На счёт', exact: true }).focus();
@@ -124,10 +124,11 @@ test('окно: «×» закрывает форму и «Фильтры»; на
   await expect(form).toBeHidden();
   await expect(income).toBeFocused();
 
-  // повторное открытие в той же странице: данные в кэше, содержимое монтируется вместе с окном — фокус снова в сумме
-  for (const label of ['Расход', 'Доход', 'Перевод'] as const) {
+  // повторное открытие в той же странице: данные в кэше, содержимое монтируется вместе с окном — фокус снова
+  // на первом пустом обязательном поле (счёт не выбирался); с запомненным счётом — в сумме (operation-form.spec.ts)
+  for (const [label, account] of [['Расход', 'Со счёта'], ['Доход', 'На счёт'], ['Перевод', 'Со счёта']] as const) {
     await page.getByRole('banner').getByRole('button', { name: label, exact: true }).click();
-    await expect(form.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+    await expect(form.getByRole('combobox', { name: account, exact: true })).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(form).toBeHidden();
   }
@@ -176,7 +177,7 @@ test('вопрос о несохранённом: вложенное окно, E
   // настройка общая для пользователя admin и остальных e2e: что бы ни случилось, вопрос снова включён
   try {
     await expense.click();
-    await expect(amount).toBeFocused();
+    await expect(form.getByRole('combobox', { name: 'Со счёта', exact: true })).toBeFocused();
     await amount.fill('250');
 
     // Esc в поле суммы — вопрос поверх формы: текст, флажок, «Отменить | Закрыть», фокус на «Отменить»

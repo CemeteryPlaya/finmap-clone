@@ -200,7 +200,10 @@ test('фокус и закрытие формы: «×» → «Отменить»
   await page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Новый расход' });
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
-  await expect(amount).toBeFocused();
+  const account = dialog.getByRole('combobox', { name: 'Со счёта', exact: true });
+  await expect(account).toBeFocused();
+  await account.click();
+  await dialog.getByRole('option', { name: 'Касса', exact: true }).click();
   await amount.fill('100');
 
   // «×» спрашивает о несохранённом; «Отменить» возвращает фокус на «×»
@@ -350,6 +353,8 @@ test('файлы: выбранный до сохранения загружае�
   // новая операция: файл ждёт сохранения
   await page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true }).click();
   let dialog = page.getByRole('dialog', { name: 'Новый расход' });
+  await dialog.getByRole('combobox', { name: 'Со счёта', exact: true }).click();
+  await dialog.getByRole('option', { name: 'Касса', exact: true }).click();
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('100');
   await dialog.getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
   await dialog.getByLabel('Комментарий').fill('с чеком');
@@ -412,6 +417,8 @@ test('файл, который сервер не принял после соз�
 
   await page.getByRole('banner').getByRole('button', { name: 'Доход', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Новый доход' });
+  await dialog.getByRole('combobox', { name: 'На счёт', exact: true }).click();
+  await dialog.getByRole('option', { name: 'Касса', exact: true }).click();
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('50');
   await dialog.getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
   await dialog.getByLabel('Добавить файл').setInputFiles({ name: 'плохой.png', mimeType: 'image/png', buffer: HTML });

@@ -7,12 +7,14 @@ import { api, ApiError } from '../../lib/api';
 import { uploadAttachment, uploadErrorText, useAttachments } from '../../lib/attachments';
 import type { OperationType } from '../../lib/journal-filter';
 import { invalidateOperations } from '../../lib/journal-mutations';
+import { defaultAccounts, readLastAccounts, saveLastAccounts, withSaved } from '../../lib/last-account';
 import { createFromForm, type CreatableKind } from '../../lib/operation-create';
 import { archivedAccountOf, draftFromOperation, duplicateDraft, patchBody, withoutArchived, type Available, type OperationRecord } from '../../lib/operation-edit';
 import {
   buildBody,
   COMMENT_MAX,
   emptyDraft,
+  initialFocusField,
   FIELD_LABELS,
   operationTitle,
   positiveAmount,
@@ -40,7 +42,7 @@ import {
   type SplitPreset,
   type Tag,
 } from '../../lib/queries';
-import { useMeta } from '../../lib/query';
+import { useMe, useMeta } from '../../lib/query';
 import { startSplit } from '../../lib/split';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { DateField } from '../DateField';
@@ -190,11 +192,17 @@ function OperationEditor(p: {
   const today = todayInTimezone(p.timeZone);
   // архивная компания — только просмотр: поля недоступны, строк-действий, кнопок сохранения и файлов нет
   const readOnly = p.company.archivedAt !== null;
-  const firstAccount = p.data.accounts.find((a) => !a.archivedAt)?.id ?? null;
   const accounts = new Map(p.data.accounts.map((a) => [a.id, a]));
+  // последний счёт этого пользователя в этой компании для этого типа (§6.2 этапа 1.5); не выбирался или в архиве — пусто
+  const userId = useMe().data?.user.id ?? null;
+  const [remembered] = useState(() => defaultAccounts(p.type, userId === null ? {} : readLastAccounts(userId, p.company.id), p.data.accounts));
   const [op, setOp] = useState(p.operation);
-  const [initial, setInitial] = useState(() => (op ? draftFromOperation(op, accounts, p.timeZone) : emptyDraft(p.type, today, firstAccount)));
+  const [initial, setInitial] = useState(() =>
+    op ? draftFromOperation(op, accounts, p.timeZone) : emptyDraft(p.type, today, remembered.accountId, remembered.toAccountId),
+  );
   const [draft, setDraft] = useState(initial);
+  /** Фокус при открытии — первое пустое обязательное поле (§6.2): счёт, иначе сумма; при правке — сумма. */
+  const [focusField] = useState(() => initialFocusField(initial, p.operation !== null));
   /** «Удалить платёж» (§6.7 этапа 1.5): подтверждение — вложенное окно. */
   const [confirmDelete, setConfirmDelete] = useState(false);
   /** 409 при сохранении правки: операцию изменили или удалили после того, как форму открыли. */
@@ -342,6 +350,8 @@ function OperationEditor(p: {
         if (patch) await api(`/companies/${p.company.id}/operations/${op.id}`, { method: 'PATCH', body: patch });
       } else {
         const created = (await api<{ operation: OperationRecord }>(`/companies/${p.company.id}/operations`, { method: 'POST', body: r.body })).operation;
+        // запомнить счета новой операции (решение 6 плана 1.5-3b): в следующий раз они подставятся сами
+        if (userId !== null) saveLastAccounts(userId, p.company.id, withSaved(readLastAccounts(userId, p.company.id), r.body.type, r.body.accountId, r.body.toAccountId));
         const failed: string[] = [];
         for (const f of files) {
           try {
@@ -466,7 +476,7 @@ function OperationEditor(p: {
     p.onEditingChange(false);
     setFiles([]);
     setDraft(copy);
-    setInitial(emptyDraft(copy.type, today, firstAccount));
+    setInitial(emptyDraft(copy.type, today, remembered.accountId, remembered.toAccountId));
     setErrors({});
     setFormError(null);
     setConflict(null);
@@ -515,6 +525,7 @@ function OperationEditor(p: {
       error={errors[key]}
       disabled={!!locked}
       hint={lockHint}
+      autoFocus={focusField === key}
     />
   );
 
@@ -542,7 +553,7 @@ function OperationEditor(p: {
       onChange={(amount) => set({ amount }, 'amount')}
       minorUnits={currency.minorUnits}
       error={errors.amount}
-      autoFocus
+      autoFocus={focusField === 'amount'}
       refocusSignal={refocusAmount}
       disabled={!!locked}
       hint={lockHint}

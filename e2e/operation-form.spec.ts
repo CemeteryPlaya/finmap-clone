@@ -73,7 +73,9 @@ test('доход, расход и перевод KZT → USD через форм
   expect((await dialog.boundingBox())!.width).toBeLessThanOrEqual(480);
   await expect(submit(dialog)).toHaveText('Добавить доход');
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
-  await expect(amount).toBeFocused();
+  // счёт ещё не выбирался — поле пустое, фокус на нём (§6.2)
+  await expect(field(dialog, 'На счёт')).toHaveValue('');
+  await expect(field(dialog, 'На счёт')).toBeFocused();
   await pick(page, 'На счёт', 'Касса');
   await pick(page, 'Категория', 'Выручка');
   // «Валюта» — значок валюты счёта рядом с суммой (§6.2)
@@ -95,6 +97,7 @@ test('доход, расход и перевод KZT → USD через форм
 
   // расход с комментарием из свёрнутого блока; сумма — невычисленное выражение, «Сохранить» нажимают сразу
   dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Касса');
   await pick(page, 'Категория', 'Аренда');
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('100+200');
   await dialog.getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
@@ -141,6 +144,7 @@ test('ошибки у полей, Esc с вопросом о несохранё�
 
   // пустая сумма и деление на ноль — ошибки у поля, окно остаётся открытым
   const dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Касса');
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
   await submit(dialog).click();
   await expect(amount).toHaveAttribute('aria-invalid', 'true');
@@ -290,6 +294,7 @@ test('«Разделить» в процентах на два проекта; �
 
   // проценты: остаток виден, сохранить можно только при 0
   let dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Касса');
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('1000');
   await dialog.getByRole('button', { name: 'Разделить платёж' }).click();
   const split = dialog.getByRole('region', { name: 'Разбиение' });
@@ -386,7 +391,7 @@ test('сценарий 3 §10 через форму: доход, расход н
   // доход 500 на проект «Север»
   let dialog = await openForm(page, 'Доход');
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
-  await expect(amount).toBeFocused();
+  await expect(field(dialog, 'На счёт')).toBeFocused();
   await amount.fill('500');
   await pick(page, 'На счёт', 'Касса');
   await pick(page, 'Категория', 'Выручка');
@@ -397,7 +402,8 @@ test('сценарий 3 §10 через форму: доход, расход н
 
   // расход 300: «Аренда» на два проекта суммами — 100 и 200
   dialog = await openForm(page, 'Расход');
-  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  await expect(field(dialog, 'Со счёта')).toBeFocused();
+  await pick(page, 'Со счёта', 'Касса');
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('300');
   await dialog.getByRole('button', { name: 'Разделить платёж' }).click();
   const split = dialog.getByRole('region', { name: 'Разбиение' });
@@ -420,7 +426,7 @@ test('сценарий 3 §10 через форму: доход, расход н
 
   // перевод 500 ₸ → 1 $
   dialog = await openForm(page, 'Перевод');
-  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  await expect(field(dialog, 'Со счёта')).toBeFocused();
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('500');
   await pick(page, 'Со счёта', 'Касса');
   await pick(page, 'На счёт', 'Валютный');
@@ -456,6 +462,7 @@ test('«+ Создать „…“» прямо из формы: контраг�
   await page.reload();
 
   const dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Касса');
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('700');
   // «Зарплата» — системная категория: новый контрагент создаётся сотрудником
   await pick(page, 'Категория', 'Зарплата');
@@ -524,6 +531,7 @@ test('нет курса на дату: «Указать курс на {D}» со
   await page.reload();
 
   const dialog = await openForm(page, 'Расход');
+  await pick(page, 'Со счёта', 'Франки');
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('10');
   await dialog.getByLabel('Указать дату списания').fill('2021-06-15');
   await submit(dialog).click();
@@ -575,4 +583,43 @@ test('сбой «+ Создать» в форме: сообщение и наб�
   await expect(category).toHaveValue('Новая категория');
   await expect(category).toBeFocused();
   await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeVisible();
+});
+
+test('последний счёт и фокус при открытии: пустой счёт — фокус на нём; после сохранения счёт запомнен для типа; архивный — пусто', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Последний счёт ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  // стартовый остаток 100 ₸ = расход ниже: в архив счёт уходит только с нулевым балансом (accounts/service.ts, 422)
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 10000 })).account.id;
+  await page.reload();
+
+  // счёт не выбирался — поле пустое, как в Finmap, и фокус на нём
+  let dialog = await openForm(page, 'Расход');
+  await expect(field(dialog, 'Со счёта')).toHaveValue('');
+  await expect(field(dialog, 'Со счёта')).toBeFocused();
+  await pick(page, 'Со счёта', 'Kaspi');
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('100');
+  await submit(dialog).click();
+  await expect(dialog).toBeHidden();
+
+  // тот же тип — запомненный счёт; данные в кэше, окно сфокусировало счёт, а фокус всё равно в сумме (Review Focus 1)
+  dialog = await openForm(page, 'Расход');
+  await expect(field(dialog, 'Со счёта')).toHaveValue('Kaspi');
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  // у дохода — свой счёт, он ещё не выбирался
+  dialog = await openForm(page, 'Доход');
+  await expect(field(dialog, 'На счёт')).toHaveValue('');
+  await expect(field(dialog, 'На счёт')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+
+  // запомненный счёт ушёл в архив (баланс: 100 ₸ стартовых минус расход 100 ₸ = 0) — поле снова пустое (Review Focus 4)
+  await apiPost(page, `${base}/accounts/${kaspi}/archive`, {});
+  await page.reload();
+  dialog = await openForm(page, 'Расход');
+  await expect(field(dialog, 'Со счёта')).toHaveValue('');
+  await expect(field(dialog, 'Со счёта')).toBeFocused();
 });

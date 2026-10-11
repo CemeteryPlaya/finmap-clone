@@ -1,6 +1,7 @@
 import { createProps, type CreateProps, type PickerOption } from '../../lib/picker';
 import { useComboList } from '../ComboList';
 import { Field } from '../Field';
+import { useAutoFocus } from '../useAutoFocus';
 import { floatingControlClass } from '../ui';
 
 /** Пункт «без значения» в списке: id справочников всегда положительные. */
@@ -27,6 +28,8 @@ export function ComboSelect(props: {
   /** Подсказка пустого закрытого поля («Не менять» в окне «Изменить данные»); с ней подпись всегда мелкая сверху. */
   emptyText?: string;
   className?: string;
+  /** Фокус в поле при появлении, если он «ничей» (§6.2 этапа 1.5: пустой счёт при открытии формы). */
+  autoFocus?: boolean;
 } & CreateProps<void | Promise<boolean>> /* «+ Создать»: onCreate вместе с createNoun («категорию»); обещание с false — создать не удалось, набранное название остаётся в поле */) {
   const selected = props.options.find((o) => o.id === props.value);
   // значение есть, а пункта нет (справочник ещё грузится) — «…»
@@ -40,6 +43,7 @@ export function ComboSelect(props: {
     onPick: (id) => props.onChange(id === NONE ? null : id),
     ...createProps(props),
   });
+  useAutoFocus(combo.inputProps.ref, props.autoFocus);
   const suffix = combo.open ? undefined : selected?.suffix;
   const placeholder = combo.inputProps.placeholder ?? (text === '' ? props.emptyText : undefined);
   const filled = combo.inputProps.value !== '' || placeholder !== undefined;

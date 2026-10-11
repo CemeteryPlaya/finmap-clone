@@ -3,6 +3,7 @@ import {
   buildBody,
   changeType,
   emptyDraft,
+  initialFocusField,
   FIELD_LABELS,
   operationTitle,
   paidAtFor,
@@ -200,5 +201,16 @@ describe('окно по типу (§6.1, §6.2, §6.9 этапа 1.5)', () => {
       expense: { account: 'Со счёта', paidDate: 'Указать дату списания' },
       transfer: { account: 'Со счёта', paidDate: 'Дата перевода денег' },
     });
+  });
+});
+
+describe('фокус при открытии (§6.2 этапа 1.5)', () => {
+  it('первое пустое обязательное поле: счёт (у перевода — «Со счёта», затем «На счёт»), иначе сумма; при правке — сумма', () => {
+    expect(initialFocusField(emptyDraft('expense', '2026-10-07'), false)).toBe('accountId');
+    expect(initialFocusField(emptyDraft('expense', '2026-10-07', 1), false)).toBe('amount');
+    expect(initialFocusField(emptyDraft('transfer', '2026-10-07', 1), false)).toBe('toAccountId');
+    expect(initialFocusField(emptyDraft('transfer', '2026-10-07', 1, 2), false)).toBe('amount');
+    expect(initialFocusField(emptyDraft('transfer', '2026-10-07', null, 2), false)).toBe('accountId');
+    expect(initialFocusField(emptyDraft('income', '2026-10-07'), true)).toBe('amount');
   });
 });
