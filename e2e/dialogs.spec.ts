@@ -292,7 +292,13 @@ test('«Настройки журнала»: «Применить» только
     await page.getByRole('checkbox', { name: 'Комментарий', exact: true }).uncheck();
     await wrap.check();
     await apply.click();
-    await expect(page.getByRole('alert')).toHaveText('Сохранено: колонки, «Показывать полностью». Не сохранено: вопрос о несохранённом — Сбой сохранения');
+    await expect(page.getByRole('alert')).toHaveText(
+      'Не удалось сохранить «Спрашивать перед закрытием формы»: Сбой сохранения. Остальное сохранено: «Колонки», «Показывать полностью».',
+    );
+    // сохранённое уже не правка: после перезапроса изменённым остаётся только вопрос (итоги 1.5-2a №5)
+    await expect(page.getByRole('checkbox', { name: 'Комментарий', exact: true })).not.toBeChecked();
+    // вопрос всё ещё отличается от сервера — «Применить» не залипает (Review Focus 3)
+    await expect(apply).toBeEnabled();
     await expect(apply).toBeEnabled();
     await expect(apply).toBeFocused();
     await page.unroute(skipUrl);

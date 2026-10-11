@@ -1,48 +1,38 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Pending } from '../../components/QueryState';
 import { alertClass, btnPrimary } from '../../components/ui';
 import { ApiError } from '../../lib/api';
-import { JOURNAL_COLUMNS, JOURNAL_COLUMNS_PREF, toggleColumn, visibleColumns, type JournalColumnId } from '../../lib/journal-columns';
-import { JOURNAL_WRAP_PREF, journalWrap, prefsSaveError, SKIP_CLOSE_CONFIRM_PREF, skipCloseConfirm } from '../../lib/preferences';
+import { JOURNAL_COLUMNS, toggleColumn } from '../../lib/journal-columns';
+import { JOURNAL_VIEW_NAMES, journalViewChanges, journalViewPref, savedJournalView, shownJournalView, type JournalView, type JournalViewKey } from '../../lib/journal-view';
+import { prefsSaveError } from '../../lib/preferences';
+import { queryClient } from '../../lib/query';
 import { savePreference, usePreferences } from '../../lib/queries';
 
+const rowClass = 'flex items-center justify-between gap-4 border-b border-field py-3 text-sm';
+
 /**
- * «Настройки журнала» (§7.5 этапа 1.5): видимые колонки (в том числе «Дата сделки»), «Показывать полностью
- * (до 2 строк)» и вопрос о несохранённом в форме операции. «Применить» сохраняет всё вместе; список в «Ещё»
- * журнала применяется сразу. Окончательный вид страницы — план 1.5-4.
+ * «Настройки журнала» (§7.5 этапа 1.5), окончательный вид как в Finmap (`36`): флажки колонок, «Показывать полностью
+ * (до 2 строк)», «Спрашивать перед закрытием формы…» — строками «подпись — флажок», «Применить» сохраняет всё вместе.
+ * Список в «Ещё» журнала применяется сразу.
  */
 export function JournalViewSettings() {
   const prefs = usePreferences();
   if (!prefs.data) return <Pending queries={[prefs]} />;
-  return <JournalViewForm prefs={prefs.data} />;
+  return <JournalViewForm saved={savedJournalView(prefs.data)} />;
 }
 
-interface Saved {
-  columns: JournalColumnId[];
-  wrap: boolean;
-  ask: boolean;
-}
-
-function JournalViewForm({ prefs }: { prefs: Record<string, unknown> }) {
-  const [columns, setColumns] = useState<JournalColumnId[]>(() => visibleColumns(prefs[JOURNAL_COLUMNS_PREF]));
-  const [wrap, setWrap] = useState(() => journalWrap(prefs));
-  const [ask, setAsk] = useState(() => !skipCloseConfirm(prefs));
-  // что реально сохранено: от него считается «есть изменения» и после частичного сбоя он отражает правду
-  const [saved, setSaved] = useState<Saved>({ columns, wrap, ask });
+function JournalViewForm({ saved }: { saved: JournalView }) {
+  // только правки: настройка без правки следует за сохранённым (другая вкладка, перезапрос после сбоя)
+  const [edits, setEdits] = useState<Partial<JournalView>>({});
   const [pending, setPending] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const statusRef = useRef<HTMLParagraphElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const refocus = useRef<'status' | 'button' | null>(null);
-
-  // только изменённое и по очереди: неизменённая настройка не затирает более новое значение из другой вкладки
-  const changes = [
-    { changed: columns.join() !== saved.columns.join(), name: 'колонки', save: () => savePreference(JOURNAL_COLUMNS_PREF, columns), mark: (s: Saved): Saved => ({ ...s, columns }) },
-    { changed: wrap !== saved.wrap, name: '«Показывать полностью»', save: () => savePreference(JOURNAL_WRAP_PREF, wrap), mark: (s: Saved): Saved => ({ ...s, wrap }) },
-    { changed: ask !== saved.ask, name: 'вопрос о несохранённом', save: () => savePreference(SKIP_CLOSE_CONFIRM_PREF, !ask), mark: (s: Saved): Saved => ({ ...s, ask }) },
-  ].filter((c) => c.changed);
-  const dirty = changes.length > 0;
+  const wrapHelpId = useId();
+  const view = shownJournalView(saved, edits);
+  const changes = journalViewChanges(saved, edits);
 
   // кнопка и поля отключены на время сохранения: фокус возвращается сюда, когда оно закончилось
   useEffect(() => {
@@ -51,99 +41,97 @@ function JournalViewForm({ prefs }: { prefs: Record<string, unknown> }) {
     refocus.current = null;
   }, [pending]);
 
+  const edit = (patch: Partial<JournalView>) => {
+    setStatus(null);
+    setError(null);
+    setEdits((e) => ({ ...e, ...patch }));
+  };
+
   const apply = async () => {
     setPending(true);
     setStatus(null);
     setError(null);
-    let done = saved;
-    const savedNames: string[] = [];
+    const done: JournalViewKey[] = [];
     let ok = true;
     try {
-      for (const c of changes) {
+      // по очереди и только изменённое: неизменённая настройка не затирает более новое значение из другой вкладки
+      for (const key of changes) {
+        const { pref, value } = journalViewPref(view, key);
         try {
-          await c.save();
-          done = c.mark(done);
-          savedNames.push(c.name);
+          await savePreference(pref, value);
+          done.push(key);
         } catch (e) {
           ok = false;
-          setError(prefsSaveError(savedNames, c.name, e instanceof ApiError ? e.message : 'Ошибка сервера'));
-          return;
+          setError(
+            prefsSaveError(
+              done.map((k) => JOURNAL_VIEW_NAMES[k]),
+              JOURNAL_VIEW_NAMES[key],
+              e instanceof ApiError ? e.message : 'Ошибка сервера',
+            ),
+          );
+          break;
         }
       }
-      setStatus('Настройки сохранены');
+      if (ok) setStatus('Настройки сохранены');
+      // после сбоя — правда с сервера: «Применить» считается от неё и не залипает (итоги 1.5-2a №5)
+      else await queryClient.invalidateQueries({ queryKey: ['preferences'] });
     } finally {
-      setSaved(done);
+      // сохранённое — уже не правка: savePreference положил значение в кэш настроек
+      setEdits((e) => {
+        const next = { ...e };
+        for (const key of done) delete next[key];
+        return next;
+      });
       refocus.current = ok ? 'status' : 'button';
       setPending(false);
     }
   };
 
-  const edited = () => {
-    setStatus(null);
-    setError(null);
-  };
-
   return (
-    <section>
+    <section className="max-w-md">
       <h1 className="mb-6 text-2xl font-bold">Настройки журнала</h1>
-      <fieldset disabled={pending} className="mb-6">
-        <legend className="mb-2 font-semibold">Колонки</legend>
-        <div className="grid gap-2">
-          {JOURNAL_COLUMNS.map((c) => (
-            <label key={c.id} className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={c.fixed || columns.includes(c.id)}
-                disabled={c.fixed}
-                onChange={() => {
-                  edited();
-                  setColumns((v) => toggleColumn(v, c.id));
-                }}
-              />
-              {c.label}
-            </label>
-          ))}
+      <fieldset disabled={pending}>
+        <legend className="sr-only">Колонки</legend>
+        {JOURNAL_COLUMNS.map((c) => (
+          <label key={c.id} className={rowClass}>
+            <span>{c.label}</span>
+            <input
+              type="checkbox"
+              checked={c.fixed || view.columns.includes(c.id)}
+              disabled={c.fixed}
+              onChange={() => edit({ columns: toggleColumn(view.columns, c.id) })}
+            />
+          </label>
+        ))}
+      </fieldset>
+      <fieldset disabled={pending} className="mt-4">
+        <legend className="sr-only">Строки</legend>
+        <div className="border-b border-field py-3">
+          <label className="flex items-center justify-between gap-4 text-sm">
+            <span>Показывать полностью (до 2 строк)</span>
+            <input type="checkbox" aria-describedby={wrapHelpId} checked={view.wrap} onChange={(e) => edit({ wrap: e.target.checked })} />
+          </label>
+          <p id={wrapHelpId} className="mt-1 pr-8 text-xs text-muted">
+            Счёт, контрагент, категория и проект — до 2 строк. На экран поместится меньше операций.
+          </p>
         </div>
       </fieldset>
-      <fieldset disabled={pending} className="mb-6">
-        <legend className="mb-2 font-semibold">Строки</legend>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            aria-describedby="journal-wrap-help"
-            checked={wrap}
-            onChange={(e) => {
-              edited();
-              setWrap(e.target.checked);
-            }}
-          />
-          Показывать полностью (до 2 строк)
-        </label>
-        <p id="journal-wrap-help" className="mt-1 text-xs text-muted">Без флажка длинные названия и комментарии обрезаются в одну строку, полный текст — в подсказке.</p>
-      </fieldset>
-      <fieldset disabled={pending} className="mb-6">
-        <legend className="mb-2 font-semibold">Форма операции</legend>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={ask}
-            onChange={(e) => {
-              edited();
-              setAsk(e.target.checked);
-            }}
-          />
-          Спрашивать перед закрытием формы с несохранёнными данными
+      <fieldset disabled={pending} className="mt-4">
+        <legend className="sr-only">Форма операции</legend>
+        <label className={rowClass}>
+          <span>Спрашивать перед закрытием формы с несохранёнными данными</span>
+          <input type="checkbox" checked={view.ask} onChange={(e) => edit({ ask: e.target.checked })} />
         </label>
       </fieldset>
       {error && (
-        <p role="alert" className={alertClass}>
+        <p role="alert" className={`${alertClass} mt-4`}>
           {error}
         </p>
       )}
-      <p ref={statusRef} tabIndex={-1} role="status" className={status ? 'mb-4 text-sm text-income outline-none' : 'sr-only'}>
+      <p ref={statusRef} tabIndex={-1} role="status" className={status ? 'mt-4 text-sm text-income-strong outline-none' : 'sr-only'}>
         {status}
       </p>
-      <button ref={buttonRef} type="button" disabled={pending || !dirty} onClick={() => void apply()} className={btnPrimary}>
+      <button ref={buttonRef} type="button" disabled={pending || changes.length === 0} onClick={() => void apply()} className={`${btnPrimary} mt-6 w-full`}>
         Применить
       </button>
     </section>

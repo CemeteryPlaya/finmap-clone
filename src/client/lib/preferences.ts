@@ -15,10 +15,12 @@ export function journalWrap(prefs: Record<string, unknown> | undefined): boolean
 }
 
 /**
- * Текст ошибки «Применить» в «Настройках журнала» (§7.5 этапа 1.5): настройки сохраняются по очереди, на первой
- * ошибке — стоп. saved — что уже сохранено, failed — что нет (со строчной: «колонки», «вопрос о несохранённом»).
+ * Текст ошибки «Применить» в «Настройках журнала» (§7.5 этапа 1.5, итоги 1.5-1b №5): настройки сохраняются по
+ * очереди, на первой ошибке — стоп. Сначала — какая не сохранилась и почему, затем — что уже сохранено.
+ * Имена — подписи на странице: «Колонки», «Показывать полностью», «Спрашивать перед закрытием формы».
  */
-export function prefsSaveError(saved: readonly string[], failed: string, message: string): string {
-  const head = saved.length > 0 ? `Сохранено: ${saved.join(', ')}. ` : '';
-  return `${head}Не сохранено: ${failed} — ${message}`;
+export function prefsSaveError(saved: readonly string[], failed: string, reason: string): string {
+  const why = reason.trim().replace(/[.!]+$/, '');
+  const head = `Не удалось сохранить «${failed}»: ${why}.`;
+  return saved.length > 0 ? `${head} Остальное сохранено: ${saved.map((s) => `«${s}»`).join(', ')}.` : head;
 }
