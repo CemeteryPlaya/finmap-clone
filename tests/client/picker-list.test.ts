@@ -4,19 +4,25 @@ import { describe, expect, it } from 'vitest';
 import { PickerList } from '../../src/client/components/SearchPicker';
 
 const options = [
-  { id: 1, label: 'Касса' },
+  { id: 1, label: 'Касса', suffix: '₸' },
   { id: 2, label: 'Карта' },
-  { id: 3, label: 'Депозит' },
+  { id: 3, label: 'Депозит', badge: 'системная' },
 ];
 
-const render = (selectedId: number | null) =>
-  renderToString(createElement(StrictMode, null, createElement(PickerList, { label: 'Счета', options, onPick: () => {}, selectedId })));
+const render = (selectedId: number | null, create = false) =>
+  renderToString(
+    createElement(
+      StrictMode,
+      null,
+      createElement(PickerList, { label: 'Счета', options, onPick: () => {}, selectedId, ...(create ? { onCreate: () => {}, createNoun: 'счёт' } : {}) }),
+    ),
+  );
 
-/** Пункт, на который указывает aria-activedescendant. */
+/** Пункт, на который указывает aria-activedescendant: [0] — открывающий тег и название, [1] — название. */
 const activeOption = (html: string) => {
   const id = /aria-activedescendant="([^"]+)"/.exec(html)?.[1];
   expect(id).toBeTruthy();
-  return new RegExp(`<li id="${id!.replace(/[:.]/g, '\\$&')}"[^>]*>([^<]*)</li>`).exec(html);
+  return new RegExp(`<li id="${id!.replace(/[:.]/g, '\\$&')}"[^>]*><span[^>]*>([^<]*)</span>`).exec(html);
 };
 
 // Проверяется только первая отрисовка (на сервере эффекты не выполняются). Повторное открытие списка
@@ -32,5 +38,19 @@ describe('PickerList: активный пункт при первой отрис
     const html = render(null);
     expect(activeOption(html)?.[1]).toBe('Касса');
     expect(html).not.toContain('aria-selected="true"');
+  });
+});
+
+describe('PickerList: «+ Создать», бейдж и символ валюты (§6.6 этапа 1.5)', () => {
+  it('«+ Создать счёт» — первым пунктом, но активен первый вариант', () => {
+    const html = render(null, true);
+    expect(/<li[^>]*role="option"[^>]*><span[^>]*>([^<]*)<\/span>/.exec(html)?.[1]).toBe('+ Создать счёт');
+    expect(activeOption(html)?.[1]).toBe('Касса');
+  });
+
+  it('бейдж и символ валюты видны, но скрыты от программ чтения: имя пункта — название', () => {
+    const html = render(null);
+    expect(html).toMatch(/<span aria-hidden="true"[^>]*>системная<\/span>/);
+    expect(html).toMatch(/<span aria-hidden="true"[^>]*>₸<\/span>/);
   });
 });

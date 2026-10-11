@@ -44,7 +44,7 @@ import { Field } from '../Field';
 import { Modal } from '../Modal';
 import { Pending } from '../QueryState';
 import { SearchPicker } from '../SearchPicker';
-import { alertClass, btnDanger, btnPrimary, btnSecondary, btnSmall, inputClass, noticeClass } from '../ui';
+import { alertClass, btnDanger, btnPrimary, btnSecondary, btnSmall, floatingTextareaClass, inputClass, noticeClass } from '../ui';
 import { uploadAttachment, uploadErrorText, useAttachments } from '../../lib/attachments';
 import { AmountField } from './AmountField';
 import { AttachmentsField } from './AttachmentsField';
@@ -581,6 +581,7 @@ function OperationEditor(p: {
                 emptyLabel="Без категории"
                 onChange={(categoryId) => set({ categoryId }, 'lines')}
                 onCreate={(name) => void createItem('category', name, (d, categoryId) => ({ ...d, categoryId }))}
+                createNoun="категорию"
                 error={errors.lines}
               />
               <button
@@ -600,6 +601,7 @@ function OperationEditor(p: {
             emptyLabel="Без контрагента"
             onChange={(counterpartyId) => set({ counterpartyId }, 'counterpartyId')}
             onCreate={(name) => void createItem('counterparty', name, (d, counterpartyId) => ({ ...d, counterpartyId }))}
+            createNoun="контрагента"
             error={errors.counterpartyId}
           />
         </div>
@@ -651,6 +653,7 @@ function OperationEditor(p: {
                 emptyLabel="Без проекта"
                 onChange={(projectId) => set({ projectId }, 'lines')}
                 onCreate={(name) => void createItem('project', name, (d, projectId) => ({ ...d, projectId }))}
+                createNoun="проект"
                 error={transfer ? errors.lines : undefined}
               />
             )}
@@ -661,9 +664,16 @@ function OperationEditor(p: {
               onCreate={(name) => void createItem('tag', name, (d, id) => ({ ...d, tagIds: [...d.tagIds, id] }))}
               error={errors.tagIds}
             />
-            <Field label="Комментарий" error={errors.comment} className="md:col-span-2">
+            <Field label="Комментарий" error={errors.comment} className="md:col-span-2" floating filled={draft.comment !== ''}>
               {(c) => (
-                <textarea {...c} rows={2} maxLength={COMMENT_MAX} value={draft.comment} onChange={(e) => set({ comment: e.target.value }, 'comment')} className={inputClass} />
+                <textarea
+                  {...c}
+                  rows={2}
+                  maxLength={COMMENT_MAX}
+                  value={draft.comment}
+                  onChange={(e) => set({ comment: e.target.value }, 'comment')}
+                  className={floatingTextareaClass}
+                />
               )}
             </Field>
             <AttachmentsField companyId={p.company.id} operationId={op?.id ?? null} pending={files} onPendingChange={setFiles} readOnly={readOnly} />
@@ -793,6 +803,7 @@ function TagsField(props: { tags: Tag[]; value: number[]; onChange: (ids: number
           options={options}
           onPick={(id) => props.onChange([...props.value, id])}
           onCreate={props.onCreate}
+          createNoun="тег"
           buttonClassName={btnSmall}
         />
       </div>

@@ -146,12 +146,12 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   await pick(page, 'Категория', 'Зарплата');
   await dialog.getByRole('button', { name: /^Контрагент:/ }).click();
   const people = dialog.getByRole('listbox', { name: 'Контрагенты' }).getByRole('option');
-  await expect(people).toHaveText(['Без контрагента', 'Айгерим', 'ТОО Ромашка']);
+  await expect(people).toHaveText(['+ Создать контрагента', 'Без контрагента', 'Айгерим', 'ТОО Ромашка']);
   await expect(dialog.getByRole('listbox', { name: 'Контрагенты' })).toContainText('Сотрудники');
   await page.keyboard.press('Escape');
   await pick(page, 'Категория', 'Аренда');
   await dialog.getByRole('button', { name: /^Контрагент:/ }).click();
-  await expect(people).toHaveText(['Без контрагента', 'ТОО Ромашка', 'Айгерим']);
+  await expect(people).toHaveText(['+ Создать контрагента', 'Без контрагента', 'ТОО Ромашка', 'Айгерим']);
   await page.keyboard.press('Escape');
 
   // после выбора значения список открывается сразу на нём: aria-activedescendant указывает на выбранный пункт

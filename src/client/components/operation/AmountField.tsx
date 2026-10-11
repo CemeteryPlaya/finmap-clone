@@ -3,7 +3,7 @@ import { CALC_MAX_LENGTH } from '../../../shared/calc';
 import { positiveAmount } from '../../lib/operation-form';
 import { amountInputText } from '../../lib/journal-format';
 import { Field } from '../Field';
-import { inputClass } from '../ui';
+import { floatingControlBase } from '../ui';
 
 /** Кнопки операторов под полем на телефоне: цифровая клавиатура их не показывает (§7). */
 const OPERATORS = [
@@ -94,45 +94,53 @@ export function AmountField(props: {
     setCalcError(null);
   };
 
+  // ряд операторов — под рамкой поля (Field below), чтобы плавающая подпись стояла по центру самого поля
+  const operators = props.disabled ? null : (
+    <div role="group" aria-label={`Операторы: ${props.label}`} className="mt-2 grid grid-cols-4 gap-2 md:hidden">
+      {OPERATORS.map((op) => (
+        <button
+          key={op.symbol}
+          type="button"
+          aria-label={`Оператор ${op.name}`}
+          // фокус остаётся в поле: выражение не вычисляется посреди набора
+          onPointerDown={(e) => e.preventDefault()}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => insert(op.symbol)}
+          className="rounded-xl bg-field py-2 text-lg font-semibold"
+        >
+          {op.symbol}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
-    <Field label={props.label} error={props.error ?? calcError ?? undefined} hint={props.hint} className={props.className}>
+    <Field
+      label={props.label}
+      error={props.error ?? calcError ?? undefined}
+      hint={props.hint}
+      className={props.className}
+      floating
+      filled={props.value !== ''}
+      below={operators}
+    >
       {(c) => (
-        <>
-          <input
-            {...c}
-            ref={ref}
-            inputMode="decimal"
-            autoComplete="off"
-            maxLength={CALC_MAX_LENGTH}
-            disabled={props.disabled}
-            value={props.value}
-            onChange={(e) => {
-              props.onChange(e.target.value);
-              setCalcError(null);
-            }}
-            onBlur={evaluate}
-            placeholder="0"
-            className={`${inputClass} text-lg font-semibold tabular-nums`}
-          />
-          {!props.disabled && (
-            <div role="group" aria-label={`Операторы: ${props.label}`} className="mt-2 grid grid-cols-4 gap-2 md:hidden">
-              {OPERATORS.map((op) => (
-                <button
-                  key={op.symbol}
-                  type="button"
-                  aria-label={`Оператор ${op.name}`}
-                  // фокус остаётся в поле: выражение не вычисляется посреди набора
-                  onPointerDown={(e) => e.preventDefault()}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => insert(op.symbol)}
-                  className="rounded-xl bg-field py-2 text-lg font-semibold"
-                >
-                  {op.symbol}
-                </button>
-              ))}
-            </div>
-          )}
-        </>
+        <input
+          {...c}
+          ref={ref}
+          inputMode="decimal"
+          autoComplete="off"
+          maxLength={CALC_MAX_LENGTH}
+          disabled={props.disabled}
+          value={props.value}
+          onChange={(e) => {
+            props.onChange(e.target.value);
+            setCalcError(null);
+          }}
+          onBlur={evaluate}
+          // сумма — крупная, как раньше (text-lg): размер — отдельно от floatingControlBase
+          className={`${floatingControlBase} text-lg font-semibold tabular-nums`}
+        />
       )}
     </Field>
   );

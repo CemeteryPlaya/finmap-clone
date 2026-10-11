@@ -19,7 +19,7 @@ import {
 } from '../../lib/split';
 import { Field } from '../Field';
 import { SearchPicker } from '../SearchPicker';
-import { btnSmall, inputClass } from '../ui';
+import { btnSmall, floatingControlClass, inputClass } from '../ui';
 import { AmountField } from './AmountField';
 import { ComboSelect } from './ComboSelect';
 
@@ -193,6 +193,7 @@ export function SplitEditor(props: {
             emptyLabel="Без категории"
             onChange={(categoryId) => setLine(i, { categoryId })}
             onCreate={props.onCreateCategory && ((name) => props.onCreateCategory!(name, line.key))}
+            createNoun="категорию"
           />
           <ComboSelect
             label="Проект"
@@ -202,6 +203,7 @@ export function SplitEditor(props: {
             emptyLabel="Без проекта"
             onChange={(projectId) => setLine(i, { projectId })}
             onCreate={props.onCreateProject && ((name) => props.onCreateProject!(name, line.key))}
+            createNoun="проект"
           />
           {split.mode === 'amount' ? (
             <AmountField
@@ -216,8 +218,12 @@ export function SplitEditor(props: {
               label="Доля, %"
               error={line.value.trim() !== '' ? (result.errors[i] ?? undefined) : undefined}
               hint={result.amounts[i] != null ? `= ${formatMoney(result.amounts[i]!, props.currency, MONEY_SCREEN)}` : undefined}
+              floating
+              filled={line.value !== ''}
             >
-              {(c) => <input {...c} inputMode="decimal" autoComplete="off" value={line.value} onChange={(e) => setLine(i, { value: e.target.value })} className={inputClass} />}
+              {(c) => (
+                <input {...c} inputMode="decimal" autoComplete="off" value={line.value} onChange={(e) => setLine(i, { value: e.target.value })} className={floatingControlClass} />
+              )}
             </Field>
           )}
           <button
@@ -228,7 +234,7 @@ export function SplitEditor(props: {
               focusAfter.current = { kind: 'remove', index: i };
               props.onChange({ ...split, lines: split.lines.filter((_, j) => j !== i) });
             }}
-            className={`${btnSmall} md:mt-7`}
+            className={`${btnSmall} md:mt-3`}
           >
             ×
           </button>

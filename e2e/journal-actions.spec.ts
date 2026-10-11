@@ -236,7 +236,8 @@ test('«Указать»: окно «Редактирование …» с од�
   await expect(search).toBeFocused();
   // доход видит только доходные категории
   const categoryOptions = page.getByRole('listbox', { name: 'Категории' }).getByRole('option');
-  await expect(categoryOptions).toHaveText(['Инвестиции', 'Возврат займа', 'Получение кредита', 'Бар', 'Игровое время']);
+  // у системных категорий — бейдж «системная» (его текст входит в текст пункта, но не в имя)
+  await expect(categoryOptions).toHaveText([/^Инвестиции/, /^Возврат займа/, /^Получение кредита/, 'Бар', 'Игровое время']);
   await search.fill('БАР');
   await expect(categoryOptions).toHaveText(['Бар']);
   await search.press('Enter');

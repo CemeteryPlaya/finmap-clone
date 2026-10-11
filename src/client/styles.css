@@ -9,6 +9,7 @@
   --color-field: #edf1f5; /* поля ввода без рамки */
   --color-ink: #14161a;
   --color-muted: #6b7280;
+  --color-label: #5b6270; /* плавающая подпись поля и подсказка в нём: 5,4:1 на field (#edf1f5); muted там — 4,26:1, меньше AA */
   --color-income: #0f9d6b;
   --color-income-soft: #dff5ec;
   --color-income-strong: #0b7a53; /* текст на income-soft (плашка «Указать», «системная») — 4,7:1; фон полосы действий под белым текстом — 5,4:1 */

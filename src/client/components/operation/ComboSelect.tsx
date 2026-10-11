@@ -24,6 +24,8 @@ export function ComboSelect(props: {
   placeholder?: string;
   onChange: (id: number | null) => void;
   onCreate?: (name: string) => void;
+  /** Что создаёт «+ Создать»: «категорию», «контрагента», «проект». Обязательно вместе с onCreate. */
+  createNoun?: string;
   error?: string;
   hint?: string;
   disabled?: boolean;
@@ -67,6 +69,7 @@ export function ComboSelect(props: {
                   props.onCreate!(name);
                 })
               }
+              createNoun={props.createNoun}
             />
           )}
         </Popover>
