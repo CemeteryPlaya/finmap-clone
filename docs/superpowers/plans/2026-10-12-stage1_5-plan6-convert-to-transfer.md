@@ -108,7 +108,7 @@
   - текст цвета расхода — только `text-expense-strong`.
 - **Терминология:** «Категория», никогда «Статья» (`tests/shared/terminology.test.ts`).
 - **Без новых npm-пакетов.**
-- **Невидимые символы** (U+2212, U+202F, U+00A0, U+200B) в коде пишутся только экранированием `−` и т. п.
+- **Невидимые символы** (U+2212, U+202F, U+00A0, U+200B) в коде пишутся только экранированием `\u2212` и т. п.
 - **Концы строк:** правки «найдите → замените» делайте инструментом правки файлов. Если найденный текст разошёлся с планом пробелами, копируйте его из файла.
 - **E2E:**
   - порт 41731 (`E2E_PORT`), APP_TIMEZONE e2e-сервера — `Asia/Almaty`;
@@ -1029,7 +1029,7 @@ test('«Изменить в перевод»: расход с категорие
   });
   await expect(transfer).toBeHidden();
   await expect(rows(page).first()).toContainText('Касса → Kaspi');
-  // балансы обоих счетов (Review Focus 5): «Касса» — 1000 − 300, «Kaspi» — 300
+  // балансы обоих счетов (Review Focus 5): «Касса» — 1000 минус 300, «Kaspi» — 300
   const panel = page.getByRole('navigation', { name: 'Счета' });
   await expect(panel.getByRole('link', { name: /^Касса/ })).toContainText(/₸\s700$/);
   await expect(panel.getByRole('link', { name: /^Kaspi/ })).toContainText(/₸\s300$/);
@@ -1651,9 +1651,11 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
  * Возвращает окно «Расход» с суммой на месте.
  */
 const openCategorizedExpense = async (p: Page) => {
+  // демо-данные детерминированы (seedDemo: фиксированный NOW, 400 операций); строку ищем по имени кнопки «Открыть операцию …»
+  // со знаком минус (расход), а не по тексту строки: минус может стоять и в остатке счёта
   const row = table(p)
     .locator('tbody tr')
-    .filter({ hasText: '−' })
+    .filter({ has: p.getByRole('button', { name: /^Открыть операцию.*\u2212/ }) })
     .filter({ has: p.locator('[data-column="category"]', { hasNotText: 'Указать' }) })
     .first();
   await row.getByRole('button', { name: /^Открыть операцию/ }).click();
