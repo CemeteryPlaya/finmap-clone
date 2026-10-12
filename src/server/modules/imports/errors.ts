@@ -22,3 +22,95 @@ export const IMPORT_READ_MAX_ROWS = IMPORT_MAX_ROWS + 10;
 export function tooManyRows(): AppError {
   return fileError('F5', 'В файле больше 50 000 строк — разбейте его по годам');
 }
+
+/** Ошибки строк R* блокируют импорт; предупреждения W* — нет (§4.10). */
+export type RowErrorCode = 'R01' | 'R02' | 'R03' | 'R04' | 'R05' | 'R06' | 'R07' | 'R08' | 'R09' | 'R10' | 'R11' | 'R12' | 'R13' | 'R14' | 'R15' | 'R16' | 'R17' | 'R18';
+export type WarningCode = 'W1' | 'W2' | 'W3' | 'W4' | 'W5' | 'W6' | 'W7' | 'W8' | 'W9' | 'W10';
+/** Ошибки счетов — в карточке счёта (§5.4). */
+export type AccountErrorCode = 'A1' | 'A2' | 'A3' | 'A4' | 'A5';
+
+/** Замечание к строке файла; row — номер строки Excel (у W8 — 0: замечание ко всему файлу). */
+export interface RowIssue {
+  code: RowErrorCode | WarningCode;
+  message: string;
+  row: number;
+}
+
+/** Группа замечаний в ответе: один код и текст, число строк и до 20 первых номеров (§4.10 «Объём ответа»). */
+export interface IssueGroup {
+  code: string;
+  message: string;
+  count: number;
+  rows: number[];
+}
+
+export const ISSUE_ROWS_MAX = 20;
+/** Не больше групп в ответе: тексты с значениями (R02, R16, R17) не раздувают ответ на большом файле. */
+export const ISSUE_GROUPS_MAX = 100;
+
+export const isRowError = (i: RowIssue) => i.code.startsWith('R');
+
+/** Значение в тексте сообщения: не длиннее 50 символов. */
+const clip = (v: string) => (v.length > 50 ? `${v.slice(0, 50)}…` : v);
+
+/** Тексты ошибок и предупреждений (§4.10). */
+export const MESSAGES = {
+  R01: 'Нет даты платежа',
+  R02: (v: string) => `Не удалось прочитать дату платежа «${clip(v)}»`,
+  R03: 'Дата платежа раньше 1990 года',
+  R04: 'Нет суммы',
+  R05: (v: string) => `Не удалось прочитать сумму «${clip(v)}»`,
+  R06: 'Сумма равна нулю',
+  R07: 'Слишком большая сумма',
+  R08: 'Не указан счёт: заполните «Со счета», «На счет» или обе колонки',
+  R09: 'Счета перевода совпадают',
+  R10: 'Отрицательная сумма у дохода',
+  R11: (what: string, v: string) => `Не удалось прочитать ${what} «${clip(v)}»`,
+  R11_PERIOD: 'Конец периода раньше начала',
+  R12: 'Подкатегория без категории',
+  R13: (what: string, max: number) => `${what} длиннее ${max} символов`,
+  R14: 'Больше 20 тегов',
+  R15: 'Комментарий длиннее 2 000 символов',
+  R16: (currency: string, date: string) =>
+    `Нет курса ${currency} на ${date.slice(8, 10)}.${date.slice(5, 7)}.${date.slice(0, 4)} — заполните «Сумму в валюте компании» или добавьте курс на дату`,
+  R17: (what: string, name: string) => `${what} «${clip(name)}» в архиве — верните из архива`,
+  R18_LONG: 'Ячейка длиннее 32 767 символов',
+  R18_EXCEL: (v: string, column: string) => `Ошибка Excel ${clip(v)} в колонке «${column}»`,
+  W1: 'Дата платежа в будущем — плановые операции появятся позже, строки пропущены',
+  W2: 'У перевода нет категории и контрагента — они не перенесены',
+  W3: 'У перевода нет даты начисления — она не перенесена',
+  W4: 'Подконтрагент стал контрагентом',
+  W5: 'Подпроект не переносится',
+  W6: 'Есть и дата начисления, и период — взята дата начисления',
+  W7: (title: string) => `Колонка «${clip(title)}» не распознана — пропущена`,
+  W8: (when: string, user: string) => `Этот файл уже импортирован ${when} (${user}) — совпадение по SHA-256, импорт не отменён`,
+  W9: 'У счёта в валюте компании «Сумма в валюте компании» отличается от суммы — взята сумма счёта',
+  W10: (digits: number) => `Больше ${digits} знаков после запятой — сумма округлена`,
+  A1: (name: string) => `Выберите счёт для «${clip(name)}» — подходит несколько`,
+  A1_MISSING: (name: string) => `Выберите счёт для «${clip(name)}»`,
+  A2: 'Неизвестная валюта',
+  A3: 'Название счёта: от 1 до 120 символов',
+  A4: 'Неверная сумма остатка',
+  A4_TARGETS: 'Этот счёт выбран для нескольких названий с разными «Остатками после импорта» — оставьте одно значение',
+  A5: (name: string) => `Счёт «${clip(name)}» в архиве — выберите другой`,
+} as const;
+
+/**
+ * Замечания по группам «код + текст» в порядке первой строки: число строк и до 20 первых номеров.
+ * Групп — не больше ISSUE_GROUPS_MAX.
+ */
+export function groupIssues(issues: RowIssue[]): IssueGroup[] {
+  const groups = new Map<string, IssueGroup>();
+  for (const i of [...issues].sort((a, b) => a.row - b.row)) {
+    const key = `${i.code}\u0000${i.message}`;
+    let g = groups.get(key);
+    if (!g) {
+      if (groups.size >= ISSUE_GROUPS_MAX) continue;
+      g = { code: i.code, message: i.message, count: 0, rows: [] };
+      groups.set(key, g);
+    }
+    g.count++;
+    if (i.row > 0 && g.rows.length < ISSUE_ROWS_MAX && !g.rows.includes(i.row)) g.rows.push(i.row);
+  }
+  return [...groups.values()];
+}
