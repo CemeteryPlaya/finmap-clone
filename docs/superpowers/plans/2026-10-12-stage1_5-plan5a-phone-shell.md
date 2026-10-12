@@ -49,7 +49,7 @@
 - **Цвет:** текст цвета расхода — только `text-expense-strong` (`tests/client/theme.test.ts`).
 - **Терминология:** «Категория», никогда «Статья».
 - **Без новых npm-пакетов.** Сервер и схема БД не меняются.
-- **Невидимые символы** (U+2212, U+202F, U+00A0, U+200B) в коде — только экранированием `−` и т. п.
+- **Невидимые символы** (U+2212, U+202F, U+00A0, U+200B) в коде — только экранированием `\u2212` и т. п.
 - **Концы строк:** правки «найдите → замените» — инструментом правки файлов; копируйте найденный текст из файла, а не из плана, если они разошлись пробелами.
 - **E2E:** порт 41731 (`E2E_PORT`), APP_TIMEZONE e2e-сервера — `Asia/Almaty`; один пользователь `admin`/`e2e-password-1` и одна база на прогон (имена уникальны); `name:` в Playwright — подстрока без учёта регистра (точное совпадение — `exact: true`); данные — через `page.request` с `origin` и `x-requested-with: fetch`; общие настройки пользователя восстанавливаются в `try/finally`; без фиксированных пауз. `journal-actions.spec.ts:555` — известный нестабильный тест.
 - **Безопасность среды (обязательно):**
@@ -111,7 +111,7 @@ e2e/mobile.spec.ts
 В `e2e/mobile.spec.ts` замените тест `'нижняя панель «Доход», «Расход», «Перевод» на телефоне; на компьютере кнопки — в шапке'` целиком (от строки `test('нижняя панель «Доход»…` до его закрывающей `});`) на:
 
 ```ts
-test('шапка телефона (§8.1–8.2): ☰ «Счета» слева, компания ▾ по центру, шестерёнка справа; «+ − ⇄» второй строкой — только значки; на компьютере те же кнопки с подписями по центру шапки', async ({ page }) => {
+test('шапка телефона (§8.1–8.2): ☰ «Счета» слева, компания ▾ по центру, шестерёнка справа; «+ \u2212 ⇄» второй строкой — только значки; на компьютере те же кнопки с подписями по центру шапки', async ({ page }) => {
   await login(page);
   const name = `ТОО Шапка с очень длинным названием компании ${Date.now()}`;
   const cid = await createCompany(page, name);
@@ -126,7 +126,7 @@ test('шапка телефона (§8.1–8.2): ☰ «Счета» слева, 
 
   // компьютер: ☰ нет; кнопки с подписями — по центру шапки, в одной строке с блоком компании
   await expect(menu).toBeHidden();
-  await expect(bar(page).getByRole('button')).toHaveText([/\+\s*Доход/, /−\s*Расход/, /⇄\s*Перевод/], { useInnerText: true });
+  await expect(bar(page).getByRole('button')).toHaveText([/\+\s*Доход/, /\u2212\s*Расход/, /⇄\s*Перевод/], { useInnerText: true });
   expect(Math.abs(middle((await income.boundingBox())!) - middle((await company.boundingBox())!))).toBeLessThan(12);
 
   await page.setViewportSize(PHONE);
@@ -148,12 +148,12 @@ test('шапка телефона (§8.1–8.2): ☰ «Счета» слева, 
   await expect(company).toContainText('▾', { useInnerText: true });
   await expect(company).not.toContainText('Сменить компанию', { useInnerText: true });
   await expectNoSideScroll(page, 'шапка телефона');
-  // «+ − ⇄» — в шапке второй строкой во всю ширину, только значки; имена и подсказки — «Доход», «Расход», «Перевод»
+  // «+ \u2212 ⇄» — в шапке второй строкой во всю ширину, только значки; имена и подсказки — «Доход», «Расход», «Перевод»
   await expect(banner.getByRole('group', { name: 'Добавить операцию' })).toBeVisible();
   const row = (await bar(page).boundingBox())!;
   expect(row.y).toBeGreaterThanOrEqual(m.y + m.height);
   expect(row.width).toBeGreaterThan(PHONE.width - 40);
-  await expect(bar(page).getByRole('button')).toHaveText(['+', '−', '⇄'], { useInnerText: true });
+  await expect(bar(page).getByRole('button')).toHaveText(['+', '\u2212', '⇄'], { useInnerText: true });
   for (const label of ['Доход', 'Расход', 'Перевод']) {
     const button = bar(page).getByRole('button', { name: label, exact: true });
     await expect(button).toHaveAttribute('title', label);
@@ -244,7 +244,7 @@ import { SettingsMenuButton } from './SettingsMenuDrawer';
 
 /**
  * Шапка (§3.1, §8.1–8.2 этапа 1.5) — одна сетка на обе ширины.
- * Компьютер: слева — блок компании (на страницах без компании — название продукта), по центру — «+ Доход», «− Расход»,
+ * Компьютер: слева — блок компании (на страницах без компании — название продукта), по центру — «+ Доход», «\u2212 Расход»,
  * «⇄ Перевод» (actions), справа — иконка «История действий» (tools) и шестерёнка «Настройки».
  * Телефон: ☰ «Счета» слева (menuButton, только на телефоне), название компании ▾ по центру, шестерёнка справа; кнопки
  * операций — второй строкой во всю ширину. Имени пользователя и «Выйти» в шапке нет — они в панели «Настройки».
@@ -293,13 +293,13 @@ export function AppHeader(props: {
 ```tsx
 const BUTTONS: { type: OperationType; symbol: string; label: string; className: string }[] = [
   { type: 'income', symbol: '+', label: 'Доход', className: 'bg-income/20 text-income-on-dark' },
-  { type: 'expense', symbol: '−', label: 'Расход', className: 'bg-expense/20 text-expense-on-dark' },
+  { type: 'expense', symbol: '\u2212', label: 'Расход', className: 'bg-expense/20 text-expense-on-dark' },
   { type: 'transfer', symbol: '⇄', label: 'Перевод', className: 'bg-white/10 text-white' },
 ];
 
 /**
  * Кнопки новых операций (§3.1, §8.2 этапа 1.5; у минуса — знак U+2212) — одна разметка на обе ширины: группа
- * «Добавить операцию» в шапке. На компьютере — по центру шапки, одинаковой ширины, «+ Доход», «− Расход», «⇄ Перевод»;
+ * «Добавить операцию» в шапке. На компьютере — по центру шапки, одинаковой ширины, «+ Доход», «\u2212 Расход», «⇄ Перевод»;
  * на телефоне — второй строкой шапки во всю ширину, только значки, 44 px. Имя кнопки — `aria-label`, подсказка — `title`.
  */
 export function NewOperationButtons() {
