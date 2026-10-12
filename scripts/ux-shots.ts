@@ -309,6 +309,8 @@ const SCENARIOS: Scenario[] = [
       // как на снимке Finmap m04 — правка расхода (в карточке сумма со знаком «минус» U+2212)
       await p.getByRole('list', { name: 'Операции' }).getByRole('button').filter({ hasText: /−/ }).first().click();
       await p.getByRole('dialog', { name: 'Расход', exact: true }).getByRole('textbox', { name: /^Сумма,/ }).waitFor();
+      // указатель остался над строкой «Разделить платёж» — убрать, иначе на снимке hover-заливка (не различие продукта)
+      await p.mouse.move(0, 0);
     },
   },
   {

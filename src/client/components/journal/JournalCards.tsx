@@ -40,7 +40,12 @@ export function JournalCards(props: {
                 </span>
                 <span className="shrink-0 text-right tabular-nums">
                   <span data-card-line="amount" className={`block font-semibold ${AMOUNT_CLASS[item.type]}`}>
-                    {item.type === 'transfer' && <span aria-hidden="true">⇄ </span>}
+                    {item.type === 'transfer' && (
+                      <>
+                        <span aria-hidden="true">⇄ </span>
+                        <span className="sr-only">Перевод </span>
+                      </>
+                    )}
                     {c.amount}
                   </span>
                   {c.extra && <span className="block text-xs text-muted">{c.extra}</span>}

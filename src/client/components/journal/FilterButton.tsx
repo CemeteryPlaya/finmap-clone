@@ -7,7 +7,7 @@ const partClass = 'inline-flex items-center gap-1.5 py-2 text-sm font-medium tex
 /**
  * Составная кнопка «Фильтр · N | ▾» (§5.1 этапа 1.5): левая часть открывает окно фильтра (N — число условий),
  * стрелка — «Быстрые фильтры» (сохранённые). canSave = false (архивная компания) — без «Создать новый фильтр».
- * compact — телефон (§8.5): воронка с числом вместо подписи (имя кнопки то же — «Фильтр · N»), цели касания 44 px.
+ * compact — телефон (§8.5): воронка с числом вместо подписи (имя кнопки то же — «Фильтр · N»), цели касания 44×44 px (воронка и ▾).
  */
 export function FilterButton(props: {
   count: number;
@@ -19,7 +19,7 @@ export function FilterButton(props: {
   compact?: boolean;
 }) {
   const name = `Фильтр${props.count > 0 ? ` · ${props.count}` : ''}`;
-  const size = props.compact ? ' min-h-11' : '';
+  const size = props.compact ? ' min-h-11 min-w-11 justify-center' : '';
   return (
     <div className="inline-flex shrink-0 items-center rounded-lg bg-field">
       <button

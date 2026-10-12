@@ -649,6 +649,8 @@ test('фильтр на телефоне в один шаг (§8.5): поиск,
     expect(boxes[i]!.x).toBeGreaterThan(boxes[i - 1]!.x);
     expect(boxes[i]!.height, 'цель касания').toBeGreaterThanOrEqual(44);
   }
+  // ⟳, воронка и ▾ — 44×44 и по ширине (решение R4); поле поиска по ширине гибкое
+  for (const b of boxes.slice(1)) expect(b.width, 'цель касания, ширина').toBeGreaterThanOrEqual(44);
   expect(boxes[3]!.x + boxes[3]!.width).toBeLessThanOrEqual(PHONE.width);
   await expectNoSideScroll(page, 'строка поиска');
   // 320×640 (решение R2 плана 1.5-5b): поиск, ⟳ и воронка — внутри экрана (воронка может перенестись строкой ниже), журнал не прокручивается вбок
@@ -659,6 +661,10 @@ test('фильтр на телефоне в один шаг (§8.5): поиск,
     expect(b.x, 'внутри экрана 320 px').toBeGreaterThanOrEqual(0);
     expect(b.x + b.width, 'внутри экрана 320 px').toBeLessThanOrEqual(320);
   }
+  // воронка и ▾ при переносе остаются на одной строке (решение R5)
+  const f320 = (await funnel.boundingBox())!;
+  const q320 = (await quick.boundingBox())!;
+  expect(Math.abs(f320.y + f320.height / 2 - (q320.y + q320.height / 2)), 'воронка и ▾ на одной строке, 320 px').toBeLessThan(10);
   await expectNoSideScroll(page, 'журнал, 320 px');
   await page.setViewportSize(PHONE);
 
@@ -1107,7 +1113,7 @@ test.describe('касание (pointer: coarse), ширина 390 px', () => {
     await amount.fill('150');
     await form.getByRole('button', { name: 'Добавить и создать похожий' }).tap();
     await expect(form.getByText('Операция сохранена — можно ввести похожую')).toBeVisible();
-    // Review Focus 5
+    // на касании фокус после «создать похожий» уходит на «×», а не в сумму — клавиатура не поднимается
     await expect(form.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
     await expect(amount).not.toBeFocused();
     await form.getByRole('button', { name: 'Закрыть', exact: true }).tap();

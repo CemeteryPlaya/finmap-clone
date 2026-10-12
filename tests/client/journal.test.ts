@@ -19,7 +19,6 @@ import {
 import {
   amountInputText,
   categoryLookup,
-  dayLabel,
   dayOf,
   journalDateParts,
   lineDimension,
@@ -212,10 +211,6 @@ describe('форматирование строк журнала', () => {
     expect(dayOf('2026-10-04T19:30:00.000Z', 'Asia/Almaty')).toBe('2026-10-05');
     expect(timeLabel('2026-10-04T19:30:00.000Z', 'Asia/Almaty')).toBe('00:30');
     expect(timeLabel('2026-10-04T18:05:00.000Z', 'Asia/Almaty')).toBe('23:05');
-    expect(dayLabel('2026-10-07', '2026-10-07')).toBe('сегодня');
-    expect(dayLabel('2026-10-06', '2026-10-07')).toBe('вчера');
-    expect(dayLabel('2025-12-31', '2026-01-01')).toBe('вчера');
-    expect(dayLabel('2026-10-05', '2026-10-07')).toBe('05.10.2026');
   });
 
   it('дата в журнале в две строки: «4 окт. 2026» и время; сегодня и вчера — с префиксом; граница суток по Алматы (§5.2 этапа 1.5)', () => {

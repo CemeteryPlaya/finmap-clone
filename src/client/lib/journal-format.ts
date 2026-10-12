@@ -1,4 +1,4 @@
-import { addDays, formatDateRu, formatDateShortRu } from '../../shared/dates';
+import { addDays, formatDateShortRu } from '../../shared/dates';
 import { formatAmount, formatMoney, MONEY_SCREEN } from '../../shared/money';
 import type { OperationType } from './journal-filter';
 import type { CategoryTree } from './queries';
@@ -13,13 +13,6 @@ export function dayOf(iso: string, timeZone: string): string {
     dayFormatters.set(timeZone, fmt);
   }
   return fmt.format(new Date(iso));
-}
-
-/** Подпись даты в журнале: «сегодня», «вчера» или «ДД.ММ.ГГГГ». */
-export function dayLabel(day: string, today: string): string {
-  if (day === today) return 'сегодня';
-  if (day === addDays(today, -1)) return 'вчера';
-  return formatDateRu(day);
 }
 
 const timeFormatters = new Map<string, Intl.DateTimeFormat>();

@@ -160,8 +160,9 @@ function FilterForm(props: {
         Среди типов, среди категорий, контрагентов и т. д. подходит любой из отмеченных вариантов («Аренда» или «Без категории»), а разные поля и тип с категорией действуют
         вместе: «Расход» и «Аренда» — расходы на аренду. Родительская категория включает дочерние.
       </p>
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button type="submit" className={btnPrimary}>
+      {/* на телефоне «Готово» — на всю ширину и прижато к низу окна, «Очистить» и «Сохранить фильтр» — строкой ниже */}
+      <div className="mt-4 flex flex-wrap items-center gap-3 max-md:sticky max-md:bottom-0 max-md:z-10 max-md:-mx-6 max-md:bg-card max-md:px-6 max-md:pt-3 max-md:pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+        <button type="submit" className={`${btnPrimary} max-md:basis-full`}>
           Готово
         </button>
         <button type="button" onClick={() => setDraft(clearFilterDraft)} className="text-sm font-semibold text-muted underline hover:text-ink">
