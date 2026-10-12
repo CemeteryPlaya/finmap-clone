@@ -301,3 +301,63 @@ describe('«Изменить в перевод»: PATCH с type: transfer (§10.
     });
   });
 });
+
+describe('«Изменить в перевод»: дополнения итогового обзора', () => {
+  const addKaspi = async () => (await w.post(accountsUrl(), { name: 'Kaspi', currency: 'KZT', openedAt: '2026-10-01' })).account.id as number;
+  const unchanged = async (id: number, expected: object) => {
+    expect((await w.h.req('GET', `${w.ops}/${id}`)).json().operation).toMatchObject({ version: 1, ...expected });
+    expect(w.h.auditCount('operation', 'update')).toBe(0);
+  };
+
+  it('разбитая операция: перевод с двумя строками отклонён, операция не меняется и истории нет', async () => {
+    w = await opsWorld();
+    const kaspi = await addKaspi();
+    const op = await create({
+      type: 'expense',
+      paidAt: '2026-10-05T10:00:00Z',
+      accountId: w.kzt,
+      amount: 5000,
+      lines: [
+        { categoryId: w.expense, projectId: w.project, amount: 2000 },
+        { categoryId: w.expense, projectId: w.project, amount: 3000 },
+      ],
+    });
+    const lines = [
+      { categoryId: null, projectId: w.project, amount: 2000 },
+      { categoryId: null, projectId: w.project, amount: 3000 },
+    ];
+    refused(await patch(op.id, { version: 1, type: 'transfer', toAccountId: kaspi, counterpartyId: null, lines }), 400, 'VALIDATION', {
+      lines: 'У перевода — не больше одной строки, с проектом',
+    });
+    await unchanged(op.id, { type: 'expense', toAccountId: null });
+  });
+
+  it('архивный счёт с датой сделки: отказ про архив (422), операция не меняется, записи в истории нет', async () => {
+    w = await opsWorld();
+    const safe = (await w.post(accountsUrl(), { name: 'Сейф', currency: 'KZT', openedAt: '2026-10-01' })).account.id;
+    await create({ type: 'income', paidAt: '2026-10-02T10:00:00Z', accountId: safe, amount: 100 });
+    const exp = await create({ type: 'expense', paidAt: '2026-10-03T10:00:00Z', accrualDate: '2026-09-01', accountId: safe, amount: 100 });
+    await w.post(`${accountsUrl()}/${safe}/archive`, {});
+    fail(await patch(exp.id, { version: 1, type: 'transfer', toAccountId: w.kzt, accrualDate: null, lines: [] }), 422, 'ARCHIVED_REFERENCE');
+    await unchanged(exp.id, { type: 'expense', accrualDate: '2026-09-01' });
+  });
+
+  it('перевод, который уже перевод: type: transfer — 200, версия и история не меняются', async () => {
+    w = await opsWorld();
+    const kaspi = await addKaspi();
+    const tr = await create({ type: 'transfer', paidAt: '2026-10-05T10:00:00Z', accountId: w.kzt, toAccountId: kaspi, amount: 5000 });
+    const res = await patch(tr.id, { version: 1, type: 'transfer' });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().operation).toMatchObject({ type: 'transfer', version: 1 });
+    expect(w.h.auditCount('operation', 'update')).toBe(0);
+  });
+
+  it('доход → перевод в одной валюте: курс 1 и базовая сумма равны сумме', async () => {
+    w = await opsWorld();
+    const kaspi = await addKaspi();
+    const inc = await create({ type: 'income', paidAt: '2026-10-05T10:00:00Z', accountId: kaspi, amount: 7000, lines: [{ categoryId: w.income, amount: 7000 }] });
+    const res = await patch(inc.id, { version: 1, type: 'transfer', accountId: w.kzt, toAccountId: kaspi, lines: [] });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().operation).toMatchObject({ rate: '1', baseAmount: 7000, toAmount: 7000 });
+  });
+});

@@ -192,6 +192,24 @@ test('операция на архивном счёте: сумма, дата и
   await expect(rows(page).filter({ hasText: 'приход из кассы' })).toHaveCount(1);
 });
 
+test('«Изменить в перевод» в компании с одним счётом: строка неактивна с причиной, форма не перестраивается', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Один счёт ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 100000 })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: cash, amount: 10000, comment: 'единственный' });
+  await page.reload();
+
+  await rows(page).first().getByText('единственный').click();
+  const dialog = page.getByRole('dialog', { name: 'Расход', exact: true });
+  const toTransfer = dialog.getByRole('button', { name: 'Изменить в перевод' });
+  await expect(toTransfer).toHaveAttribute('aria-disabled', 'true');
+  await expect(toTransfer).toHaveAccessibleDescription('Изменить в перевод нельзя: нет другого счёта');
+  await toTransfer.dispatchEvent('click');
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+});
+
 test('«Изменить в перевод»: расход с категорией, контрагентом и датой сделки — подтверждение со списком, форма перевода, в PATCH — смена типа и явные поля', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО В перевод ${Date.now()}`);
@@ -350,6 +368,7 @@ test('«Изменить в перевод»: доход на долларово
   const base = `/api/v1/companies/${cid}`;
   const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 10000000 })).account.id;
   const usd = (await apiPost(page, `${base}/accounts`, { name: 'Валютный', currency: 'USD', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/accounts`, { name: 'Валютный 2', currency: 'USD', openedAt: '2020-01-01' });
   await apiPost(page, `${base}/fixed-rates`, { currency: 'USD', rate: '500', validFrom: '2020-01-01' });
   await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(1), accountId: usd, amount: 10000, comment: 'обмен' });
   await page.reload();
@@ -365,12 +384,21 @@ test('«Изменить в перевод»: доход на долларово
   await expect(from).toBeFocused();
   await expect(from).toHaveValue('');
   await expect(transfer.getByRole('combobox', { name: 'На счёт', exact: true })).toHaveValue('Валютный');
+  // пока «Со счёта» не выбран, неверной подсказки о курсе нет (раньше было «1 USD = 1 KZT»)
+  await expect(transfer.getByText(/Курс:/)).toHaveCount(0);
   // «Со счёта» в тенге: сумму списания нужно ввести, прежние $100 — «Сумма зачисления» (Review Focus 1)
   await from.click();
   await transfer.getByRole('option', { name: 'Касса', exact: true }).click();
   const amount = transfer.getByRole('textbox', { name: /^Сумма,/ });
   await expect(amount).toHaveValue('');
   await expect(transfer.getByRole('textbox', { name: /^Сумма зачисления/ })).toHaveValue('100');
+  // счёт в той же валюте возвращает прежнюю сумму; снова в тенге — очищает (pickConvertedFrom)
+  await from.click();
+  await transfer.getByRole('option', { name: 'Валютный 2', exact: true }).click();
+  await expect(amount).toHaveValue('100');
+  await from.click();
+  await transfer.getByRole('option', { name: 'Касса', exact: true }).click();
+  await expect(amount).toHaveValue('');
   await amount.fill('50000');
   await expect(transfer.getByText('Курс: 1 USD = 500 KZT')).toBeVisible();
   const patch = page.waitForRequest((r) => r.method() === 'PATCH');
@@ -417,6 +445,7 @@ test('«Изменить в перевод» и 409: операцию измен
   await back.getByRole('button', { name: 'Закрыть', exact: true }).click();
   await expect(back).toBeHidden();
   await expect(rows(page).first()).not.toContainText('→');
+  await expect(rows(page).first()).toContainText('другое окно');
 });
 
 // Правка операции на ширине 390 px (сценарий 4 §10) — в e2e/mobile.spec.ts (план 7).

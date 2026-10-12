@@ -133,7 +133,12 @@ const SCENARIOS: Scenario[] = [
       const dialog = await openCategorizedExpense(p);
       await dialog.getByRole('button', { name: 'Изменить в перевод' }).click();
       await p.getByRole('alertdialog', { name: 'Изменить в перевод?' }).getByRole('button', { name: 'Изменить', exact: true }).click();
-      await p.getByRole('dialog', { name: 'Перевод', exact: true }).getByRole('combobox', { name: 'На счёт', exact: true }).waitFor();
+      const transfer = p.getByRole('dialog', { name: 'Перевод', exact: true });
+      await transfer.getByRole('combobox', { name: 'На счёт', exact: true }).waitFor();
+      // фокус на «На счёт» прокрутил тело вниз: возвращаем верх, чтобы на снимке были «Со счёта» и дата
+      await transfer.getByRole('combobox', { name: 'Со счёта', exact: true }).evaluate((el) => {
+        for (let n = el.parentElement; n; n = n.parentElement) if (n.scrollTop > 0) n.scrollTop = 0;
+      });
       await p.mouse.move(0, 0);
     },
   },

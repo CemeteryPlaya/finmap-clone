@@ -50,6 +50,30 @@ describe('панель «История действий» (§3.4 этапа 1.5
     expect(item).toMatchObject({ title: 'Изменён перевод', type: 'transfer', amount: null, changes: 'Тип: Расход → Перевод. Изменено: Счёт зачисления, Контрагент' });
   });
 
+  it('смена типа с суммой зачисления: полная строка — «Тип: Расход → Перевод. Изменено: Счёт зачисления, Сумма зачисления, Контрагент»', () => {
+    const [item] = historyItems(
+      [
+        entry({
+          action: 'update',
+          diff: {
+            type: 'transfer',
+            before: { type: 'expense', toAccountId: null, toAmount: null, counterpartyId: 5 },
+            after: { type: 'transfer', toAccountId: 2, toAmount: 5000, counterpartyId: null },
+          },
+        }),
+      ],
+      ctx,
+    );
+    expect(item!.changes).toBe('Тип: Расход → Перевод. Изменено: Счёт зачисления, Сумма зачисления, Контрагент');
+  });
+
+  it('смена типа: доход — «Доход → Перевод»; неизвестный тип показан как есть', () => {
+    const change = (before: string) =>
+      historyItems([entry({ action: 'update', diff: { type: 'transfer', before: { type: before }, after: { type: 'transfer' } } })], ctx)[0]!.changes;
+    expect(change('income')).toBe('Тип: Доход → Перевод');
+    expect(change('weird')).toBe('Тип: weird → Перевод');
+  });
+
   it('удалённую операцию не открыть — ни запись об удалении, ни более ранние; восстановленную — можно', () => {
     const list = historyItems(
       [

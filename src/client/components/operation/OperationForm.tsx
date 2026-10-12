@@ -316,7 +316,9 @@ function OperationEditor(p: {
   }, [readOnly]);
 
   // заголовок окна — по типу черновика (§6.8 этапа 1.5): перевод после «Изменить в перевод», прежний тип после «Загрузить актуальную»
-  useEffect(() => p.onTypeChange(draft.type), [draft.type]);
+  useEffect(() => {
+    p.onTypeChange(draft.type);
+  }, [draft.type]);
 
   // после «Изменить в перевод» строки больше нет: фокус — на пустой счёт перевода («На счёт» у расхода, «Со счёта» у
   // дохода); на устройстве с пальцем — на «×», чтобы не поднимать клавиатуру (refocusTarget, план 1.5-5b).
@@ -862,7 +864,7 @@ function OperationEditor(p: {
               minorUnits={toCurrency.minorUnits}
               error={errors.toAmount}
               disabled={!!locked}
-              hint={lockHint ?? rateHint(draft, currency.code, currency.minorUnits, toCurrency.code, toCurrency.minorUnits)}
+              hint={lockHint ?? (draft.accountId === null ? undefined : rateHint(draft, currency.code, currency.minorUnits, toCurrency.code, toCurrency.minorUnits))}
             />
           )}
           {!transfer &&

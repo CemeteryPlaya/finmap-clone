@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { OPERATION_FIELD_LABELS } from '../../src/client/lib/history';
 import { COMPANY_ENTITIES, diffRows, ENTITY_LABELS, formatBytes, pageDiff, SYSTEM_ENTITIES } from '../../src/client/lib/audit-format';
 
 describe('audit-format', () => {
@@ -49,5 +50,18 @@ describe('audit-format', () => {
     const tag = { entity: 'tag', action: 'delete', diff: { name: 'Аренда' } };
     expect(pageDiff(tag)).toBe(tag.diff);
     expect(pageDiff({ entity: 'operation', action: 'delete', diff: null })).toBeNull();
+  });
+
+  it('diffRows операции: доход по-русски, неизвестный тип — как есть', () => {
+    expect(diffRows({ before: { type: 'income' }, after: { type: 'weird' } }, 'operation')).toEqual([{ field: 'type', before: 'Доход', after: 'weird' }]);
+  });
+
+  it('страница «История действий»: у каждого поля строки операции есть русское название (OPERATION_FIELD_LABELS)', () => {
+    const diff = {
+      before: { type: 'expense', accountId: 1, toAccountId: null, amount: 5, toAmount: null, counterpartyId: 5, accrualDate: null, comment: 'a', lines: [], tagIds: [], paidAt: 'x' },
+      after: { type: 'transfer', accountId: 1, toAccountId: 2, amount: 5, toAmount: 5, counterpartyId: null, accrualDate: null, comment: 'a', lines: [], tagIds: [], paidAt: 'x' },
+    };
+    const names = diffRows(diff, 'operation')!.map((r) => OPERATION_FIELD_LABELS[r.field]);
+    expect(names).toEqual(['Тип', 'Счёт', 'Счёт зачисления', 'Сумма', 'Сумма зачисления', 'Контрагент', 'Дата сделки', 'Комментарий', 'Категория и проект', 'Теги', 'Дата']);
   });
 });

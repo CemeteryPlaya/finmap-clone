@@ -251,3 +251,34 @@ describe('«Изменить в перевод» (§6.8, §10.1 этапа 1.5)'
     expect(body).toEqual({ version: 3, type: 'transfer', accountId: 1, amount: 4751200, toAccountId: 3, toAmount: 10000, lines: [] });
   });
 });
+
+describe('«Изменить в перевод»: дополнения итогового обзора', () => {
+  const fiveLines = Array.from({ length: 5 }, (_, i) => ({ categoryId: 7, projectId: 8, amount: 10000 + i }));
+  const toKaspi = (d: OperationDraft) => ({ ...convertToTransferDraft(d, names).draft, toAccountId: 2 });
+
+  it('разбиение на 5 строк — склонение «5 строк»', () => {
+    const r = convertToTransferDraft(draftFromOperation(op({ counterpartyId: null, lines: fiveLines }), accounts, TZ), names);
+    expect(r.losses).toEqual(['разбиение на 5 строк']);
+  });
+
+  it('PATCH перевода в перевод не содержит type', () => {
+    const transfer = op({ type: 'transfer', toAccountId: 2, toAmount: 150050, counterpartyId: null, lines: [] });
+    const body = patchFor(transfer, (d) => ({ ...d, comment: 'новый' }));
+    expect(body).toEqual({ version: 3, comment: 'новый' });
+    expect('type' in body!).toBe(false);
+  });
+
+  it('convertBlockedHint без счёта у черновика: есть активный счёт — доступна', () => {
+    expect(convertBlockedHint(null, [...accounts.values()], null)).toBeUndefined();
+  });
+
+  it('PATCH разбитой операции: один проект у всех строк — строка без категории с проектом; разные — строк нет', () => {
+    const lines = [
+      { categoryId: 7, projectId: 8, amount: 100000 },
+      { categoryId: 6, projectId: 8, amount: 50050 },
+    ];
+    expect(patchFor(op({ lines }), toKaspi)).toEqual({ version: 3, type: 'transfer', toAccountId: 2, counterpartyId: null, lines: [{ categoryId: null, projectId: 8, amount: 150050 }] });
+    const mixed = op({ lines: [lines[0]!, { ...lines[1]!, projectId: null }] });
+    expect(patchFor(mixed, toKaspi)).toEqual({ version: 3, type: 'transfer', toAccountId: 2, counterpartyId: null, lines: [] });
+  });
+});
