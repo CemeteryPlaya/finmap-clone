@@ -50,6 +50,8 @@ export interface OperationDto extends OperationRow {
 export interface OperationPatch extends Partial<Omit<OperationInput, 'type'>> {
   /** Версия, которую видел клиент. */
   version: number;
+  /** «Изменить в перевод» (§10.1 этапа 1.5): у дохода и расхода — смена типа; у перевода ничего не меняет. */
+  type?: 'transfer';
 }
 
 export interface OperationsService {
@@ -302,6 +304,9 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
       if (current.deletedAt) throw new AppError(409, 'VERSION_CONFLICT', 'Операция удалена — обновите страницу');
       if (patch.version !== current.version) throw new AppError(409, 'VERSION_CONFLICT', 'Операция изменена другим пользователем');
       const prev = draftOf(current);
+      // «Изменить в перевод» (§10.1 этапа 1.5): схема пропускает только 'transfer', значит исходный тип — доход или расход.
+      // Сервер ничего не подставляет сам: счёт зачисления, сброс контрагента, строки и дату сделки клиент присылает явно
+      const typeChange = patch.type !== undefined && patch.type !== current.type;
       const next: OperationInput = { ...prev, lines: prev.lines, tagIds: prev.tagIds };
       for (const [key, value] of Object.entries(patch)) {
         if (key !== 'version' && value !== undefined) (next as unknown as Record<string, unknown>)[key] = value;
@@ -324,20 +329,25 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
       // инвариант 7 — до остальных проверок, чтобы пользователь видел настоящую причину отказа.
       // Сравниваются реальные значения (paidAt уже нормализован, toAmount сброшен только при настоящей смене).
       const locked = archivedAccountOf(current);
+      if (locked && typeChange) throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — тип менять нельзя`);
       if (locked && MONEY_FIELDS.some((f) => JSON.stringify(next[f] ?? null) !== JSON.stringify(prev[f] ?? null))) {
         throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — сумму, дату и счета менять нельзя`);
       }
+      // у перевода нет даты сделки; только при смене типа — создание и правку прежних переводов правило не трогает
+      if (typeChange && next.accrualDate !== null) throw invalid({ accrualDate: 'У перевода нет даты сделки' });
 
       const c = check(companyId, next, prev);
       const changes = changedFields(prev, c.draft);
       if (!changes) return current;
-      const recalc = MONEY_FIELDS.some((f) => f in changes.after);
+      // смена типа пересчитывает курс и сумму в базовой валюте всегда — по стороне списания (§10.1 п. 5)
+      const recalc = typeChange || MONEY_FIELDS.some((f) => f in changes.after);
       const { rate, baseAmount } = recalc ? baseOf(companyId, company.baseCurrency, c) : { rate: current.rate, baseAmount: current.baseAmount };
       const { draft } = c;
       mutate(db, audit, (tx, record) => {
         const updated = tx
           .update(operations)
           .set({
+            type: draft.type,
             paidAt: draft.paidAt,
             accrualDate: draft.accrualDate,
             accountId: draft.accountId,

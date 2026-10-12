@@ -1,6 +1,7 @@
 import type { LightMyRequestResponse } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { opsWorld, type OpsWorld } from '../helpers/ops';
+import { ORIGIN_HEADERS } from '../helpers/test-app';
 
 let w: OpsWorld;
 afterEach(async () => w?.h.t.cleanup());
@@ -156,5 +157,147 @@ describe('operations: правка, удаление, восстановлени
     expect((await patch(op.id, { version: 1, comment: 'с архивным контрагентом' })).statusCode).toBe(200);
     await w.post(`/api/v1/companies/${w.cid}/tags/${w.tag}/archive`, {});
     fail(await patch(op.id, { version: 2, tagIds: [w.tag] }), 422, 'ARCHIVED_REFERENCE');
+  });
+});
+
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+/** Отказ с текстами у полей: статус, код и поля ответа. */
+const refused = (res: LightMyRequestResponse, status: number, code: string, fields: Record<string, string>) => {
+  expect(res.statusCode, res.body).toBe(status);
+  expect(res.json().error).toMatchObject({ code, fields });
+};
+
+describe('«Изменить в перевод»: PATCH с type: transfer (§10.1 этапа 1.5)', () => {
+  const addKaspi = async () => (await w.post(accountsUrl(), { name: 'Kaspi', currency: 'KZT', openedAt: '2026-10-01' })).account.id as number;
+  const balances = async () => {
+    const list = (await w.h.req('GET', `/api/v1/companies/${w.cid}/balances`)).json().accounts as { accountId: number; balance: number }[];
+    return Object.fromEntries(list.map((a) => [a.accountId, a.balance]));
+  };
+
+  it('расход → перевод в одной валюте: счёт зачисления и сумма зачисления; проект строки, теги, комментарий, id и вложения остаются; балансы обоих счетов (Review Focus 5)', async () => {
+    w = await opsWorld();
+    const kaspi = await addKaspi();
+    const op = await create({
+      type: 'expense',
+      paidAt: '2026-10-05T10:00:00Z',
+      accountId: w.kzt,
+      amount: 5000,
+      counterpartyId: w.counterparty,
+      comment: 'в Kaspi',
+      tagIds: [w.tag],
+      lines: [{ categoryId: w.expense, projectId: w.project, amount: 5000 }],
+    });
+    const upload = await w.h.t.app.inject({
+      method: 'POST',
+      url: `${w.ops}/${op.id}/attachments`,
+      headers: { ...ORIGIN_HEADERS, cookie: w.h.cookie, 'content-type': 'application/octet-stream', 'x-file-name': encodeURIComponent('чек.png') },
+      payload: PNG,
+    });
+    expect(upload.statusCode).toBe(201);
+    expect(await balances()).toMatchObject({ [w.kzt]: -5000, [kaspi]: 0 });
+
+    const res = await patch(op.id, { version: 1, type: 'transfer', toAccountId: kaspi, counterpartyId: null, lines: [{ categoryId: null, projectId: w.project, amount: 5000 }] });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().operation).toMatchObject({
+      id: op.id,
+      type: 'transfer',
+      version: 2,
+      accountId: w.kzt,
+      amount: 5000,
+      toAccountId: kaspi,
+      toAmount: 5000,
+      counterpartyId: null,
+      comment: 'в Kaspi',
+      tagIds: [w.tag],
+      rate: '1',
+      baseAmount: 5000,
+      lines: [{ categoryId: null, projectId: w.project, amount: 5000, baseAmount: 5000 }],
+    });
+    expect((await w.h.req('GET', `${w.ops}/${op.id}/attachments`)).json().attachments).toHaveLength(1);
+    expect(await balances()).toMatchObject({ [w.kzt]: -5000, [kaspi]: 5000 });
+  });
+
+  it('доход → перевод: прежний счёт — счёт зачисления; в одной валюте и между валютами; курс и база — по стороне списания', async () => {
+    w = await opsWorld();
+    const kaspi = await addKaspi();
+    const same = await create({ type: 'income', paidAt: '2026-10-05T10:00:00Z', accountId: kaspi, amount: 7000, lines: [{ categoryId: w.income, amount: 7000 }] });
+    const r1 = await patch(same.id, { version: 1, type: 'transfer', accountId: w.kzt, toAccountId: kaspi, lines: [] });
+    expect(r1.statusCode, r1.body).toBe(200);
+    expect(r1.json().operation).toMatchObject({ type: 'transfer', accountId: w.kzt, toAccountId: kaspi, amount: 7000, toAmount: 7000, lines: [] });
+
+    const fx = await create({ type: 'income', paidAt: '2026-10-05T10:00:00Z', accountId: w.usd, amount: 100, lines: [{ categoryId: w.income, amount: 100 }] });
+    expect(fx).toMatchObject({ rate: '475.12', baseAmount: 47512 });
+    const r2 = await patch(fx.id, { version: 1, type: 'transfer', accountId: w.kzt, amount: 47512, toAccountId: w.usd, toAmount: 100, lines: [] });
+    expect(r2.statusCode, r2.body).toBe(200);
+    expect(r2.json().operation).toMatchObject({ type: 'transfer', accountId: w.kzt, amount: 47512, toAccountId: w.usd, toAmount: 100, rate: '1', baseAmount: 47512, lines: [] });
+    expect(await balances()).toMatchObject({ [w.kzt]: -54512, [kaspi]: 7000, [w.usd]: 100 });
+  });
+
+  it('отказы: без счёта зачисления, с контрагентом, с категорией, с датой сделки, между валютами без суммы зачисления, тип не «Перевод» — операция не меняется', async () => {
+    w = await opsWorld();
+    const kaspi = await addKaspi();
+    const op = await create({
+      type: 'expense',
+      paidAt: '2026-10-05T10:00:00Z',
+      accrualDate: '2026-09-01',
+      accountId: w.kzt,
+      amount: 5000,
+      counterpartyId: w.counterparty,
+      lines: [{ categoryId: w.expense, amount: 5000 }],
+    });
+    const full: Record<string, unknown> = { version: 1, type: 'transfer', toAccountId: kaspi, counterpartyId: null, accrualDate: null, lines: [] };
+    const without = (key: string) => Object.fromEntries(Object.entries(full).filter(([k]) => k !== key));
+    refused(await patch(op.id, without('toAccountId')), 400, 'VALIDATION', { toAccountId: 'Выберите счёт зачисления' });
+    refused(await patch(op.id, without('counterpartyId')), 400, 'VALIDATION', { counterpartyId: 'У перевода нет контрагента' });
+    refused(await patch(op.id, without('lines')), 422, 'INVARIANT_3', { lines: 'У перевода нет категории' });
+    refused(await patch(op.id, without('accrualDate')), 400, 'VALIDATION', { accrualDate: 'У перевода нет даты сделки' });
+    refused(await patch(op.id, { ...full, type: 'income' }), 400, 'VALIDATION', { type: 'Тип можно сменить только на «Перевод»' });
+    expect((await w.h.req('GET', `${w.ops}/${op.id}`)).json().operation).toMatchObject({ type: 'expense', version: 1, counterpartyId: w.counterparty, accrualDate: '2026-09-01' });
+    expect(w.h.auditCount('operation', 'update')).toBe(0);
+
+    const fx = await create({ type: 'income', paidAt: '2026-10-05T10:00:00Z', accountId: w.usd, amount: 100 });
+    refused(await patch(fx.id, { version: 1, type: 'transfer', accountId: w.kzt, toAccountId: w.usd, lines: [] }), 400, 'VALIDATION', { toAmount: 'Укажите сумму зачисления' });
+  });
+
+  it('перевод обратно в расход не превращается: type: expense — 400 у поля type, перевод не меняется', async () => {
+    w = await opsWorld();
+    const kaspi = await addKaspi();
+    const tr = await create({ type: 'transfer', paidAt: '2026-10-05T10:00:00Z', accountId: w.kzt, toAccountId: kaspi, amount: 5000 });
+    refused(await patch(tr.id, { version: 1, type: 'expense' }), 400, 'VALIDATION', { type: 'Тип можно сменить только на «Перевод»' });
+    expect((await w.h.req('GET', `${w.ops}/${tr.id}`)).json().operation).toMatchObject({ type: 'transfer', version: 1, toAccountId: kaspi, toAmount: 5000 });
+    expect(w.h.auditCount('operation', 'update')).toBe(0);
+  });
+
+  it('операция на архивном счёте: тип менять нельзя — ARCHIVED_REFERENCE со своим текстом (Review Focus 3)', async () => {
+    w = await opsWorld();
+    const safe = (await w.post(accountsUrl(), { name: 'Сейф', currency: 'KZT', openedAt: '2026-10-01' })).account.id;
+    await create({ type: 'income', paidAt: '2026-10-02T10:00:00Z', accountId: safe, amount: 100 });
+    const exp = await create({ type: 'expense', paidAt: '2026-10-03T10:00:00Z', accountId: safe, amount: 100 }); // баланс снова 0
+    await w.post(`${accountsUrl()}/${safe}/archive`, {});
+    expect(fail(await patch(exp.id, { version: 1, type: 'transfer', toAccountId: w.kzt, lines: [] }), 422, 'ARCHIVED_REFERENCE').message).toBe(
+      'Операция затрагивает счёт «Сейф» в архиве — тип менять нельзя',
+    );
+  });
+
+  it('версия: устаревшая — 409; уже перевод: type: transfer ничего не меняет; история — before.type / after.type (Review Focus 4)', async () => {
+    w = await opsWorld();
+    const kaspi = await addKaspi();
+    const op = await create({ type: 'expense', paidAt: '2026-10-05T10:00:00Z', accountId: w.kzt, amount: 5000, counterpartyId: w.counterparty });
+    expect((await patch(op.id, { version: 1, comment: 'раньше' })).statusCode).toBe(200);
+    const body = { type: 'transfer', toAccountId: kaspi, counterpartyId: null, lines: [] };
+    expect(fail(await patch(op.id, { version: 1, ...body }), 409, 'VERSION_CONFLICT').message).toBe('Операция изменена другим пользователем');
+    expect((await patch(op.id, { version: 2, ...body })).statusCode).toBe(200);
+    const same = await patch(op.id, { version: 3, type: 'transfer' });
+    expect(same.json().operation).toMatchObject({ type: 'transfer', version: 3 });
+    expect(w.h.auditCount('operation', 'update')).toBe(2);
+
+    const [last] = (await w.h.req('GET', `/api/v1/companies/${w.cid}/audit?entity=operation&limit=20`)).json().entries as { action: string; diff: Record<string, unknown> }[];
+    expect(last!.action).toBe('update');
+    expect(last!.diff).toMatchObject({
+      type: 'transfer',
+      before: { type: 'expense', toAccountId: null, toAmount: null, counterpartyId: w.counterparty },
+      after: { type: 'transfer', toAccountId: kaspi, toAmount: 5000, counterpartyId: null, lines: [] },
+      recalculated: { rate: ['1', '1'], baseAmount: [5000, 5000] },
+    });
   });
 });

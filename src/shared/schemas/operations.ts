@@ -45,6 +45,8 @@ export const operationCreateSchema = z.object({
 export const operationUpdateSchema = z.object({
   /** Версия, которую видел клиент (оптимистичная блокировка). */
   version: z.number().int().min(1),
+  /** «Изменить в перевод» (§10.1 этапа 1.5): тип меняется только на перевод; у перевода `type: 'transfer'` ничего не меняет. */
+  type: z.literal('transfer', { message: 'Тип можно сменить только на «Перевод»' }).optional(),
   paidAt: paidAt.optional(),
   accrualDate: accrualDate.optional(),
   accountId: id.optional(),
