@@ -179,10 +179,169 @@ test('операция на архивном счёте: сумма, дата и
   await expect(remove).toHaveAccessibleDescription('Удалить нельзя: счёт в архиве («Старый»)');
   await remove.dispatchEvent('click');
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  // «Изменить в перевод» — тоже видна, но неактивна с причиной; нажатие форму не перестраивает (Review Focus 3)
+  const toTransfer = dialog.getByRole('button', { name: 'Изменить в перевод' });
+  await expect(toTransfer).toHaveAttribute('aria-disabled', 'true');
+  await expect(toTransfer).toHaveAccessibleDescription('Изменить в перевод нельзя: счёт в архиве («Старый»)');
+  await toTransfer.dispatchEvent('click');
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Доход', exact: true })).toBeVisible();
   await dialog.getByLabel('Комментарий').fill('приход из кассы');
   await submit(dialog).click();
   await expect(dialog).toBeHidden();
   await expect(rows(page).filter({ hasText: 'приход из кассы' })).toHaveCount(1);
+});
+
+test('«Изменить в перевод»: расход с категорией, контрагентом и датой сделки — подтверждение со списком, форма перевода, в PATCH — смена типа и явные поля', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО В перевод ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 100000 })).account.id;
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  const rent = (await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда' })).category.id;
+  const alina = (await apiPost(page, `${base}/counterparties`, { type: 'supplier', name: 'Алина' })).counterparty.id;
+  const club = (await apiPost(page, `${base}/projects`, { name: 'Клуб 1', templateKey: 'general', templateParams: {} })).project.id;
+  await apiPost(page, `${base}/operations`, {
+    type: 'expense',
+    paidAt: todayAgo(1),
+    accrualDate: '2026-09-01',
+    accountId: cash,
+    amount: 30000,
+    counterpartyId: alina,
+    comment: 'в Kaspi',
+    lines: [{ categoryId: rent, projectId: club, amount: 30000 }],
+  });
+  await page.reload();
+
+  await rows(page).first().getByText('в Kaspi').click();
+  const dialog = page.getByRole('dialog', { name: 'Расход', exact: true });
+  await expect(dialog.getByRole('textbox', { name: /^Сумма,/ })).toBeFocused();
+  // строка 4 — между «Добавить проект, тег, комментарий, файл» и «Дублировать платёж», как на снимке Finmap 05 (§6.7)
+  await expect(dialog.getByRole('button', { name: /^(Добавить проект, тег, комментарий, файл|Изменить в перевод|Дублировать платёж|Удалить платёж)$/ })).toHaveText([
+    'Добавить проект, тег, комментарий, файл',
+    'Изменить в перевод',
+    'Дублировать платёж',
+    'Удалить платёж',
+  ]);
+  const convert = dialog.getByRole('button', { name: 'Изменить в перевод' });
+  await convert.click();
+  // подтверждение перечисляет, что будет убрано; «Отменить | Изменить», фокус на «Отменить» (§6.8, §11)
+  const confirm = page.getByRole('alertdialog', { name: 'Изменить в перевод?' });
+  await expect(confirm).toHaveAccessibleDescription('Будут убраны: категория «Аренда», контрагент «Алина», дата сделки.');
+  await expect(confirm.getByRole('button')).toHaveText(['×', 'Отменить', 'Изменить']);
+  await expect(confirm.getByRole('button', { name: 'Отменить' })).toBeFocused();
+  // Esc закрывает только подтверждение: форма — по-прежнему расход, фокус на строке
+  await page.keyboard.press('Escape');
+  await expect(confirm).toBeHidden();
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' })).toHaveCount(0);
+  await expect(convert).toBeFocused();
+  // «Отменить» — так же (R2): расход не изменился, фокус снова на строке
+  await convert.click();
+  await confirm.getByRole('button', { name: 'Отменить' }).click();
+  await expect(confirm).toBeHidden();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('combobox', { name: 'Категория', exact: true })).toHaveValue('Аренда');
+  await expect(convert).toBeFocused();
+
+  await convert.click();
+  await confirm.getByRole('button', { name: 'Изменить', exact: true }).click();
+  // форма на месте стала переводом: «Со счёта» — прежний счёт, «На счёт» пусто и в фокусе; проект и комментарий остались
+  const transfer = page.getByRole('dialog', { name: 'Перевод', exact: true });
+  await expect(transfer).toBeVisible();
+  const to = transfer.getByRole('combobox', { name: 'На счёт', exact: true });
+  await expect(to).toBeFocused();
+  await expect(to).toHaveValue('');
+  await expect(transfer.getByRole('combobox', { name: 'Со счёта', exact: true })).toHaveValue('Касса');
+  await expect(transfer.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('300');
+  await expect(transfer.getByRole('combobox', { name: 'Проект', exact: true })).toHaveValue('Клуб 1');
+  await expect(transfer.getByLabel('Комментарий')).toHaveValue('в Kaspi');
+  await expect(transfer.getByRole('combobox', { name: 'Категория', exact: true })).toHaveCount(0);
+  await expect(transfer.getByRole('button', { name: 'Дата сделки отличается' })).toHaveCount(0);
+  await expect(transfer.getByRole('button', { name: 'Изменить в перевод' })).toHaveCount(0);
+  await expect(submit(transfer)).toHaveText('Сохранить изменения');
+
+  // «×» с изменениями — обычный вопрос; «Отменить» оставляет форму
+  await transfer.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  const ask = page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' });
+  await expect(ask).toBeVisible();
+  await ask.getByRole('button', { name: 'Отменить' }).click();
+  await expect(transfer).toBeVisible();
+
+  await to.click();
+  await transfer.getByRole('option', { name: 'Kaspi', exact: true }).click();
+  const patch = page.waitForRequest((r) => r.method() === 'PATCH');
+  await submit(transfer).click();
+  expect((await patch).postDataJSON()).toEqual({
+    version: 1,
+    type: 'transfer',
+    accrualDate: null,
+    toAccountId: kaspi,
+    counterpartyId: null,
+    lines: [{ categoryId: null, projectId: club, amount: 30000 }],
+  });
+  await expect(transfer).toBeHidden();
+  await expect(rows(page).first()).toContainText('Касса → Kaspi');
+  // балансы обоих счетов (Review Focus 5): «Касса» — 1000 минус 300, «Kaspi» — 300
+  const panel = page.getByRole('navigation', { name: 'Счета' });
+  await expect(panel.getByRole('link', { name: /^Касса/ })).toContainText(/₸\s700$/);
+  await expect(panel.getByRole('link', { name: /^Kaspi/ })).toContainText(/₸\s300$/);
+  // история: «Изменён перевод», «Тип: Расход → Перевод» (§10.1 п. 7)
+  await page.getByRole('banner').getByRole('button', { name: 'История действий' }).click();
+  const items = page.getByRole('dialog', { name: 'История действий' }).getByRole('list', { name: 'Последние действия' }).getByRole('listitem');
+  await expect(items.first()).toContainText('Изменён перевод');
+  await expect(items.first()).toContainText('Тип: Расход → Перевод');
+});
+
+test('«Изменить в перевод» без потерь — сразу форма перевода; отказ сервера в смене типа виден; «Дублировать платёж» после этого — новый перевод (R2)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Дубль перевода ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 100000 })).account.id;
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: cash, amount: 20000, comment: 'без категории' });
+  await page.reload();
+
+  await rows(page).first().getByText('без категории').click();
+  const dialog = page.getByRole('dialog', { name: 'Расход', exact: true });
+  await dialog.getByRole('button', { name: 'Изменить в перевод' }).click();
+  // убирать нечего — подтверждения нет, форма сразу перевод
+  const transfer = page.getByRole('dialog', { name: 'Перевод', exact: true });
+  await expect(transfer).toBeVisible();
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  const to = transfer.getByRole('combobox', { name: 'На счёт', exact: true });
+  await expect(to).toBeFocused();
+  await to.click();
+  await transfer.getByRole('option', { name: 'Kaspi', exact: true }).click();
+
+  // сервер отказал в смене типа (ошибка поля type): поля «Тип» в форме нет — причина видна в сообщении формы
+  await page.route('**/operations/*', (route) =>
+    route.request().method() === 'PATCH'
+      ? route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: { code: 'VALIDATION', message: 'Проверьте заполнение полей', fields: { type: 'Тип можно сменить только на «Перевод»' } } }),
+        })
+      : route.fallback(),
+  );
+  await submit(transfer).click();
+  await expect(transfer.getByRole('alert')).toHaveText('Тип можно сменить только на «Перевод»');
+  await expect(transfer).toBeVisible();
+  await page.unroute('**/operations/*');
+
+  await transfer.getByRole('button', { name: 'Дублировать платёж' }).click();
+  const copy = page.getByRole('dialog', { name: 'Новый перевод', exact: true });
+  await expect(copy).toBeVisible();
+  await expect(copy.getByRole('combobox', { name: 'Со счёта', exact: true })).toHaveValue('Касса');
+  await expect(copy.getByRole('combobox', { name: 'На счёт', exact: true })).toHaveValue('Kaspi');
+  await expect(submit(copy)).toHaveText('Добавить перевод');
+  const post = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/operations'));
+  await submit(copy).click();
+  expect((await post).postDataJSON()).toMatchObject({ type: 'transfer', accountId: cash, toAccountId: kaspi, amount: 20000, comment: 'без категории' });
+  await expect(copy).toBeHidden();
+  // исходный расход не изменился: копия — отдельная операция
+  await expect(rows(page).filter({ hasText: 'Касса → Kaspi' })).toHaveCount(1);
+  await expect(rows(page).filter({ hasText: 'без категории' })).toHaveCount(2);
 });
 
 // Правка операции на ширине 390 px (сценарий 4 §10) — в e2e/mobile.spec.ts (план 7).

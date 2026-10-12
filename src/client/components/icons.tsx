@@ -129,6 +129,18 @@ export function CopyIcon() {
   );
 }
 
+/** ⇄ — строка «Изменить в перевод» (§6.7 строка 4 этапа 1.5, снимок Finmap 05). */
+export function TransferIcon() {
+  return (
+    <Svg>
+      <polyline points="17 3 21 7 17 11" />
+      <line x1="21" y1="7" x2="7" y2="7" />
+      <polyline points="7 13 3 17 7 21" />
+      <line x1="3" y1="17" x2="17" y2="17" />
+    </Svg>
+  );
+}
+
 /** Стрелка раскрывающей строки: ˅ свёрнуто, ˄ раскрыто. */
 export function ChevronIcon({ up }: { up?: boolean }) {
   return (

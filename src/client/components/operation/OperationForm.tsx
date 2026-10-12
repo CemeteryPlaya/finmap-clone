@@ -11,7 +11,18 @@ import { invalidateOperations } from '../../lib/journal-mutations';
 import { defaultAccounts, readLastAccounts, saveLastAccounts, withSaved } from '../../lib/last-account';
 import { useNow } from '../../lib/use-now';
 import { createFromForm, type CreatableKind } from '../../lib/operation-create';
-import { archivedAccountOf, draftFromOperation, duplicateDraft, patchBody, type Available, type OperationRecord } from '../../lib/operation-edit';
+import {
+  archivedAccountOf,
+  convertBlockedHint,
+  convertQuestion,
+  convertToTransferDraft,
+  draftFromOperation,
+  duplicateDraft,
+  patchBody,
+  type Available,
+  type ConvertNames,
+  type OperationRecord,
+} from '../../lib/operation-edit';
 import {
   buildBody,
   COMMENT_MAX,
@@ -28,7 +39,17 @@ import {
   transferRateText,
   type OperationDraft,
 } from '../../lib/operation-form';
-import { accountOptions, categoryOptions, counterpartyLabel, counterpartyOptions, preferredCounterpartyType, projectOptions, salaryCategory, tagOptions } from '../../lib/operation-options';
+import {
+  accountOptions,
+  categoryOptions,
+  counterpartyLabel,
+  counterpartyOptions,
+  findCategory,
+  preferredCounterpartyType,
+  projectOptions,
+  salaryCategory,
+  tagOptions,
+} from '../../lib/operation-options';
 import { SKIP_CLOSE_CONFIRM_PREF, skipCloseConfirm } from '../../lib/preferences';
 import {
   savePreference,
@@ -53,7 +74,8 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import { useComboList } from '../ComboList';
 import { DateField } from '../DateField';
 import { Field } from '../Field';
-import { CalendarIcon, ChevronIcon, CopyIcon, SplitIcon, TrashIcon } from '../icons';
+import { isCoarsePointer, refocusTarget } from '../focus-trap';
+import { CalendarIcon, ChevronIcon, CopyIcon, SplitIcon, TransferIcon, TrashIcon } from '../icons';
 import { Modal } from '../Modal';
 import { Pending } from '../QueryState';
 import {
@@ -113,6 +135,8 @@ export function serverFieldErrors(fields: Record<string, string> | undefined): R
 export function OperationForm(props: { company: Company; request: OperationFormRequest; onClose: () => void }) {
   const [open, setOpen] = useState(true);
   const [editing, setEditing] = useState(props.request.kind === 'edit');
+  /** Тип черновика формы: «Изменить в перевод» делает его переводом до сохранения (§6.8 этапа 1.5); null — форма ещё не открыта. */
+  const [draftType, setDraftType] = useState<OperationType | null>(null);
   const deleted = useRef(false);
   const editId = props.request.kind === 'edit' ? props.request.id : null;
   // операция для правки — всегда свежая с сервера: версия нужна для PATCH
@@ -145,11 +169,13 @@ export function OperationForm(props: { company: Company; request: OperationFormR
       : null;
   // тип новой операции задаёт кнопка шапки, существующей — она сама (§6.1 этапа 1.5); пока операция грузится — «Операция»
   const type = props.request.kind === 'create' ? props.request.type : operation.data?.type;
+  // заголовок — по типу черновика: после «Изменить в перевод» — «Перевод» (§6.8 этапа 1.5)
+  const shownType = draftType ?? type;
 
   return (
     <Modal
       open={open}
-      title={type ? operationTitle(type, editing) : 'Операция'}
+      title={shownType ? operationTitle(shownType, editing) : 'Операция'}
       onClose={() => {
         props.onClose();
         // после удаления строки, с которой открыли форму, больше нет — фокус туда, куда просил открывший
@@ -168,6 +194,7 @@ export function OperationForm(props: { company: Company; request: OperationFormR
           type={props.request.kind === 'create' ? props.request.type : operation.data!.type}
           operation={operation.data ?? null}
           onEditingChange={setEditing}
+          onTypeChange={setDraftType}
           onDeleted={() => (deleted.current = true)}
           close={() => setOpen(false)}
           cancelRef={cancel}
@@ -188,6 +215,8 @@ function OperationEditor(p: {
   operation: OperationRecord | null;
   /** Форма перешла от правки к новой операции («Дублировать платёж»). */
   onEditingChange: (editing: boolean) => void;
+  /** Тип черновика сменился («Изменить в перевод», «Загрузить актуальную»): заголовок окна следует за ним. */
+  onTypeChange: (type: OperationType) => void;
   /** Операция удалена: окно закроется, фокус — не на исчезнувшую строку. */
   onDeleted: () => void;
   close: () => void;
@@ -212,6 +241,10 @@ function OperationEditor(p: {
   const [focusField] = useState(() => initialFocusField(initial, p.operation !== null));
   /** «Удалить платёж» (§6.7 этапа 1.5): подтверждение — вложенное окно. */
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** «Изменить в перевод» (§6.8 этапа 1.5): подтверждение со списком того, что будет убрано; null — закрыто. */
+  const [convertLosses, setConvertLosses] = useState<string[] | null>(null);
+  /** Сигнал: форма стала переводом — фокус на пустой счёт перевода. */
+  const [convertFocus, setConvertFocus] = useState(0);
   /** 409 при сохранении правки: операцию изменили или удалили после того, как форму открыли. */
   const [conflict, setConflict] = useState<'changed' | 'deleted' | null>(null);
   /** RATE_UNAVAILABLE: какого курса нет; «Повторить» сохраняет тем же способом (lastThen). */
@@ -275,6 +308,22 @@ function OperationEditor(p: {
     });
     return () => cancelAnimationFrame(frame);
   }, [readOnly]);
+
+  // заголовок окна — по типу черновика (§6.8 этапа 1.5): перевод после «Изменить в перевод», прежний тип после «Загрузить актуальную»
+  useEffect(() => p.onTypeChange(draft.type), [draft.type]);
+
+  // после «Изменить в перевод» строки больше нет: фокус — на пустой счёт перевода («На счёт» у расхода, «Со счёта» у
+  // дохода); на устройстве с пальцем — на «×», чтобы не поднимать клавиатуру (refocusTarget, план 1.5-5b).
+  // Сигнал приходит дважды при подтверждении (после перестройки и при закрытии ConfirmDialog) — повтор безвреден
+  useEffect(() => {
+    if (!convertFocus) return;
+    if (refocusTarget(isCoarsePointer()) === 'close') {
+      closeButton()?.focus({ preventScroll: true });
+      return;
+    }
+    const key = draft.accountId === null ? 'accountId' : 'toAccountId';
+    formRef.current?.querySelector<HTMLInputElement>(`[data-field="${key}"] input`)?.focus();
+  }, [convertFocus]);
 
   useEffect(() => {
     if (!accrualFocus) return;
@@ -434,8 +483,10 @@ function OperationEditor(p: {
         setErrorFocus((n) => n + 1);
         return;
       }
-      setErrors(serverFieldErrors(e instanceof ApiError ? e.fields : undefined));
-      setFormError(e instanceof ApiError ? e.message : 'Ошибка сервера');
+      const fieldErrors = serverFieldErrors(e instanceof ApiError ? e.fields : undefined);
+      setErrors(fieldErrors);
+      // у типа операции поля в форме нет: отказ в смене типа («Изменить в перевод») показывает сообщение формы
+      setFormError(fieldErrors.type ?? (e instanceof ApiError ? e.message : 'Ошибка сервера'));
       setErrorFocus((n) => n + 1);
     } finally {
       setPending(false);
@@ -517,6 +568,33 @@ function OperationEditor(p: {
     setRefocusAmount((n) => n + 1);
   };
 
+  /** Названия для списка потерь «Изменить в перевод»: категория (в том числе дочерняя) и контрагент. */
+  const convertNames: ConvertNames = {
+    category: (id) => findCategory(p.data.categories, id)?.name,
+    counterparty: (id) => p.data.counterparties.find((c) => c.id === id)?.name,
+  };
+
+  /** «Изменить в перевод» (§6.8): форма на месте становится переводом; на сервер уходит только по «Сохранить изменения». */
+  const convert = () => {
+    const r = convertToTransferDraft(draft, convertNames);
+    setDraft(r.draft);
+    setConvertLosses(null);
+    // проект перевода — в блоке строки 3: раскрыть, если проект остался (у разбиения он был в строках)
+    if (r.draft.projectId !== null) setMore(true);
+    setErrors({});
+    setFormError(null);
+    setStatus(null);
+    setMissingRate(null);
+    setConvertFocus((n) => n + 1);
+  };
+
+  /** Строка «Изменить в перевод»: если что-то будет убрано — сначала подтверждение, иначе сразу (§6.8). */
+  const askConvert = () => {
+    const { losses } = convertToTransferDraft(draft, convertNames);
+    if (losses.length > 0) setConvertLosses(losses);
+    else convert();
+  };
+
   /** «Разделить платёж» / «Отменить разделение» (§6.7, строка 2): разбиение — на месте категории. */
   const toggleSplit = () => {
     if (draft.split) {
@@ -546,19 +624,22 @@ function OperationEditor(p: {
     );
   }
 
+  // data-field — куда поставить фокус после «Изменить в перевод» (пустой счёт перевода); contents — сетка формы не меняется
   const accountField = (label: string, key: 'accountId' | 'toAccountId') => (
-    <ComboSelect
-      label={label}
-      listLabel="Счета"
-      value={draft[key]}
-      options={accountOptions(p.data.accounts, draft[key])}
-      emptyLabel={null}
-      onChange={(id) => set({ [key]: id }, key)}
-      error={errors[key]}
-      disabled={!!locked}
-      hint={lockHint}
-      autoFocus={focusField === key}
-    />
+    <div data-field={key} className="contents">
+      <ComboSelect
+        label={label}
+        listLabel="Счета"
+        value={draft[key]}
+        options={accountOptions(p.data.accounts, draft[key])}
+        emptyLabel={null}
+        onChange={(id) => set({ [key]: id }, key)}
+        error={errors[key]}
+        disabled={!!locked}
+        hint={lockHint}
+        autoFocus={focusField === key}
+      />
+    </div>
   );
 
   /** Дата и время оплаты (§2.3, §6.5 этапа 1.5): у перевода — первым полем, у дохода и расхода — после контрагента. */
@@ -663,8 +744,8 @@ function OperationEditor(p: {
 
   /**
    * Строки-действия (§6.7 этапа 1.5) в порядке Finmap: 1 «Дата сделки отличается», 2 «Разделить платёж», 3 «Добавить
-   * проект, тег, комментарий, файл» (его блок — сразу под ней), 5 «Дублировать платёж», 6 «Удалить платёж». У перевода —
-   * 3, 5, 6. Строка 4 «Изменить в перевод» появится в плане 1.5-6: до тех пор её нет совсем (мёртвых кнопок нет).
+   * проект, тег, комментарий, файл» (его блок — сразу под ней), 4 «Изменить в перевод» (правка дохода и расхода, §6.8),
+   * 5 «Дублировать платёж», 6 «Удалить платёж». У перевода — 3, 5, 6.
    */
   const rows = (
     <div>
@@ -698,6 +779,14 @@ function OperationEditor(p: {
       {!transfer && <ActionRow icon={<SplitIcon />} label={draft.split ? 'Отменить разделение' : 'Разделить платёж'} onClick={toggleSplit} />}
       <ActionRow icon={<ChevronIcon up={more} />} label="Добавить проект, тег, комментарий, файл" expanded={more} onClick={() => setMore((v) => !v)} />
       {more && moreBlock}
+      {op && !transfer && (
+        <ActionRow
+          icon={<TransferIcon />}
+          label="Изменить в перевод"
+          onClick={askConvert}
+          disabledHint={convertBlockedHint(locked, p.data.accounts, draft.accountId)}
+        />
+      )}
       {op && <ActionRow icon={<CopyIcon />} label="Дублировать платёж" onClick={duplicate} />}
       {op && (
         <ActionRow
@@ -900,6 +989,16 @@ function OperationEditor(p: {
         onCancel={() => setConfirmDelete(false)}
         onConfirm={() => void remove()}
         onFocusLost={() => setRefocusAmount((n) => n + 1)}
+      />
+      <ConfirmDialog
+        open={convertLosses !== null}
+        title="Изменить в перевод?"
+        text={convertQuestion(convertLosses ?? [])}
+        confirmLabel="Изменить"
+        onCancel={() => setConvertLosses(null)}
+        onConfirm={convert}
+        // строки «Изменить в перевод» после перестройки нет — фокус на пустой счёт перевода
+        onFocusLost={() => setConvertFocus((n) => n + 1)}
       />
     </>
   );

@@ -944,7 +944,7 @@ test('архивная компания: форма операции тольк�
   await expect(view.getByRole('textbox', { name: /^Сумма,/ })).toBeDisabled();
   await expect(view.getByLabel('Комментарий')).toHaveValue('до архива');
   await expect(view.getByLabel('Комментарий')).toBeDisabled();
-  for (const name of ['Сохранить изменения', 'Добавить и создать похожий', 'Дублировать платёж', 'Удалить платёж']) {
+  for (const name of ['Сохранить изменения', 'Добавить и создать похожий', 'Изменить в перевод', 'Дублировать платёж', 'Удалить платёж']) {
     await expect(view.getByRole('button', { name, exact: true })).toHaveCount(0);
   }
   await expect(view.getByLabel('Добавить файл')).toHaveCount(0);
@@ -1165,6 +1165,33 @@ test.describe('касание (pointer: coarse), ширина 390 px', () => {
     await expect(copy.getByText('Это копия — проверьте и сохраните')).toBeVisible();
     await expect(copy.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
     await expect(copy.getByRole('textbox', { name: /^Сумма,/ })).not.toBeFocused();
+  });
+
+  test('после «Изменить в перевод» фокус — на «×», а не на пустом «На счёт»: экранная клавиатура сама не поднимается', async ({ page }) => {
+    await login(page);
+    const cid = await createCompany(page, `ТОО В перевод касанием ${Date.now()}`);
+    const base = `/api/v1/companies/${cid}`;
+    const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 100000 })).account.id;
+    await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' });
+    const rent = (await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда' })).category.id;
+    await apiPost(page, `${base}/operations`, {
+      type: 'expense',
+      paidAt: new Date(Date.now() - 60_000).toISOString(),
+      accountId: cash,
+      amount: 30000,
+      lines: [{ categoryId: rent, projectId: null, amount: 30000 }],
+    });
+    await page.reload();
+    await page.setViewportSize(PHONE);
+
+    await cards(page).getByRole('button').first().tap();
+    const edit = page.getByRole('dialog', { name: 'Расход', exact: true });
+    await edit.getByRole('button', { name: 'Изменить в перевод' }).tap();
+    await page.getByRole('alertdialog', { name: 'Изменить в перевод?' }).getByRole('button', { name: 'Изменить', exact: true }).tap();
+    const transfer = page.getByRole('dialog', { name: 'Перевод', exact: true });
+    await expect(transfer.getByRole('combobox', { name: 'На счёт', exact: true })).toHaveValue('');
+    await expect(transfer.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
+    await expect(transfer.getByRole('combobox', { name: 'На счёт', exact: true })).not.toBeFocused();
   });
 });
 
