@@ -1,6 +1,6 @@
 import { getCurrency } from '../../shared/currencies';
 import { timeOfDay } from '../../shared/dates';
-import { amountInputText, dayOf } from './journal-format';
+import { amountInputText, dayOf, pluralRu } from './journal-format';
 import type { OperationBody, OperationDraft } from './operation-form';
 import { newLine } from './split';
 
@@ -63,8 +63,8 @@ export function draftFromOperation(op: OperationRecord, accounts: ReadonlyMap<nu
   };
 }
 
-/** Тело PATCH: изменённые поля и версия. */
-export type OperationPatch = Partial<Omit<OperationBody, 'type'>> & { version: number };
+/** Тело PATCH: изменённые поля и версия; `type: 'transfer'` — «Изменить в перевод» (§10.1 этапа 1.5). */
+export type OperationPatch = Partial<Omit<OperationBody, 'type'>> & { version: number; type?: 'transfer' };
 
 const sameLines = (a: OperationRecord['lines'], b: OperationBody['lines']) =>
   a.length === b.length && a.every((l, i) => l.categoryId === b[i]!.categoryId && l.projectId === b[i]!.projectId && l.amount === b[i]!.amount);
@@ -79,6 +79,9 @@ const sameIds = (a: readonly number[], b: readonly number[]) => JSON.stringify([
  */
 export function patchBody(op: OperationRecord, body: OperationBody, timeZone: string): OperationPatch | null {
   const patch: OperationPatch = { version: op.version };
+  // «Изменить в перевод» (§10.1): смена типа; явные поля перевода (счёт зачисления, контрагент null, строки, дата сделки null)
+  // уходят ниже как обычные различия с операцией
+  if (body.type === 'transfer' && op.type !== 'transfer') patch.type = 'transfer';
   const minute = (iso: string) => `${dayOf(iso, timeZone)} ${timeOfDay(iso, timeZone)}`;
   if (minute(body.paidAt) !== minute(op.paidAt)) patch.paidAt = body.paidAt;
   if (body.accrualDate !== op.accrualDate) patch.accrualDate = body.accrualDate;
@@ -133,4 +136,91 @@ export function duplicateDraft(draft: OperationDraft, available: Available, toda
 /** Архивный счёт, который затрагивает операция: сумму, дату оплаты и счета менять нельзя, удалить нельзя (инвариант 7). */
 export function archivedAccountOf(op: Pick<OperationRecord, 'accountId' | 'toAccountId'>, accounts: ReadonlyMap<number, AccountLike & { name: string }>) {
   return [op.accountId, op.toAccountId].map((id) => (id === null ? undefined : accounts.get(id))).find((a) => a?.archivedAt) ?? null;
+}
+
+/** Названия для списка потерь «Изменить в перевод» (§6.8 этапа 1.5): категория и контрагент по id; не найдено — undefined. */
+export interface ConvertNames {
+  category: (id: number) => string | undefined;
+  counterparty: (id: number) => string | undefined;
+}
+
+export interface ConvertResult {
+  /** Черновик перевода: тип, счета, проект; теги, комментарий, дата и время — прежние. */
+  draft: OperationDraft;
+  /** Что будет убрано, по порядку: категория, контрагент, разбиение, дата сделки. Пусто — подтверждение не нужно. */
+  losses: string[];
+  /** Доход: прежняя сумма (текст поля) — «Сумма зачисления» на прежнем счёте (см. pickConvertedFrom); у расхода — null. */
+  carried: string | null;
+}
+
+const named = (what: string, name: string | undefined) => (name ? `${what} «${name}»` : what);
+
+/**
+ * «Изменить в перевод» (§6.8 этапа 1.5): черновик дохода или расхода → черновик перевода на месте. Расход на счёте A —
+ * «Со счёта» = A, «На счёт» пусто; доход на счёте A — «На счёт» = A, «Со счёта» пусто, прежняя сумма — и сумма, и
+ * «Сумма зачисления» (её место решает выбор «Со счёта», pickConvertedFrom). Проект остаётся, только если он один у всех
+ * строк. Категория, контрагент, разбиение и дата сделки убираются — они и есть список потерь для подтверждения.
+ * Работает с текущим черновиком: несохранённые правки формы переходят в перевод. Перевод возвращается как есть.
+ */
+export function convertToTransferDraft(draft: OperationDraft, names: ConvertNames): ConvertResult {
+  if (draft.type === 'transfer') return { draft, losses: [], carried: null };
+  const losses: string[] = [];
+  if (!draft.split && draft.categoryId !== null) losses.push(named('категория', names.category(draft.categoryId)));
+  if (draft.counterpartyId !== null) losses.push(named('контрагент', names.counterparty(draft.counterpartyId)));
+  if (draft.split) {
+    const n = draft.split.lines.length;
+    losses.push(`разбиение на ${n} ${pluralRu(n, 'строку', 'строки', 'строк')}`);
+  }
+  if (draft.accrualOn) losses.push('дата сделки');
+  const projects = draft.split ? [...new Set(draft.split.lines.map((l) => l.projectId))] : [draft.projectId];
+  const income = draft.type === 'income';
+  return {
+    draft: {
+      ...draft,
+      type: 'transfer',
+      accountId: income ? null : draft.accountId,
+      toAccountId: income ? draft.accountId : null,
+      toAmount: income ? draft.amount : '',
+      categoryId: null,
+      projectId: projects.length === 1 ? projects[0]! : null,
+      counterpartyId: null,
+      accrualOn: false,
+      split: null,
+    },
+    losses,
+    carried: income ? draft.amount : null,
+  };
+}
+
+/** Текст подтверждения «Изменить в перевод?»: «Будут убраны: категория «Аренда», контрагент «Алина», дата сделки.» */
+export function convertQuestion(losses: readonly string[]): string {
+  return `Будут убраны: ${losses.join(', ')}.`;
+}
+
+/**
+ * Выбор «Со счёта» у дохода, изменённого в перевод (§6.8 этапа 1.5): прежняя сумма `carried` — сумма зачисления. Счёт в
+ * другой валюте, чем «На счёт», очищает сумму списания, если её не меняли («Сумму» нужно ввести); в той же валюте пустая
+ * сумма снова становится прежней. Набранную руками сумму выбор счёта не трогает.
+ */
+export function pickConvertedFrom(draft: OperationDraft, accountId: number | null, accounts: ReadonlyMap<number, { currency: string }>, carried: string): OperationDraft {
+  const next = { ...draft, accountId };
+  const from = accountId === null ? undefined : accounts.get(accountId)?.currency;
+  const to = draft.toAccountId === null ? undefined : accounts.get(draft.toAccountId)?.currency;
+  if (from === undefined || to === undefined) return next;
+  if (from !== to) return draft.amount === carried ? { ...next, amount: '' } : next;
+  return draft.amount === '' ? { ...next, amount: carried } : next;
+}
+
+/**
+ * Причина, по которой строка «Изменить в перевод» недоступна (§6.7 строка 4, §11 этапа 1.5): операция на архивном счёте
+ * (инвариант 7) или в компании нет другого активного счёта — перевод некуда направить. undefined — доступна.
+ */
+export function convertBlockedHint(
+  locked: { name: string } | null,
+  accounts: readonly { id: number; archivedAt: string | null }[],
+  accountId: number | null,
+): string | undefined {
+  if (locked) return `Изменить в перевод нельзя: счёт в архиве («${locked.name}»)`;
+  if (!accounts.some((a) => !a.archivedAt && a.id !== accountId)) return 'Изменить в перевод нельзя: нет другого счёта';
+  return undefined;
 }
