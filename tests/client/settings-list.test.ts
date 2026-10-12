@@ -120,6 +120,14 @@ describe('edgeScrollStep — прокрутка у края, пока строк
     expect(edgeScrollStep(110, 0, 800)).toBe(0);
   });
 
+  it('указатель точно на краю области — предельный шаг; в слишком короткой области (зоны перекрываются) выше середины — вверх, ниже — вниз', () => {
+    expect(edgeScrollStep(0, 0, 800)).toBe(-EDGE_SCROLL_MAX);
+    expect(edgeScrollStep(800, 0, 800)).toBe(EDGE_SCROLL_MAX);
+    expect(edgeScrollStep(30, 0, 60)).toBeLessThan(0);
+    expect(edgeScrollStep(50, 0, 60)).toBeLessThan(0);
+    expect(edgeScrollStep(60, 0, 60)).toBe(EDGE_SCROLL_MAX);
+  });
+
   it('граница зоны ещё не прокручивает', () => {
     expect(edgeScrollStep(EDGE_SCROLL_ZONE, 0, 800)).toBe(0);
     expect(edgeScrollStep(800 - EDGE_SCROLL_ZONE, 0, 800)).toBe(0);

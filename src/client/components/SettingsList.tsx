@@ -10,6 +10,10 @@ interface Drag {
   index: number;
 }
 
+/** Кадр при 60 Гц, мс: на него рассчитан EDGE_SCROLL_MAX; предел длины кадра — после паузы вкладки прокрутка не прыгает. */
+const FRAME_MS = 1000 / 60;
+const MAX_FRAME_MS = 50;
+
 const markBefore = 'shadow-[inset_0_2px_0_0_var(--color-focus)]';
 const markAfter = 'shadow-[inset_0_-2px_0_0_var(--color-focus)]';
 
@@ -24,7 +28,10 @@ function scrollAreaOf(el: HTMLElement): { top: number; bottom: number; scroll: (
     const overflow = getComputedStyle(node).overflowY;
     if ((overflow === 'auto' || overflow === 'scroll') && node.scrollHeight > node.clientHeight) {
       const r = node.getBoundingClientRect();
-      return { top: r.top, bottom: r.bottom, scroll: (dy) => node.scrollBy(0, dy) };
+      // на телефоне шапка окна прилипает к верху прокрутки и закрывает верхнюю зону — зона начинается под ней
+      const header = node.querySelector<HTMLElement>('[data-modal-header]');
+      const covered = header && getComputedStyle(header).position === 'sticky' ? header.getBoundingClientRect().height : 0;
+      return { top: r.top + covered, bottom: r.bottom, scroll: (dy) => node.scrollBy(0, dy) };
     }
     if (node instanceof HTMLDialogElement) return null;
   }
@@ -163,13 +170,21 @@ export function SettingsList<T extends SettingsRow>(props: {
   useEffect(() => {
     if (dragId === null) return;
     let frame = 0;
-    const tick = () => {
+    let last = 0;
+    let carry = 0;
+    const tick = (now: number) => {
+      // шаг рассчитан на 60 кадров/с: на 120 Гц кадр вдвое короче, и шаг вдвое меньше; долю пикселя переносим на следующий кадр
+      const dt = last ? Math.min(now - last, MAX_FRAME_MS) : FRAME_MS;
+      last = now;
       const row = rowEls.current.get(dragId);
       const y = pointerY.current;
       const area = row && y !== null ? scrollAreaOf(row) : null;
       const step = area && y !== null ? edgeScrollStep(y, area.top, area.bottom) : 0;
-      if (area && y !== null && step !== 0) {
-        area.scroll(step);
+      carry = step === 0 ? 0 : carry + (step * dt) / FRAME_MS;
+      const whole = Math.trunc(carry);
+      carry -= whole;
+      if (area && y !== null && whole !== 0) {
+        area.scroll(whole);
         setDrag((d) => {
           if (!d) return d;
           const index = dropIndexAt(midpoints(d.group.filter((id) => id !== d.id)), y);

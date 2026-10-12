@@ -39,7 +39,7 @@ export const noticeClass = 'mb-4 rounded-xl bg-field px-4 py-3 text-sm text-mute
 
 /**
  * Белая карточка содержимого страницы компании (журнал, раздел настроек). На телефоне снизу — место под нижнюю панель
- * вкладок (§8.3) и «домашнюю» полосу iPhone; длинные слова без пробелов переносятся, выпадающие списки не шире своего блока.
+ * вкладок (§8.3: h-14 = 3.5rem, см. MobileTabBar) с запасом — 5rem — и «домашнюю» полосу iPhone; длинные слова без пробелов переносятся, выпадающие списки не шире своего блока.
  */
 export const mainCardClass =
   'min-h-[calc(100dvh-5rem)] min-w-0 flex-1 rounded-t-3xl bg-card p-4 pb-[calc(5rem+env(safe-area-inset-bottom))] max-md:[overflow-wrap:anywhere] max-md:[&_select]:max-w-full md:p-8';

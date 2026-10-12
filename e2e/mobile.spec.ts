@@ -450,6 +450,8 @@ test('нижняя панель «Разделы» (§8.3): «Журнал» и 
   const journal = tabs.getByRole('link', { name: 'Журнал', exact: true });
   const more = tabs.getByRole('button', { name: 'Ещё', exact: true });
   await expect(journal).toHaveAttribute('aria-current', 'page');
+  const currentInk = await journal.evaluate((el) => getComputedStyle(el).color);
+  await expect(more).not.toHaveCSS('color', currentInk);
   for (const tab of [journal, more]) expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44);
 
   // «Ещё» — меню над панелью, внутри экрана; Esc закрывает, фокус — на «Ещё»
@@ -482,6 +484,9 @@ test('нижняя панель «Разделы» (§8.3): «Журнал» и 
   await expect(page.getByRole('heading', { level: 1, name: 'Пользователи' })).toBeFocused();
   await expect(tabs).toBeVisible();
   await expect(journal).not.toHaveAttribute('aria-current', 'page');
+  // в зоне настроек текущая вкладка — «Ещё» (только внешний вид), «Журнал» приглушён
+  await expect(more).toHaveCSS('color', currentInk);
+  await expect(journal).not.toHaveCSS('color', currentInk);
   // «Журнал» — обратно в журнал с прежним фильтром (Review Focus 5)
   await journal.click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?period=today$`));
@@ -508,9 +513,49 @@ test('история из «Ещё» не замораживает страни�
   await expect(history).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 720 });
   await expect(history).toBeHidden();
+  // кнопки «Ещё», с которой открыли, больше не видно — фокус не пропадает в body, а идёт на заголовок страницы
+  await expect(page.getByRole('heading', { level: 1, name: 'Журнал' })).toBeFocused();
   // страница отзывается: кнопка шапки открывает панель
-  await page.getByRole('banner').getByRole('button', { name: 'История действий' }).click();
+  const headerHistory = page.getByRole('banner').getByRole('button', { name: 'История действий' });
+  await headerHistory.click();
   await expect(history).toBeVisible();
+  // обратно: окно стало уже телефона, значок истории скрыт — после Esc фокус тоже на заголовке
+  await page.setViewportSize(PHONE);
+  await page.keyboard.press('Escape');
+  await expect(history).toBeHidden();
+  await expect(page.getByRole('heading', { level: 1, name: 'Журнал' })).toBeFocused();
+});
+
+test('меню «Ещё»: закрывается при расширении окна (поворот телефона), касанием мимо и уходом Tab за последний пункт', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Меню Ещё ${Date.now()}`);
+  await page.setViewportSize(PHONE);
+  await page.goto(`/c/${cid}/log`);
+  const more = page.getByRole('navigation', { name: 'Разделы', exact: true }).getByRole('button', { name: 'Ещё', exact: true });
+  const menu = page.getByRole('dialog', { name: 'Ещё', exact: true });
+
+  // касание мимо меню закрывает его
+  await more.click();
+  await expect(menu).toBeVisible();
+  await page.mouse.click(PHONE.width / 2, 200);
+  await expect(menu).toHaveCount(0);
+
+  // Tab за последним пунктом закрывает меню, фокус — на «Ещё»
+  await more.click();
+  await expect(menu.getByRole('link', { name: 'Пользователи' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(menu.getByRole('link', { name: 'Настройки' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(menu.getByRole('button', { name: 'История действий' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(menu).toHaveCount(0);
+  await expect(more).toBeFocused();
+
+  // окно стало шире (телефон повернули): панель вкладок скрыта, открытое меню не остаётся висеть в углу
+  await more.click();
+  await expect(menu).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(menu).toHaveCount(0);
 });
 
 test('фильтры на телефоне — в панели справа: период, сумма, сортировка, окно «Фильтры» поверх панели, сброс; поиск на виду', async ({ page }) => {
@@ -970,4 +1015,137 @@ test.describe('касание: перетаскивание в списках н
     // после броска фокус — на ручке строки
     await expect(grip('Тег 03')).toBeFocused();
   });
+});
+
+test('название по центру шапки телефона и в журнале, и в настройках, и на странице без компании; 320 px: длинное название обрезается', async ({ page }) => {
+  await login(page);
+  const name = `ТОО Очень длинное название компании для проверки обрезки ${Date.now()}`;
+  const cid = await createCompany(page, name);
+  const banner = page.getByRole('banner');
+  const company = banner.getByRole('button', { name: `Сменить компанию: ${name}`, exact: true });
+  const gear = banner.getByRole('button', { name: 'Настройки', exact: true });
+  const centre = async (target: Locator) => {
+    const b = (await target.boundingBox())!;
+    return b.x + b.width / 2;
+  };
+
+  await page.setViewportSize(PHONE);
+  // журнал (есть ☰) и настройки (☰ нет): название стоит на оси экрана, не прыгает вбок при переходе
+  expect(Math.abs((await centre(company)) - PHONE.width / 2), 'журнал').toBeLessThan(2);
+  await page.goto(`/c/${cid}/settings`);
+  await expect(banner.getByRole('button', { name: 'Счета', exact: true })).toHaveCount(0);
+  expect(Math.abs((await centre(company)) - PHONE.width / 2), 'настройки').toBeLessThan(2);
+  // страница без компании: название продукта тоже по центру
+  await page.goto('/companies/new');
+  await expect(page.getByRole('heading', { level: 1, name: 'Новая компания' })).toBeVisible();
+  const product = banner.locator('span.truncate');
+  expect(Math.abs((await centre(product)) - PHONE.width / 2), 'без компании').toBeLessThan(2);
+
+  // 320 px: название обрезано многоточием, между ☰ и шестерёнкой, страница вбок не едет
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto(`/c/${cid}/log`);
+  const menu = banner.getByRole('button', { name: 'Счета', exact: true });
+  const m = (await menu.boundingBox())!;
+  const c = (await company.boundingBox())!;
+  const g = (await gear.boundingBox())!;
+  expect(c.x).toBeGreaterThanOrEqual(m.x + m.width);
+  expect(c.x + c.width).toBeLessThanOrEqual(g.x);
+  expect(g.x + g.width).toBeLessThanOrEqual(320);
+  expect(Math.abs((await centre(company)) - 160)).toBeLessThan(2);
+  expect(await company.evaluate((el) => Array.from(el.querySelectorAll<HTMLElement>('*')).some((n) => n.scrollWidth > n.clientWidth))).toBe(true);
+  // шапка целиком в экране; остальной журнал на 320 px (панель фильтров — план 1.5-5b) здесь не проверяем
+  expect(await banner.evaluate((h) => Array.from(h.querySelectorAll('*')).every((e) => e.getBoundingClientRect().right <= 320 + 0.5))).toBe(true);
+});
+
+test('архивная компания на телефоне: шапка без кнопок операций и ☰ в настройках, название по центру; экран «Настройки» при свёрнутой панели счетов', async ({ page }) => {
+  await login(page);
+  const name = `ТОО Архив шапка с очень длинным названием ${Date.now()}`;
+  const cid = await createCompany(page, name);
+  await apiPost(page, `/api/v1/companies/${cid}/archive`, {});
+  const origin = new URL(page.url()).origin;
+  const setCollapsed = (value: boolean) =>
+    page.request.put('/api/v1/preferences/sidebar.collapsed', { data: { value }, headers: { origin, 'x-requested-with': 'fetch' } });
+  expect((await setCollapsed(true)).ok()).toBe(true);
+  try {
+    await page.setViewportSize({ width: 320, height: 640 });
+    const banner = page.getByRole('banner');
+    const company = banner.getByRole('button', { name: `Сменить компанию: ${name}`, exact: true });
+    for (const path of ['log', 'settings']) {
+      await page.goto(`/c/${cid}/${path}`);
+      await expect(company).toBeVisible();
+      await expect(bar(page)).toHaveCount(0);
+      const c = (await company.boundingBox())!;
+      expect(Math.abs(c.x + c.width / 2 - 160), path).toBeLessThan(2);
+      expect(await banner.evaluate((h) => Array.from(h.querySelectorAll('*')).every((e) => e.getBoundingClientRect().right <= 320 + 0.5)), `${path}: шапка в экране`).toBe(true);
+    }
+    await expectNoSideScroll(page, 'экран «Настройки», архивная компания, 320 px');
+    // экран «Настройки»: список разделов на месте, ☰ нет, панель вкладок видна, вбок не едет
+    await expect(page.getByRole('heading', { level: 1, name: 'Настройки', exact: true })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Разделы настроек' }).getByRole('link', { name: /^Контрагенты/ })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Разделы', exact: true })).toBeVisible();
+    await expect(banner.getByRole('button', { name: 'Счета', exact: true })).toHaveCount(0);
+  } finally {
+    expect((await setCollapsed(false)).ok()).toBe(true);
+  }
+});
+
+test('компьютер 1280 px: ручки и кнопки ✎ в списках настроек остаются 36×36; у ✎ компании виден фокус с клавиатуры (и на телефоне)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Размеры ${Date.now()}`);
+  for (const name of ['Альфа', 'Бета']) await apiPost(page, `/api/v1/companies/${cid}/tags`, { name });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto(`/c/${cid}/settings/tags`);
+  const tags = page.getByRole('main').getByRole('list', { name: 'Теги' });
+  for (const label of ['Переместить Альфа', 'Изменить Альфа']) {
+    const b = (await tags.getByRole('button', { name: label, exact: true }).boundingBox())!;
+    expect([b.width, b.height], label).toEqual([36, 36]);
+  }
+
+  // ✎ компании: Tab с клавиатуры — виден контур фокуса
+  for (const size of [{ width: 1280, height: 720 }, PHONE]) {
+    await page.setViewportSize(size);
+    await page.getByRole('banner').getByRole('button', { name: /^Сменить компанию/ }).click();
+    const panel = page.getByRole('dialog', { name: 'Компании' });
+    const edit = panel.getByRole('button', { name: /^Изменить компанию/ }).first();
+    for (let i = 0; i < 10 && !(await edit.evaluate((el) => el === document.activeElement)); i++) await page.keyboard.press('Tab');
+    await expect(edit).toBeFocused();
+    await expect(edit).not.toHaveCSS('outline-style', 'none');
+    await expect(edit).toHaveCSS('outline-width', '2px');
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+  }
+});
+
+test('окно «Счета» на телефоне: верхняя зона прокрутки при перетаскивании — под прилипшей шапкой окна', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Верхняя зона ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  for (let i = 1; i <= 24; i++) await apiPost(page, `${base}/accounts`, { name: `Счёт ${String(i).padStart(2, '0')}`, currency: 'KZT', openedAt: '2020-01-01' });
+  await page.setViewportSize(PHONE);
+  await page.goto(`/c/${cid}/log`);
+  await page.getByRole('banner').getByRole('button', { name: 'Счета', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Счета', exact: true }).getByRole('button', { name: 'Изменить счета' }).click();
+  const quick = page.getByRole('dialog', { name: 'Счета', exact: true }).last();
+  const list = quick.getByRole('list', { name: 'Список счетов' });
+  await expect(list.getByRole('listitem')).toHaveCount(24);
+  const area = await list.evaluateHandle((el) => {
+    for (let p = el.parentElement; p; p = p.parentElement) {
+      const o = getComputedStyle(p).overflowY;
+      if ((o === 'auto' || o === 'scroll') && p.scrollHeight > p.clientHeight) return p;
+    }
+    throw new Error('нет прокручиваемого предка');
+  });
+  await area.evaluate((p) => ((p as HTMLElement).scrollTop = (p as HTMLElement).scrollHeight));
+  const startTop = await area.evaluate((p) => (p as HTMLElement).scrollTop);
+  expect(startTop).toBeGreaterThan(200);
+  const headerBottom = await quick.locator('[data-modal-header]').evaluate((h) => h.getBoundingClientRect().bottom);
+
+  const grip = (await list.getByRole('button', { name: 'Переместить Счёт 24', exact: true }).boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  // палец сразу под шапкой окна: верхняя зона начинается под ней, список едет вверх
+  await page.mouse.move(grip.x + grip.width / 2, headerBottom + 12, { steps: 8 });
+  await expect.poll(() => area.evaluate((p) => (p as HTMLElement).scrollTop), { timeout: 5000 }).toBeLessThan(startTop - 100);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
 });

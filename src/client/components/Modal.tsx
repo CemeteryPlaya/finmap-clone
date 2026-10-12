@@ -97,6 +97,7 @@ export function Modal(props: {
       {props.open && (
         <>
           <div
+            data-modal-header=""
             className={`flex items-start justify-between gap-3 bg-card px-6 pt-6 pb-4 max-md:sticky max-md:top-0 max-md:z-10 ${props.phoneFullScreen ? 'max-md:pt-[calc(1.5rem+env(safe-area-inset-top))]' : ''}`}
           >
             <h2 id={titleId} className="text-xl font-bold">

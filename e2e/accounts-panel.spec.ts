@@ -308,8 +308,15 @@ test('окно «Счета» без своей прокрутки: ☰ у ни�
   await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
   await page.mouse.down();
   await page.mouse.move(grip.x + grip.width / 2, height - 5, { steps: 8 });
-  // исключение из «без фиксированных пауз»: отсутствие прокрутки иначе не доказать, только подождать
-  await page.waitForTimeout(500);
+  // отсутствие прокрутки доказывает только ожидание: 30 кадров (~0,5 с) — втрое больше, чем нужно странице, чтобы уехать на 500 px
+  await page.evaluate(
+    () =>
+      new Promise<void>((done) => {
+        let frames = 0;
+        const next = () => (++frames >= 30 ? done() : requestAnimationFrame(next));
+        requestAnimationFrame(next);
+      }),
+  );
   expect(await page.evaluate(() => window.scrollY), 'страница под окном не едет').toBe(0);
   await page.mouse.up();
   await expect(list.getByRole('listitem')).toHaveText([/Kaspi/, /Касса/]);

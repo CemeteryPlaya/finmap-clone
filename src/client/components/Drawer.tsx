@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
-import { cycleTab } from './focus-trap';
+import { cycleTab, focusPageHeading } from './focus-trap';
 import { btnClose } from './ui';
 
 /**
@@ -73,7 +73,11 @@ export function Drawer(props: {
         // close вложенного окна (окно компании поверх панели «Компании») React доставляет и сюда
         if (e.target !== e.currentTarget) return;
         props.onClose();
-        if (!props.afterClose?.()) opener.current?.focus();
+        if (props.afterClose?.()) return;
+        const back = opener.current;
+        // кнопки открытия уже не видно (окно стало шире или уже телефона — она в display:none): фокус на заголовок страницы
+        if (back?.isConnected && back.getClientRects().length > 0) back.focus();
+        else focusPageHeading();
       }}
       className={`my-0 h-dvh max-h-none w-[min(22rem,calc(100vw-3rem))] max-w-none bg-card p-0 text-ink shadow-2xl transition-transform duration-200 backdrop:bg-black/40 motion-reduce:transition-none ${side}`}
     >

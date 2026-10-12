@@ -25,7 +25,12 @@ export function AppHeader(props: {
 
   return (
     <header className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-3 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white md:grid-cols-[minmax(12rem,1fr)_auto_auto] md:gap-4 md:px-6 md:pb-4 md:pt-[max(1rem,env(safe-area-inset-top))] lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
-      {props.menuButton && <div className="col-start-1 row-start-1 md:hidden">{props.menuButton}</div>}
+      {props.menuButton ? (
+        <div className="col-start-1 row-start-1 md:hidden">{props.menuButton}</div>
+      ) : (
+        // без ☰ (зона настроек, страницы без компании): пустое место ширины ☰, чтобы название осталось по центру, как в журнале
+        <span aria-hidden="true" className="col-start-1 row-start-1 size-11 md:hidden" />
+      )}
       <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-center md:col-start-1 md:justify-start">
         {props.company ?? <span className="truncate text-lg font-bold">{meta.data?.appName}</span>}
       </div>

@@ -8,8 +8,11 @@ import { HistoryPanel } from './HistoryDrawer';
 import { Popover } from './Popover';
 
 /** Вкладка нижней панели: 56 px; текущая (`aria-current="page"`) — тёмным текстом и чертой сверху, как в Finmap. */
-const tabClass =
-  'relative flex h-14 w-full items-center justify-center text-xs font-semibold text-muted hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus aria-[current=page]:text-ink aria-[current=page]:before:absolute aria-[current=page]:before:top-0 aria-[current=page]:before:h-0.5 aria-[current=page]:before:w-8 aria-[current=page]:before:rounded-full aria-[current=page]:before:bg-ink';
+const tabBase =
+  'relative flex h-14 w-full items-center justify-center text-xs font-semibold focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus';
+const tabClass = `${tabBase} text-muted hover:text-ink aria-[current=page]:text-ink aria-[current=page]:before:absolute aria-[current=page]:before:top-0 aria-[current=page]:before:h-0.5 aria-[current=page]:before:w-8 aria-[current=page]:before:rounded-full aria-[current=page]:before:bg-ink`;
+/** Внешний вид текущей вкладки без aria-current: «Ещё» в зоне настроек (кнопка меню, не ссылка). */
+const currentClass = 'text-ink before:absolute before:top-0 before:h-0.5 before:w-8 before:rounded-full before:bg-ink';
 /** Пункт меню «Ещё»: цель касания 48 px. */
 const itemClass =
   'flex min-h-12 w-full items-center rounded-xl px-3 text-left text-base font-medium text-ink hover:bg-field focus-visible:outline-2 focus-visible:outline-focus';
@@ -29,6 +32,7 @@ export function MobileTabBar({ company }: { company: Company }) {
   }, [mobile]);
   const location = useLocation();
   const onJournal = useMatch('/c/:companyId/log') !== null;
+  const inSettings = useMatch('/c/:companyId/settings/*') !== null;
   // запомненный адрес журнала обновляется после отрисовки страницы — в самом журнале берём текущий
   const journal = onJournal ? `${location.pathname}${location.search}` : journalBackHref(company.id, readLastJournal(company.id));
   const users = `/c/${company.id}/settings/users`;
@@ -44,12 +48,13 @@ export function MobileTabBar({ company }: { company: Company }) {
       <nav
         aria-label="Разделы"
         data-tab-bar=""
+        // высота панели — h-14 (tabClass) + safe-area: тот же запас снизу у mainCardClass (ui.ts) и UndoToast; менять вместе
         className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-2 border-t border-field bg-card pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] text-ink shadow-[0_-4px_16px_rgb(0_0_0/0.08)] md:hidden"
       >
         <NavLink to={journal} onClick={go(journal)} className={tabClass}>
           Журнал
         </NavLink>
-        <Popover label="Ещё" align="right" buttonClassName={tabClass} panelClassName="w-60">
+        <Popover key={mobile ? 'phone' : 'wide'} label="Ещё" align="right" buttonClassName={inSettings ? `${tabBase} ${currentClass}` : tabClass} panelClassName="w-60">
           {(close) => (
             <ul className="flex flex-col">
               <li>
