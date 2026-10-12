@@ -41,7 +41,7 @@
 
 ## Решения, принятые при планировании
 
-Записаны в спецификацию (§14, блок «Решения планирования плана И-1», №1–№14) тем же коммитом, что и план.
+Записаны в спецификацию (§14, блок «Решения планирования плана И-1», №1–№20) тем же коммитом, что и план; №15–№20 — правки по harness-review).
 
 1. **Задачи — 7 вместо 6.**
    - `src/shared/finmap-format.ts` делается в задаче 3 вместе с CSV: разделитель CSV выбирается по числу распознанных заголовков §2.1.
@@ -96,6 +96,15 @@
       - «Инструкция» — те же заголовки, строки 2–4 — примеры (доход, расход, перевод), ниже — правила в колонке A.
     - Скачивание — по сессии.
 14. **`shots:ux`.** Экранов в И-1 нет: последняя задача прогоняет `shots:ux` для проверки (51), `scripts/ux-shots.ts` не меняется.
+15. **Атрибуты XML — сканер в один проход** (`parseAttributes`): `имя = "значение"` или `'значение'` через пробелы, иначе F3 «неверный атрибут XML». Регулярное выражение с `matchAll` на огромном теге работало бы квадратично (CWE-1333). Начальный тег и инструкция обработки — не длиннее 64 КБ (`XML_MAX_TAG`), иначе F3 «слишком длинный тег XML».
+16. **Бюджет текста листа.** Символов текста во всех ячейках, с повторами общих строк, — не больше 64 М (`XlsxLimits.text`), иначе F3 «слишком много текста в листе»: одна общая строка в 32 767 символов в каждой ячейке иначе стоила бы десятков секунд разбора. `sharedCount`, `rows` и `text` — параметры читателя, как и пределы частей.
+17. **Подбор разделителя CSV** не падает на пределах строки (64 поля, 1 МБ): у кандидата считаются записи до предела. Файл с «;» и десятками запятых в комментарии читается; строгий разбор выбранным разделителем отклоняет действительно слишком длинные строки (F3).
+18. **Несколько названий из файла — один существующий счёт.**
+    - Перенос даты открытия и «Остаток после импорта» считаются один раз на счёт: по самой ранней строке всех названий и общему движению. План записи не содержит строк раньше новой `openedAt`.
+    - Разные заполненные «Остатки после импорта» у таких названий — A4 «Этот счёт выбран для нескольких названий с разными «Остатками после импорта» — оставьте одно значение» в каждой их карточке.
+    - Строки счетов с ошибкой (A1–A5) не входят ни в «будет добавлено», ни в период, ни в план. У нового счёта с A3 нет и движения; у нового счёта с A4 движение в карточке остаётся — по нему видно, откуда ошибка.
+19. **Даты вне 01.03.1900–31.12.9999** не принимаются ни числом Excel (60 — несуществующее 29.02.1900; переполнение с `date1904`), ни текстом: R02 у даты платежа, R11 у дат начисления (§4.3).
+20. **Сессия до чтения тела загрузки** — как у вложений: `onRequest` требует подписанную куку `sid` (поддельная подпись — 401 без чтения тела), полная проверка сеанса — в общем `preHandler`. Подписанный, но истёкший токен может заставить сервер принять до 30 МБ перед ответом 401; это принято (общий rate-limit 300 запросов в минуту). Отдельного «просмотра сеанса без продления» в И-1 не делаем.
 
 ## Global Constraints
 
@@ -103,7 +112,7 @@
 - **Пределы (§2.3, §2.4, §3.1, §3.2, §2.5):**
   - загрузка — 30 МБ (`IMPORT_MAX_BYTES`), больше — 413 `TOO_LARGE` «Файл больше 30 МБ»;
   - распаковка: лист 64 МБ, `sharedStrings.xml` 32 МБ, `workbook.xml` и `.rels` по 1 МБ, всё вместе 100 МБ; не больше 1 000 записей в архиве;
-  - XML: глубина 64, атрибутов 64; ячейка до 32 767 символов; общих строк до 1 000 000;
+  - XML: глубина 64, атрибутов 64, начальный тег до 64 КБ; ячейка до 32 767 символов; общих строк до 1 000 000; текста во всех ячейках листа (с повторами общих строк) до 64 М символов;
   - CSV: до 64 полей и 1 МБ на строку;
   - не больше 50 000 строк данных.
 - **Безопасность (§9):** DOCTYPE и ENTITY — отказ; раскрываются только `&lt; &gt; &amp; &quot; &apos;` и числовые ссылки; на диск ничего не пишется, имена записей с `..`, `\`, `/` в начале и не-ASCII отклоняют весь архив; ZIP64, шифрование, неизвестные методы — F3; CRC-32 и фактический размер сверяются.
@@ -131,7 +140,7 @@
 1. **Настоящая выгрузка Finmap.** Заголовки с латинскими двойниками («Дата платежа» с латинской a, «Сумма в валюте компании» с C, y, a, o, «На счет» с H), ячейки `t="str"` и пустые `t="str"` без `<v>`, даты — числа Excel с долей суток, период начисления текстом «01.09.2026 00:00:00». Ожидание: все 16 колонок распознаны, время — до секунды, «Зарплата за сентябрь» получает дату начисления 01.09.2026. Тесты: задача 2 (чтение файла «как у Finmap»), задача 3 (`headerField` всех заголовков-двойников), задача 4 (разбор файла «как у Finmap»).
 2. **Операции около полуночи.** 23:30 и 00:30 по Алматы попадают в свои календарные дни; «сегодня» в Алматы — не плановая операция, «завтра» — пропуск с W1. Тест: задача 4.
 3. **Хвосты двоичной дроби Excel** (`1317.0000000000002`). Сумма ровно 1 317,00, без W10 и без «лишних знаков». Тесты: задача 4 (`parseCellNumber`), задача 6 (строка файла в предпросмотре).
-4. **Враждебный файл через маршрут загрузки:** zip-бомба с ложным размером, XXE, `../` в имени записи, файл больше 30 МБ, запрос без сессии или без `X-Requested-With`. Ожидание: отказ с понятным кодом (F3, 413, 401, 403), ничего не распаковано сверх объявленного, сервер отвечает дальше. Тесты: задачи 1–3 (модульно), задача 7 (через HTTP).
+4. **Враждебный файл через маршрут загрузки:** zip-бомба с ложным размером, XXE, `../` в имени записи, начальный тег XML в мегабайт, одна общая строка в 32 767 символов в каждой ячейке, файл больше 30 МБ, запрос без сессии или без `X-Requested-With`. Ожидание: быстрый отказ с понятным кодом (F3, 413, 401, 403), ничего не распаковано сверх объявленного, сервер отвечает дальше. Тесты: задачи 1–3 (модульно, с замером времени), задача 7 (через HTTP).
 5. **Файл реального объёма — 16 000 строк.** Загрузка и пересчёт предпросмотра без квадратичных проходов; ответ меньше 200 КБ. Тест: задача 7 (бюджет с запасом: 15 с и 5 с; §10 — 3 с и 1 с на эталонной машине).
 
 ---
@@ -608,8 +617,8 @@ git commit -m "feat: импорт — чтение ZIP с пределами р�
 **Interfaces:**
 - Consumes: `damaged`, `fileError`, `IMPORT_READ_MAX_ROWS`, `tooManyRows` (задача 1); `openZip`, `ZIP_MAX_ENTRIES`, `ZIP_MAX_TOTAL` (задача 1); `buildZip` (задача 1); `buildXlsx` (`src/server/http/xlsx.ts`, как есть).
 - Produces:
-  - `xml.ts`: `interface XmlHandler { open(name, attrs); text(value); close(name) }`; `scanXml(xml: string, h: XmlHandler, limits?: { maxDepth?; maxAttrs? }): void`; `decodeXmlText(s): string`; `XML_MAX_DEPTH = 64`; `XML_MAX_ATTRS = 64`;
-  - `xlsx-read.ts`: `interface Cell { kind: 'number' | 'text' | 'error'; value: string }`; `interface SheetRow { row: number; cells: Map<number, Cell> }`; `interface SheetData { rows: SheetRow[]; date1904: boolean }`; `CELL_TOO_LONG = '#TOO_LONG'`; `CELL_MAX_CHARS = 32_767`; `interface XlsxLimits`; `XLSX_LIMITS`; `columnIndex(ref): number | null`; `resolvePart(target): string`; `readXlsx(data: Buffer, limits?: XlsxLimits): SheetData`;
+  - `xml.ts`: `interface XmlHandler { open(name, attrs); text(value); close(name) }`; `scanXml(xml: string, h: XmlHandler, limits?: { maxDepth?; maxAttrs? }): void`; `parseAttributes(body, maxAttrs): Record<string, string>` (сканер на indexOf, без регулярных выражений с возвратами); `decodeXmlText(s): string`; `XML_MAX_DEPTH = 64`; `XML_MAX_ATTRS = 64`; `XML_MAX_TAG = 64 КБ`;
+  - `xlsx-read.ts`: `interface Cell { kind: 'number' | 'text' | 'error'; value: string }`; `interface SheetRow { row: number; cells: Map<number, Cell> }`; `interface SheetData { rows: SheetRow[]; date1904: boolean }`; `CELL_TOO_LONG = '#TOO_LONG'`; `CELL_MAX_CHARS = 32_767`; `interface XlsxLimits { sheet; sharedStrings; workbook; rels; total; entries; sharedCount; rows; text }`; `XLSX_LIMITS`; `columnIndex(ref): number | null`; `resolvePart(target): string`; `readXlsx(data: Buffer, limits?: XlsxLimits): SheetData`;
   - `tests/helpers/finmap-like.ts`: `FINMAP_LIKE_HEADERS`; `type FinmapLikeValue = string | number | null`; `excelSerial(date, time?): number`; `finmapLikeRow({ paidAt, amount, accrual?, periodFrom?, periodTo?, baseAmount?, from?, to?, category?, subcategory?, counterparty?, subcounterparty?, project?, subproject?, tags?, comment? }): FinmapLikeValue[]`; `finmapLikeSample(): FinmapLikeValue[][]`; `finmapLikeSheetXml(rows): string`; `finmapLikeXlsx(rows?, opts?: { headers?; leadRows?; sheetName?; date1904? }): Buffer`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -888,6 +897,19 @@ describe('XML: безопасный разбор (§3.2 спецификации
     expect(f3(() => events('<a><!-- </a>'))).toContain('оборван');
     expect(f3(() => events('<a x="1></a>'))).toContain('оборван');
   });
+
+  it('огромный начальный тег (1 МБ символов атрибутов) — F3 быстро, без квадратичного разбора; мусор в атрибутах — F3 (Review Focus)', () => {
+    const t0 = performance.now();
+    expect(f3(() => events(`<a ${'x'.repeat(1_000_000)}/>`))).toBe('Файл повреждён или небезопасен: слишком длинный тег XML');
+    expect(f3(() => events(`<a ${'x="1" '.repeat(200_000)}/>`))).toContain('слишком длинный тег XML');
+    expect(f3(() => events(`<?xml version="1.0" ${'encoding="'.repeat(100_000)}?><a/>`))).toContain('слишком длинный тег XML');
+    // под пределом 64 КБ: атрибут без «=» или без кавычек — отказ за один проход
+    expect(f3(() => events(`<a ${'x'.repeat(60_000)}/>`))).toBe('Файл повреждён или небезопасен: неверный атрибут XML');
+    expect(f3(() => events('<a b=1/>'))).toContain('неверный атрибут XML');
+    expect(f3(() => events('<a b c="1"/>'))).toContain('неверный атрибут XML');
+    expect(performance.now() - t0).toBeLessThan(1000);
+    expect(events(`<a  b = "1"\tc='2'/>`)).toEqual(['<a b=1 c=2>', '</a>']);
+  });
 });
 ```
 
@@ -1014,6 +1036,24 @@ describe('XLSX: первый лист (§3.3 спецификации импор
     expect(readXlsx(finmapLikeXlsx(), { ...XLSX_LIMITS, rows: 5 }).rows).toHaveLength(5);
     expect(f('F5', () => readXlsx(finmapLikeXlsx(), { ...XLSX_LIMITS, rows: 4 }))).toBe('В файле больше 50 000 строк — разбейте его по годам');
   });
+
+  it('пределы общих строк и текста: число общих строк и символов текста передаются параметром; одна огромная общая строка в каждой ячейке — F3 быстро', () => {
+    const sst = (n: number, value = 'a') => `<sst ${NS}>${`<si><t>${value}</t></si>`.repeat(n)}</sst>`;
+    const withShared = (n: number, cells: string, value?: string) =>
+      book({ sheets: [['Л', 'rId1']], parts: { 'xl/sharedStrings.xml': sst(n, value), 'xl/worksheets/sheet1.xml': sheet(cells) } });
+    const ref = (r: number) => `<row r="${r}"><c r="A${r}" t="s"><v>0</v></c></row>`;
+    expect(readXlsx(withShared(2, ref(1)), { ...XLSX_LIMITS, sharedCount: 2 }).rows).toHaveLength(1);
+    expect(f('F3', () => readXlsx(withShared(3, ref(1)), { ...XLSX_LIMITS, sharedCount: 2 }))).toBe('Файл повреждён или небезопасен: слишком много общих строк');
+    const rows = (n: number) => Array.from({ length: n }, (_, i) => ref(i + 1)).join('');
+    expect(readXlsx(withShared(1, rows(2), 'x'.repeat(50)), { ...XLSX_LIMITS, text: 100 }).rows).toHaveLength(2);
+    expect(f('F3', () => readXlsx(withShared(1, rows(3), 'x'.repeat(50)), { ...XLSX_LIMITS, text: 100 }))).toBe(
+      'Файл повреждён или небезопасен: слишком много текста в листе',
+    );
+    // 3 000 ссылок на строку в 32 767 символов — почти 100 млн символов при пределе 64 МБ (Review Focus)
+    const t0 = performance.now();
+    expect(f('F3', () => readXlsx(withShared(1, rows(3000), 'я'.repeat(32_767))))).toContain('слишком много текста');
+    expect(performance.now() - t0).toBeLessThan(2000);
+  });
 });
 ```
 
@@ -1049,9 +1089,12 @@ export interface XmlLimits {
 
 export const XML_MAX_DEPTH = 64;
 export const XML_MAX_ATTRS = 64;
+/** Начальный тег и инструкция обработки — не длиннее 64 КБ: разбор атрибутов линейный, но огромный тег — признак атаки. */
+export const XML_MAX_TAG = 64 * 1024;
 
 const NAMED: Record<string, string> = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };
-const ATTR = /([^\s=/]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+/** Пробельные символы XML: пробел, табуляция, CR, LF. */
+const isSpace = (c: number) => c === 32 || c === 9 || c === 13 || c === 10;
 
 /** Имя без префикса пространства имён: `x:row` → `row`. */
 const local = (name: string) => {
@@ -1075,6 +1118,36 @@ export function decodeXmlText(s: string): string {
   });
 }
 
+/**
+ * Атрибуты начального тега: `имя = "значение"` или `имя = 'значение'` через пробелы. Сканер на indexOf — один проход
+ * без возвратов (регулярное выражение с matchAll на огромном теге работало бы квадратично). Что-то иное — F3.
+ */
+export function parseAttributes(body: string, maxAttrs: number): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const n = body.length;
+  let count = 0;
+  let i = 0;
+  for (;;) {
+    while (i < n && isSpace(body.charCodeAt(i))) i++;
+    if (i >= n) return attrs;
+    const eq = body.indexOf('=', i);
+    if (eq < 0) throw damaged('неверный атрибут XML');
+    let nameEnd = eq;
+    while (nameEnd > i && isSpace(body.charCodeAt(nameEnd - 1))) nameEnd--;
+    const name = body.slice(i, nameEnd);
+    if (name === '' || /[\s"'<>/=]/.test(name)) throw damaged('неверный атрибут XML');
+    let q = eq + 1;
+    while (q < n && isSpace(body.charCodeAt(q))) q++;
+    const quote = body[q];
+    if (quote !== '"' && quote !== "'") throw damaged('неверный атрибут XML');
+    const end = body.indexOf(quote, q + 1);
+    if (end < 0) throw damaged('неверный атрибут XML');
+    if (++count > maxAttrs) throw damaged('слишком много атрибутов у элемента');
+    attrs[name] = decodeXmlText(body.slice(q + 1, end));
+    i = end + 1;
+  }
+}
+
 export function scanXml(xml: string, h: XmlHandler, limits: XmlLimits = {}): void {
   const maxDepth = limits.maxDepth ?? XML_MAX_DEPTH;
   const maxAttrs = limits.maxAttrs ?? XML_MAX_ATTRS;
@@ -1093,6 +1166,7 @@ export function scanXml(xml: string, h: XmlHandler, limits: XmlLimits = {}): voi
     if (xml.startsWith('<?', lt)) {
       const end = xml.indexOf('?>', lt + 2);
       if (end < 0) throw damaged('XML оборван');
+      if (end - lt > XML_MAX_TAG) throw damaged('слишком длинный тег XML');
       if (xml.startsWith('<?xml', lt)) {
         const enc = /encoding\s*=\s*["']([^"']+)["']/.exec(xml.slice(lt, end));
         if (enc && !/^utf-?8$/i.test(enc[1]!)) throw damaged(`кодировка ${enc[1]} не поддерживается`);
@@ -1125,10 +1199,11 @@ export function scanXml(xml: string, h: XmlHandler, limits: XmlLimits = {}): voi
       continue;
     }
 
-    // начальный тег: конец — первый «>» вне кавычек
+    // начальный тег: конец — первый «>» вне кавычек; не длиннее XML_MAX_TAG
     let j = lt + 1;
     let quote = 0;
     for (; j < n; j++) {
+      if (j - lt > XML_MAX_TAG) throw damaged('слишком длинный тег XML');
       const c = xml.charCodeAt(j);
       if (quote) {
         if (c === quote) quote = 0;
@@ -1142,12 +1217,7 @@ export function scanXml(xml: string, h: XmlHandler, limits: XmlLimits = {}): voi
     const m = /^[^\s/>]+/.exec(body);
     if (!m) throw damaged('неверный тег XML');
     const name = local(m[0]);
-    const attrs: Record<string, string> = {};
-    let count = 0;
-    for (const a of body.slice(m[0].length).matchAll(ATTR)) {
-      if (++count > maxAttrs) throw damaged('слишком много атрибутов у элемента');
-      attrs[a[1]!] = decodeXmlText(a[2] ?? a[3] ?? '');
-    }
+    const attrs = parseAttributes(body.slice(m[0].length), maxAttrs);
     if (!selfClosing) {
       stack.push(name);
       if (stack.length > maxDepth) throw damaged('слишком глубокая вложенность XML');
@@ -1205,6 +1275,11 @@ export interface XlsxLimits {
   sharedCount: number;
   /** Непустых строк листа: больше — F5 сразу, не дочитывая лист. */
   rows: number;
+  /**
+   * Символов текста во всех ячейках листа, с повторами общих строк: одна общая строка в 32 767 символов,
+   * на которую ссылается каждая ячейка, иначе стоила бы десятков секунд разбора. Больше — F3.
+   */
+  text: number;
 }
 
 /** Пределы распаковки §3.1 и общих строк §3.3. */
@@ -1217,6 +1292,7 @@ export const XLSX_LIMITS: XlsxLimits = {
   entries: ZIP_MAX_ENTRIES,
   sharedCount: 1_000_000,
   rows: IMPORT_READ_MAX_ROWS,
+  text: 64 * MB,
 };
 
 const MAX_ROW = 1_048_576;
@@ -1302,7 +1378,8 @@ function sharedStrings(xml: string, maxCount: number): string[] {
 }
 
 /** Лист → строки ячеек. Пустые ячейки (в том числе `t="str"` без `<v>`, как пишет Finmap) и пустые строки не хранятся. */
-function sheetRows(xml: string, shared: string[], maxRows: number): SheetRow[] {
+function sheetRows(xml: string, shared: string[], maxRows: number, maxText: number): SheetRow[] {
+  let textTotal = 0;
   const rows: SheetRow[] = [];
   let row: SheetRow | null = null;
   let prevRow = 0;
@@ -1343,6 +1420,7 @@ function sheetRows(xml: string, shared: string[], maxRows: number): SheetRow[] {
         throw damaged(`неизвестный тип ячейки «${type}»`);
     }
     if (cell && cell.kind === 'text' && cell.value.length > CELL_MAX_CHARS) cell = { kind: 'error', value: CELL_TOO_LONG };
+    if (cell && cell.kind === 'text' && (textTotal += cell.value.length) > maxText) throw damaged('слишком много текста в листе');
     if (cell && cell.value !== '') row!.cells.set(col, cell);
   };
 
@@ -1406,17 +1484,17 @@ export function readXlsx(data: Buffer, limits: XlsxLimits = XLSX_LIMITS): SheetD
   const shared = sst ? sharedStrings(sst.toString('utf8'), limits.sharedCount) : [];
   const sheetXml = zip.read(sheet.path, limits.sheet);
   if (!sheetXml) throw damaged('нет файла первого листа');
-  return { rows: sheetRows(sheetXml.toString('utf8'), shared, limits.rows), date1904: sheet.date1904 };
+  return { rows: sheetRows(sheetXml.toString('utf8'), shared, limits.rows, limits.text), date1904: sheet.date1904 };
 }
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run tests/server/import-xml.test.ts tests/server/import-xlsx.test.ts`
-Expected: PASS, 6 и 8 тестов.
+Expected: PASS, 7 и 9 тестов.
 
 Run: `npm test` и `npm run typecheck`
-Expected: 871 пройдено и 1 пропущен; typecheck без ошибок.
+Expected: 873 пройдено и 1 пропущен; typecheck без ошибок.
 
 - [ ] **Step 5: Commit**
 
@@ -1439,7 +1517,7 @@ git commit -m "feat: импорт — безопасный XML и первый �
 - Consumes: `cleanName` (`src/shared/text.ts`), `foldCase` (`src/shared/search.ts`), `SYSTEM_CATEGORIES`, `CategoryKind`, `SystemKey` (`src/shared/system-categories.ts`); `damaged`, `fileError`, `IMPORT_READ_MAX_ROWS`, `tooManyRows` (задача 1); `SheetData`, `SheetRow`, `readXlsx` (задача 2); `finmapLikeXlsx`, `FINMAP_LIKE_HEADERS`, `buildZip` (задачи 1–2).
 - Produces:
   - `finmap-format.ts`: `type FinmapField` (16 полей A–P); `FINMAP_COLUMNS: { field; header }[]`; `columnTitle(field): string`; `nameKey(s): string`; `headerKey(s): string`; `headerField(title): FinmapField | null`; `countKnownHeaders(values): number`; `isHeaderRow(values): boolean`; `repairName(s): string`; `FINMAP_SYSTEM_ALIASES` (пусто); `systemKeyOf(name, kind): SystemKey | null`;
-  - `csv.ts`: `type CsvEncoding`; `CSV_MAX_FIELDS = 64`; `CSV_MAX_RECORD`; `decodeCsv(data): { text; encoding }`; `eachCsvRecord(text, delimiter, strict, visit)`; `parseCsv(text, delimiter, limit?, strict?): string[][]`; `chooseDelimiter(text): { delimiter; header }`; `readCsv(data): SheetData`;
+  - `csv.ts`: `type CsvEncoding`; `CSV_MAX_FIELDS = 64`; `CSV_MAX_RECORD`; `decodeCsv(data): { text; encoding }`; `eachCsvRecord(text, delimiter, strict, visit)`; `parseCsv(text, delimiter, limit?, strict?): string[][]` (без strict пределы строки не бросают — подбор разделителя); `chooseDelimiter(text): { delimiter; header }`; `readCsv(data): SheetData`;
   - `read-file.ts`: `IMPORT_MAX_BYTES = 30 МБ`; `type ImportFileKind`; `detectImportFile(data, name): ImportFileKind`; `readImportFile(data, name): SheetData`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1486,7 +1564,7 @@ describe('формат Finmap: колонки и ключи (§2.1, §2.2, §4.9
   });
 
   it('nameKey: «Kacca», «КАССА», «касса» совпадают; регистр латиницы не мешает; «Kaspi» и «Каспи» — разные', () => {
-    expect(nameKey('Kacca')).toBe(nameKey('касса')); // «Kacca» латиницей
+    expect(nameKey('\u004B\u0061\u0063\u0063\u0061')).toBe(nameKey('касса')); // «Касса» латиницей: K, a, c, c, a
     expect(nameKey('КАССА')).toBe(nameKey('Касса'));
     expect(nameKey('  Касса\u00A0 1 ')).toBe(nameKey('касса 1'));
     expect(nameKey('Ёлка')).toBe(nameKey('елка'));
@@ -1621,6 +1699,24 @@ describe('тип файла (§3.4)', () => {
     // ZIP, но не книга Excel (например, .docx), — F2 от читателя книги
     expect(f('F2', () => readImportFile(buildZip([{ name: 'word/document.xml', data: '<w/>' }]), 'x.xlsx'))).toBe('Нужен файл .xlsx или .csv');
     expect(readImportFile(Buffer.from(`${HEAD}\n1;2;Касса;;`), 'x.csv').rows).toHaveLength(2);
+  });
+
+  it('пределы CSV: запись длиннее 1 МБ — F3; больше 50 010 непустых строк — F5 сразу', () => {
+    expect(f('F3', () => readCsv(Buffer.from(`${HEAD}\n05.10.2026;1;К;;"${'к'.repeat(1_100_000)}"`, 'utf8')))).toBe(
+      'Файл повреждён или небезопасен: строка CSV длиннее 1 МБ',
+    );
+    expect(f('F5', () => readCsv(Buffer.from(`${HEAD}\n${'05.10.2026;1;К;;\n'.repeat(50_010)}`, 'utf8')))).toBe(
+      'В файле больше 50 000 строк — разбейте его по годам',
+    );
+    expect(readCsv(Buffer.from(`${HEAD}\n${'05.10.2026;1;К;;\n'.repeat(50_009)}`, 'utf8')).rows).toHaveLength(50_010);
+  });
+
+  it('подбор разделителя: предел строки при пробном разборе не ломает файл с «;» и 70 запятыми в комментарии', () => {
+    const csv = `${HEAD}\n05.10.2026;1;Касса;;${'а,'.repeat(70)}б`;
+    expect(chooseDelimiter(csv).delimiter).toBe(';');
+    expect(readCsv(Buffer.from(csv, 'utf8')).rows[1]!.cells.get(4)!.value).toBe(`${'а,'.repeat(70)}б`);
+    expect(parseCsv('a,b,c', ',', Infinity)).toEqual([['a', 'b', 'c']]);
+    expect(parseCsv(`${'x,'.repeat(70)}x`, ',')).toEqual([]);
   });
 });
 ```
@@ -1853,11 +1949,17 @@ export function eachCsvRecord(text: string, delimiter: string, strict: boolean, 
   }
 }
 
-/** Первые limit записей CSV (без строгой проверки кавычек) — для подбора разделителя и тестов. */
+/** Первые limit записей CSV (без строгой проверки кавычек и пределов строки) — для подбора разделителя и тестов. */
 export function parseCsv(text: string, delimiter: string, limit = Infinity, strict = false): string[][] {
   const records: string[][] = [];
   if (limit <= 0) return records;
-  eachCsvRecord(text, delimiter, strict, (values) => records.push(values) < limit);
+  try {
+    eachCsvRecord(text, delimiter, strict, (values) => records.push(values) < limit);
+  } catch (e) {
+    // при подборе разделителя предел строки (64 поля, 1 МБ) — не ошибка файла: этот разделитель хуже подходит,
+    // считаются записи до предела; строгий разбор выбранным разделителем отклонит файл сам
+    if (strict) throw e;
+  }
   return records;
 }
 
@@ -1926,10 +2028,10 @@ export function readImportFile(data: Buffer, name: string): SheetData {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run tests/shared/finmap-format.test.ts tests/server/import-csv.test.ts`
-Expected: PASS, 6 и 6 тестов.
+Expected: PASS, 6 и 8 тестов.
 
 Run: `npm test` и `npm run typecheck`
-Expected: 883 пройдено и 1 пропущен (в том числе `tests/shared/terminology.test.ts`); typecheck без ошибок.
+Expected: 887 пройдено и 1 пропущен (в том числе `tests/shared/terminology.test.ts`); typecheck без ошибок.
 
 - [ ] **Step 5: Commit**
 
@@ -2052,6 +2154,14 @@ describe('даты (§4.3)', () => {
     expect(fromExcelSerial(46300, true)).toEqual({ date: '2030-10-06', seconds: 0 });
     expect(fromExcelSerial(-1, false)).toBeNull();
     expect(fromExcelSerial(3_000_000, false)).toBeNull();
+    // ошибка Excel 1900 года: число 60 — несуществующее 29.02.1900; первая принимаемая дата — 01.03.1900
+    expect(fromExcelSerial(60, false)).toBeNull();
+    expect(fromExcelSerial(61, false)).toEqual({ date: '1900-03-01', seconds: 0 });
+    // date1904: последнее число Excel плюс 1 462 дня — за 31.12.9999
+    expect(fromExcelSerial(2_958_465, true)).toBeNull();
+    expect(fromExcelSerial(2_958_465 - 1462, true)).toEqual({ date: '9999-12-31', seconds: 0 });
+    expect(fromExcelSerial(2_958_465.9999999, false)).toBeNull();
+    expect(parseWallTime(text('28.02.1900'), false)).toBeNull();
   });
 
   it('текст: д.м.гггг, дд-мм-гггг, дд/мм/гггг, время через пробел или T, ISO, число текстом; 31.02 и 24:00 — нет', () => {
@@ -2068,15 +2178,18 @@ describe('даты (§4.3)', () => {
     for (const bad of ['31.02.2026', '05.10.2026 24:00', '05.13.2026', 'вчера', '2026-10-5', '05.10.26']) expect(w(bad), bad).toBeNull();
   });
 
-  it('граница суток в APP_TIMEZONE: 23:30 и 00:30 по Алматы; будущая дата — W1 и строка пропущена; год 1989 — R03', () => {
+  it('граница суток в APP_TIMEZONE: 23:30 и 00:30 по Алматы, 2023 год — UTC+6; будущая дата — W1 и строка пропущена; год 1989 — R03', () => {
     const p = parse(
       row(2, { paidAt: '05.10.2026 23:30', amount: 1, fromAccount: 'Касса' }),
+      row(6, { paidAt: '15.06.2023 23:30', amount: 1, fromAccount: 'Касса' }),
       row(3, { paidAt: '06.10.2026 00:30', amount: 1, fromAccount: 'Касса' }),
       row(4, { paidAt: '07.10.2026 00:00', amount: 'не сумма', fromAccount: 'Касса' }),
       row(5, { paidAt: '31.12.1989', amount: 1, fromAccount: 'Касса' }),
     );
     expect(p.rows.map((r) => [r.paidAt, r.date, r.minute])).toEqual([
       ['2026-10-05T18:30:00.000Z', '2026-10-05', '2026-10-05 23:30'],
+      // до 01.03.2024 Алматы жил по UTC+6: 23:30 — это 17:30 UTC
+      ['2023-06-15T17:30:00.000Z', '2023-06-15', '2023-06-15 23:30'],
       ['2026-10-05T19:30:00.000Z', '2026-10-06', '2026-10-06 00:30'],
     ]);
     expect(p.future).toEqual([4]);
@@ -2084,7 +2197,7 @@ describe('даты (§4.3)', () => {
       { code: 'W1', message: 'Дата платежа в будущем — плановые операции появятся позже, строки пропущены', row: 4 },
       { code: 'R03', message: 'Дата платежа раньше 1990 года', row: 5 },
     ]);
-    expect(p.total).toBe(4);
+    expect(p.total).toBe(5);
   });
 });
 
@@ -2188,6 +2301,8 @@ describe('строки (§4.1, §4.3–§4.8)', () => {
       row(5, { ...BASE, fromAccount: 'К', periodFrom: '01.10.2026', periodTo: '30.09.2026' }),
       row(6, { ...BASE, fromAccount: 'К', accrualDate: 'сентябрь' }),
       row(7, { ...BASE, fromAccount: 'К', toAccount: 'Б', periodFrom: '01.09.2026' }),
+      row(8, { ...BASE, fromAccount: 'К', accrualDate: num(60) }),
+      row(9, { ...BASE, fromAccount: 'К', periodTo: num(2_958_466) }),
     );
     expect(p.rows.map((r) => [r.row, r.accrualDate])).toEqual([
       [2, '2026-09-30'],
@@ -2200,6 +2315,8 @@ describe('строки (§4.1, §4.3–§4.8)', () => {
       '5 R11: Конец периода раньше начала',
       '6 R11: Не удалось прочитать дату начисления «сентябрь»',
       '7 W3: У перевода нет даты начисления — она не перенесена',
+      '8 R11: Не удалось прочитать дату начисления «60»',
+      '9 R11: Не удалось прочитать конец периода начисления «2958466»',
     ]);
   });
 
@@ -2372,6 +2489,7 @@ export const MESSAGES = {
   A2: 'Неизвестная валюта',
   A3: 'Название счёта: от 1 до 120 символов',
   A4: 'Неверная сумма остатка',
+  A4_TARGETS: 'Этот счёт выбран для нескольких названий с разными «Остатками после импорта» — оставьте одно значение',
   A5: (name: string) => `Счёт «${clip(name)}» в архиве — выберите другой`,
 } as const;
 
@@ -2568,15 +2686,18 @@ export interface WallTime {
 
 const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
 const DAY_MS = 86_400_000;
-/** 31.12.9999 — последняя дата Excel. */
+/** 01.03.1900 — первая дата без ошибки Excel 1900 года (29.02.1900); 31.12.9999 — последняя дата Excel. */
+const EXCEL_MIN = 61;
 const EXCEL_MAX = 2_958_465;
+/** Даты вне 01.03.1900–31.12.9999 не принимаются (§4.3): у числа Excel и у текста. */
+const MIN_DATE = '1900-03-01';
 
 /**
  * Число Excel → дата и время (§4.3): целая часть — дни от 30.12.1899 (+1 462 при date1904), дробная — доля суток.
- * Время округляется до секунды; 86 400 секунд — следующие сутки.
+ * Время округляется до секунды; 86 400 секунд — следующие сутки. Дата вне 01.03.1900–31.12.9999 — null.
  */
 export function fromExcelSerial(serial: number, date1904: boolean): WallTime | null {
-  if (!Number.isFinite(serial) || serial < 0 || serial > EXCEL_MAX) return null;
+  if (!Number.isFinite(serial) || serial < 0) return null;
   let days = Math.floor(serial);
   let seconds = Math.round((serial - days) * 86_400);
   if (seconds >= 86_400) {
@@ -2584,6 +2705,7 @@ export function fromExcelSerial(serial: number, date1904: boolean): WallTime | n
     seconds -= 86_400;
   }
   if (date1904) days += 1462;
+  if (days < EXCEL_MIN || days > EXCEL_MAX) return null;
   return { date: new Date(EXCEL_EPOCH + days * DAY_MS).toISOString().slice(0, 10), seconds };
 }
 
@@ -2594,14 +2716,14 @@ const SERIAL = /^\d+(?:\.\d+)?$/;
 function wall(y: string, mo: string, d: string, h = '0', mi = '0', s = '0'): WallTime | null {
   const date = `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
   const [hh, mm, ss] = [Number(h), Number(mi), Number(s)];
-  if (!isValidDate(date) || hh > 23 || mm > 59 || ss > 59) return null;
+  if (!isValidDate(date) || date < MIN_DATE || hh > 23 || mm > 59 || ss > 59) return null;
   return { date, seconds: hh * 3600 + mm * 60 + ss };
 }
 
 /**
  * Дата ячейки (§4.3): число Excel; текст «д.м.гггг», «дд-мм-гггг», «дд/мм/гггг» (любой одиночный разделитель-не-цифра)
  * с временем «ч:мм» или «чч:мм:сс» через пробел или T; ISO «гггг-мм-дд[ чч:мм[:сс]]»; цифры с точкой — число Excel.
- * Без времени — 00:00:00. null — не разобралось или такой даты нет (31.02).
+ * Без времени — 00:00:00. null — не разобралось, такой даты нет (31.02) или она вне 01.03.1900–31.12.9999.
  */
 export function parseWallTime(cell: Cell, date1904: boolean): WallTime | null {
   if (cell.kind === 'number') return fromExcelSerial(Number(cell.value), date1904);
@@ -2828,7 +2950,7 @@ Run: `npx vitest run tests/server/import-parse-row.test.ts`
 Expected: PASS, 16 тестов.
 
 Run: `npm test` и `npm run typecheck`
-Expected: 899 пройдено и 1 пропущен; typecheck без ошибок.
+Expected: 903 пройдено и 1 пропущен; typecheck без ошибок.
 
 - [ ] **Step 5: Commit**
 
@@ -3507,7 +3629,7 @@ Run: `npx vitest run tests/server/schema-0006.test.ts tests/server/import-match.
 Expected: PASS (2 и 5 новых тестов; прежние тесты миграций проходят).
 
 Run: `npm test` и `npm run typecheck`
-Expected: 906 пройдено и 1 пропущен; typecheck без ошибок.
+Expected: 910 пройдено и 1 пропущен; typecheck без ошибок.
 
 - [ ] **Step 6: Commit**
 
@@ -3779,6 +3901,68 @@ describe('предпросмотр: «Будет создано», ошибки 
     expect(p.errors).toEqual({ total: 1, byCode: [{ code: 'R05', message: 'Не удалось прочитать сумму «сто»', count: 1, rows: [4] }] });
     expect(p.file).toEqual({ name: 'выгрузка.xlsx', size: 123, rows: 3 });
     expect(p.canImport).toBe(false);
+  });
+});
+
+describe('предпросмотр: правки по ревью', () => {
+  it('два названия из файла — один существующий счёт: дата открытия по самой ранней строке любого названия; разные «Остатки после импорта» — ошибка', async () => {
+    w = await opsWorld();
+    const rows = [
+      fr({ paidAt: at('2026-10-02', '10:00:00'), amount: 100, to: 'Касса' }),
+      fr({ paidAt: at('2026-09-10', '10:00:00'), amount: 50, from: 'Касса клуба' }),
+    ];
+    const both = (target2: number | null) =>
+      preview(rows, [
+        { key: 'касса', kind: 'existing', accountId: w.kzt, targetBalance: 100_000 },
+        { key: 'касса клуба', kind: 'existing', accountId: w.kzt, targetBalance: target2 },
+      ]);
+    const one = both(null);
+    expect(one.preview.accounts.map((a) => [a.key, a.existing?.newOpenedAt, a.errors])).toEqual([
+      ['касса', '2026-09-10', []],
+      ['касса клуба', '2026-09-10', []],
+    ]);
+    // стартовый = цель - (движение имеющихся 0 + движение файла по обоим названиям: +10 000 - 5 000)
+    expect(one.plan.accountChanges).toEqual([
+      { accountId: w.kzt, before: { startingBalance: 0, openedAt: '2026-10-01' }, after: { startingBalance: 100_000 - 5_000, openedAt: '2026-09-10' } },
+    ]);
+    expect(one.plan.rows.every((r) => r.paidAt >= '2026-09-09T19:00:00.000Z')).toBe(true);
+    expect(one.preview.canImport).toBe(true);
+    expect(both(100_000).preview.canImport).toBe(true);
+
+    const conflict = both(200_000);
+    expect(conflict.preview.accounts.map((a) => a.errors.map((e) => e.code))).toEqual([['A4'], ['A4']]);
+    expect(conflict.preview.accounts[0]!.errors[0]!.message).toBe('Этот счёт выбран для нескольких названий с разными «Остатками после импорта» — оставьте одно значение');
+    expect(conflict.plan.accountChanges).toEqual([]);
+    expect(conflict.preview.canImport).toBe(false);
+  });
+
+  it('новый счёт только с ошибкой названия (A3): его строки не считаются ни в «будет добавлено», ни в периоде, ни в движении', async () => {
+    w = await opsWorld();
+    const { preview: p, plan } = preview(
+      [fr({ paidAt: at('2026-10-02', '10:00:00'), amount: 100, to: 'Касса' }), fr({ paidAt: at('2026-09-01', '10:00:00'), amount: 70, to: 'Банк' })],
+      [{ key: 'банк', kind: 'new', name: '   ', currency: 'KZT', balance: null }],
+    );
+    expect(p.accounts[1]).toMatchObject({ key: 'банк', currency: 'KZT', rows: 0, movement: 0, errors: [{ code: 'A3' }] });
+    expect(p.counts.add).toBe(1);
+    expect(p.period).toEqual({ from: '2026-10-02', to: '2026-10-02' });
+    expect(plan.rows.map((r) => r.row)).toEqual([2]);
+    expect(plan.accounts).toEqual([]);
+    expect(p.canImport).toBe(false);
+  });
+
+  it('дата до 01.03.2024 (Алматы — UTC+6): момент и ключ дубликата по часам того времени', async () => {
+    w = await opsWorld();
+    const old = (await w.post(`/api/v1/companies/${w.cid}/accounts`, { name: 'Старая касса', currency: 'KZT', openedAt: '2024-01-01' })).account.id as number;
+    await w.post(w.ops, { type: 'expense', paidAt: '2024-02-29T17:30:00Z', accountId: old, amount: 1000 }); // 23:30 по UTC+6
+    await w.post(w.ops, { type: 'expense', paidAt: '2024-02-29T19:30:00Z', accountId: old, amount: 2000 }); // 00:30 01.03, уже UTC+5
+    const { preview: p, plan } = preview([
+      fr({ paidAt: at('2024-02-29', '23:30:00'), amount: 10, from: 'Старая касса' }),
+      fr({ paidAt: at('2024-03-01', '00:30:00'), amount: 20, from: 'Старая касса' }),
+      fr({ paidAt: at('2024-02-29', '22:30:00'), amount: 10, from: 'Старая касса' }),
+    ]);
+    expect(p.duplicates).toEqual({ count: 2, rows: [2, 3] });
+    expect(plan.rows.map((r) => r.paidAt)).toEqual(['2024-02-29T16:30:00.000Z']);
+    expect(minuteOf('2024-02-29T17:30:00.000Z', 'Asia/Almaty')).toBe('2024-02-29 23:30');
   });
 });
 ```
@@ -4088,8 +4272,8 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
     const to = r.toAccount ? stateOf(r.toAccount) : null;
     const accCurrency = acc.currency;
     const toCurrency = to?.currency ?? null;
-    // счёт не выбран или с ошибкой — ошибка уже в карточке счёта
-    if (!accCurrency || (to && !toCurrency)) continue;
+    // счёт не выбран или с ошибкой (A1–A3, A5): строки не считаются нигде — ошибка уже в карточке счёта
+    if (!accCurrency || !acc.ref || (to && (!toCurrency || !to.ref))) continue;
     const err = (code: RowIssue['code'], message: string) => issues.push({ code, message, row: r.row });
     if (to && idOf(acc.ref) !== null && idOf(acc.ref) === idOf(to.ref)) {
       err('R09', M.R09);
@@ -4217,18 +4401,24 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
   const dupSet = new Set(duplicates);
   const added = resolved.filter((x) => !dupSet.has(x.src.row));
 
-  // ——— движение, остатки и дата открытия счетов (§5.4)
+  // ——— движение, остатки и дата открытия счетов (§5.4): по ключу из файла — для карточки; по id — для существующего
+  // счёта, на который могут указывать несколько названий из файла (его дата открытия и стартовый баланс — общие)
   const movement = new Map<string, number>();
-  const movementById = new Map<number, number>();
   const rowsOf = new Map<string, number>();
   const earliest = new Map<string, string>();
+  const movementById = new Map<number, number>();
+  const earliestById = new Map<number, string>();
   const touch = (st: AccountState, delta: number, date: string) => {
     movement.set(st.key, (movement.get(st.key) ?? 0) + delta);
-    const id = idOf(st.ref);
-    if (id !== null) movementById.set(id, (movementById.get(id) ?? 0) + delta);
     rowsOf.set(st.key, (rowsOf.get(st.key) ?? 0) + 1);
     const e = earliest.get(st.key);
     if (!e || date < e) earliest.set(st.key, date);
+    const id = idOf(st.ref);
+    if (id !== null) {
+      movementById.set(id, (movementById.get(id) ?? 0) + delta);
+      const ei = earliestById.get(id);
+      if (!ei || date < ei) earliestById.set(id, date);
+    }
   };
   for (const x of added) {
     if (x.src.type === 'income') touch(x.acc, x.amount, x.src.date);
@@ -4236,8 +4426,42 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
     if (x.to) touch(x.to, x.toAmount!, x.src.date);
   }
 
-  const planAccounts: ImportPlan['accounts'] = [];
+  // существующие счета: перенос даты открытия на первую операцию файла и «Остаток после импорта» — один раз на счёт;
+  // разные «Остатки после импорта» у названий, сопоставленных одному счёту, — ошибка этих карточек
+  const existingResult = new Map<number, { newOpenedAt: string | null; error: { code: string; message: string } | null }>();
   const accountChanges: PlannedAccountChange[] = [];
+  for (const st of states.values()) {
+    const acc = st.existing;
+    if (!acc || existingResult.has(acc.id)) continue;
+    const targets = new Set<number>();
+    for (const other of states.values()) {
+      if (other.existing?.id === acc.id && other.mapping?.kind === 'existing' && other.mapping.targetBalance != null) targets.add(other.mapping.targetBalance);
+    }
+    const first = earliestById.get(acc.id) ?? null;
+    const newOpenedAt = first !== null && first < acc.openedAt ? first : null;
+    if (targets.size > 1) {
+      existingResult.set(acc.id, { newOpenedAt, error: { code: 'A4', message: M.A4_TARGETS } });
+      continue;
+    }
+    const target = targets.size === 1 ? [...targets][0]! : null;
+    const balance = balances.get(acc.id) ?? acc.startingBalance;
+    // «Остаток после импорта»: стартовый баланс = цель - (движение имеющихся операций + движение файла)
+    const startingBalance = target === null ? acc.startingBalance : target - (balance - acc.startingBalance + (movementById.get(acc.id) ?? 0));
+    if (!Number.isSafeInteger(startingBalance)) {
+      existingResult.set(acc.id, { newOpenedAt, error: { code: 'A4', message: M.A4 } });
+      continue;
+    }
+    existingResult.set(acc.id, { newOpenedAt, error: null });
+    if (startingBalance !== acc.startingBalance || newOpenedAt !== null) {
+      accountChanges.push({
+        accountId: acc.id,
+        before: { startingBalance: acc.startingBalance, openedAt: acc.openedAt },
+        after: { startingBalance, openedAt: newOpenedAt ?? acc.openedAt },
+      });
+    }
+  }
+
+  const planAccounts: ImportPlan['accounts'] = [];
   const cards: ImportPreviewAccount[] = [];
   for (const st of states.values()) {
     const move = movement.get(st.key) ?? 0;
@@ -4254,33 +4478,23 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
     };
     if (st.existing) {
       const acc = st.existing;
-      const balance = balances.get(acc.id) ?? acc.startingBalance;
-      const newOpenedAt = first !== null && first < acc.openedAt ? first : null;
-      card.existing = { balance, openedAt: acc.openedAt, newOpenedAt };
-      const target = st.mapping?.kind === 'existing' ? (st.mapping.targetBalance ?? null) : null;
-      // «Остаток после импорта»: стартовый баланс = цель - (движение имеющихся операций + движение файла)
-      const startingBalance = target === null ? acc.startingBalance : target - (balance - acc.startingBalance + (movementById.get(acc.id) ?? 0));
-      if (!Number.isSafeInteger(startingBalance)) st.errors.push({ code: 'A4', message: M.A4 });
-      else if (startingBalance !== acc.startingBalance || newOpenedAt !== null) {
-        if (!accountChanges.some((c) => c.accountId === acc.id)) {
-          accountChanges.push({
-            accountId: acc.id,
-            before: { startingBalance: acc.startingBalance, openedAt: acc.openedAt },
-            after: { startingBalance, openedAt: newOpenedAt ?? acc.openedAt },
-          });
-        }
-      }
+      const result = existingResult.get(acc.id)!;
+      card.existing = { balance: balances.get(acc.id) ?? acc.startingBalance, openedAt: acc.openedAt, newOpenedAt: result.newOpenedAt };
+      if (result.error) st.errors.push(result.error);
     } else if (st.mapping?.kind === 'new' && st.ref) {
       // «Текущий остаток» B: стартовый = B - движение; «Стартовый баланс» S — как есть; пусто — 0
       const b = st.mapping.balance;
       const startingBalance = b === null ? 0 : b.mode === 'current' ? b.amount - move : b.amount;
       if (!Number.isSafeInteger(startingBalance)) {
+        // A4: строки счёта больше не считаются (движение в карточке остаётся — по нему видно, откуда ошибка)
         st.errors.push({ code: 'A4', message: M.A4 });
         st.ref = null;
       } else planAccounts.push({ key: st.key, name: cleanName(st.mapping.name), currency: st.currency!, startingBalance, openedAt: first ?? today });
     }
     cards.push(card);
   }
+  /** Добавляемые строки: без дубликатов, все счета без ошибок (в том числе A4, найденной выше). */
+  const counted = added.filter((x) => x.acc.ref && (!x.to || x.to.ref));
 
   // ——— W8: этот файл уже импортирован и не отменён
   const prior = db
@@ -4294,8 +4508,7 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
 
   const rowErrors = issues.filter(isRowError);
   const accountErrors = [...states.values()].reduce((s, st) => s + st.errors.length, 0);
-  const planRows: PlannedRow[] = added
-    .filter((x) => x.acc.ref && (!x.to || x.to.ref))
+  const planRows: PlannedRow[] = [...counted]
     .sort((p, q) => (p.src.paidAt < q.src.paidAt ? -1 : p.src.paidAt > q.src.paidAt ? 1 : p.src.row - q.src.row))
     .map((x) => ({
       row: x.src.row,
@@ -4315,7 +4528,7 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
       tags: x.m.tags,
       comment: x.src.comment,
     }));
-  const dates = added.map((x) => x.src.date).sort();
+  const dates = counted.map((x) => x.src.date).sort();
   const items = <T>(list: T[], map: (x: T) => ImportCreateItem) => ({ total: list.length, items: list.slice(0, CREATE_ITEMS_MAX).map(map) });
   const byType = (t: ImportType) => src.parsed.rows.filter((r) => r.type === t).length;
 
@@ -4326,7 +4539,7 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
       income: byType('income'),
       expense: byType('expense'),
       transfer: byType('transfer'),
-      add: added.length,
+      add: counted.length,
       duplicates: duplicates.length,
       skippedFuture: src.parsed.future.length,
     },
@@ -4342,7 +4555,7 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
     errors: { total: rowErrors.length, byCode: groupIssues(rowErrors) },
     warnings: groupIssues(issues.filter((i) => !isRowError(i))),
     duplicates: { count: duplicates.length, rows: duplicates.slice(0, ISSUE_ROWS_MAX) },
-    canImport: rowErrors.length === 0 && accountErrors === 0 && added.length > 0,
+    canImport: rowErrors.length === 0 && accountErrors === 0 && counted.length > 0,
   };
   return {
     preview,
@@ -4362,10 +4575,10 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run tests/server/import-preview.test.ts`
-Expected: PASS, 6 тестов.
+Expected: PASS, 9 тестов.
 
 Run: `npm test` и `npm run typecheck`
-Expected: 912 пройдено и 1 пропущен; typecheck без ошибок.
+Expected: 919 пройдено и 1 пропущен; typecheck без ошибок.
 
 - [ ] **Step 5: Commit**
 
@@ -4729,14 +4942,15 @@ describe('большой файл (Review Focus 5)', () => {
         comment: i % 7 ? null : `Комментарий ${i}`,
       });
     });
+    const file = finmapLikeXlsx(rows); // файл собирается до замера: меряется только сервер
     const t0 = performance.now();
-    const res = await upload(finmapLikeXlsx(rows), 'большой.xlsx');
+    const res = await upload(file, 'большой.xlsx');
     const t1 = performance.now();
     expect(res.statusCode, res.body.slice(0, 300)).toBe(200);
     const p = res.json() as ImportPreview;
     expect(p.counts).toMatchObject({ add: 16_000, duplicates: 0 });
     expect(p.create.counterparties.total).toBe(86);
-    expect(res.body.length).toBeLessThan(200 * 1024);
+    expect(res.rawPayload.length).toBeLessThan(200 * 1024);
     const again = await w.h.req('POST', previewUrl(), { token: p.token, accounts: [] });
     const t2 = performance.now();
     expect(again.statusCode).toBe(200);
@@ -5277,7 +5491,7 @@ Run: `npx vitest run tests/server/xlsx-writer.test.ts tests/server/import-cache.
 Expected: PASS (3, 3, 6 новых тестов; вложения и выгрузка журнала — без изменений).
 
 Run: `npm test` и `npm run typecheck`
-Expected: 924 пройдено и 1 пропущен; typecheck без ошибок.
+Expected: 931 пройдено и 1 пропущен; typecheck без ошибок.
 
 Run: `npm run test:e2e`
 Expected: 142 из 142 (интерфейс не менялся; проверка, что сервер с новыми маршрутами и писатель выгрузки работают). Известный нестабильный тест — `journal-actions.spec.ts:555`; если упал только он, перезапустите прогон.
