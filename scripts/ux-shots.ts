@@ -321,6 +321,17 @@ const SCENARIOS: Scenario[] = [
       await newForm(p).waitFor();
     },
   },
+  {
+    ours: 'cm06-filter.png',
+    finmap: 'm06-filter.png',
+    phone: true,
+    path: 'log',
+    act: async (p) => {
+      // воронка сразу открывает окно «Фильтры» на весь экран, «Период» — первым полем (§8.5)
+      await p.getByRole('main').getByRole('button', { name: /^Фильтр( · \d+)?$/ }).click();
+      await p.getByRole('dialog', { name: 'Фильтры', exact: true }).waitFor();
+    },
+  },
   // экран «Настройки» на телефоне (§8.6); снимка Finmap нет — в index.html слева «нет снимка Finmap»
   { ours: 'cm07-settings.png', finmap: 'm07-settings.png', phone: true, path: 'settings' },
 ];
