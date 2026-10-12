@@ -37,6 +37,19 @@ describe('панель «История действий» (§3.4 этапа 1.5
     expect(item).toMatchObject({ title: 'Изменён расход', amount: null, changes: 'Изменено: Сумма, Комментарий' });
   });
 
+  it('смена типа (§6.8, §10.1): «Изменён перевод», «Тип: Расход → Перевод», затем остальные поля', () => {
+    const [item] = historyItems(
+      [
+        entry({
+          action: 'update',
+          diff: { type: 'transfer', before: { type: 'expense', toAccountId: null, counterpartyId: 5 }, after: { type: 'transfer', toAccountId: 2, counterpartyId: null } },
+        }),
+      ],
+      ctx,
+    );
+    expect(item).toMatchObject({ title: 'Изменён перевод', type: 'transfer', amount: null, changes: 'Тип: Расход → Перевод. Изменено: Счёт зачисления, Контрагент' });
+  });
+
   it('удалённую операцию не открыть — ни запись об удалении, ни более ранние; восстановленную — можно', () => {
     const list = historyItems(
       [

@@ -5,6 +5,7 @@ import { Field } from '../../components/Field';
 import { Pending, StaleNotice } from '../../components/QueryState';
 import { btnSecondary, inputClass } from '../../components/ui';
 import { ACTION_LABELS, COMPANY_ENTITIES, diffRows, ENTITY_LABELS, pageDiff, SYSTEM_ENTITIES } from '../../lib/audit-format';
+import { OPERATION_FIELD_LABELS } from '../../lib/history';
 import { useMeta } from '../../lib/query';
 import { useAuditFeed, useUsers, type AuditEntry } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
@@ -13,7 +14,7 @@ type Scope = 'company' | 'system';
 
 function AuditItem({ e, timeZone }: { e: AuditEntry; timeZone: string }) {
   const diff = pageDiff(e);
-  const rows = diffRows(diff);
+  const rows = diffRows(diff, e.entity);
   return (
     <li className="rounded-2xl border border-field p-3 text-sm">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -42,7 +43,8 @@ function AuditItem({ e, timeZone }: { e: AuditEntry; timeZone: string }) {
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.field}>
-                    <td className="pr-3 align-top">{r.field}</td>
+                    {/* поля операции — по-русски, как в панели истории («Тип», «Счёт зачисления») */}
+                    <td className="pr-3 align-top">{e.entity === 'operation' ? (OPERATION_FIELD_LABELS[r.field] ?? r.field) : r.field}</td>
                     <td className="pr-3 align-top text-expense-strong">{r.before}</td>
                     <td className="align-top text-income">{r.after}</td>
                   </tr>

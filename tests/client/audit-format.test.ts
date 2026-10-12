@@ -13,6 +13,19 @@ describe('audit-format', () => {
     expect(diffRows(null)).toBeNull();
   });
 
+  it('diffRows операции: тип по-русски — «Расход → Перевод» (§10.1 этапа 1.5); у других сущностей type как есть', () => {
+    const diff = { type: 'transfer', before: { type: 'expense', counterpartyId: 5 }, after: { type: 'transfer', counterpartyId: null } };
+    expect(diffRows(diff, 'operation')).toEqual([
+      { field: 'type', before: 'Расход', after: 'Перевод' },
+      { field: 'counterpartyId', before: '5', after: 'null' },
+    ]);
+    expect(diffRows({ before: { type: 'client' }, after: { type: 'supplier' } }, 'counterparty')).toEqual([{ field: 'type', before: 'client', after: 'supplier' }]);
+    expect(diffRows(diff)).toEqual([
+      { field: 'type', before: 'expense', after: 'transfer' },
+      { field: 'counterpartyId', before: '5', after: 'null' },
+    ]);
+  });
+
   it('formatBytes', () => {
     expect(formatBytes(500)).toBe('500 Б');
     expect(formatBytes(1536)).toBe('1,5 КБ');

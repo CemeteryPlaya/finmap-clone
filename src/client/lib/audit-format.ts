@@ -54,15 +54,22 @@ function show(v: unknown): string {
   return typeof v === 'string' ? v : JSON.stringify(v);
 }
 
-/** Строки «поле: было → стало» для diff вида { before, after }; null — показать JSON как есть. */
-export function diffRows(diff: Record<string, unknown> | null): DiffRow[] | null {
+/** Типы операции по-русски — для «Тип: Расход → Перевод» (§10.1 этапа 1.5). */
+export const OPERATION_TYPE_LABELS: Record<string, string> = { income: 'Доход', expense: 'Расход', transfer: 'Перевод' };
+
+/**
+ * Строки «поле: было → стало» для diff вида { before, after }; null — показать JSON как есть. У операции (`entity`)
+ * тип показывается по-русски — «Расход → Перевод» (§10.1 этапа 1.5); у других сущностей поле type — как есть.
+ */
+export function diffRows(diff: Record<string, unknown> | null, entity?: string): DiffRow[] | null {
   if (!diff) return null;
   const { before, after } = diff;
   if (typeof before !== 'object' || before === null || typeof after !== 'object' || after === null) return null;
   const b = before as Record<string, unknown>;
   const a = after as Record<string, unknown>;
+  const value = (field: string, v: unknown) => (entity === 'operation' && field === 'type' && typeof v === 'string' && OPERATION_TYPE_LABELS[v]) || show(v);
   const fields = [...new Set([...Object.keys(b), ...Object.keys(a)])];
-  return fields.map((field) => ({ field, before: show(b[field]), after: show(a[field]) }));
+  return fields.map((field) => ({ field, before: value(field, b[field]), after: value(field, a[field]) }));
 }
 
 /** Размер файла: «500 Б», «1,5 КБ», «1 МБ». */

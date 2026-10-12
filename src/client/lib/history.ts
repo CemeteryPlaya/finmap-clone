@@ -1,6 +1,6 @@
 import { formatDateTimeSec } from '../../shared/dates';
 import { formatMoney, MONEY_SCREEN_BEFORE } from '../../shared/money';
-import { ACTION_LABELS, diffRows } from './audit-format';
+import { ACTION_LABELS, diffRows, type DiffRow } from './audit-format';
 import type { AuditEntry } from './queries';
 
 type OperationKind = 'income' | 'expense' | 'transfer';
@@ -28,6 +28,20 @@ export const OPERATION_FIELD_LABELS: Record<string, string> = {
   lines: 'Категория и проект',
   tagIds: 'Теги',
 };
+
+/**
+ * Вторая строка записи правки: смена типа отдельно — «Тип: Расход → Перевод» (§10.1 этапа 1.5), затем остальные поля
+ * по-русски — «Изменено: Счёт зачисления, Контрагент». null — показывать нечего.
+ */
+function changesText(rows: readonly DiffRow[]): string | null {
+  const typeRow = rows.find((r) => r.field === 'type');
+  const others = rows.filter((r) => r.field !== 'type');
+  const parts = [
+    ...(typeRow ? [`Тип: ${typeRow.before} → ${typeRow.after}`] : []),
+    ...(others.length > 0 ? [`Изменено: ${others.map((r) => OPERATION_FIELD_LABELS[r.field] ?? r.field).join(', ')}`] : []),
+  ];
+  return parts.length > 0 ? parts.join('. ') : null;
+}
 
 export interface HistoryItem {
   /** id записи истории. */
@@ -68,8 +82,8 @@ export function historyItems(
     const title = verb ? (type ? `${verb[0]} ${NOUNS[type]}` : `${verb[1]} операция`) : `${ACTION_LABELS[e.action] ?? e.action}: операция`;
     const account = typeof diff.accountId === 'number' ? ctx.accounts.get(diff.accountId) : undefined;
     const amount = e.action !== 'update' && typeof diff.amount === 'number' && account ? formatMoney(diff.amount, account.currency, MONEY_SCREEN_BEFORE) : null;
-    const rows = e.action === 'update' ? diffRows(e.diff) : null;
-    const changes = rows && rows.length > 0 ? `Изменено: ${rows.map((r) => OPERATION_FIELD_LABELS[r.field] ?? r.field).join(', ')}` : null;
+    const rows = e.action === 'update' ? diffRows(e.diff, 'operation') : null;
+    const changes = rows ? changesText(rows) : null;
     return {
       id: e.id,
       operationId: e.entityId,
