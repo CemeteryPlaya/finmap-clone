@@ -101,6 +101,42 @@ describe('ZIP: чтение (§3.1 спецификации импорта)', ()
     expect(fileErr(() => zip.read('b', MB)).message).toBe('Файл повреждён или небезопасен: распакованный файл больше предела');
   });
 
+  it('конец каталога: сигнатура внутри комментария не принимается за конец; мусор после архива — как раньше (M4)', () => {
+    // поддельный конец каталога (0 записей) в комментарии, за ним ещё текст: поиск с конца нашёл бы его первым
+    const fake = `PK\u0005\u0006${'\u0000'.repeat(18)}`;
+    const zip = openZip(buildZip([{ name: 'a', data: 'abc' }], { comment: `${fake}хвост` }));
+    expect(zip.names()).toEqual(['a']);
+    expect(zip.read('a', MB)!.toString()).toBe('abc');
+    expect(openZip(Buffer.concat([buildZip([{ name: 'a', data: 'abc' }]), Buffer.from('мусор')])).names()).toEqual(['a']);
+  });
+
+  it('каталог не короче объявленного размера; записи не перекрываются (M4)', () => {
+    expect(fileErr(() => openZip(buildZip([{ name: 'a', data: 'abc' }], { cdPadding: 4 }))).message).toBe('Файл повреждён или небезопасен: каталог архива повреждён');
+    // вторая запись указывает на заголовок первой и в её данные
+    expect(fileErr(() => openZip(buildZip([{ name: 'a', data: 'abc'.repeat(50), method: 0 }, { name: 'b', data: 'x', offset: 0 }]))).message).toBe(
+      'Файл повреждён или небезопасен: записи архива перекрываются',
+    );
+    expect(fileErr(() => openZip(buildZip([{ name: 'a', data: 'abc'.repeat(50), method: 0 }, { name: 'b', data: 'x', offset: 40 }]))).message).toBe(
+      'Файл повреждён или небезопасен: записи архива перекрываются',
+    );
+    // дополнительное поле локального заголовка длиннее, чем в каталоге, заводит данные в следующую запись
+    const two = buildZip([{ name: 'a', data: 'abc', method: 0 }, { name: 'b', data: 'x', method: 0 }]);
+    two.writeUInt16LE(4, 28); // extraLen записи «a»: её данные теперь заходят на заголовок «b»
+    expect(fileErr(() => openZip(two).read('a', MB)).message).toBe('Файл повреждён или небезопасен: записи архива перекрываются');
+  });
+
+  it('локальный заголовок: шифрование и способ сжатия — как в каталоге (M4)', () => {
+    expect(fileErr(() => openZip(buildZip([{ name: 'a', data: 'x', localFlags: 1 }])).read('a', MB))).toEqual({
+      fileCode: 'F3',
+      message: 'Файл защищён паролем — сохраните его без пароля',
+    });
+    expect(fileErr(() => openZip(buildZip([{ name: 'a', data: 'abc' }, { name: 'b', data: 'abc', localMethodCode: 0 }])).read('b', MB)).message).toBe(
+      'Файл повреждён или небезопасен: способ сжатия «b» не совпадает с каталогом',
+    );
+    // бит 3 (дескриптор) в обоих заголовках — можно
+    expect(openZip(buildZip([{ name: 'd', data: 'данные', descriptor: true }])).read('d', MB)!.toString('utf8')).toBe('данные');
+  });
+
   it('обрезанный архив, мусор, данные за пределами — F3', () => {
     const good = buildZip([{ name: 'a', data: 'abc'.repeat(100) }]);
     expect(fileErr(() => openZip(good.subarray(0, good.length - 30))).message).toBe('Файл повреждён или небезопасен: не найден конец архива');

@@ -1,6 +1,12 @@
+import v8 from 'node:v8';
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { cachedImportWeight, createImportCache, type CachedImport } from '../../src/server/modules/imports/cache';
-import type { ImportRow } from '../../src/server/modules/imports/parse-row';
+import { parseSheet, type ImportRow } from '../../src/server/modules/imports/parse-row';
+import { readXlsx } from '../../src/server/modules/imports/xlsx-read';
+import { excelSerial, FINMAP_LIKE_HEADERS, finmapLikeRow, finmapLikeXlsx } from '../helpers/finmap-like';
+
+const CTX = { timezone: 'Asia/Almaty', baseCurrency: 'KZT', today: '2026-10-06' };
 
 const item = (companyId: number, userId: number, name = 'f.xlsx'): CachedImport => ({
   companyId,
@@ -102,6 +108,47 @@ describe('кэш проверки (§6.3 спецификации импорта
     cache.put(sized(5, 100));
     cache.put(sized(6, 100));
     expect(cache.size()).toBe(2);
+  });
+
+  it('кэш хранит отдельную копию разобранного файла: правка исходного объекта её не меняет (I2)', () => {
+    const cache = createImportCache();
+    const original = sized(1, 2, 5);
+    const t = cache.put(original);
+    const got = cache.get(t, 1, 1)!;
+    expect(got.parsed).toEqual(original.parsed);
+    expect(got.parsed).not.toBe(original.parsed);
+    expect(got.parsed.rows[0]).not.toBe(original.parsed.rows[0]);
+    original.parsed.rows[0]!.comment = 'изменён';
+    expect(cache.get(t, 1, 1)!.parsed.rows[0]!.comment).toBe('ккккк');
+  });
+
+  it('лист с огромной нераспознанной колонкой: после сборки мусора кэш не держит распакованный текст листа (I2)', () => {
+    v8.setFlagsFromString('--expose-gc');
+    const gc = runInNewContext('gc') as () => void;
+    // 500 строк по 30 000 знаков кириллицы в колонке Q без заголовка из §2.1: около 30 МБ текста листа. Названия и
+    // комментарий длиннее 12 знаков — V8 хранит их срезами листа (короткие копирует)
+    const filler = 'я'.repeat(30_000);
+    const rows = Array.from({ length: 500 }, () => [
+      ...finmapLikeRow({ paidAt: excelSerial('2026-10-05', '10:00:00'), amount: 1, from: 'Основная касса клуба', comment: 'Комментарий к строке' }),
+      filler,
+    ]);
+    const file = finmapLikeXlsx(rows, { headers: [...FINMAP_LIKE_HEADERS, 'Лишняя'] });
+    const cache = createImportCache();
+    // разбор — в отдельной функции: после неё на исходный разбор ссылается только кэш
+    const upload = () => cache.put({ companyId: 1, userId: 1, file: { name: 'f.xlsx', size: file.length, sha256: 'x' }, parsed: parseSheet(readXlsx(file), CTX) });
+    // большой текст листа Node держит вне кучи V8 (external): считаются оба
+    const used = () => {
+      gc();
+      gc();
+      const m = process.memoryUsage();
+      return m.heapUsed + m.external;
+    };
+    const before = used();
+    upload();
+    const retained = used() - before;
+    expect(cache.size()).toBe(1);
+    // без копии — около 29 МБ (весь лист), с копией — меньше 1 МБ
+    expect(retained).toBeLessThan(10 * 1024 * 1024);
   });
 
   it('get возвращает только { companyId, userId, file, parsed } — без служебных полей кэша', () => {

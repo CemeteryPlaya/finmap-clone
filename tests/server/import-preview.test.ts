@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createAuditService } from '../../src/server/modules/audit/service';
-import { parseSheet } from '../../src/server/modules/imports/parse-row';
+import { parseSheet, type ImportRow } from '../../src/server/modules/imports/parse-row';
 import { buildPreview, minuteOf } from '../../src/server/modules/imports/preview';
 import { readXlsx } from '../../src/server/modules/imports/xlsx-read';
 import { createRatesService } from '../../src/server/modules/rates/service';
@@ -469,5 +469,102 @@ describe('предпросмотр: правки по ревью задачи 6'
     expect(plan.accounts).toEqual([{ key: 'резерв', name: 'Резерв', currency: 'KZT', startingBalance: 0, openedAt: '2026-10-05' }]);
     expect(plan.accountChanges).toEqual([]);
     expect(p.canImport).toBe(false);
+  });
+});
+
+describe('предпросмотр: финальные правки (I3, M2, M6)', () => {
+  const deps = () => ({ db: w.h.t.db, rates: createRatesService({ db: w.h.t.db, audit: createAuditService(w.h.t.db) }), timezone: 'Asia/Almaty', now: () => NOW });
+  const FILE = { name: 'выгрузка.xlsx', size: 123, sha256: 'sha-1' };
+
+  it('«Будет создано» и справочники плана — только по добавляемым строкам: новый тег и проект дубликата и строки с R16 не создаются (I3, R7)', async () => {
+    w = await opsWorld();
+    await w.post(w.ops, { type: 'income', paidAt: '2026-10-05T05:00:00Z', accountId: w.kzt, amount: 10000 }); // 10:00 по Алматы
+    const dup = fr({ paidAt: at('2026-10-05', '10:00:00'), amount: 100, to: 'Касса', project: 'Старый проект', tags: 'Старый тег' });
+    const fresh = fr({ paidAt: at('2026-10-05', '11:00:00'), amount: 50, to: 'Касса' });
+    const a = preview([dup, fresh]);
+    expect(a.preview.counts).toMatchObject({ add: 1, duplicates: 1 });
+    expect(a.preview.create.tags).toEqual({ total: 0, items: [] });
+    expect(a.preview.create.projects).toEqual({ total: 0, items: [] });
+    expect(a.plan.tags).toEqual([]);
+    expect(a.plan.projects).toEqual([]);
+    expect(a.preview.canImport).toBe(true);
+
+    // тот же тег у добавляемой строки — создаётся: одна строка и её написание (дубликат не считается);
+    // строка с R16 не создаёт ни категории, ни контрагента, ни проекта, ни тега
+    const b = preview([
+      dup,
+      fresh,
+      fr({ paidAt: at('2026-10-05', '12:00:00'), amount: 30, to: 'Касса', tags: 'старый ТЕГ' }),
+      fr({ paidAt: at('2026-09-01', '10:00:00'), amount: 1, from: 'Валютный', category: 'Новая категория', counterparty: 'Новый поставщик', project: 'Проект R16', tags: 'Тег R16' }),
+    ]);
+    expect(b.preview.counts).toMatchObject({ add: 2, duplicates: 1 });
+    expect(b.preview.errors.byCode.map((g) => [g.code, g.rows])).toEqual([['R16', [5]]]);
+    expect(b.preview.create).toEqual({
+      categories: { total: 0, items: [] },
+      counterparties: { total: 0, items: [] },
+      projects: { total: 0, items: [] },
+      tags: { total: 1, items: [{ name: 'старый ТЕГ', rows: 1 }] },
+    });
+    expect(b.plan.categories).toEqual([]);
+    expect(b.plan.counterparties).toEqual([]);
+    expect(b.plan.projects).toEqual([]);
+    expect(b.plan.tags).toEqual([{ key: 'старый тег', name: 'старый ТЕГ', rows: 1 }]);
+    // ссылка строки плана — на этот же ключ
+    expect(b.plan.rows.find((r) => r.row === 4)!.tags).toEqual([{ key: 'старый тег' }]);
+  });
+
+  it('150 000 замечаний R17 (50 000 строк по 3 архивных тега): предпросмотр без переполнения стека (M2)', async () => {
+    w = await opsWorld();
+    for (const name of ['Архив 1', 'Архив 2', 'Архив 3']) {
+      const id = (await w.post(`/api/v1/companies/${w.cid}/tags`, { name })).tag.id as number;
+      await w.post(`/api/v1/companies/${w.cid}/tags/${id}/archive`, {});
+    }
+    const rows: ImportRow[] = Array.from({ length: 50_000 }, (_, i) => ({
+      row: i + 2,
+      type: 'income',
+      paidAt: '2026-10-05T05:00:00.000Z',
+      date: '2026-10-05',
+      minute: '2026-10-05 10:00',
+      accrualDate: null,
+      amount: '1',
+      baseAmount: null,
+      account: { key: 'касса', name: 'Касса' },
+      toAccount: null,
+      category: null,
+      subcategory: null,
+      counterparty: null,
+      project: null,
+      tags: ['Архив 1', 'Архив 2', 'Архив 3'],
+      comment: null,
+    }));
+    const { preview: p } = buildPreview(deps(), { token: 'тест', companyId: w.cid, file: FILE, parsed: { headerRow: 1, total: rows.length, rows, future: [], issues: [] } }, []);
+    expect(p.errors.total).toBe(150_000);
+    expect(p.errors.byCode.map((g) => [g.code, g.message, g.count])).toEqual([
+      ['R17', 'Тег «Архив 1» в архиве — верните из архива', 50_000],
+      ['R17', 'Тег «Архив 2» в архиве — верните из архива', 50_000],
+      ['R17', 'Тег «Архив 3» в архиве — верните из архива', 50_000],
+    ]);
+    expect(p.counts.add).toBe(0);
+    expect(p.canImport).toBe(false);
+  });
+
+  it('нет курса базовой валюты компании (USD, не KZT): R16 называет USD, а не валюту счёта (M6)', async () => {
+    w = await opsWorld();
+    const cid = (await w.post('/api/v1/companies', { name: 'ТОО USD', baseCurrency: 'USD' })).company.id as number;
+    const parsed = parseSheet(
+      readXlsx(
+        finmapLikeXlsx([
+          fr({ paidAt: at('2026-09-01', '10:00:00'), amount: 100, to: 'Касса' }),
+          fr({ paidAt: at('2026-10-02', '10:00:00'), amount: 100, to: 'Касса' }),
+          // перевод из счёта в валюте компании в KZT: курс нужен для суммы зачисления — и его тоже нет у USD
+          fr({ paidAt: at('2026-09-01', '11:00:00'), amount: 5, from: 'Доллары', to: 'Касса' }),
+        ]),
+      ),
+      { ...CTX, baseCurrency: 'USD' },
+    );
+    const { preview: p } = buildPreview(deps(), { token: 'тест', companyId: cid, file: FILE, parsed }, [{ key: 'касса', kind: 'new', name: 'Касса', currency: 'KZT', balance: null }]);
+    expect(p.errors.byCode).toEqual([
+      { code: 'R16', message: 'Нет курса USD на 01.09.2026 — заполните «Сумму в валюте компании» или добавьте курс на дату', count: 2, rows: [2, 4] },
+    ]);
   });
 });

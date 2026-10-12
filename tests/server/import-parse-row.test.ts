@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AppError } from '../../src/server/errors';
 import { groupIssues, ISSUE_GROUPS_MAX, type RowIssue } from '../../src/server/modules/imports/errors';
 import {
+  AMOUNT_TOO_LARGE,
   decimalToMinor,
   findHeader,
   fromExcelSerial,
@@ -13,7 +14,8 @@ import {
 } from '../../src/server/modules/imports/parse-row';
 import { CELL_TOO_LONG, readXlsx, type Cell, type SheetRow } from '../../src/server/modules/imports/xlsx-read';
 import { FINMAP_COLUMNS, type FinmapField } from '../../src/shared/finmap-format';
-import { excelSerial, finmapLikeXlsx } from '../helpers/finmap-like';
+import { excelSerial, FINMAP_LIKE_HEADERS, finmapLikeRow, finmapLikeSheetXml, finmapLikeXlsx, type FinmapLikeValue } from '../helpers/finmap-like';
+import { buildZip } from '../helpers/zip-build';
 
 const CTX: ParseContext = { timezone: 'Asia/Almaty', baseCurrency: 'KZT', today: '2026-10-06' };
 const COL = Object.fromEntries(FINMAP_COLUMNS.map((c, i) => [c.field, i])) as Record<FinmapField, number>;
@@ -52,7 +54,7 @@ describe('суммы (§4.2 спецификации импорта)', () => {
     expect(parseCellNumber('1.2345E+5')).toEqual({ negative: false, value: '123450' });
     expect(parseCellNumber('1E-3')).toEqual({ negative: false, value: '0.001' });
     expect(parseCellNumber('1317.0000000000002')).toEqual({ negative: false, value: '1317' });
-    expect(parseCellNumber('12345678901234567')).toEqual({ negative: false, value: '12345678901234600' });
+    expect(parseCellNumber('1234567890123456.7')).toEqual({ negative: false, value: '1234567890123460' });
     expect(parseCellNumber('-8500')).toEqual({ negative: true, value: '8500' });
     expect(parseCellNumber('-0')).toEqual({ negative: false, value: '0' });
     expect(parseCellNumber('abc')).toBeNull();
@@ -81,6 +83,24 @@ describe('суммы (§4.2 спецификации импорта)', () => {
     expect(decimalToMinor('1.5', 3)).toEqual({ minor: 1500, rounded: false });
     expect(decimalToMinor('90071992547409.91', 2)).toEqual({ minor: Number.MAX_SAFE_INTEGER, rounded: false });
     expect(decimalToMinor('90071992547409.92', 2)).toBeNull();
+  });
+
+  it('целая часть длиннее 16 цифр — AMOUNT_TOO_LARGE до BigInt (R5): в числе, экспоненте и тексте; decimalToMinor — null', () => {
+    // 16 цифр — ещё число (дальше решает decimalToMinor); 15 значащих — точность Excel
+    expect(parseCellNumber('1234567890123456')).toEqual({ negative: false, value: '1234567890123460' });
+    expect(parseCellNumber('0000' + '9'.repeat(16) + '.5')).not.toBe(AMOUNT_TOO_LARGE);
+    for (const big of ['1'.repeat(17), '-' + '1'.repeat(17), '1E+16', '0.1E+18', '1'.repeat(1_000_000)]) expect(parseCellNumber(big), big.slice(0, 20)).toBe(AMOUNT_TOO_LARGE);
+    expect(parseTextAmount('1 234 567 890 123 456,5')).toEqual({ negative: false, value: '1234567890123456.5' });
+    for (const big of ['12 345 678 901 234 567', '-' + '1'.repeat(17) + ',5', '1'.repeat(1_000_000)]) expect(parseTextAmount(big), big.slice(0, 20)).toBe(AMOUNT_TOO_LARGE);
+    expect(decimalToMinor('1'.repeat(17), 0)).toBeNull();
+    expect(decimalToMinor('0000' + '1'.repeat(15), 0)).toEqual({ minor: 111_111_111_111_111, rounded: false });
+    // миллион цифр — быстро: ни BigInt, ни дополнения нулями
+    const t0 = performance.now();
+    for (let i = 0; i < 20; i++) {
+      parseCellNumber('7'.repeat(1_000_000));
+      decimalToMinor('7'.repeat(1_000_000), 2);
+    }
+    expect(performance.now() - t0).toBeLessThan(2000);
   });
 });
 
@@ -412,5 +432,51 @@ describe('правки раунда 1', () => {
     expect(p.rows[0]!.date).toBe('2026-10-05');
     const q = parseSheet({ rows: [HEADER, row(2, { paidAt: num(46300), amount: 1, fromAccount: 'К' })], date1904: false }, CTX);
     expect(q.rows[0]!.date).toBe('2026-10-05');
+  });
+});
+
+describe('финальные правки (R5)', () => {
+  /** Книга «как у Finmap», где текстовые ячейки-заглушки заменены числами `<v>цифры</v>` любой длины. */
+  function withNumberCells(rows: FinmapLikeValue[][], numbers: Record<string, string>): Buffer {
+    let xml = finmapLikeSheetXml([[...FINMAP_LIKE_HEADERS], ...rows]);
+    for (const [placeholder, digits] of Object.entries(numbers)) xml = xml.replace(` t="str"><v>${placeholder}</v>`, `><v>${digits}</v>`);
+    const workbook =
+      '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Л" sheetId="1" r:id="rId1"/></sheets></workbook>';
+    return buildZip([
+      { name: 'xl/workbook.xml', data: workbook },
+      { name: 'xl/worksheets/sheet1.xml', data: xml },
+    ]);
+  }
+
+  it('число-сумма в XLSX: миллион цифр — R18 (предел ячейки), 32 000 цифр в E и в F — R07 при разборе; быстро, в строках импорта ничего длинного', () => {
+    const paidAt = excelSerial('2026-10-05', '10:00:00');
+    const file = withNumberCells(
+      [
+        finmapLikeRow({ paidAt, amount: 'E1', from: 'Касса' }),
+        finmapLikeRow({ paidAt, amount: 'E2', from: 'Касса' }),
+        finmapLikeRow({ paidAt, amount: 100, baseAmount: 'F3', from: 'Касса' }),
+        finmapLikeRow({ paidAt, amount: 100, from: 'Касса' }),
+      ],
+      { E1: '7'.repeat(1_000_000), E2: '7'.repeat(32_000), F3: '7'.repeat(32_000) },
+    );
+    const t0 = performance.now();
+    const p = parseSheet(readXlsx(file), CTX);
+    expect(performance.now() - t0).toBeLessThan(5000);
+    expect(p.issues.map((i) => `${i.row} ${i.code}: ${i.message}`)).toEqual([
+      '2 R18: Ячейка длиннее 32 767 символов',
+      '3 R07: Слишком большая сумма',
+      '4 R07: Слишком большая сумма',
+    ]);
+    expect(p.rows.map((r) => [r.row, r.amount])).toEqual([[5, '100']]);
+    // в кэш попадает только короткое: ни одной длинной суммы
+    expect(JSON.stringify(p).length).toBeLessThan(2000);
+  });
+
+  it('сумма текстом длиннее 16 цифр в целой части — R07 при разборе, в E и в F', () => {
+    expect(issuesOf({ ...BASE, fromAccount: 'К', amount: '1'.repeat(17) }, { ...BASE, fromAccount: 'К', baseAmount: '1 234 567 890 123 456 789' })).toEqual([
+      'R07: Слишком большая сумма',
+      'R07: Слишком большая сумма',
+    ]);
+    expect(issuesOf({ ...BASE, fromAccount: 'К', amount: num('1E+17') })).toEqual(['R07: Слишком большая сумма']);
   });
 });

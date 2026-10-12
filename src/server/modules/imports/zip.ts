@@ -41,6 +41,8 @@ interface Entry {
   compressedSize: number;
   size: number;
   localOffset: number;
+  /** Где начинается следующая запись (или каталог): заголовок и данные этой записи лежат до него. */
+  end: number;
 }
 
 /** Имя записи: печатный ASCII до 255 символов; без `\`, `/` в начале, сегментов `..` и `.` и пустых сегментов (zip-slip). */
@@ -51,12 +53,21 @@ export function isSafeEntryName(name: string): boolean {
   return segments.every((s) => s !== '' && s !== '.' && s !== '..');
 }
 
+/**
+ * Конец каталога — с конца файла назад. Длина комментария должна доводить запись ровно до конца файла: сигнатура внутри
+ * комментария не принимается за конец. Ровного совпадения нет (мусор после архива) — ближайшая к концу сигнатура,
+ * комментарий которой помещается в файл.
+ */
 function findEocd(data: Buffer): number {
   const stop = Math.max(0, data.length - EOCD_SEARCH);
+  let loose = -1;
   for (let i = data.length - EOCD_MIN; i >= stop; i--) {
-    if (data.readUInt32LE(i) === SIG_EOCD) return i;
+    if (data.readUInt32LE(i) !== SIG_EOCD) continue;
+    const end = i + EOCD_MIN + data.readUInt16LE(i + 20);
+    if (end === data.length) return i;
+    if (loose < 0 && end <= data.length) loose = i;
   }
-  return -1;
+  return loose;
 }
 
 export function openZip(data: Buffer, opts: ZipOptions = {}): ZipArchive {
@@ -95,6 +106,7 @@ export function openZip(data: Buffer, opts: ZipOptions = {}): ZipArchive {
       compressedSize: data.readUInt32LE(p + 20),
       size: data.readUInt32LE(p + 24),
       localOffset: data.readUInt32LE(p + 42),
+      end: cdOffset,
     };
     if (entry.compressedSize === 0xffffffff || entry.size === 0xffffffff || entry.localOffset === 0xffffffff) {
       throw damaged('файл слишком велик (ZIP64)');
@@ -104,6 +116,14 @@ export function openZip(data: Buffer, opts: ZipOptions = {}): ZipArchive {
     entries.set(entry.name, entry);
     p = next;
   }
+  // каталог занимает ровно объявленный размер
+  if (p !== cdEnd) throw damaged('каталог архива повреждён');
+  // записи не перекрываются: заголовок (не короче 30 байт и имени) и данные каждой — до следующей записи или каталога
+  const byOffset = [...entries.values()].sort((a, b) => a.localOffset - b.localOffset);
+  byOffset.forEach((e, k) => {
+    e.end = byOffset[k + 1]?.localOffset ?? cdOffset;
+    if (e.localOffset + 30 + e.name.length + e.compressedSize > e.end) throw damaged('записи архива перекрываются');
+  });
 
   let unpacked = 0;
 
@@ -120,8 +140,11 @@ export function openZip(data: Buffer, opts: ZipOptions = {}): ZipArchive {
     const nameLen = data.readUInt16LE(lh + 26);
     const extraLen = data.readUInt16LE(lh + 28);
     if (data.toString('latin1', lh + 30, lh + 30 + nameLen) !== name) throw damaged(`имя записи «${name}» не совпадает с каталогом`);
+    // шифрование и способ сжатия в локальном заголовке — те же, что в каталоге
+    if (data.readUInt16LE(lh + 6) & 1) throw fileError('F3', 'Файл защищён паролем — сохраните его без пароля');
+    if (data.readUInt16LE(lh + 8) !== e.method) throw damaged(`способ сжатия «${name}» не совпадает с каталогом`);
     const start = lh + 30 + nameLen + extraLen;
-    if (start + e.compressedSize > cdOffset) throw damaged(`данные «${name}» за пределами файла`);
+    if (start + e.compressedSize > e.end) throw damaged(e.end === cdOffset ? `данные «${name}» за пределами файла` : 'записи архива перекрываются');
     const raw = data.subarray(start, start + e.compressedSize);
 
     let out: Buffer;

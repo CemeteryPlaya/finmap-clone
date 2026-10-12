@@ -76,10 +76,20 @@ export interface ParsedNumber {
   value: string;
 }
 
+/**
+ * Целая часть суммы длиннее 16 цифр — R07 сразу, без BigInt и дополнения нулями: такая сумма не помещается в безопасное
+ * целое ни в одной валюте (MAX_SAFE_INTEGER — 16 цифр), а строка из миллионов цифр стоила бы секунд на каждый предпросмотр.
+ */
+export const AMOUNT_INT_DIGITS_MAX = 16;
+/** Результат разбора суммы с целой частью длиннее AMOUNT_INT_DIGITS_MAX: ошибка строки R07. */
+export const AMOUNT_TOO_LARGE = 'too-large' as const;
+export type AmountTooLarge = typeof AMOUNT_TOO_LARGE;
+
 /** Цифры digits × 10^-scale → запись; maxSignificant — округлить half-up до стольких значащих цифр. */
-function normalize(negative: boolean, digits: string, scale: number, maxSignificant?: number): ParsedNumber {
+function normalize(negative: boolean, digits: string, scale: number, maxSignificant?: number): ParsedNumber | AmountTooLarge {
   let d = digits.replace(/^0+/, '');
   if (d === '') return { negative: false, value: '0' };
+  if (d.length - scale > AMOUNT_INT_DIGITS_MAX) return AMOUNT_TOO_LARGE;
   if (maxSignificant !== undefined && d.length > maxSignificant) {
     const drop = d.length - maxSignificant;
     let keep = BigInt(d.slice(0, maxSignificant));
@@ -100,9 +110,9 @@ function normalize(negative: boolean, digits: string, scale: number, maxSignific
 
 /**
  * Число из ячейки XLSX («10596», «8200.5», «1.2345E+5», «1317.0000000000002»). Excel хранит до 15 значащих цифр —
- * дальше шум двоичной дроби, он отбрасывается округлением до 15 цифр.
+ * дальше шум двоичной дроби, он отбрасывается округлением до 15 цифр. Целая часть длиннее 16 цифр — AMOUNT_TOO_LARGE.
  */
-export function parseCellNumber(text: string): ParsedNumber | null {
+export function parseCellNumber(text: string): ParsedNumber | AmountTooLarge | null {
   const m = /^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(text.trim());
   if (!m || (m[2] === '' && (m[3] ?? '') === '')) return null;
   const exp = m[4] ? Number(m[4]) : 0;
@@ -113,8 +123,9 @@ export function parseCellNumber(text: string): ParsedNumber | null {
 /**
  * Сумма текстом (§4.2): пробелы, U+00A0, U+202F и «₸» убираются; минус «-» или «\u2212», плюс допустим;
  * есть и точка, и запятая — последняя из них десятичная, другая — разряды; один знак — десятичный.
+ * Целая часть длиннее 16 цифр — AMOUNT_TOO_LARGE.
  */
-export function parseTextAmount(text: string): ParsedNumber | null {
+export function parseTextAmount(text: string): ParsedNumber | AmountTooLarge | null {
   let s = text.replace(/[\s\u00A0\u202F₸]/g, '');
   let negative = false;
   if (s.startsWith('-') || s.startsWith('\u2212')) {
@@ -141,13 +152,17 @@ export function parseTextAmount(text: string): ParsedNumber | null {
 }
 
 /** Сумма ячейки: число — точно, без parseFloat; текст — по правилам §4.2. */
-export function parseAmountCell(cell: Cell): ParsedNumber | null {
+export function parseAmountCell(cell: Cell): ParsedNumber | AmountTooLarge | null {
   return cell.kind === 'number' ? parseCellNumber(cell.value) : parseTextAmount(cell.value);
 }
 
-/** Запись → минимальные единицы с half-up; rounded — было больше знаков, чем у валюты (W10); null — не безопасное целое (R07). */
+/**
+ * Запись → минимальные единицы с half-up; rounded — было больше знаков, чем у валюты (W10); null — не безопасное целое (R07).
+ * Целая часть длиннее 16 цифр — null до BigInt.
+ */
 export function decimalToMinor(value: string, minorUnits: number): { minor: number; rounded: boolean } | null {
   const [int = '0', frac = ''] = value.split('.');
+  if (int.replace(/^0+/, '').length > AMOUNT_INT_DIGITS_MAX) return null;
   let minor: bigint;
   let rounded = false;
   if (frac.length <= minorUnits) minor = BigInt(int + frac.padEnd(minorUnits, '0'));
@@ -316,6 +331,7 @@ export function parseRow(sheetRow: SheetRow, columns: Map<FinmapField, number>, 
   else {
     const p = parseAmountCell(amountCell);
     if (!p) err('R05', M.R05(raw('amount')));
+    else if (p === AMOUNT_TOO_LARGE) err('R07', M.R07);
     else if (p.value === '0') err('R06', M.R06);
     else if (p.negative && type === 'income') err('R10', M.R10);
     else amount = p.value;
@@ -328,6 +344,7 @@ export function parseRow(sheetRow: SheetRow, columns: Map<FinmapField, number>, 
     const p = parseAmountCell(baseCell);
     const units = getCurrency(ctx.baseCurrency).minorUnits;
     if (!p) err('R05', M.R05(raw('baseAmount')));
+    else if (p === AMOUNT_TOO_LARGE) err('R07', M.R07);
     else if (p.negative && type === 'income') err('R10', M.R10);
     else if (p.value !== '0') {
       const minor = decimalToMinor(p.value, units);

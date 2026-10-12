@@ -13,6 +13,8 @@ export function registerAttachmentsRoutes(app: FastifyInstance, deps: { attachme
 
   // отдельная область: парсер байтов и лимит 10 МБ не действуют на остальные маршруты
   app.register(async (scope) => {
+    // только байты файла: корневые парсеры JSON и текста здесь не действуют (иначе читали бы до 10 МБ) — другой тип — 415
+    scope.removeAllContentTypeParsers();
     scope.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: ATTACHMENT_MAX_BYTES }, (_req, body, done) =>
       done(null, body),
     );

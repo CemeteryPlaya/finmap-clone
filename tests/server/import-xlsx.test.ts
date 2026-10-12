@@ -137,6 +137,17 @@ describe('XLSX: первый лист (§3.3 спецификации импор
     expect(performance.now() - t0).toBeLessThan(10000);
   });
 
+  it('предел ячейки и бюджет текста — у ячейки любого вида (R5): число и ошибка длиннее 32 767 символов — ячейка-ошибка; числа считаются в бюджете', () => {
+    const one = (cells: string) => book({ sheets: [['Л', 'rId1']], parts: { 'xl/worksheets/sheet1.xml': sheet(`<row r="1">${cells}</row>`) } });
+    const r = readXlsx(one(`<c r="A1"><v>${'7'.repeat(32_768)}</v></c><c r="B1"><v>${'7'.repeat(32_767)}</v></c><c r="C1" t="e"><v>#${'N'.repeat(32_767)}</v></c>`)).rows[0]!;
+    expect(r.cells.get(0)).toEqual({ kind: 'error', value: CELL_TOO_LONG });
+    expect(r.cells.get(1)).toEqual({ kind: 'number', value: '7'.repeat(32_767) });
+    expect(r.cells.get(2)).toEqual({ kind: 'error', value: CELL_TOO_LONG });
+    const numbers = (n: number) => one(Array.from({ length: n }, (_, i) => `<c r="${String.fromCharCode(65 + i)}1"><v>12345</v></c>`).join(''));
+    expect(readXlsx(numbers(2), { ...XLSX_LIMITS, text: 10 }).rows[0]!.cells.size).toBe(2);
+    expect(f('F3', () => readXlsx(numbers(3), { ...XLSX_LIMITS, text: 10 }))).toBe('Файл повреждён или небезопасен: слишком много текста в листе');
+  });
+
   it('файл связей есть, но нужной связи нет — F3 (sheet1.xml только без файла связей)', () => {
     const rels = '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId9" Target="worksheets/sheet1.xml"/></Relationships>';
     const parts = { 'xl/worksheets/sheet1.xml': sheet('<row r="1"><c r="A1"><v>1</v></c></row>') };

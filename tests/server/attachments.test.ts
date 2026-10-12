@@ -75,7 +75,19 @@ describe('attachments', () => {
     const big = await upload(url, Buffer.concat([PNG, Buffer.alloc(10 * 1024 * 1024)]));
     expect(big.statusCode).toBe(413);
     expect(big.json().error).toEqual({ code: 'TOO_LARGE', message: 'Файл больше 10 МБ' });
-    expect((await w.h.req('POST', url, { not: 'a file' })).json().error.fields.file).toBe('Нет файла');
+    // в области загрузки — только парсер байтов: JSON и текст — 415 (корневые парсеры не читают до 10 МБ); без тела — 400
+    expect((await w.h.req('POST', url, { not: 'a file' })).statusCode).toBe(415);
+    for (const type of ['application/json', 'text/plain']) {
+      const other = await w.h.t.app.inject({
+        method: 'POST',
+        url,
+        headers: { ...ORIGIN_HEADERS, cookie: w.h.cookie, 'content-type': type },
+        payload: Buffer.alloc(2 * 1024 * 1024, 0x20),
+      });
+      expect(other.statusCode, type).toBe(415);
+    }
+    const noBody = await w.h.t.app.inject({ method: 'POST', url, headers: { ...ORIGIN_HEADERS, cookie: w.h.cookie } });
+    expect(noBody.json().error.fields).toEqual({ file: 'Нет файла' });
     const anonymous = await upload(url, PNG, 'чек.png', null);
     expect(anonymous.statusCode).toBe(401);
     expect(uploadsCount()).toBe(before); // отказ — ничего не записано

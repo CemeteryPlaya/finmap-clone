@@ -1,6 +1,6 @@
 import { countKnownHeaders, isHeaderRow } from '../../../shared/finmap-format';
 import { damaged, fileError, IMPORT_READ_MAX_ROWS, tooManyRows } from './errors';
-import type { SheetData, SheetRow } from './xlsx-read';
+import { CELL_MAX_CHARS, CELL_TOO_LONG, type Cell, type SheetData, type SheetRow } from './xlsx-read';
 
 /** CSV (§2.5 спецификации импорта): колонки и строка заголовков — как у XLSX; значения — всегда текст. */
 export type CsvEncoding = 'utf-8' | 'utf-16le' | 'windows-1251';
@@ -112,7 +112,7 @@ export function chooseDelimiter(text: string): { delimiter: string; header: bool
   return { delimiter: best.delimiter, header: best.header };
 }
 
-/** CSV → строки ячеек: номер строки — номер записи с 1; пустые значения не хранятся. */
+/** CSV → строки ячеек: номер строки — номер записи с 1; пустые значения не хранятся; поле длиннее 32 767 символов — ячейка-ошибка. */
 export function readCsv(data: Buffer): SheetData {
   const { text, encoding } = decodeCsv(data);
   const { delimiter, header } = chooseDelimiter(text);
@@ -120,9 +120,10 @@ export function readCsv(data: Buffer): SheetData {
   if (encoding === 'windows-1251' && !header) throw fileError('F8', 'Не удалось прочитать CSV: сохраните его в UTF-8');
   const rows: SheetRow[] = [];
   eachCsvRecord(text, delimiter, true, (values, index) => {
-    const cells = new Map<number, { kind: 'text'; value: string }>();
+    const cells = new Map<number, Cell>();
     values.forEach((value, col) => {
-      if (value.trim() !== '') cells.set(col, { kind: 'text', value });
+      // поле длиннее предела ячейки Excel — ячейка-ошибка (R18), как у XLSX: длинная сумма не попадает ни в разбор, ни в кэш
+      if (value.trim() !== '') cells.set(col, value.length > CELL_MAX_CHARS ? { kind: 'error', value: CELL_TOO_LONG } : { kind: 'text', value });
     });
     // строк больше предела — F5 сразу, не дочитывая файл
     if (cells.size > 0 && rows.push({ row: index + 1, cells }) > IMPORT_READ_MAX_ROWS) throw tooManyRows();

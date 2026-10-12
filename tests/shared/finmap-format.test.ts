@@ -29,6 +29,16 @@ describe('формат Finmap: колонки и ключи (§2.1, §2.2, §4.9
     expect(headerField('Сумма')).toBeNull();
   });
 
+  it('заголовки ПРОПИСНЫМИ с прописными латинскими двойниками B, H, M, T (решение 2): распознаются, как «STEAM» и «Steam»', () => {
+    expect(headerField('\u0048А СЧЕТ')).toBe('toAccount'); // латинская H
+    expect(headerField('\u0054ЕГИ')).toBe('tags'); // латинская T
+    expect(headerField('СУ\u004D\u004DА \u0042 \u0042АЛЮТЕ СЧЕТА*')).toBe('amount'); // латинские M, M, B, B
+    expect(headerField('КО\u004D\u004DЕНТАРИЙ')).toBe('comment');
+    expect(headerField('PERIOD')).toBeNull(); // латинское слово — не заголовок
+    // все заголовки выгрузки прописными (с их латинскими двойниками) — те же колонки
+    expect(FINMAP_LIKE_HEADERS.map((h) => headerField(h.toUpperCase()))).toEqual(FINMAP_COLUMNS.map((c) => c.field));
+  });
+
   it('строка заголовков: нужны «Дата платежа» и «Сумма в валюте счета»; счёт распознанных колонок', () => {
     expect(isHeaderRow(['Дата платежа*', 'Сумма в валюте счета*'])).toBe(true);
     expect(isHeaderRow(['Дата платежа*', 'Со счета*'])).toBe(false);

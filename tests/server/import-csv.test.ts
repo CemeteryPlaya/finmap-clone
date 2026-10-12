@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AppError } from '../../src/server/errors';
 import { chooseDelimiter, decodeCsv, parseCsv, readCsv } from '../../src/server/modules/imports/csv';
 import { detectImportFile, readImportFile } from '../../src/server/modules/imports/read-file';
-import type { SheetRow } from '../../src/server/modules/imports/xlsx-read';
+import { CELL_TOO_LONG, type SheetRow } from '../../src/server/modules/imports/xlsx-read';
 import { finmapLikeXlsx } from '../helpers/finmap-like';
 import { buildZip } from '../helpers/zip-build';
 
@@ -112,6 +112,28 @@ describe('тип файла (§3.4)', () => {
       'В файле больше 50 000 строк — разбейте его по годам',
     );
     expect(readCsv(Buffer.from(`${HEAD}\n${'05.10.2026;1;К;;\n'.repeat(50_009)}`, 'utf8')).rows).toHaveLength(50_010);
+  });
+
+  it('финальные правки: UTF-16BE — F8; XLSX с именем .csv — по сигнатуре; BOM UTF-8 и только LF через readImportFile; поле длиннее 32 767 символов — ячейка-ошибка (R5)', () => {
+    const utf16be = (s: string) => Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from(s, 'utf16le').swap16()]);
+    expect(f('F8', () => detectImportFile(utf16be(HEAD), 'юникод.csv'))).toBe('Не удалось прочитать CSV: сохраните его в UTF-8');
+    expect(f('F8', () => detectImportFile(utf16be(HEAD), 'юникод.TXT'))).toBe('Не удалось прочитать CSV: сохраните его в UTF-8');
+    // не .csv и не .txt — по-прежнему F2
+    expect(f('F2', () => detectImportFile(utf16be(HEAD), 'юникод.dat'))).toBe('Нужен файл .xlsx или .csv');
+    // книга, переименованная в .csv, читается как XLSX
+    expect(detectImportFile(finmapLikeXlsx(), 'выгрузка.csv')).toBe('xlsx');
+    expect(readImportFile(finmapLikeXlsx(), 'выгрузка.csv').rows.length).toBeGreaterThan(1);
+    // BOM UTF-8 и переводы строк только LF
+    const bomLf = Buffer.from(`\uFEFF${HEAD}\n05.10.2026;1;Касса;;\n06.10.2026;2;Касса;;\n`, 'utf8');
+    expect(values(readImportFile(bomLf, 'выгрузка.csv').rows)).toEqual([
+      [1, { 0: 'Дата платежа*', 1: 'Сумма в валюте счета*', 2: 'Со счета*', 3: 'На счет*', 4: 'Комментарий' }],
+      [2, { 0: '05.10.2026', 1: '1', 2: 'Касса' }],
+      [3, { 0: '06.10.2026', 1: '2', 2: 'Касса' }],
+    ]);
+    // поле длиннее предела ячейки Excel — ячейка-ошибка, как у XLSX
+    const long = readCsv(Buffer.from(`${HEAD}\n05.10.2026;${'7'.repeat(32_768)};Касса;;${'к'.repeat(32_767)}`, 'utf8')).rows[1]!;
+    expect(long.cells.get(1)).toEqual({ kind: 'error', value: CELL_TOO_LONG });
+    expect(long.cells.get(4)!.value).toHaveLength(32_767);
   });
 
   it('подбор разделителя: предел строки при пробном разборе не ломает файл с «;» и 70 запятыми в комментарии', () => {

@@ -193,19 +193,23 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
   }
 
   // ——— справочники (§4.5–§4.8)
-  const matched = matchDictionaries(loadDictionaries(db, companyId), src.parsed.rows);
-  issues.push(...matched.issues);
+  const dictionaries = loadDictionaries(db, companyId);
+  const matched = matchDictionaries(dictionaries, src.parsed.rows);
+  // циклом, а не push(...): R17 бывает на каждый тег каждой строки, а сотни тысяч аргументов переполняют стек
+  for (const i of matched.issues) issues.push(i);
 
   // ——— суммы (§4.2): курс на дату — один запрос на пару (валюта, дата)
-  const rateCache = new Map<string, { rate: Dec; display: string } | null>();
-  function rateOn(currency: string, date: string): { rate: Dec; display: string } | null {
+  type RateOn = { rate: Dec; display: string } | { missing: string };
+  const rateCache = new Map<string, RateOn>();
+  function rateOn(currency: string, date: string): RateOn {
     const k = `${currency}|${date}`;
     if (!rateCache.has(k)) {
       try {
         rateCache.set(k, deps.rates.resolve(companyId, base, currency, date));
       } catch (e) {
         if (!(e instanceof AppError && e.code === 'RATE_UNAVAILABLE')) throw e;
-        rateCache.set(k, null);
+        // курса может не быть и у базовой валюты компании (не KZT): R16 называет валюту, курса которой нет
+        rateCache.set(k, { missing: e.details?.currency ?? currency });
       }
     }
     return rateCache.get(k)!;
@@ -248,8 +252,8 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
       rate = roundSignificant(divDec(BigInt(r.baseAmount) * 10n ** BigInt(units), BigInt(a.minor) * 10n ** BigInt(baseUnits)));
     } else {
       const x = rateOn(accCurrency, r.date);
-      if (!x) {
-        err('R16', M.R16(accCurrency, r.date));
+      if ('missing' in x) {
+        err('R16', M.R16(x.missing, r.date));
         continue;
       }
       baseAmount = convertMinor(a.minor, x.rate, units, baseUnits);
@@ -267,8 +271,8 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
       else if (toCurrency === base) toAmount = baseAmount;
       else {
         const y = rateOn(toCurrency, r.date);
-        if (!y) {
-          err('R16', M.R16(toCurrency, r.date));
+        if ('missing' in y) {
+          err('R16', M.R16(y.missing, r.date));
           continue;
         }
         toAmount = convertMinor(baseAmount, divDec(DEC_ONE, y.rate), baseUnits, getCurrency(toCurrency).minorUnits);
@@ -467,6 +471,10 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
   }
   /** Добавляемые строки: без дубликатов, все счета без ошибок (в том числе A4, найденной выше). */
   const counted = added.filter((x) => x.acc.ref && (!x.to || x.to.ref));
+  // «Будет создано» и справочники плана — только по добавляемым строкам (решение 10): дубликат, строка с ошибкой или
+  // строка счёта с ошибкой ничего не создают. Ключи новых элементов зависят только от строки и справочников, поэтому
+  // совпадают с ссылками строк плана; число строк, написание и тип контрагента — по добавляемым строкам.
+  const created = matchDictionaries(dictionaries, counted.map((x) => x.src));
 
   // ——— W8: этот файл уже импортирован и не отменён
   const prior = db
@@ -517,12 +525,12 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
     },
     period: dates.length ? { from: dates[0]!, to: dates[dates.length - 1]! } : null,
     accounts: cards,
-    // при ошибках списки могут включать элементы строк с ошибками; когда импорт возможен, они точные
+    // только то, что создадут добавляемые строки, — и при ошибках
     create: {
-      categories: items(matched.categories, (c) => ({ name: c.name, kind: c.kind, ...(c.parentName ? { parent: c.parentName } : {}), rows: c.rows })),
-      counterparties: items(matched.counterparties, (c) => ({ name: c.name, type: c.type, rows: c.rows })),
-      projects: items(matched.projects, (p) => ({ name: p.name, rows: p.rows })),
-      tags: items(matched.tags, (t) => ({ name: t.name, rows: t.rows })),
+      categories: items(created.categories, (c) => ({ name: c.name, kind: c.kind, ...(c.parentName ? { parent: c.parentName } : {}), rows: c.rows })),
+      counterparties: items(created.counterparties, (c) => ({ name: c.name, type: c.type, rows: c.rows })),
+      projects: items(created.projects, (p) => ({ name: p.name, rows: p.rows })),
+      tags: items(created.tags, (t) => ({ name: t.name, rows: t.rows })),
     },
     errors: { total: rowErrors.length, byCode: groupIssues(rowErrors) },
     warnings: groupIssues(issues.filter((i) => !isRowError(i))),
@@ -535,10 +543,10 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
       rows: planRows,
       accounts: planAccounts,
       accountChanges,
-      categories: matched.categories,
-      counterparties: matched.counterparties,
-      projects: matched.projects,
-      tags: matched.tags,
+      categories: created.categories,
+      counterparties: created.counterparties,
+      projects: created.projects,
+      tags: created.tags,
     },
   };
 }

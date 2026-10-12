@@ -18,6 +18,11 @@ export interface ZipBuildEntry {
   localName?: string;
   /** Бит 3: размеры и CRC — в дескрипторе после данных, в локальном заголовке нули. */
   descriptor?: boolean;
+  /** Флаги и код метода в локальном заголовке вместо тех, что в каталоге. */
+  localFlags?: number;
+  localMethodCode?: number;
+  /** Смещение локального заголовка в каталоге вместо настоящего (перекрытие записей). */
+  offset?: number;
 }
 
 export interface ZipBuildOptions {
@@ -28,6 +33,8 @@ export interface ZipBuildOptions {
   /** Номер диска (не 0 — многотомный архив). */
   disk?: number;
   comment?: string;
+  /** Лишние байты после записей каталога, включённые в его объявленный размер. */
+  cdPadding?: number;
 }
 
 const u16 = (n: number) => {
@@ -57,7 +64,7 @@ export function buildZip(entries: ZipBuildEntry[], opts: ZipBuildOptions = {}): 
     const name = Buffer.from(e.name, 'utf8');
     const localName = Buffer.from(e.localName ?? e.name, 'utf8');
     const local = Buffer.concat([
-      u32(0x04034b50), u16(20), u16(flags), u16(code), u16(0), u16(0x21),
+      u32(0x04034b50), u16(20), u16(e.localFlags ?? flags), u16(e.localMethodCode ?? code), u16(0), u16(0x21),
       u32(e.descriptor ? 0 : crc), u32(e.descriptor ? 0 : body.length), u32(e.descriptor ? 0 : size),
       u16(localName.length), u16(0), localName,
     ]);
@@ -67,12 +74,12 @@ export function buildZip(entries: ZipBuildEntry[], opts: ZipBuildOptions = {}): 
       Buffer.concat([
         u32(0x02014b50), u16(20), u16(20), u16(flags), u16(code), u16(0), u16(0x21),
         u32(crc), u32(body.length), u32(size),
-        u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset), name,
+        u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(e.offset ?? offset), name,
       ]),
     );
     offset += local.length + body.length + descriptor.length;
   }
-  const cd = Buffer.concat(central);
+  const cd = Buffer.concat([...central, Buffer.alloc(opts.cdPadding ?? 0)]);
   const comment = Buffer.from(opts.comment ?? '', 'latin1');
   const total = opts.totalEntries ?? entries.length;
   const eocd = Buffer.concat([

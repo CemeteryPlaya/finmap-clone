@@ -66,7 +66,7 @@ describe('сопоставление справочников (§4.5–§4.8 с�
       r({ category: 'ЗАРПЛАТА' }),
       r({ type: 'income', category: 'Зарплата' }),
       r({ category: 'Охрана' }), // две дочерние (у «Аренды» и у «Бара» другого вида) — у расхода одна
-      r({ category: 'Kомиссия' }), // новая; латинская K — название чинится
+      r({ category: '\u004Bомиссия' }), // новая; латинская K — название чинится
     ];
     const m = matchDictionaries(DICTS, rows);
     expect(rows.map((x) => m.rows.get(x.row)!.category)).toEqual([{ id: 4 }, { id: 2 }, { id: 1 }, { key: 'income|зарплата' }, { id: 10 }, { key: 'expense|комиссия' }]);

@@ -3,7 +3,8 @@ import type { ParsedFile } from './parse-row';
 
 /**
  * Кэш проверки (§6.3 спецификации импорта): разобранный файл в памяти процесса под случайным токеном (128 бит),
- * привязанным к компании и пользователю. Исходные байты не хранятся и на диск не пишутся.
+ * привязанным к компании и пользователю. Исходные байты не хранятся и на диск не пишутся; разобранный файл хранится
+ * отдельной копией (structuredClone), не держащей распакованный текст листа.
  */
 export interface CachedImport {
   companyId: number;
@@ -78,7 +79,9 @@ export function createImportCache(opts: { now?: () => number; ttlMs?: number; ma
         drop(oldest!);
       }
       const token = crypto.randomBytes(16).toString('hex');
-      entries.set(token, { ...item, lastUsed: now(), weight });
+      // отдельная копия: строки разбора — срезы распакованного листа, общих строк и текста CSV и держали бы их
+      // в памяти целиком (десятки МБ на файл), невидимо для веса выше; у копии строки свои (§6.3, решение 22)
+      entries.set(token, { ...item, parsed: structuredClone(item.parsed), lastUsed: now(), weight });
       total += weight;
       return token;
     },

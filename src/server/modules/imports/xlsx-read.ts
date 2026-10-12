@@ -25,7 +25,7 @@ export interface SheetData {
 
 /** Значение ячейки длиннее предела Excel — ошибка строки R18. */
 export const CELL_TOO_LONG = '#TOO_LONG';
-/** Предел Excel на текст ячейки. */
+/** Предел Excel на текст ячейки; действует на ячейку любого вида (число, текст, ошибка) в XLSX и на поле CSV. */
 export const CELL_MAX_CHARS = 32_767;
 
 const MB = 1024 * 1024;
@@ -41,7 +41,7 @@ export interface XlsxLimits {
   /** Непустых строк листа: больше — F5 сразу, не дочитывая лист. */
   rows: number;
   /**
-   * Символов текста во всех ячейках листа, с повторами общих строк: одна общая строка в 32 767 символов,
+   * Символов во всех ячейках листа (текст, числа, ошибки), с повторами общих строк: одна общая строка в 32 767 символов,
    * на которую ссылается каждая ячейка, иначе стоила бы десятков секунд разбора. Больше — F3.
    */
   text: number;
@@ -186,8 +186,9 @@ function sheetRows(xml: string, shared: string[], maxRows: number, maxText: numb
       default:
         throw damaged(`неизвестный тип ячейки «${type}»`);
     }
-    if (cell && cell.kind === 'text' && cell.value.length > CELL_MAX_CHARS) cell = { kind: 'error', value: CELL_TOO_LONG };
-    if (cell && cell.kind === 'text' && (textTotal += cell.value.length) > maxText) throw damaged('слишком много текста в листе');
+    // предел ячейки и бюджет текста — у ячейки любого вида: число из миллионов цифр иначе обошло бы оба (решение 22)
+    if (cell && cell.value.length > CELL_MAX_CHARS) cell = { kind: 'error', value: CELL_TOO_LONG };
+    if (cell && (textTotal += cell.value.length) > maxText) throw damaged('слишком много текста в листе');
     if (cell && cell.value !== '') row!.cells.set(col, cell);
   };
 
