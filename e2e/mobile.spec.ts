@@ -318,6 +318,99 @@ test('выделение из широкого окна на телефоне с
   await expect(bulk).toHaveCount(0);
 });
 
+test('настройки на телефоне (§8.6): «Настройки» — список разделов отдельным экраном, раздел — с «← Настройки»; окно стало шире — «Контрагенты» и меню слева', async ({ page }) => {
+  await login(page);
+  const name = `ТОО Настройки ${Date.now()}`;
+  const cid = await createCompany(page, name);
+  await page.setViewportSize(PHONE);
+  await page.goto(`/c/${cid}/settings`);
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings$`));
+  await expect(page.getByRole('heading', { level: 1, name: 'Настройки', exact: true })).toBeVisible();
+  // в зоне настроек панель счетов не нужна: ☰ в шапке нет
+  await expect(page.getByRole('banner').getByRole('button', { name: 'Счета', exact: true })).toHaveCount(0);
+  const nav = page.getByRole('navigation', { name: 'Разделы настроек' });
+  // те же группы и порядок, что в меню компьютера (§4.2); «← Назад к журналу» на экране нет — в журнал ведёт нижняя панель
+  await expect(nav.getByRole('group', { name: 'Мой аккаунт' }).getByRole('link')).toHaveText([/^Профиль/, /^Мои компании/]);
+  await expect(nav.getByRole('group', { name, exact: true }).getByRole('link')).toHaveText([
+    /^Контрагенты/,
+    /^Счета/,
+    /^Категории/,
+    /^Проекты/,
+    /^Теги/,
+    /^Пользователи/,
+    /^Фиксированные курсы валют/,
+    /^Резервное копирование/,
+  ]);
+  await expect(nav.getByRole('group', { name: 'Визуальные настройки' }).getByRole('link')).toHaveText([/^Настройки журнала/]);
+  await expect(nav.getByRole('link', { name: /Назад к журналу/ })).toHaveCount(0);
+  for (const link of await nav.getByRole('link').all()) {
+    const b = (await link.boundingBox())!;
+    expect(b.height, `строка «${await link.textContent()}»`).toBeGreaterThanOrEqual(44);
+    expect(b.width).toBeGreaterThan(PHONE.width - 64);
+  }
+  await expectNoSideScroll(page, 'экран «Настройки»');
+
+  // раздел — на весь экран: меню разделов нет, сверху «← Настройки»; фокус на заголовке раздела
+  await nav.getByRole('link', { name: /^Теги/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/tags$`));
+  await expect(page.getByRole('heading', { level: 1, name: 'Теги' })).toBeFocused();
+  await expect(page.getByRole('navigation', { name: 'Разделы настроек' })).toBeHidden();
+  const back = page.getByRole('main').getByRole('link', { name: 'Настройки', exact: true });
+  expect((await back.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await back.click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings$`));
+  await expect(page.getByRole('heading', { level: 1, name: 'Настройки', exact: true })).toBeFocused();
+
+  // окно стало шире на экране списка — список не нужен: «Контрагенты», меню разделов слева (Review Focus 3)
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/counterparties$`));
+  await expect(page.getByRole('navigation', { name: 'Разделы настроек' }).getByRole('link', { name: 'Контрагенты' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('main').getByRole('link', { name: 'Настройки', exact: true })).toBeHidden();
+  // на компьютере «Настройки» без раздела — сразу «Контрагенты», как раньше
+  await page.goto(`/c/${cid}/settings`);
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/counterparties$`));
+});
+
+test('настройки на телефоне: ☰, ✎, «+» и «банк» в списках и ✎ компании — 44×44 px; ссылки подменю и вкладки «Проекты» — не ниже 44 px', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Касание настроек ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  for (const name of ['Альфа', 'Бета']) await apiPost(page, `${base}/tags`, { name });
+  for (const name of ['Аренда', 'Связь']) await apiPost(page, `${base}/categories`, { kind: 'expense', name });
+  await page.setViewportSize(PHONE);
+  const square = async (target: Locator, what: string) => {
+    const b = (await target.boundingBox())!;
+    expect(b.width, `${what}: ширина`).toBeGreaterThanOrEqual(44);
+    expect(b.height, `${what}: высота`).toBeGreaterThanOrEqual(44);
+  };
+  const tall = async (links: Locator, what: string) => {
+    await expect(links.first()).toBeVisible();
+    for (const link of await links.all()) expect((await link.boundingBox())!.height, `${what} «${await link.textContent()}»`).toBeGreaterThanOrEqual(44);
+  };
+
+  await page.goto(`/c/${cid}/settings/tags`);
+  const tags = page.getByRole('main').getByRole('list', { name: 'Теги' });
+  await square(tags.getByRole('button', { name: 'Переместить Альфа', exact: true }), '☰ тега');
+  await square(tags.getByRole('button', { name: 'Изменить Альфа', exact: true }), '✎ тега');
+
+  await page.goto(`/c/${cid}/settings/categories?tab=my-expense`);
+  const mine = page.getByRole('main').getByRole('list', { name: 'Мои категории расхода' });
+  await square(mine.getByRole('button', { name: 'Добавить подкатегорию в Аренда', exact: true }), '«+» категории');
+  await square(mine.getByRole('button', { name: 'Изменить Аренда', exact: true }), '✎ категории');
+  await tall(page.getByRole('navigation', { name: 'Виды категорий' }).getByRole('link'), 'пункт подменю');
+  await page.goto(`/c/${cid}/settings/categories?tab=system-expense`);
+  await square(page.getByRole('main').getByRole('img', { name: 'Системная — не переименовывается и не удаляется' }).first(), '«банк»');
+
+  await page.goto(`/c/${cid}/settings/counterparties`);
+  await tall(page.getByRole('navigation', { name: 'Типы контрагентов' }).getByRole('link'), 'тип контрагентов');
+  await page.goto(`/c/${cid}/settings/projects`);
+  await tall(page.getByRole('navigation', { name: 'Проекты и шаблоны' }).getByRole('link'), 'вкладка');
+
+  // ✎ компании в панели «Компании»
+  await page.getByRole('banner').getByRole('button', { name: /^Сменить компанию/ }).click();
+  await square(page.getByRole('dialog', { name: 'Компании' }).getByRole('button', { name: /^Изменить компанию/ }).first(), '✎ компании');
+});
+
 /** Начало сегодняшнего дня по Алматы — APP_TIMEZONE e2e-сервера (с 01.03.2024 — UTC+5). */
 function startOfTodayAlmaty(): number {
   const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date());

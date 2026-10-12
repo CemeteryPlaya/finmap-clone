@@ -9,31 +9,55 @@ import { useSidebarCollapsed } from '../../lib/sidebar';
 
 const sidebarLink = ({ isActive }: { isActive: boolean }) =>
   `block truncate rounded-xl px-3 py-2 text-sm ${isActive ? 'bg-field font-semibold text-ink' : 'text-muted hover:bg-field hover:text-ink'}`;
-const inlineLink = ({ isActive }: { isActive: boolean }) =>
-  `rounded-xl px-3 py-1.5 text-sm ${isActive ? 'bg-field font-semibold text-ink' : 'text-muted hover:text-ink'}`;
+/** Строка экрана «Настройки» на телефоне (§8.6 этапа 1.5): во всю ширину, 48 px, «›» справа. */
+const listLink = 'flex min-h-12 items-center justify-between gap-3 rounded-xl px-3 text-base text-ink hover:bg-field focus-visible:outline-2 focus-visible:outline-focus';
 
 /**
- * Навигация зоны настроек (§4.1–4.2 этапа 1.5): «← Назад к журналу» и разделы по группам.
- * `sidebar` — слева вместо панели счетов (компьютер), сворачивается той же настройкой, что панель счетов (§3.6);
- * `inline` — строкой над разделом на телефоне (список разделов отдельным экраном — план 1.5-5).
- * Без ролей listitem, status, alert, region: их ищут e2e экранов настроек.
+ * Навигация зоны настроек (§4.1–4.2, §8.6 этапа 1.5) — разделы по группам.
+ * `sidebar` — слева вместо панели счетов (компьютер), с «← Назад к журналу»; сворачивается той же настройкой, что панель
+ * счетов (§3.6). `list` — экран «Настройки» на телефоне: разделы строками во всю ширину; в журнал ведёт вкладка «Журнал»
+ * нижней панели. Без ролей listitem, status, alert, region: их ищут e2e экранов настроек.
  */
-export function SettingsNav({ company, variant }: { company: Company; variant: 'sidebar' | 'inline' }) {
-  const back = journalBackHref(company.id, readLastJournal(company.id));
+export function SettingsNav({ company, variant }: { company: Company; variant: 'sidebar' | 'list' }) {
   const { collapsed, toggle } = useSidebarCollapsed();
-  if (variant === 'inline') {
+  if (variant === 'list') {
     return (
-      <nav aria-label="Разделы настроек" className="mb-6 md:hidden">
-        <SettingsNavBody companyId={company.id} companyName={company.name} back={back} sidebar={false} />
+      <nav aria-label="Разделы настроек">
+        <SettingsGroups companyId={company.id} companyName={company.name} list />
       </nav>
     );
   }
+  const back = journalBackHref(company.id, readLastJournal(company.id));
   return (
     <nav aria-label="Разделы настроек" className={`relative hidden shrink-0 self-start md:block ${collapsed ? 'h-36 w-3' : 'w-64 rounded-3xl bg-card p-4'}`}>
       <CollapseButton collapsed={collapsed} onToggle={toggle} collapseLabel="Свернуть меню настроек" expandLabel="Развернуть меню настроек" />
       {collapsed && <BackLink to={back} compact />}
-      {!collapsed && <SettingsNavBody companyId={company.id} companyName={company.name} back={back} sidebar />}
+      {!collapsed && (
+        <>
+          <BackLink to={back} />
+          <SettingsGroups companyId={company.id} companyName={company.name} list={false} />
+        </>
+      )}
     </nav>
+  );
+}
+
+/**
+ * «← Настройки» над разделом на телефоне (§8.6 этапа 1.5): назад к экрану списка разделов, фокус — на его `<h1>`.
+ * На компьютере не видна — разделы в меню слева.
+ */
+export function SettingsListLink({ companyId }: { companyId: number }) {
+  const to = `/c/${companyId}/settings`;
+  return (
+    <Link
+      to={to}
+      onClick={(e) => {
+        if (isPlainLeftClick(e)) focusHeadingSoon(to);
+      }}
+      className="mb-3 inline-flex min-h-11 items-center gap-2 rounded-xl bg-field px-4 text-sm font-medium text-ink hover:brightness-95 md:hidden"
+    >
+      <span aria-hidden="true">←</span> Настройки
+    </Link>
   );
 }
 
@@ -62,11 +86,11 @@ function BackLink({ to, compact }: { to: string; compact?: boolean }) {
   );
 }
 
-function SettingsNavBody(props: { companyId: number; companyName: string; back: string; sidebar: boolean }) {
+/** Группы разделов: в меню слева — NavLink с текущим разделом; на экране списка — строки со стрелкой и фокусом на `<h1>` раздела. */
+function SettingsGroups(props: { companyId: number; companyName: string; list: boolean }) {
   const id = useId();
   return (
     <>
-      <BackLink to={props.back} />
       {settingsGroups(props.companyName).map((g) => {
         const titleId = `${id}-${g.key}`;
         return (
@@ -82,12 +106,29 @@ function SettingsNavBody(props: { companyId: number; companyName: string; back: 
                 {g.title}
               </p>
             )}
-            <div className={props.sidebar ? 'grid gap-0.5' : 'flex flex-wrap gap-1'}>
-              {g.items.map((s) => (
-                <NavLink key={s.path} to={`/c/${props.companyId}/settings/${s.path}`} className={props.sidebar ? sidebarLink : inlineLink}>
-                  {s.label}
-                </NavLink>
-              ))}
+            <div className={props.list ? 'grid' : 'grid gap-0.5'}>
+              {g.items.map((s) => {
+                const to = `/c/${props.companyId}/settings/${s.path}`;
+                return props.list ? (
+                  <Link
+                    key={s.path}
+                    to={to}
+                    onClick={(e) => {
+                      if (isPlainLeftClick(e)) focusHeadingSoon(pathOf(to));
+                    }}
+                    className={listLink}
+                  >
+                    <span className="min-w-0 truncate">{s.label}</span>
+                    <span aria-hidden="true" className="shrink-0 text-muted">
+                      ›
+                    </span>
+                  </Link>
+                ) : (
+                  <NavLink key={s.path} to={to} className={sidebarLink}>
+                    {s.label}
+                  </NavLink>
+                );
+              })}
             </div>
           </div>
         );

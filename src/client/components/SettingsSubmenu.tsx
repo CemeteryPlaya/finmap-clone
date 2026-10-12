@@ -12,7 +12,7 @@ export interface SubmenuItem<K extends string> {
 
 /**
  * Подменю раздела слева в карточке (§7.2, §7.3 этапа 1.5): вертикальный список ссылок, выбор — параметр адреса
- * (`?type=`, `?tab=`), текущий — `aria-current="page"`. На телефоне — строкой с переносом.
+ * (`?type=`, `?tab=`), текущий — `aria-current="page"`. На телефоне — строкой с переносом, пункты не ниже 44 px.
  */
 export function SettingsSubmenu<K extends string>(props: { label: string; param: string; current: K; items: readonly SubmenuItem<K>[] }) {
   return (
@@ -24,7 +24,7 @@ export function SettingsSubmenu<K extends string>(props: { label: string; param:
             key={item.key}
             to={{ search: `?${props.param}=${item.key}` }}
             aria-current={active ? 'page' : undefined}
-            className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm ${active ? 'bg-field font-semibold text-ink' : 'text-ink hover:bg-field/60'}`}
+            className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm max-md:min-h-11 ${active ? 'bg-field font-semibold text-ink' : 'text-ink hover:bg-field/60'}`}
           >
             <span className="min-w-0">
               {item.label}

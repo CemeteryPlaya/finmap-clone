@@ -161,7 +161,7 @@ function CompaniesList(props: { current: Company; companies: Company[]; onDone: 
                 aria-label={`Изменить компанию «${c.name}»`}
                 title="Изменить"
                 onClick={() => setEditing(c.id)}
-                className="mr-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-card hover:text-ink"
+                className="mr-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-card hover:text-ink focus-visible:outline-2 focus-visible:outline-focus max-md:size-11"
               >
                 <span aria-hidden="true">✎</span>
               </button>

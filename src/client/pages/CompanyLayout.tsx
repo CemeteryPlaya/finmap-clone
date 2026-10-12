@@ -42,7 +42,8 @@ export function CompanyLayout() {
     <OperationFormHost company={company}>
       <div className="min-h-dvh bg-chrome">
         <AppHeader
-          menuButton={<AccountsDrawerButton company={company} />}
+          // в зоне настроек панель счетов не нужна (§8.6)
+          menuButton={inSettings ? undefined : <AccountsDrawerButton company={company} />}
           company={<CompanyBlockButton current={company} companies={companies.data} />}
           // архивная компания — только чтение: кнопок новых операций нет ни на компьютере, ни на телефоне
           actions={company.archivedAt ? undefined : <NewOperationButtons />}

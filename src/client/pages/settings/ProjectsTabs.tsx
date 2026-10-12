@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router';
 
 const tab = ({ isActive }: { isActive: boolean }) =>
-  `-mb-px border-b-2 px-1 pb-2 text-sm font-semibold ${isActive ? 'border-income-strong text-income-strong' : 'border-transparent text-muted hover:text-ink'}`;
+  `-mb-px border-b-2 px-1 pb-2 text-sm font-semibold max-md:inline-flex max-md:min-h-11 max-md:items-end ${isActive ? 'border-income-strong text-income-strong' : 'border-transparent text-muted hover:text-ink'}`;
 
 /**
  * Шапка раздела «Проекты» (§4.2, §7.4 этапа 1.5): заголовок «Проекты» и вкладки с подчёркиванием «Проекты | Шаблоны

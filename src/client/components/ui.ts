@@ -31,9 +31,9 @@ export const headerIconClass =
   'grid h-10 w-10 shrink-0 place-items-center rounded-full max-md:size-11 bg-chrome-2 text-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
 /** Строка списка зоны настроек (§7.1 этапа 1.5): без рамки, с разделителем снизу; общая у SettingsList и «Курсов». */
 export const settingsRowClass = 'flex min-h-14 items-center gap-2 border-b border-field py-2 pr-1 hover:bg-field/60';
-/** Кнопка-иконка строки списка настроек и карточки компании (☰, ✎), 36 px. */
+/** Кнопка-иконка строки списка настроек и карточки компании (☰, ✎): 36 px, на телефоне — 44 px (цель касания). */
 export const rowIconClass =
-  'grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-card hover:text-ink focus-visible:outline-2 focus-visible:outline-focus';
+  'grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-card hover:text-ink focus-visible:outline-2 focus-visible:outline-focus max-md:size-11';
 export const alertClass = 'mb-4 rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense-strong';
 export const noticeClass = 'mb-4 rounded-xl bg-field px-4 py-3 text-sm text-muted';
 

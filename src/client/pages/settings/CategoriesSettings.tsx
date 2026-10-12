@@ -30,7 +30,7 @@ import type { CompanyOutletContext } from '../CompanyLayout';
 
 const SYSTEM_HINT = 'Системная — не переименовывается и не удаляется';
 const plusClass =
-  'grid h-9 w-9 shrink-0 place-items-center rounded-full text-income-strong hover:bg-income-soft focus-visible:outline-2 focus-visible:outline-focus';
+  'grid h-9 w-9 shrink-0 place-items-center rounded-full text-income-strong hover:bg-income-soft focus-visible:outline-2 focus-visible:outline-focus max-md:size-11';
 
 /**
  * Окно категории: создание (на верхнем уровне или в родителе — по его id, сам родитель берётся из свежего дерева)
@@ -124,7 +124,7 @@ export function CategoriesSettings() {
                   </button>
                 )}
                 {row.system && (
-                  <span role="img" aria-label={SYSTEM_HINT} title={SYSTEM_HINT} className="grid h-9 w-9 shrink-0 place-items-center text-muted">
+                  <span role="img" aria-label={SYSTEM_HINT} title={SYSTEM_HINT} className="grid h-9 w-9 shrink-0 place-items-center text-muted max-md:size-11">
                     <BankIcon />
                   </span>
                 )}

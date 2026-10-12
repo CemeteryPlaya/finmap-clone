@@ -206,7 +206,7 @@ export function SettingsList<T extends SettingsRow>(props: {
                   </button>
                 ) : (
                   props.onReorder && (
-                    <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center text-muted opacity-30">
+                    <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center text-muted opacity-30 max-md:size-11">
                       <GripIcon />
                     </span>
                   )
