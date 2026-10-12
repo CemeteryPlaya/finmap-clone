@@ -20,7 +20,10 @@ import { finmapLikeMany, finmapLikeXlsx } from '../tests/helpers/finmap-like';
 //    пик памяти процесса (принятый бюджет 500 МБ, решение 9 плана И-2);
 // 3) «cache» — худший случай кэша проверки, три файла по 50 000 строк в трёх компаниях: пик на первом файле
 //    (бюджет 500 МБ), память кэша (куча после сборки мусора, оценка §10 — около 25 МБ на файл) и пик с тремя файлами.
-// Код выхода 1 — только если нарушен бюджет. Запросы идут через app.inject. npm run bench:import. Файлы собираются
+// Файлы — размера настоящих (§2.4): лист без сжатия, около 600 байт на строку (16 000 строк — около 9 МБ, 50 000 — около
+// 29 МБ при пределе загрузки 30 МБ). Код выхода 1 — нарушен бюджет («Итог: бюджет нарушен») или замер не удался
+// («Итог: ошибка замера»: исключение, неожиданный ответ, сбой дочернего процесса — дочерний процесс выходит с кодом 2,
+// чтобы родитель отличил это от бюджета). Запросы идут через app.inject. npm run bench:import. Файлы собираются
 // заранее, замеры идут в дочерних процессах — сборка файлов и прошлый замер не попадают в пик памяти следующего.
 // Всё — во временной папке, которая удаляется в конце; папка данных приложения не трогается. Настоящие файлы владельца
 // не используются. В CI не входит.
@@ -36,6 +39,9 @@ const RSS_BUDGET_50K_MB = 500;
 const FILE_16K = '16k.xlsx';
 const FILE_50K = '50k.xlsx';
 const PHASES = ['write', 'commit50k', 'cache'] as const;
+/** Код выхода дочернего процесса: бюджет нарушен — 1, замер не удался — 2. */
+const EXIT_OVER_BUDGET = 1;
+const EXIT_MEASURE_ERROR = 2;
 
 type Phase = (typeof PHASES)[number];
 
@@ -46,24 +52,41 @@ const peakMb = () => process.resourceUsage().maxRSS / 1024;
 if (process.argv[2] !== '--measure') {
   // родительский процесс: файлы на диск, каждый замер — в своём дочернем процессе с --expose-gc
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'finmap-bench-import-'));
-  let failed = false;
+  let overBudget = false;
+  let measureError = false;
   try {
-    fs.writeFileSync(path.join(dir, FILE_16K), finmapLikeXlsx(finmapLikeMany(16_000)));
-    fs.writeFileSync(path.join(dir, FILE_50K), finmapLikeXlsx(finmapLikeMany(50_000, { perDay: 40 })));
+    fs.writeFileSync(path.join(dir, FILE_16K), finmapLikeXlsx(finmapLikeMany(16_000, { realSize: true }), { stored: true }));
+    fs.writeFileSync(path.join(dir, FILE_50K), finmapLikeXlsx(finmapLikeMany(50_000, { perDay: 40, realSize: true }), { stored: true }));
     console.log(`Замер импорта (§10 спецификации импорта), Node ${process.version}, ${os.cpus().length} ядер`);
     for (const phase of PHASES) {
       const child = spawnSync(process.execPath, [...process.execArgv, '--expose-gc', fileURLToPath(import.meta.url), '--measure', dir, phase], { stdio: 'inherit' });
-      if (child.status !== 0) failed = true;
+      if (child.status === EXIT_OVER_BUDGET) overBudget = true;
+      // код 2, другой код (непойманное исключение, нехватка памяти), сигнал или процесс не запустился — не бюджет
+      else if (child.status !== 0) {
+        measureError = true;
+        console.log(`Ошибка замера «${phase}»: дочерний процесс — ${child.error?.message ?? (child.signal ? `сигнал ${child.signal}` : `код выхода ${child.status}`)}`);
+      }
     }
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-  console.log(failed ? '\nИтог: бюджет нарушен' : '\nИтог: все бюджеты соблюдены');
-  process.exitCode = failed ? 1 : 0;
+  if (measureError) console.log(`\nИтог: ошибка замера — не все замеры выполнены${overBudget ? '; бюджет нарушен' : ''}`);
+  else console.log(overBudget ? '\nИтог: бюджет нарушен' : '\nИтог: все бюджеты соблюдены');
+  process.exitCode = overBudget || measureError ? 1 : 0;
 } else {
   const phase = PHASES.find((p) => p === process.argv[4]);
-  if (!phase) throw new Error(`Неизвестный замер: ${process.argv[4]}`);
-  await measure(process.argv[3]!, phase);
+  if (!phase) {
+    console.log(`Ошибка замера: неизвестный замер ${process.argv[4]}`);
+    process.exitCode = EXIT_MEASURE_ERROR;
+  } else {
+    try {
+      await measure(process.argv[3]!, phase);
+    } catch (e) {
+      // сбой до замеров (база, сборка приложения): непойманное исключение дало бы код 1 — как у бюджета
+      console.log(`Ошибка замера: ${(e as Error).message}`);
+      process.exitCode = EXIT_MEASURE_ERROR;
+    }
+  }
 }
 
 async function measure(dir: string, phase: Phase): Promise<void> {
@@ -84,6 +107,7 @@ async function measure(dir: string, phase: Phase): Promise<void> {
 
   const lines: string[] = [];
   let over = false;
+  let failed = false;
   const report = (name: string, ms: number, budget?: number) => {
     const verdict = budget === undefined ? 'без бюджета' : ms <= budget ? `OK (бюджет ${budget} мс)` : `ПРЕВЫШЕН (бюджет ${budget} мс)`;
     if (budget !== undefined && ms > budget) over = true;
@@ -163,7 +187,7 @@ async function measure(dir: string, phase: Phase): Promise<void> {
       lines.push(`Пик памяти процесса с тремя файлами в кэше: ${peakMb().toFixed(0)} МБ (без бюджета)`);
     }
   } catch (e) {
-    over = true;
+    failed = true;
     lines.push(`Ошибка замера: ${(e as Error).message}`);
   } finally {
     await app.close();
@@ -173,5 +197,5 @@ async function measure(dir: string, phase: Phase): Promise<void> {
   const titles: Record<Phase, string> = { write: 'Запись 16 000 строк', commit50k: 'Запись 50 000 строк', cache: 'Худший случай кэша' };
   console.log(`\n${titles[phase]}:`);
   for (const l of lines) console.log(l);
-  process.exitCode = over ? 1 : 0;
+  process.exitCode = failed ? EXIT_MEASURE_ERROR : over ? EXIT_OVER_BUDGET : 0;
 }

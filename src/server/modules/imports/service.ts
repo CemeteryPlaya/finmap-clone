@@ -101,6 +101,8 @@ export function createImportsService(
         db,
         d.audit,
         (tx, audit) => {
+          // компания могла уйти в архив после проверки выше (другой процесс): проверка — уже под блокировкой записи
+          requireCompany(tx, companyId, { writable: true });
           const { preview, plan } = buildPreview(deps, src, body.accounts);
           if (!preview.canImport) throw importInvalid(preview);
           if (preview.revision !== body.revision) throw importChanged(preview);

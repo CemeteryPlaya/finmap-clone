@@ -118,9 +118,13 @@ export function finmapLikeSample(): FinmapLikeValue[][] {
  * Много строк «как у Finmap» для замеров и проверки скорости (§10, §11.2): доходы на «Касса-1» и «Банк-2», расходы с
  * «Касса-1», 15 категорий доходов, «Зарплата» и 22 категории расходов, 86 контрагентов, редкие тег и комментарий.
  * Даты — с 15.03.2023, perDay строк в день (по умолчанию 14: 16 000 строк — до мая 2026), время 08:00–19:59.
+ * realSize — строки размера настоящих (§2.4 спецификации импорта: около 600 байт листа на строку): комментарий у
+ * каждой строки. Вместе с finmapLikeXlsx(…, { stored: true }) 16 000 строк — около 9 МБ, как настоящий файл.
  */
-export function finmapLikeMany(count: number, opts: { perDay?: number } = {}): FinmapLikeValue[][] {
+export function finmapLikeMany(count: number, opts: { perDay?: number; realSize?: boolean } = {}): FinmapLikeValue[][] {
   const perDay = opts.perDay ?? 14;
+  const comment = (i: number): string | null =>
+    opts.realSize ? `Комментарий ${i}: смена ${1 + (i % 3)}, оплата принята, чек приложен, сверено` : i % 7 ? null : `Комментарий ${i}`;
   return Array.from({ length: count }, (_, i) => {
     const day = new Date(Date.UTC(2023, 2, 15) + Math.floor(i / perDay) * 86_400_000).toISOString().slice(0, 10);
     const income = i % 3 !== 0;
@@ -131,7 +135,7 @@ export function finmapLikeMany(count: number, opts: { perDay?: number } = {}): F
       category: income ? `Доход ${i % 15}` : i % 4 ? 'Зарплата' : `Расход ${i % 22}`,
       counterparty: `Контрагент ${i % 86}`,
       tags: i % 50 ? null : 'Смена',
-      comment: i % 7 ? null : `Комментарий ${i}`,
+      comment: comment(i),
     });
   });
 }
@@ -173,11 +177,11 @@ export function finmapLikeSheetXml(rows: FinmapLikeValue[][]): string {
 
 /**
  * Книга XLSX «как у Finmap»: заголовки (по умолчанию FINMAP_LIKE_HEADERS) и строки данных;
- * leadRows — строки над заголовками (название отчёта и т. п.).
+ * leadRows — строки над заголовками (название отчёта и т. п.); stored — лист без сжатия, как в настоящей выгрузке (§2.4).
  */
 export function finmapLikeXlsx(
   rows: FinmapLikeValue[][] = finmapLikeSample(),
-  opts: { headers?: readonly string[]; leadRows?: FinmapLikeValue[][]; sheetName?: string; date1904?: boolean } = {},
+  opts: { headers?: readonly string[]; leadRows?: FinmapLikeValue[][]; sheetName?: string; date1904?: boolean; stored?: boolean } = {},
 ): Buffer {
   const all = [...(opts.leadRows ?? []), [...(opts.headers ?? FINMAP_LIKE_HEADERS)], ...rows];
   const pr = opts.date1904 ? '<workbookPr date1904="1"/>' : '';
@@ -192,6 +196,6 @@ export function finmapLikeXlsx(
       data: `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="${NS_MAIN}" xmlns:r="${NS_REL}">${pr}<sheets><sheet name="${esc(opts.sheetName ?? 'ExportRU')}" sheetId="1" r:id="rId1"/></sheets></workbook>`,
     },
     { name: 'xl/_rels/workbook.xml.rels', data: `<Relationships xmlns="${NS_PKG}"><Relationship Id="rId1" Type="${NS_REL}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>` },
-    { name: 'xl/worksheets/sheet1.xml', data: finmapLikeSheetXml(all) },
+    { name: 'xl/worksheets/sheet1.xml', data: finmapLikeSheetXml(all), ...(opts.stored ? { method: 0 as const } : {}) },
   ]);
 }

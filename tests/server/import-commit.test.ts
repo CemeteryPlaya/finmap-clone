@@ -1,17 +1,21 @@
+import path from 'node:path';
+import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
+import { AppError } from '../../src/server/errors';
 import { createAccountsService } from '../../src/server/modules/accounts/service';
 import { createAuditService } from '../../src/server/modules/audit/service';
 import { createLedgerBalances } from '../../src/server/modules/balances/service';
 import { createCategoriesService } from '../../src/server/modules/categories/service';
 import { createCompaniesService } from '../../src/server/modules/companies/service';
 import { createCounterpartiesService } from '../../src/server/modules/counterparties/service';
+import { createImportCache, type ImportCache } from '../../src/server/modules/imports/cache';
 import { createImportsService } from '../../src/server/modules/imports/service';
 import { createOperationsService } from '../../src/server/modules/operations/service';
 import { createOperationsWriter, type OperationsWriter } from '../../src/server/modules/operations/writer';
 import { createProjectsService } from '../../src/server/modules/projects/service';
 import { createRatesService } from '../../src/server/modules/rates/service';
 import { createTagsService } from '../../src/server/modules/tags/service';
-import type { AccountMapping, ImportCommitResult, ImportPreview } from '../../src/shared/schemas/imports';
+import type { AccountMapping, ImportCommitResult, ImportPreview, ImportPreviewAccount } from '../../src/shared/schemas/imports';
 import { excelSerial as at, finmapLikeMany, finmapLikeRow as fr, finmapLikeXlsx, type FinmapLikeValue } from '../helpers/finmap-like';
 import { opsWorld, type OpsWorld } from '../helpers/ops';
 import { loginAs, ORIGIN_HEADERS, seedUser } from '../helpers/test-app';
@@ -86,6 +90,54 @@ function operationsService() {
   return createOperationsService({ db, audit, rates: createRatesService({ db, audit }), timezone: 'Asia/Almaty', now: () => NOW });
 }
 
+/** Остаток после записи, который обещает карточка счёта проверки (§5.4): «Остаток после импорта», «Текущий остаток», «Стартовый баланс» или остаток + движение. */
+function promisedBalance(a: ImportPreviewAccount): number {
+  const m = a.mapping!;
+  if (m.kind === 'existing') return m.targetBalance ?? a.existing!.balance + a.movement;
+  if (!m.balance) return a.movement;
+  return m.balance.mode === 'current' ? m.balance.amount : m.balance.amount + a.movement;
+}
+/** Остатки по проводкам после записи — ровно те, что обещали карточки. */
+function expectPromisedBalances(cards: ImportPreviewAccount[]) {
+  const ledger = new Map(createLedgerBalances(w.h.t.db).companyBalances(w.cid).map((b) => [b.accountId, b.balance]));
+  for (const c of cards) {
+    const m = c.mapping!;
+    const id = m.kind === 'existing' ? m.accountId : (one('SELECT id FROM accounts WHERE company_id = ? AND name = ?', w.cid, m.name).id as number);
+    expect(ledger.get(id), c.fileName).toBe(promisedBalance(c));
+  }
+}
+
+/** Второй пользователь: свой кэш проверки (тот же пользователь при новой загрузке вытеснил бы свой прежний файл). */
+async function secondUser() {
+  await seedUser(w.h.t, 'second', 'second-password-1');
+  const cookie = await loginAs(w.h.t, 'second', 'second-password-1');
+  const post = (url: string, payload: object) => w.h.t.app.inject({ method: 'POST', url, headers: { ...ORIGIN_HEADERS, cookie }, payload });
+  return { cookie, post };
+}
+
+/** Сервис импорта напрямую — с подменённым кэшем (сбой или гонка в нужный момент). */
+function importsServiceWith(cache: ImportCache) {
+  const db = w.h.t.db;
+  const audit = createAuditService(db);
+  const categories = createCategoriesService({ db, audit });
+  const accounts = createAccountsService({ db, audit, timezone: 'Asia/Almaty', now: () => NOW });
+  const companies = createCompaniesService({ db, audit, categories, accounts });
+  return createImportsService({
+    db,
+    audit,
+    rates: createRatesService({ db, audit }),
+    timezone: 'Asia/Almaty',
+    now: () => NOW,
+    cache,
+    accounts,
+    categories,
+    counterparties: createCounterpartiesService({ db, audit }),
+    projects: createProjectsService({ db, audit, companies, categories, accounts, timezone: 'Asia/Almaty' }),
+    tags: createTagsService({ db, audit }),
+    writer: createOperationsWriter(w.h.t.sqlite),
+  });
+}
+
 describe('POST …/imports: запись одной транзакцией (§6.4, §6.5 спецификации импорта)', () => {
   it('счётчики, справочники с видом, типом и родителем, остатки по обоим режимам, import_id, check(), история; повтор токена — 410', async () => {
     w = await opsWorld();
@@ -147,6 +199,8 @@ describe('POST …/imports: запись одной транзакцией (§6.
     expect(balances.get(w.kzt)).toBe(2_000_000);
     expect(balances.get(bank.id)).toBe(1_000_000);
     expect(bank).toMatchObject({ starting_balance: 1_000_000 - (5_000_000 - 820_050), opened_at: '2026-10-04' });
+    // и ровно как обещали карточки счетов проверки, которую видел человек
+    expectPromisedBalances(p.accounts);
     // дата открытия «Кассы» перенесена на первую операцию файла (инвариант 6)
     expect(one('SELECT opened_at, starting_balance FROM accounts WHERE id = ?', w.kzt)).toEqual({
       opened_at: '2026-09-20',
@@ -160,8 +214,8 @@ describe('POST …/imports: запись одной транзакцией (§6.
     expect(JSON.parse(row.counts)).toEqual(counts);
     expect(JSON.parse(row.created)).toEqual({
       accounts: [bank.id],
-      categories: expect.any(Array),
-      counterparties: expect.any(Array),
+      categories: ['Связь', 'Администраторы', 'Интернет'].map((n) => one('SELECT id FROM categories WHERE company_id = ? AND name = ?', w.cid, n).id),
+      counterparties: ['Сотрудник А', 'Поставщик Б'].map((n) => one('SELECT id FROM counterparties WHERE company_id = ? AND name = ?', w.cid, n).id),
       projects: [one("SELECT id FROM projects WHERE name = 'Клуб 9'").id],
       tags: [one("SELECT id FROM tags WHERE name = 'Ночь'").id],
     });
@@ -407,6 +461,106 @@ describe('писатель получает только корректные с
     expect(ops.map((o) => o.comment)).toEqual(['Свет  за октябрь', null]);
     const operations = operationsService();
     for (const o of ops) expect(operations.update(w.cid, o.id, { version: 1 }, adminId()).version).toBe(1);
+  });
+});
+
+describe('гонки между проверкой и записью', () => {
+  it('два пользователя загрузили один файл: у второго явный «новый счёт», который уже создал первый, — 422 A1; после обновления — «Нечего импортировать» (R3)', async () => {
+    w = await opsWorld();
+    const mappings: AccountMapping[] = [
+      { key: 'касса', kind: 'existing', accountId: w.kzt },
+      { key: 'банк-2', kind: 'new', name: 'Банк-2', currency: 'KZT', balance: { mode: 'current', amount: 1_000_000 } },
+    ];
+    const first = await previewWith(await uploaded(FILE), mappings);
+    const second = await secondUser();
+    const up2 = await upload(FILE, w.cid, second.cookie);
+    expect(up2.statusCode, up2.body).toBe(200);
+    const p2res = await second.post(`${importsUrl()}/preview`, { token: (up2.json() as ImportPreview).token, accounts: mappings });
+    const p2 = p2res.json() as ImportPreview;
+    expect(p2.canImport).toBe(true);
+
+    expect((await commit(first, mappings)).statusCode).toBe(201);
+    const bankId = one("SELECT id FROM accounts WHERE name = 'Банк-2'").id as number;
+
+    // второй нажимает «Импортировать» с прежним выбором «Создать новый счёт»: не тихая замена на существующий, а ошибка карточки
+    const before = tableCounts();
+    const stale = await second.post(importsUrl(), { token: p2.token, accounts: mappings, revision: p2.revision });
+    expect(stale.statusCode).toBe(422);
+    const e = stale.json().error;
+    expect(e).toMatchObject({
+      code: 'IMPORT_INVALID',
+      message: 'Данные компании изменились после проверки, и импорт сейчас невозможен — посмотрите ошибки в обновлённой проверке',
+    });
+    const card = (e.details.preview as ImportPreview).accounts.find((a) => a.key === 'банк-2')!;
+    expect(card.mapping).toMatchObject({ kind: 'new', name: 'Банк-2' });
+    expect(card.errors).toEqual([{ code: 'A1', message: 'Счёт «Банк-2» уже есть в компании — проверка обновлена, выберите его' }]);
+    expect(tableCounts()).toEqual(before);
+
+    // свежая проверка с выбором по умолчанию: «Банк-2» — существующий, все строки — дубликаты
+    const fresh = (await second.post(`${importsUrl()}/preview`, { token: p2.token, accounts: [] })).json() as ImportPreview;
+    expect(fresh.accounts.find((a) => a.key === 'банк-2')!.mapping).toEqual({ key: 'банк-2', kind: 'existing', accountId: bankId });
+    expect(fresh.counts).toMatchObject({ add: 0, duplicates: 4 });
+    expect(fresh.canImport).toBe(false);
+    const nothing = await second.post(importsUrl(), { token: p2.token, accounts: [], revision: fresh.revision });
+    expect(nothing.statusCode).toBe(422);
+    expect(nothing.json().error).toMatchObject({ code: 'IMPORT_INVALID', message: 'Нечего импортировать: все операции из файла уже есть в компании' });
+    expect(tableCounts()).toEqual(before);
+  });
+
+  it('компания ушла в архив после проверки перед транзакцией (другое соединение) — проверка под блокировкой записи: 422, ничего не записано', async () => {
+    w = await opsWorld();
+    const other = new Database(path.join(w.h.t.dir, 'app.db'));
+    try {
+      const real = createImportCache({ now: () => NOW.getTime() });
+      let archiveOnGet = false;
+      // кэш читается после внешней проверки компании и до транзакции записи — ровно там вклинивается чужая запись
+      const cache: ImportCache = {
+        ...real,
+        get(token, companyId, userId) {
+          const entry = real.get(token, companyId, userId);
+          if (archiveOnGet) other.prepare('UPDATE companies SET archived_at = ? WHERE id = ?').run(NOW.toISOString(), companyId);
+          return entry;
+        },
+      };
+      const imports = importsServiceWith(cache);
+      const p = imports.upload(w.cid, adminId(), { name: 'выгрузка.xlsx', data: finmapLikeXlsx(FILE) });
+      expect(p.canImport).toBe(true);
+      const before = tableCounts();
+      archiveOnGet = true;
+      let err: unknown;
+      try {
+        imports.commit(w.cid, adminId(), { token: p.token, accounts: [], revision: p.revision });
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeInstanceOf(AppError);
+      expect((err as AppError).code).toBe('ARCHIVED_REFERENCE');
+      expect(tableCounts()).toEqual(before);
+    } finally {
+      other.close();
+    }
+  });
+
+  it('остатки по проводкам после записи — как обещали карточки: существующий без «Остатка после импорта», «Стартовый баланс», пустой остаток', async () => {
+    w = await opsWorld();
+    w.h.t.sqlite.prepare('UPDATE accounts SET starting_balance = 123400 WHERE id = ?').run(w.kzt);
+    const rows = [...FILE, fr({ paidAt: at('2026-10-01', '12:00:00'), amount: 77, to: 'Сейф', category: 'Бар' })];
+    const mappings: AccountMapping[] = [
+      { key: 'касса', kind: 'existing', accountId: w.kzt },
+      { key: 'банк-2', kind: 'new', name: 'Банк-2', currency: 'KZT', balance: { mode: 'start', amount: 300_000 } },
+      { key: 'сейф', kind: 'new', name: 'Сейф', currency: 'KZT', balance: null },
+    ];
+    const p = await previewWith(await uploaded(rows), mappings);
+    expect(p.canImport).toBe(true);
+    expect(p.accounts.find((a) => a.key === 'касса')!.existing!.balance).toBe(123_400);
+    const res = await commit(p, mappings);
+    expect(res.statusCode, res.body).toBe(201);
+    expectPromisedBalances(p.accounts);
+    // и цифры по отдельности: 1 234,00 + 10 596 - 8 500 - 50 000; 3 000 + 50 000 - 8 200,50; 77
+    const ledger = new Map(createLedgerBalances(w.h.t.db).companyBalances(w.cid).map((b) => [b.accountId, b.balance]));
+    expect(ledger.get(w.kzt)).toBe(123_400 + 1_059_600 - 850_000 - 5_000_000);
+    expect(ledger.get(one("SELECT id FROM accounts WHERE name = 'Банк-2'").id)).toBe(300_000 + 5_000_000 - 820_050);
+    expect(ledger.get(one("SELECT id FROM accounts WHERE name = 'Сейф'").id)).toBe(7_700);
   });
 });
 

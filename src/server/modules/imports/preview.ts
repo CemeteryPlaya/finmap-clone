@@ -193,6 +193,10 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
     } else {
       const name = cleanName(mapping.name);
       if (!name || name.length > ACCOUNT_NAME_MAX) st.errors.push({ code: 'A3', message: M.A3 });
+      // новый счёт, а активный с таким названием уже есть (создан после проверки, например другим импортом): выбор
+      // устарел. Не подменяем на существующий молча — смысл остатка у нового и существующего счёта разный (R3 плана И-2)
+      const taken = name ? accountsByKey.get(nameKey(name))?.find((x) => !x.archivedAt) : undefined;
+      if (taken) st.errors.push({ code: 'A1', message: M.A1_EXISTS(taken.name) });
       if (!known.has(mapping.currency)) st.errors.push({ code: 'A2', message: M.A2 });
       else st.currency = mapping.currency;
       if (st.errors.length === 0) st.ref = { key: a.key };
