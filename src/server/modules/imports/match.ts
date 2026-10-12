@@ -185,24 +185,33 @@ export function matchDictionaries(d: Dictionaries, rows: ImportRow[]): MatchResu
     return topActive.get(k) ?? null;
   }
 
+  /** Дополнения строки: применяются к спискам «Будет создано» только если строка не получила R17. */
+  let pending: (() => void)[] = [];
+
   function newTopCategory(kind: CategoryKind, name: string): { key: string } {
     const key = `${kind}|${nameKey(name)}`;
-    const c = newCats.get(key) ?? { key, kind, name: repairName(name), parent: null, parentName: null, rows: 0 };
-    c.rows++;
-    newCats.set(key, c);
+    pending.push(() => {
+      const c = newCats.get(key) ?? { key, kind, name: repairName(name), parent: null, parentName: null, rows: 0 };
+      c.rows++;
+      newCats.set(key, c);
+    });
     return { key };
   }
 
-  function newChildCategory(kind: CategoryKind, parent: Ref, parentName: string, name: string): Ref {
+  /** parentName — название родителя; у нового родителя его знает только список (первое написание), поэтому функция. */
+  function newChildCategory(kind: CategoryKind, parent: Ref, parentName: () => string, name: string): Ref {
     const key = `${kind}|${refKey(parent)}|${nameKey(name)}`;
-    const c = newCats.get(key) ?? { key, kind, name: repairName(name), parent, parentName, rows: 0 };
-    c.rows++;
-    newCats.set(key, c);
+    pending.push(() => {
+      const c = newCats.get(key) ?? { key, kind, name: repairName(name), parent, parentName: parentName(), rows: 0 };
+      c.rows++;
+      newCats.set(key, c);
+    });
     return { key };
   }
 
   for (const r of rows) {
     const n = r.row;
+    pending = [];
     let failed = false;
     const archived = (what: string, name: string) => {
       issues.push({ code: 'R17', message: M.R17(what, name), row: n });
@@ -224,7 +233,7 @@ export function matchDictionaries(d: Dictionaries, rows: ImportRow[]): MatchResu
         } else if (kids.length === 1) {
           category = { id: kids[0]!.id };
           categorySystemKey = effectiveSystem(kids[0]!);
-        } else if (top === 'archived' || (kids.length === 0 && archivedAny.has(k))) archived('Категория', r.category);
+        } else if (top === 'archived' || archivedTop.has(k) || (kids.length === 0 && archivedAny.has(k))) archived('Категория', r.category);
         else category = newTopCategory(kind, r.category);
       } else {
         // родитель — только верхнего уровня, иначе было бы три уровня
@@ -235,11 +244,11 @@ export function matchDictionaries(d: Dictionaries, rows: ImportRow[]): MatchResu
           const active = kids.find((c) => !c.archivedAt);
           if (active) category = { id: active.id };
           else if (kids.length) archived('Категория', r.subcategory);
-          else category = newChildCategory(kind, { id: top.id }, top.name, r.subcategory);
+          else category = newChildCategory(kind, { id: top.id }, () => top.name, r.subcategory);
           categorySystemKey = effectiveSystem(top);
         } else {
           const parent = newTopCategory(kind, r.category);
-          category = newChildCategory(kind, parent, newCats.get(parent.key)!.name, r.subcategory);
+          category = newChildCategory(kind, parent, () => newCats.get(parent.key)!.name, r.subcategory);
         }
       }
     }
@@ -255,10 +264,13 @@ export function matchDictionaries(d: Dictionaries, rows: ImportRow[]): MatchResu
       if (hit) counterparty = { id: hit.id };
       else if (same.length) archived('Контрагент', r.counterparty);
       else {
-        const c = newCps.get(k) ?? { key: k, name: repairName(r.counterparty), type: need, rows: 0, votes: new Map() };
-        c.rows++;
-        c.votes.set(need, (c.votes.get(need) ?? 0) + 1);
-        newCps.set(k, c);
+        const name = r.counterparty;
+        pending.push(() => {
+          const c = newCps.get(k) ?? { key: k, name: repairName(name), type: need, rows: 0, votes: new Map() };
+          c.rows++;
+          c.votes.set(need, (c.votes.get(need) ?? 0) + 1);
+          newCps.set(k, c);
+        });
         counterparty = { key: k };
       }
     }
@@ -273,15 +285,25 @@ export function matchDictionaries(d: Dictionaries, rows: ImportRow[]): MatchResu
         archived(what, name);
         return null;
       }
-      const x = fresh.get(k) ?? { key: k, name: repairName(name), rows: 0 };
-      x.rows++;
-      fresh.set(k, x);
+      pending.push(() => {
+        const x = fresh.get(k) ?? { key: k, name: repairName(name), rows: 0 };
+        x.rows++;
+        fresh.set(k, x);
+      });
       return { key: k };
     };
     const project = r.project ? named(projectsByKey, newProjects, 'Проект', r.project) : null;
-    const tagRefs = r.tags.map((t) => named(tagsByKey, newTags, 'Тег', t)).filter((x): x is Ref => x !== null);
+    // parse-row уже убирает повторы тегов в строке; здесь то же по ключу — чтобы счётчик строк не зависел от вызывающего
+    const seenTags = new Set<string>();
+    const tagRefs = r.tags
+      .filter((t) => !seenTags.has(nameKey(t)) && seenTags.add(nameKey(t)))
+      .map((t) => named(tagsByKey, newTags, 'Тег', t))
+      .filter((x): x is Ref => x !== null);
 
-    if (!failed) out.set(n, { category, categorySystemKey, counterparty, project, tags: tagRefs });
+    if (!failed) {
+      for (const apply of pending) apply();
+      out.set(n, { category, categorySystemKey, counterparty, project, tags: tagRefs });
+    }
   }
 
   const cats = [...newCats.values()];

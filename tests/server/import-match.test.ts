@@ -166,4 +166,60 @@ describe('сопоставление справочников (§4.5–§4.8 с�
     expect(m.projects).toEqual([{ key: 'клуб 3', name: 'Клуб 3', rows: 2 }]);
     expect(m.tags).toEqual([{ key: 'ночь', name: 'Ночь', rows: 2 }]);
   });
+
+  it('строка с R17 ничего не добавляет в «Будет создано»: ни категории, ни контрагента, ни проекта, ни тега', () => {
+    const rows = [
+      r({ category: 'Реклама', counterparty: 'Новый К', project: 'Новый П', tags: ['Новый Т'] }),
+      r({ category: 'Аренда', subcategory: 'Склад', counterparty: 'Новый К', project: 'Новый П', tags: ['Новый Т'] }),
+      r({ category: 'Новая', subcategory: 'Дочерняя', tags: ['Старый', 'Новый Т'] }),
+    ];
+    const m = matchDictionaries(DICTS, rows);
+    expect(m.issues.map((i) => i.row)).toEqual(rows.map((x) => x.row));
+    expect(m.rows.size).toBe(0);
+    expect(m.categories).toEqual([]);
+    expect(m.counterparties).toEqual([]);
+    expect(m.projects).toEqual([]);
+    expect(m.tags).toEqual([]);
+  });
+
+  it('архивный тег и новый в одной строке: новый не считается; рядом успешная строка считается один раз', () => {
+    const rows = [r({ tags: ['Старый', 'Свежий'] }), r({ tags: ['свежий'] })];
+    const m = matchDictionaries(DICTS, rows);
+    expect(m.rows.has(rows[0]!.row)).toBe(false);
+    expect(m.tags).toEqual([{ key: 'свежий', name: 'свежий', rows: 1 }]);
+  });
+
+  it('архивная категория верхнего уровня без подкатегории — R17, даже если есть несколько активных дочерних с таким названием', () => {
+    const d: Dictionaries = {
+      ...DICTS,
+      categories: [
+        ...DICTS.categories,
+        { id: 12, kind: 'expense', parentId: 4, name: 'Реклама', systemKey: null, archivedAt: null },
+        { id: 13, kind: 'expense', parentId: 1, name: 'Реклама', systemKey: null, archivedAt: null },
+      ],
+    };
+    const rows = [r({ category: 'Реклама' })];
+    const m = matchDictionaries(d, rows);
+    expect(m.issues.map((i) => i.message)).toEqual(['Категория «Реклама» в архиве — верните из архива']);
+    expect(m.categories).toEqual([]);
+    expect(m.rows.size).toBe(0);
+  });
+
+  it('архивная системная категория: R17 и без подкатегории, и с ней', () => {
+    const d: Dictionaries = {
+      ...DICTS,
+      categories: [...DICTS.categories, { id: 12, kind: 'expense', parentId: null, name: 'Налоги', systemKey: 'tax', archivedAt: '2026-10-01T00:00:00.000Z' }],
+    };
+    const rows = [r({ category: 'налоги' }), r({ category: 'Налоги', subcategory: 'Взнос' })];
+    const m = matchDictionaries(d, rows);
+    expect(m.issues.map((i) => i.message)).toEqual(['Категория «налоги» в архиве — верните из архива', 'Категория «Налоги» в архиве — верните из архива']);
+    expect(m.categories).toEqual([]);
+  });
+
+  it('один тег дважды в строке считается один раз', () => {
+    const rows = [r({ tags: ['Новый', 'новый', 'Смена', 'смена'] })];
+    const m = matchDictionaries(DICTS, rows);
+    expect(m.tags).toEqual([{ key: 'новый', name: 'Новый', rows: 1 }]);
+    expect(m.rows.get(rows[0]!.row)!.tags).toEqual([{ key: 'новый' }, { id: 1 }]);
+  });
 });
