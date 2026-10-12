@@ -716,10 +716,48 @@ test('фильтр на телефоне в один шаг (§8.5): поиск,
     /\?from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}&amountMin=6000&types=expense&sort=amount&order=desc$/,
   );
   await expect(list).toHaveCount(4);
-  await dialog.getByRole('button', { name: 'Готово' }).click();
+  // низкий экран: содержимое окна не помещается, нижняя панель должна быть прижата к низу
+  await page.setViewportSize({ width: PHONE.width, height: 480 });
+  // «Сохранить фильтр»: поле названия (в фокусе) видно и не закрыто нижней панелью с «Готово»
+  const done = dialog.getByRole('button', { name: 'Готово' });
+  const saveToggle = dialog.getByRole('button', { name: 'Сохранить фильтр' });
+  await saveToggle.click();
+  const nameInput = dialog.getByLabel('Название фильтра');
+  await expect(nameInput).toBeFocused();
+  await expect(nameInput).toBeInViewport();
+  const nameBox = (await nameInput.boundingBox())!;
+  const saveBox = (await dialog.getByRole('button', { name: 'Сохранить', exact: true }).boundingBox())!;
+  const footerTop = (await done.boundingBox())!.y;
+  expect(nameBox.y + nameBox.height, 'поле названия выше нижней панели').toBeLessThanOrEqual(footerTop);
+  expect(saveBox.y + saveBox.height, '«Сохранить» выше нижней панели').toBeLessThanOrEqual(footerTop);
+  await saveToggle.click();
+  await expect(nameInput).toBeHidden();
+  // «Готово» — на всю ширину окна (с полями) и у нижней кромки, пока открыт «Ещё условия»
+  await expect(more).toHaveAttribute('aria-expanded', 'true');
+  const doneBox = (await done.boundingBox())!;
+  const dialogBox = (await dialog.boundingBox())!;
+  expect(doneBox.width, '«Готово» на всю ширину окна').toBeGreaterThanOrEqual(dialogBox.width - 56);
+  // панель из двух строк: «Готово» сверху, под ней «Очистить» и «Сохранить фильтр» — вся панель у нижней кромки
+  const dialogBottom = dialogBox.y + dialogBox.height;
+  const toggleBox = (await saveToggle.boundingBox())!;
+  expect(toggleBox.y + toggleBox.height, 'нижняя строка панели у кромки окна (до 36 px: поля панели и нижний отступ окна)').toBeGreaterThanOrEqual(dialogBottom - 40);
+  expect(toggleBox.y + toggleBox.height).toBeLessThanOrEqual(dialogBottom);
+  expect(doneBox.y + doneBox.height, '«Готово» над нижней строкой, но у кромки').toBeGreaterThanOrEqual(dialogBottom - 130);
+  expect(doneBox.y + doneBox.height).toBeLessThanOrEqual(toggleBox.y);
+  await page.setViewportSize(PHONE);
+  // «Готово» применяет всё одним запросом журнала (Review Focus 1)
+  let journalRequests = 0;
+  const countJournal = (r: { method(): string; url(): string }) => {
+    if (r.method() === 'GET' && new RegExp(`/api/v1/companies/${cid}/operations\\?`).test(r.url())) journalRequests += 1;
+  };
+  page.on('request', countJournal);
+  await done.click();
   await expect(dialog).toBeHidden();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?period=today&min=6000&type=expense&sort=amount$`));
+  await expect.poll(() => journalRequests, { message: 'запрос журнала после «Готово»' }).toBe(1);
   await expect(list).toHaveCount(1);
+  expect(journalRequests, 'ровно один запрос журнала на «Готово»').toBe(1);
+  page.off('request', countJournal);
   await expect(list.first()).toContainText(/\u2212300\s₸/);
   // на воронке — период, сумма «от» и тип
   await expect(funnel).toHaveAccessibleName('Фильтр · 3');

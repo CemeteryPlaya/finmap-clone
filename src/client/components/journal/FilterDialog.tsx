@@ -160,20 +160,7 @@ function FilterForm(props: {
         Среди типов, среди категорий, контрагентов и т. д. подходит любой из отмеченных вариантов («Аренда» или «Без категории»), а разные поля и тип с категорией действуют
         вместе: «Расход» и «Аренда» — расходы на аренду. Родительская категория включает дочерние.
       </p>
-      {/* на телефоне «Готово» — на всю ширину и прижато к низу окна, «Очистить» и «Сохранить фильтр» — строкой ниже */}
-      <div className="mt-4 flex flex-wrap items-center gap-3 max-md:sticky max-md:bottom-0 max-md:z-10 max-md:-mx-6 max-md:bg-card max-md:px-6 max-md:pt-3 max-md:pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-        <button type="submit" className={`${btnPrimary} max-md:basis-full`}>
-          Готово
-        </button>
-        <button type="button" onClick={() => setDraft(clearFilterDraft)} className="text-sm font-semibold text-muted underline hover:text-ink">
-          Очистить
-        </button>
-        {props.onSave && (
-          <button type="button" aria-expanded={naming} onClick={() => setNaming((v) => !v)} className={`${btnSecondary} ml-auto`}>
-            Сохранить фильтр
-          </button>
-        )}
-      </div>
+      {/* название — выше нижней панели: на телефоне она прижата к низу и не должна закрывать поле */}
       {naming && props.onSave && (
         <div className="mt-4 flex flex-wrap items-start gap-2 rounded-2xl bg-field/50 p-3">
           <Field label="Название фильтра" error={saveError} hint="Сохраняются условия окна, период, поиск и сумма; период — датами" className="min-w-56 flex-1">
@@ -200,6 +187,20 @@ function FilterForm(props: {
           </button>
         </div>
       )}
+      {/* на телефоне «Готово» — на всю ширину и прижато к низу окна, «Очистить» и «Сохранить фильтр» — строкой ниже */}
+      <div className="mt-4 flex flex-wrap items-center gap-3 max-md:sticky max-md:bottom-0 max-md:z-10 max-md:-mx-6 max-md:bg-card max-md:px-6 max-md:py-3">
+        <button type="submit" className={`${btnPrimary} max-md:basis-full`}>
+          Готово
+        </button>
+        <button type="button" onClick={() => setDraft(clearFilterDraft)} className="text-sm font-semibold text-muted underline hover:text-ink">
+          Очистить
+        </button>
+        {props.onSave && (
+          <button type="button" aria-expanded={naming} onClick={() => setNaming((v) => !v)} className={`${btnSecondary} ml-auto`}>
+            Сохранить фильтр
+          </button>
+        )}
+      </div>
     </form>
   );
 }
@@ -226,7 +227,7 @@ export function FilterDialog(props: {
   onSave?: (draft: FilterDraft, name: string) => Promise<void>;
 }) {
   return (
-    <Modal open={props.open} title="Фильтры" onClose={props.onClose} className={`max-w-[818px] ${phoneFullScreenModal}`} phoneFullScreen>
+    <Modal open={props.open} title="Фильтры" onClose={props.onClose} className={`max-w-[818px] max-md:scroll-pb-44 ${phoneFullScreenModal}`} phoneFullScreen>
       <FilterForm
         state={props.state}
         data={props.data}
