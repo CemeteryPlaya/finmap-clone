@@ -19,6 +19,7 @@ import {
   draftFromOperation,
   duplicateDraft,
   patchBody,
+  pickConvertedFrom,
   type Available,
   type ConvertNames,
   type OperationRecord,
@@ -245,6 +246,11 @@ function OperationEditor(p: {
   const [convertLosses, setConvertLosses] = useState<string[] | null>(null);
   /** Сигнал: форма стала переводом — фокус на пустой счёт перевода. */
   const [convertFocus, setConvertFocus] = useState(0);
+  /**
+   * Доход, изменённый в перевод (§6.8): прежняя сумма — «Сумма зачисления»; выбор «Со счёта» в другой валюте очищает
+   * сумму списания (pickConvertedFrom). null — правило не действует (расход, «Загрузить актуальную», «Дублировать»).
+   */
+  const [carried, setCarried] = useState<string | null>(null);
   /** 409 при сохранении правки: операцию изменили или удалили после того, как форму открыли. */
   const [conflict, setConflict] = useState<'changed' | 'deleted' | null>(null);
   /** RATE_UNAVAILABLE: какого курса нет; «Повторить» сохраняет тем же способом (lastThen). */
@@ -404,6 +410,14 @@ function OperationEditor(p: {
     if (errorKeys.length) setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !errorKeys.includes(k))));
   };
 
+  /** «Со счёта» у бывшего дохода (R4): функциональное обновление не затирает параллельные правки черновика; ошибки и статус — как в `set`. */
+  const pickFromAccount = (id: number | null, from: string) => {
+    setDraft((d) => pickConvertedFrom(d, id, accounts, from));
+    setStatus(null);
+    setMissingRate(null);
+    setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !['accountId', 'amount', 'toAmount'].includes(k))));
+  };
+
   const submit = async (then: 'close' | 'similar') => {
     if (pending) return;
     lastThen.current = then;
@@ -508,6 +522,7 @@ function OperationEditor(p: {
       setOp(fresh);
       setDraft(next);
       setInitial(next);
+      setCarried(null);
       setConflict(null);
       setErrors({});
       setFormError(null);
@@ -554,6 +569,7 @@ function OperationEditor(p: {
   const duplicate = () => {
     const copy = duplicateDraft(draft, available(), today);
     setOp(null);
+    setCarried(null);
     p.onEditingChange(false);
     setFiles([]);
     setDraft(copy);
@@ -578,6 +594,7 @@ function OperationEditor(p: {
   const convert = () => {
     const r = convertToTransferDraft(draft, convertNames);
     setDraft(r.draft);
+    setCarried(r.carried);
     setConvertLosses(null);
     // проект перевода — в блоке строки 3: раскрыть, если проект остался (у разбиения он был в строках)
     if (r.draft.projectId !== null) setMore(true);
@@ -633,7 +650,8 @@ function OperationEditor(p: {
         value={draft[key]}
         options={accountOptions(p.data.accounts, draft[key])}
         emptyLabel={null}
-        onChange={(id) => set({ [key]: id }, key)}
+        // доход, изменённый в перевод: «Со счёта» в другой валюте очищает сумму списания (§6.8, pickConvertedFrom)
+        onChange={(id) => (key === 'accountId' && carried !== null ? pickFromAccount(id, carried) : set({ [key]: id }, key))}
         error={errors[key]}
         disabled={!!locked}
         hint={lockHint}
