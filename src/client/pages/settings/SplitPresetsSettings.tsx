@@ -14,6 +14,7 @@ import { mergeSubsetOrder } from '../../lib/order';
 import { queryClient } from '../../lib/query';
 import { useCategories, useProjects, useSplitPresets, type CategoryNode, type CategoryTree, type Project, type SplitLine, type SplitPreset } from '../../lib/queries';
 import { useEntityActions, useReorder } from '../../lib/settings-mutations';
+import { useEditedItem, useHeldWhile, type EditingId } from '../../lib/use-edited';
 import type { CompanyOutletContext } from '../CompanyLayout';
 import { ProjectsHeader } from './ProjectsTabs';
 
@@ -240,7 +241,7 @@ function PresetForm(props: {
 }
 
 /** Окно шаблона: 'new' — «Новый шаблон», id — «Шаблон разделения» (свежие данные из списка), null — закрыто. */
-type Editing = number | 'new' | null;
+type Editing = EditingId;
 
 /**
  * «Шаблоны разделения» — вкладка раздела «Проекты» (§7.4 этапа 1.5): шаблон списка, «Создать шаблон» и ✎ —
@@ -255,12 +256,12 @@ export function SplitPresetsSettings() {
   const [listError, setListError] = useState<string | null>(null);
   const readOnly = company.archivedAt !== null;
   const reorder = useReorder<SplitPreset>(['split-presets', company.id], `/companies/${company.id}/split-presets/reorder`, setListError);
+  const edited = useEditedItem(presets.data, editing);
 
   if (!presets.data || !categories.data || !projects.data) return <Pending queries={[presets, categories, projects]} />;
   const list = presets.data;
   const tree = categories.data;
   const projectList = projects.data;
-  const editingPreset = typeof editing === 'number' ? (list.find((p) => p.id === editing) ?? null) : null;
   const categoryLabel = new Map([...flatten(tree.income), ...flatten(tree.expense)].map((o) => [o.id, o.label]));
   const projectName = new Map(projectList.map((p) => [p.id, p.name]));
   const summary = (p: SplitPreset) =>
@@ -305,31 +306,32 @@ export function SplitPresetsSettings() {
         empty="Шаблонов пока нет."
       />
       <Modal open={editing !== null} title={editing === 'new' ? 'Новый шаблон' : 'Шаблон разделения'} onClose={() => setEditing(null)} className="max-w-2xl">
-        {editing === 'new' && <PresetEditor key="new" companyId={company.id} preset={null} tree={tree} projects={projectList} onDone={() => setEditing(null)} />}
-        {typeof editing === 'number' &&
-          (editingPreset ? (
-            <PresetEditor key={editing} companyId={company.id} preset={editingPreset} tree={tree} projects={projectList} onDone={() => setEditing(null)} />
-          ) : (
-            <p className="text-muted">Шаблон не найден — возможно, его удалили.</p>
-          ))}
+        {editing !== null && (
+          <PresetEditor key={editing} companyId={company.id} preset={edited.item} gone={edited.gone} tree={tree} projects={projectList} onDone={() => setEditing(null)} />
+        )}
       </Modal>
     </section>
   );
 }
 
-function PresetEditor(props: { companyId: number; preset: SplitPreset | null; tree: CategoryTree; projects: Project[]; onDone: () => void }) {
-  const { preset, onDone } = props;
+function PresetEditor(props: { companyId: number; preset: SplitPreset | null; gone: boolean; tree: CategoryTree; projects: Project[]; onDone: () => void }) {
+  const { onDone } = props;
+  const fresh = props.preset;
   const base = `/companies/${props.companyId}/split-presets`;
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['split-presets', props.companyId] });
   const save = useMutation<unknown, ApiError, { name: string; lines: SplitLine[] }>({
-    mutationFn: (body) => (preset ? api(`${base}/${preset.id}`, { method: 'PATCH', body }) : api(base, { method: 'POST', body })),
+    mutationFn: (body) => (fresh ? api(`${base}/${fresh.id}`, { method: 'PATCH', body }) : api(base, { method: 'POST', body })),
     onSuccess: async () => {
       await refresh();
       onDone();
     },
   });
-  const actions = useEntityActions(preset ? `${base}/${preset.id}` : base, refresh, onDone);
+  const actions = useEntityActions(fresh ? `${base}/${fresh.id}` : base, refresh, onDone);
+  // во время своего запроса — шаблон такой, каким был при нажатии (R5)
+  const busy = actions.pending || save.isPending;
+  const preset = useHeldWhile(fresh, busy);
 
+  if (props.gone && !busy) return <p className="text-muted">Шаблон не найден — возможно, его удалили.</p>;
   return (
     <>
       {preset?.archivedAt ? (

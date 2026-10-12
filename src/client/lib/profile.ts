@@ -47,3 +47,19 @@ export function profileServerFields(fields: Record<string, string>): ProfileFiel
     ...(fields.name ? { name: fields.name } : {}),
   };
 }
+
+/**
+ * Куда показать отказ сервера: поля, которые есть на странице, — у полей; иначе (нет полей или ключ, которого на
+ * странице нет, например `password`) — общий текст ошибки, чтобы отказ не пропал молча.
+ */
+export function profileServerError(fields: Record<string, string> | undefined, message: string): { fields: ProfileFields; error: string | null } {
+  const mapped = fields ? profileServerFields(fields) : {};
+  return Object.keys(mapped).length > 0 ? { fields: mapped, error: null } : { fields: {}, error: message };
+}
+
+/** Правка полей убирает их прежние ошибки: «Пароли не совпадают» не висит, пока поле исправляют. */
+export function clearEditedFields(fields: ProfileFields, edited: Partial<ProfileDraft>): ProfileFields {
+  const next = { ...fields };
+  for (const key of Object.keys(edited) as ProfileField[]) delete next[key];
+  return next;
+}

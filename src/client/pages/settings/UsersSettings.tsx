@@ -1,5 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Field } from '../../components/Field';
 import { Modal } from '../../components/Modal';
 import { Pending, StaleNotice } from '../../components/QueryState';
@@ -9,6 +10,7 @@ import { api, type ApiError } from '../../lib/api';
 import { queryClient, useMe } from '../../lib/query';
 import { useUsers, type AppUser } from '../../lib/queries';
 import { SHARED_NOTE } from '../../lib/settings-sections';
+import { useEditedItem, useHeldWhile, type EditingId } from '../../lib/use-edited';
 
 const invalidateUsers = () =>
   Promise.all([queryClient.invalidateQueries({ queryKey: ['users'] }), queryClient.invalidateQueries({ queryKey: ['me'] })]);
@@ -18,7 +20,7 @@ const userNote = (u: AppUser, meId: number) =>
   [u.id === meId ? 'это вы' : null, u.disabledAt ? 'отключён' : null].filter((s): s is string => s !== null).join(', ') || undefined;
 
 /** Окно пользователя: 'new' — «Новый пользователь», id — «Пользователь» (свежие данные из списка), null — закрыто. */
-type Editing = number | 'new' | null;
+type Editing = EditingId;
 
 /**
  * «Пользователи» (§7.4 этапа 1.5): «Добавить пользователя» слева вверху, строки «имя, логин серым, ✎»;
@@ -28,10 +30,10 @@ export function UsersSettings() {
   const users = useUsers();
   const me = useMe();
   const [editing, setEditing] = useState<Editing>(null);
+  const edited = useEditedItem(users.data, editing);
   if (!users.data || !me.data) return <Pending queries={[users, me]} />;
   const meId = me.data.user.id;
   const list = users.data;
-  const current = typeof editing === 'number' ? (list.find((u) => u.id === editing) ?? null) : null;
 
   return (
     <section>
@@ -57,12 +59,7 @@ export function UsersSettings() {
       />
       <Modal open={editing !== null} title={editing === 'new' ? 'Новый пользователь' : 'Пользователь'} onClose={() => setEditing(null)} className="max-w-lg">
         {editing === 'new' && <NewUserForm onDone={() => setEditing(null)} />}
-        {typeof editing === 'number' &&
-          (current ? (
-            <UserEditor key={current.id} user={current} isMe={current.id === meId} onDone={() => setEditing(null)} />
-          ) : (
-            <p className="text-muted">Пользователь не найден.</p>
-          ))}
+        {typeof editing === 'number' && <UserEditor key={editing} user={edited.item} gone={edited.gone} meId={meId} onDone={() => setEditing(null)} />}
       </Modal>
     </section>
   );
@@ -115,12 +112,13 @@ function NewUserForm({ onDone }: { onDone: () => void }) {
   );
 }
 
-function UserEditor({ user, isMe, onDone }: { user: AppUser; isMe: boolean; onDone: () => void }) {
-  const [name, setName] = useState(user.name);
+function UserEditor({ user: fresh, gone, meId, onDone }: { user: AppUser | null; gone: boolean; meId: number; onDone: () => void }) {
+  const [name, setName] = useState(fresh?.name ?? '');
   const [password, setPassword] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
+  const [confirmDisable, setConfirmDisable] = useState(false);
   const patch = useMutation<unknown, ApiError, { name?: string; password?: string; disabled?: boolean }>({
-    mutationFn: (body) => api(`/users/${user.id}`, { method: 'PATCH', body }),
+    mutationFn: (body) => api(`/users/${fresh!.id}`, { method: 'PATCH', body }),
     onSuccess: async (_data, body) => {
       await invalidateUsers();
       if (body.name !== undefined) return onDone();
@@ -129,12 +127,21 @@ function UserEditor({ user, isMe, onDone }: { user: AppUser; isMe: boolean; onDo
       else setNotice(body.disabled ? 'Пользователь отключён, его сеансы завершены' : 'Пользователь включён');
     },
   });
+  // во время запроса — пользователь такой, каким был при нажатии (R5)
+  const user = useHeldWhile(fresh, patch.isPending);
   const fields = patch.error?.fields ?? {};
   const run = (body: { name?: string; password?: string; disabled?: boolean }) => {
     setNotice(null);
     patch.mutate(body);
   };
+  // правка — прежнее «Пароль сброшен…» уже не о том, что на экране
+  const edit = (set: (value: string) => void) => (value: string) => {
+    setNotice(null);
+    set(value);
+  };
 
+  if ((gone && !patch.isPending) || !user) return <p className="text-muted">Пользователь не найден.</p>;
+  const isMe = user.id === meId;
   return (
     <div className="grid gap-6">
       <form
@@ -147,7 +154,7 @@ function UserEditor({ user, isMe, onDone }: { user: AppUser; isMe: boolean; onDo
       >
         <p className="text-sm text-muted">Логин: {user.login}</p>
         <Field label="Имя" error={fields.name}>
-          {(c) => <input {...c} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />}
+          {(c) => <input {...c} value={name} onChange={(e) => edit(setName)(e.target.value)} className={inputClass} />}
         </Field>
         <div className="flex flex-wrap gap-2">
           <button type="submit" disabled={patch.isPending || !name.trim() || name.trim() === user.name} className={btnPrimary}>
@@ -163,15 +170,16 @@ function UserEditor({ user, isMe, onDone }: { user: AppUser; isMe: boolean; onDo
           noValidate
           onSubmit={(e) => {
             e.preventDefault();
-            run({ password });
+            if (!patch.isPending && password) run({ password });
           }}
           className="grid gap-3 border-t border-field pt-4"
         >
           <Field label={`Новый пароль для ${user.login}`} error={fields.password} hint="Не короче 10 символов. Сеансы пользователя будут завершены.">
-            {(c) => <input {...c} type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputClass} />}
+            {(c) => <input {...c} type="password" autoComplete="new-password" value={password} onChange={(e) => edit(setPassword)(e.target.value)} className={inputClass} />}
           </Field>
           <div>
-            <button type="submit" disabled={patch.isPending || !password} className={btnSecondary}>
+            {/* aria-disabled, а не disabled: во время запроса и после сброса (поле пусто) фокус остаётся на кнопке (R4) */}
+            <button type="submit" aria-disabled={patch.isPending || !password || undefined} className={`${btnSecondary} aria-disabled:opacity-50`}>
               Сбросить пароль
             </button>
           </div>
@@ -179,16 +187,37 @@ function UserEditor({ user, isMe, onDone }: { user: AppUser; isMe: boolean; onDo
       )}
       {!isMe && (
         <div className="border-t border-field pt-4">
-          <button type="button" disabled={patch.isPending} onClick={() => run({ disabled: !user.disabledAt })} className={user.disabledAt ? btnSecondary : btnDanger}>
+          <button
+            type="button"
+            aria-disabled={patch.isPending || undefined}
+            onClick={() => {
+              if (patch.isPending) return;
+              // отключение сразу завершает сеансы — случайное нажатие выбило бы кассира посреди смены (M12)
+              if (user.disabledAt) run({ disabled: false });
+              else setConfirmDisable(true);
+            }}
+            className={`${user.disabledAt ? btnSecondary : btnDanger} aria-disabled:opacity-50`}
+          >
             {user.disabledAt ? 'Включить' : 'Отключить'}
           </button>
+          <ConfirmDialog
+            open={confirmDisable}
+            title={`Отключить ${user.name}?`}
+            text="Его сеансы сразу завершатся."
+            confirmLabel="Отключить"
+            danger
+            onConfirm={() => {
+              setConfirmDisable(false);
+              run({ disabled: true });
+            }}
+            onCancel={() => setConfirmDisable(false)}
+          />
         </div>
       )}
-      {notice && (
-        <p role="status" className="text-sm text-muted">
-          {notice}
-        </p>
-      )}
+      {/* живая область на месте всегда: вставленная сразу с текстом часто не объявляется */}
+      <p role="status" className={notice ? 'text-sm text-muted' : 'sr-only'}>
+        {notice}
+      </p>
       {patch.error && !patch.error.fields && (
         <p role="alert" className={`${alertClass} mb-0`}>
           {patch.error.message}

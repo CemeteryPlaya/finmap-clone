@@ -8,12 +8,13 @@ import { Field } from '../../components/Field';
 import { PencilIcon } from '../../components/icons';
 import { Modal } from '../../components/Modal';
 import { Pending, StaleNotice } from '../../components/QueryState';
-import { alertClass, btnPrimary, btnSecondary, inputClass, noticeClass } from '../../components/ui';
+import { alertClass, btnPrimary, btnSecondary, inputClass, noticeClass, rowIconClass, settingsRowClass } from '../../components/ui';
 import { api, type ApiError } from '../../lib/api';
 import { queryClient } from '../../lib/query';
 import { useFixedRates, useManualRates, type FixedRate, type ManualRate } from '../../lib/queries';
 import { SHARED_NOTE } from '../../lib/settings-sections';
 import { useEntityActions } from '../../lib/settings-mutations';
+import { useEditedItem, useHeldWhile, type EditingId } from '../../lib/use-edited';
 import type { CompanyOutletContext } from '../CompanyLayout';
 
 /** Курс для показа — с десятичной запятой, как его вводят. */
@@ -27,9 +28,6 @@ const refreshTotals = () =>
   ]);
 
 const MANUAL_PAGE = 100;
-const rowClass = 'flex min-h-14 items-center gap-2 border-b border-field py-2 pr-1 hover:bg-field/60';
-const pencilClass =
-  'grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-card hover:text-ink focus-visible:outline-2 focus-visible:outline-focus';
 
 /**
  * «Фиксированные курсы валют» (§7.4 этапа 1.5): список фиксированных курсов компании и «Добавить свой курс» →
@@ -48,8 +46,8 @@ export function RatesSettings() {
 
 function FixedRatesSection({ companyId, baseCurrency, readOnly }: { companyId: number; baseCurrency: string; readOnly: boolean }) {
   const rates = useFixedRates(companyId);
-  const [editing, setEditing] = useState<number | 'new' | null>(null);
-  const editingRate = typeof editing === 'number' ? (rates.data?.find((x) => x.id === editing) ?? null) : null;
+  const [editing, setEditing] = useState<EditingId>(null);
+  const edited = useEditedItem(rates.data, editing);
   return (
     <section aria-labelledby="fixed-rates-title" className="mb-10">
       <h2 id="fixed-rates-title" className="mb-1 text-xl font-bold">
@@ -72,7 +70,7 @@ function FixedRatesSection({ companyId, baseCurrency, readOnly }: { companyId: n
           ) : (
             <ul aria-label="Фиксированные курсы">
               {rates.data.map((r) => (
-                <li key={r.id} className={rowClass}>
+                <li key={r.id} className={settingsRowClass}>
                   <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
                     <span className="font-semibold">
                       1 {r.currency} = {showRate(r.rate)} {baseCurrency}
@@ -82,7 +80,7 @@ function FixedRatesSection({ companyId, baseCurrency, readOnly }: { companyId: n
                     </span>
                   </span>
                   {!readOnly && (
-                    <button type="button" aria-label={`Изменить курс ${r.currency}`} title="Изменить" onClick={() => setEditing(r.id)} className={pencilClass}>
+                    <button type="button" aria-label={`Изменить курс ${r.currency}`} title="Изменить" onClick={() => setEditing(r.id)} className={rowIconClass}>
                       <PencilIcon />
                     </button>
                   )}
@@ -93,44 +91,45 @@ function FixedRatesSection({ companyId, baseCurrency, readOnly }: { companyId: n
         </>
       )}
       <Modal open={editing !== null} title={editing === 'new' ? 'Новый фиксированный курс' : 'Фиксированный курс'} onClose={() => setEditing(null)} className="max-w-lg">
-        {editing === 'new' && <FixedRateEditor key="new" companyId={companyId} baseCurrency={baseCurrency} rate={null} onDone={() => setEditing(null)} />}
-        {typeof editing === 'number' &&
-          (editingRate ? (
-            <FixedRateEditor key={editing} companyId={companyId} baseCurrency={baseCurrency} rate={editingRate} onDone={() => setEditing(null)} />
-          ) : (
-            <p className="text-muted">Курс не найден — возможно, его удалили.</p>
-          ))}
+        {editing !== null && (
+          <FixedRateEditor key={editing} companyId={companyId} baseCurrency={baseCurrency} rate={edited.item} gone={edited.gone} onDone={() => setEditing(null)} />
+        )}
       </Modal>
     </section>
   );
 }
 
-function FixedRateEditor(props: { companyId: number; baseCurrency: string; rate: FixedRate | null; onDone: () => void }) {
-  const { rate, onDone } = props;
+function FixedRateEditor(props: { companyId: number; baseCurrency: string; rate: FixedRate | null; gone: boolean; onDone: () => void }) {
+  const { onDone } = props;
+  const fresh = props.rate;
   const base = `/companies/${props.companyId}/fixed-rates`;
   const choices = CURRENCIES.filter((c) => c.code !== props.baseCurrency);
-  const [currency, setCurrency] = useState(rate?.currency ?? (props.baseCurrency === 'USD' ? 'EUR' : 'USD'));
-  const [value, setValue] = useState(rate ? showRate(rate.rate) : '');
-  const [validFrom, setValidFrom] = useState(rate?.validFrom ?? '');
-  const [validTo, setValidTo] = useState(rate?.validTo ?? '');
+  const [currency, setCurrency] = useState(fresh?.currency ?? (props.baseCurrency === 'USD' ? 'EUR' : 'USD'));
+  const [value, setValue] = useState(fresh ? showRate(fresh.rate) : '');
+  const [validFrom, setValidFrom] = useState(fresh?.validFrom ?? '');
+  const [validTo, setValidTo] = useState(fresh?.validTo ?? '');
   const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['fixed-rates', props.companyId] }), refreshTotals()]);
   const save = useMutation<unknown, ApiError>({
     mutationFn: () =>
-      rate
-        ? api(`${base}/${rate.id}`, { method: 'PATCH', body: { rate: value, validFrom, validTo: validTo || null } })
+      fresh
+        ? api(`${base}/${fresh.id}`, { method: 'PATCH', body: { rate: value, validFrom, validTo: validTo || null } })
         : api(base, { method: 'POST', body: { currency, rate: value, validFrom, validTo: validTo || null } }),
     onSuccess: async () => {
       await refresh();
       onDone();
     },
   });
-  const actions = useEntityActions(rate ? `${base}/${rate.id}` : base, refresh, onDone);
+  const actions = useEntityActions(fresh ? `${base}/${fresh.id}` : base, refresh, onDone);
+  // во время своего запроса — курс такой, каким был при нажатии (без вспышки «не найден» после «Удалить», R5)
+  const busy = actions.pending || save.isPending;
+  const rate = useHeldWhile(fresh, busy);
   const fields = save.error?.fields ?? {};
   const submit = (e: FormEvent) => {
     e.preventDefault();
     save.mutate();
   };
 
+  if (props.gone && !busy) return <p className="text-muted">Курс не найден — возможно, его удалили.</p>;
   return (
     <>
       <form noValidate onSubmit={submit} className="grid gap-4">
@@ -181,8 +180,8 @@ function ManualRatesSection() {
   const rates = useManualRates();
   const [chosenFilter, setFilter] = useState('');
   const [shown, setShown] = useState(MANUAL_PAGE);
-  const [editing, setEditing] = useState<number | 'new' | null>(null);
-  const editingRate = typeof editing === 'number' ? (rates.data?.find((x) => x.id === editing) ?? null) : null;
+  const [editing, setEditing] = useState<EditingId>(null);
+  const edited = useEditedItem(rates.data, editing);
   // удалили последний курс отфильтрованной валюты — фильтр сбрасывается сам
   const filter = rates.data?.some((r) => r.currency === chosenFilter) ? chosenFilter : '';
   // новые даты сверху; при равной дате — по коду валюты
@@ -232,7 +231,7 @@ function ManualRatesSection() {
           ) : (
             <ul aria-label="Ручные курсы">
               {list.slice(0, shown).map((r) => (
-                <li key={r.id} className={rowClass}>
+                <li key={r.id} className={settingsRowClass}>
                   <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
                     <span className="text-muted">{formatDateRu(r.date)}</span>
                     <span className="font-semibold">
@@ -244,7 +243,7 @@ function ManualRatesSection() {
                     aria-label={`Изменить курс ${r.currency} на ${formatDateRu(r.date)}`}
                     title="Изменить"
                     onClick={() => setEditing(r.id)}
-                    className={pencilClass}
+                    className={rowIconClass}
                   >
                     <PencilIcon />
                   </button>
@@ -260,34 +259,37 @@ function ManualRatesSection() {
         </>
       )}
       <Modal open={editing !== null} title={editing === 'new' ? 'Новый курс на дату' : 'Курс на дату'} onClose={() => setEditing(null)} className="max-w-lg">
-        {editing === 'new' && <ManualRateEditor key="new" rate={null} onDone={() => setEditing(null)} />}
-        {typeof editing === 'number' &&
-          (editingRate ? <ManualRateEditor key={editing} rate={editingRate} onDone={() => setEditing(null)} /> : <p className="text-muted">Курс не найден — возможно, его удалили.</p>)}
+        {editing !== null && <ManualRateEditor key={editing} rate={edited.item} gone={edited.gone} onDone={() => setEditing(null)} />}
       </Modal>
     </section>
   );
 }
 
-function ManualRateEditor({ rate, onDone }: { rate: ManualRate | null; onDone: () => void }) {
+function ManualRateEditor({ rate: fresh, gone, onDone }: { rate: ManualRate | null; gone: boolean; onDone: () => void }) {
   const choices = CURRENCIES.filter((c) => c.code !== 'KZT');
   const [date, setDate] = useState('');
   const [currency, setCurrency] = useState('USD');
-  const [value, setValue] = useState(rate ? showRate(rate.rateToKzt) : '');
+  const [value, setValue] = useState(fresh ? showRate(fresh.rateToKzt) : '');
   const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['rates-manual'] }), refreshTotals()]);
   const save = useMutation<unknown, ApiError>({
     mutationFn: () =>
-      rate ? api(`/rates/manual/${rate.id}`, { method: 'PATCH', body: { rate: value } }) : api('/rates/manual', { method: 'POST', body: { date, currency, rate: value } }),
+      fresh ? api(`/rates/manual/${fresh.id}`, { method: 'PATCH', body: { rate: value } }) : api('/rates/manual', { method: 'POST', body: { date, currency, rate: value } }),
     onSuccess: async () => {
       await refresh();
       onDone();
     },
   });
-  const actions = useEntityActions(rate ? `/rates/manual/${rate.id}` : '/rates/manual', refresh, onDone);
+  const actions = useEntityActions(fresh ? `/rates/manual/${fresh.id}` : '/rates/manual', refresh, onDone);
+  // во время своего запроса — курс такой, каким был при нажатии (R5)
+  const busy = actions.pending || save.isPending;
+  const rate = useHeldWhile(fresh, busy);
   const fields = save.error?.fields ?? {};
   const submit = (e: FormEvent) => {
     e.preventDefault();
     save.mutate();
   };
+
+  if (gone && !busy) return <p className="text-muted">Курс не найден — возможно, его удалили.</p>;
 
   return (
     <>

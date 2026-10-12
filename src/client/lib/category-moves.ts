@@ -46,21 +46,3 @@ export function planMove(
   else ids.splice(at, 0, nodeId);
   return { kind: node.kind, parentId: target.parentId, ids, moving: nodeId };
 }
-
-/** Сдвиг на одну позицию среди соседей; null — двигать некуда. */
-export function planShift(tree: readonly CategoryNode[], nodeId: number, delta: -1 | 1): MovePlan | null {
-  const node = findNode(tree, nodeId);
-  if (!node) return null;
-  const level = node.parentId === null ? tree : (findNode(tree, node.parentId)?.children ?? []);
-  const ids = level.map((c) => c.id);
-  const i = ids.indexOf(nodeId);
-  const j = i + delta;
-  if (i < 0 || j < 0 || j >= ids.length) return null;
-  [ids[i], ids[j]] = [ids[j]!, ids[i]!];
-  return { kind: node.kind, parentId: node.parentId, ids, moving: null };
-}
-
-/** Куда можно перенести категорию через «Перенести в…»: допустимые родители, кроме текущего. */
-export function parentChoices(tree: readonly CategoryNode[], node: CategoryNode): CategoryNode[] {
-  return tree.filter((p) => p.id !== node.parentId && moveError(tree, node, p.id) === null);
-}

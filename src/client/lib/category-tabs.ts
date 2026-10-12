@@ -39,7 +39,10 @@ export interface CategoryRow extends SettingsRow {
   topLevel: boolean;
 }
 
-/** Строки вкладки: категории верхнего уровня вида — системные или свои, под каждой её дочерние (§7.2). */
+/**
+ * Строки вкладки: категории верхнего уровня вида — системные или свои, под каждой её дочерние (§7.2). Имена категорий
+ * не уникальны: у подкатегорий ✎ и ☰ называют и родителя — «Изменить Зал в Аренда» (M6 итогов плана 1.5-4b).
+ */
 export function categoryRows(tree: CategoryTree, tab: CategoryTab): CategoryRow[] {
   const info = categoryTabInfo(tab);
   return tree[info.kind]
@@ -49,6 +52,8 @@ export function categoryRows(tree: CategoryTree, tab: CategoryTab): CategoryRow[
       ...n.children.map((c) => ({
         id: c.id,
         name: c.name,
+        editLabel: `Изменить ${c.name} в ${n.name}`,
+        moveLabel: `Переместить ${c.name} в ${n.name}`,
         archived: c.archivedAt !== null,
         parentId: n.id,
         node: c,

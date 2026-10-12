@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { moveError, parentChoices, planMove, planShift } from '../../src/client/lib/category-moves';
+import { moveError, planMove } from '../../src/client/lib/category-moves';
 import type { CategoryNode } from '../../src/client/lib/queries';
 
 const n = (id: number, parentId: number | null, extra: Partial<CategoryNode> = {}, children: CategoryNode[] = []): CategoryNode => ({
@@ -36,16 +36,5 @@ describe('перемещение категорий на клиенте (те ж
     expect(planMove(tree, 3, { parentId: 4, beforeId: null })).toBe('Родительская категория в архиве');
     expect(planMove(tree, 99, { parentId: null, beforeId: null })).toBe('Категория не найдена');
     expect(moveError(tree, tree[2]!, null)).toBeNull();
-  });
-
-  it('planShift и parentChoices', () => {
-    expect(planShift(tree, 22, -1)).toEqual({ kind: 'expense', parentId: 2, ids: [22, 21], moving: null });
-    expect(planShift(tree, 21, -1)).toBeNull();
-    expect(planShift(tree, 4, 1)).toBeNull();
-    expect(planShift(tree, 2, 1)).toEqual({ kind: 'expense', parentId: null, ids: [1, 3, 2, 4], moving: null });
-    expect(parentChoices(tree, tree[2]!).map((p) => p.id)).toEqual([1, 2]);
-    expect(parentChoices(tree, tree[1]!.children[0]!).map((p) => p.id)).toEqual([1, 3]);
-    expect(parentChoices(tree, tree[0]!)).toEqual([]);
-    expect(parentChoices(tree, tree[1]!)).toEqual([]);
   });
 });

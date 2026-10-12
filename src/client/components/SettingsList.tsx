@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { dropIndexAt, dropInGroup, moveGroup, movedText, shiftInGroup, visibleRows, type SettingsRow } from '../lib/settings-list';
 import { GripIcon, PencilIcon, SearchIcon } from './icons';
-import { btnPrimary, inputClass } from './ui';
+import { btnPrimary, inputClass, rowIconClass as iconButton, settingsRowClass } from './ui';
 
 /** Перетаскивание за ☰: кого тянем, его группа и место вставки среди остальных строк группы. */
 interface Drag {
@@ -10,8 +10,6 @@ interface Drag {
   index: number;
 }
 
-const iconButton =
-  'grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-card hover:text-ink focus-visible:outline-2 focus-visible:outline-focus';
 const markBefore = 'shadow-[inset_0_2px_0_0_var(--color-focus)]';
 const markAfter = 'shadow-[inset_0_-2px_0_0_var(--color-focus)]';
 
@@ -179,7 +177,7 @@ export function SettingsList<T extends SettingsRow>(props: {
                   if (el) rowEls.current.set(row.id, el);
                   else rowEls.current.delete(row.id);
                 }}
-                className={`flex min-h-14 items-center gap-2 border-b border-field py-2 pr-1 hover:bg-field/60 ${child ? 'pl-9' : 'pl-1'} ${drag?.id === row.id ? 'opacity-50' : ''} ${before === row.id ? markBefore : ''} ${after === row.id ? markAfter : ''}`}
+                className={`${settingsRowClass} ${child ? 'pl-9' : 'pl-1'} ${drag?.id === row.id ? 'opacity-50' : ''} ${before === row.id ? markBefore : ''} ${after === row.id ? markAfter : ''}`}
               >
                 {movable ? (
                   <button
@@ -188,7 +186,7 @@ export function SettingsList<T extends SettingsRow>(props: {
                       if (el) handles.current.set(row.id, el);
                       else handles.current.delete(row.id);
                     }}
-                    aria-label={`Переместить ${row.name}`}
+                    aria-label={row.moveLabel ?? `Переместить ${row.name}`}
                     aria-describedby={hintId}
                     title="Перетащите, чтобы изменить порядок"
                     onPointerDown={(e) => onPointerDown(e, row)}

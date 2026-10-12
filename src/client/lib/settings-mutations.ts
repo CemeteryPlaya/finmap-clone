@@ -1,40 +1,72 @@
-import { useMutation, type QueryKey } from '@tanstack/react-query';
+import { useMutation, type QueryKey, type UseMutationResult } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, type ApiError } from './api';
 import { sortByIds } from './order';
 import { queryClient } from './query';
+
+/** Текст отказа сервера: сообщения полей (отказ переноса категории приходит как ids / parentId) или общее сообщение. */
+export const apiErrorText = (e: ApiError) => (e.fields && Object.keys(e.fields).length > 0 ? Object.values(e.fields).join(' ') : e.message);
+
+/** Перестановка не простым списком: тело запроса и новый порядок в кэше (дерево категорий — план MovePlan). */
+export interface ReorderShape<TData, TVars> {
+  body: (vars: TVars) => unknown;
+  apply: (data: TData, vars: TVars) => TData;
+}
 
 /**
  * Новый порядок списка настроек (§7.1 этапа 1.5): POST …/reorder с полным порядком. В кэше порядок меняется
  * сразу; если сервер отказал — прежний порядок и onError(сообщение). onError(null) — перед запросом.
  * Быстрые перестановки подряд не мешают друг другу: пока выполняется другая, откат и обновление с сервера
  * откладываются до последней (иначе ответ первой затёр бы показанный порядок третьей).
+ * Без shape — список `T[]` и тело `{ ids }`; с shape — свои тело и порядок в кэше (категории, R7 плана 1.5-4b).
  */
-export function useReorder<T extends { id: number }>(queryKey: QueryKey, path: string, onError: (message: string | null) => void) {
+export function useReorder<T extends { id: number }>(
+  queryKey: QueryKey,
+  path: string,
+  onError: (message: string | null) => void,
+): UseMutationResult<unknown, ApiError, number[], { previous: T[] | undefined }>;
+export function useReorder<TData, TVars>(
+  queryKey: QueryKey,
+  path: string,
+  onError: (message: string | null) => void,
+  shape: ReorderShape<TData, TVars>,
+): UseMutationResult<unknown, ApiError, TVars, { previous: TData | undefined }>;
+export function useReorder<TData, TVars>(
+  queryKey: QueryKey,
+  path: string,
+  onError: (message: string | null) => void,
+  shape: ReorderShape<TData, TVars> = listShape as unknown as ReorderShape<TData, TVars>,
+) {
   const mutationKey = ['reorder', ...queryKey];
   // в onError/onSettled своя мутация ещё считается выполняющейся: «одна» — значит, других нет
   const lastOne = () => queryClient.isMutating({ mutationKey }) === 1;
-  return useMutation<unknown, ApiError, number[], { previous: T[] | undefined }>({
+  return useMutation<unknown, ApiError, TVars, { previous: TData | undefined }>({
     mutationKey,
-    mutationFn: (ids) => api(path, { method: 'POST', body: { ids } }),
-    onMutate: async (ids) => {
+    mutationFn: (vars) => api(path, { method: 'POST', body: shape.body(vars) }),
+    onMutate: async (vars) => {
       onError(null);
       await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<T[]>(queryKey);
-      if (previous) queryClient.setQueryData<T[]>(queryKey, sortByIds(previous, ids));
+      const previous = queryClient.getQueryData<TData>(queryKey);
+      if (previous !== undefined) queryClient.setQueryData<TData>(queryKey, shape.apply(previous, vars));
       return { previous };
     },
     // последняя удалась — показанный порядок верен, ошибка более ранней (отказ 409 при другой в пути) устарела
     onSuccess: () => {
       if (lastOne()) onError(null);
     },
-    onError: (e, _ids, context) => {
-      if (context?.previous && lastOne()) queryClient.setQueryData(queryKey, context.previous);
-      onError(e.message);
+    onError: (e, _vars, context) => {
+      if (context?.previous !== undefined && lastOne()) queryClient.setQueryData(queryKey, context.previous);
+      onError(apiErrorText(e));
     },
     onSettled: () => (lastOne() ? queryClient.invalidateQueries({ queryKey }) : undefined),
   });
 }
+
+/** Простой список: тело `{ ids }`, в кэше — тот же список в порядке ids. */
+const listShape: ReorderShape<{ id: number }[], number[]> = {
+  body: (ids) => ({ ids }),
+  apply: (list, ids) => sortByIds(list, ids),
+};
 
 type EntityAction = { suffix: '' | '/archive' | '/unarchive'; method: 'POST' | 'DELETE' };
 

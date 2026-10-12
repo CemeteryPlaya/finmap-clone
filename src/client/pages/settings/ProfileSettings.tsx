@@ -4,7 +4,7 @@ import { LockIcon } from '../../components/icons';
 import { Pending } from '../../components/QueryState';
 import { alertClass, btnPrimary, inputClass } from '../../components/ui';
 import { api, ApiError } from '../../lib/api';
-import { profileDirty, profilePlan, profileServerFields, type ProfileDraft, type ProfileFields } from '../../lib/profile';
+import { clearEditedFields, profileDirty, profilePlan, profileServerError, type ProfileDraft, type ProfileFields } from '../../lib/profile';
 import { queryClient, useMe, type Me } from '../../lib/query';
 
 /**
@@ -28,13 +28,17 @@ function ProfileForm({ user }: { user: Me['user'] }) {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const dirty = profileDirty(draft, user.name);
   const change = (patch: Partial<ProfileDraft>) => {
     setStatus(null);
+    setFields((f) => clearEditedFields(f, patch));
     setDraft((d) => ({ ...d, ...patch }));
   };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    // кнопка с aria-disabled нажимается, Enter в поле тоже отправляет форму
+    if (pending || !dirty) return;
     setStatus(null);
     setError(null);
     const plan = profilePlan(draft, user.name);
@@ -57,8 +61,9 @@ function ProfileForm({ user }: { user: Me['user'] }) {
         done.push('Пароль изменён. Остальные сеансы завершены.');
       }
     } catch (err) {
-      if (err instanceof ApiError && err.fields) setFields(profileServerFields(err.fields));
-      else setError(err instanceof ApiError ? err.message : 'Ошибка сервера');
+      const shown = profileServerError(err instanceof ApiError ? err.fields : undefined, err instanceof ApiError ? err.message : 'Ошибка сервера');
+      setFields(shown.fields);
+      setError(shown.error);
     } finally {
       setPending(false);
       setStatus(done.length > 0 ? done.join(' ') : null);
@@ -84,17 +89,17 @@ function ProfileForm({ user }: { user: Me['user'] }) {
       <Field label="Повторите пароль" error={fields.again}>
         {(c) => <input {...c} type="password" autoComplete="new-password" value={draft.again} onChange={(e) => change({ again: e.target.value })} className={inputClass} />}
       </Field>
-      {status && (
-        <p role="status" className="text-sm text-income-strong">
-          {status}
-        </p>
-      )}
+      {/* живая область на месте всегда: вставленная сразу с текстом часто не объявляется */}
+      <p role="status" className={status ? 'text-sm text-income-strong' : 'sr-only'}>
+        {status}
+      </p>
       {error && (
         <p role="alert" className={`${alertClass} mb-0`}>
           {error}
         </p>
       )}
-      <button type="submit" disabled={pending || !profileDirty(draft, user.name)} className={btnPrimary}>
+      {/* aria-disabled, а не disabled: после сохранения форма не изменена, а фокус остаётся на кнопке (R4) */}
+      <button type="submit" aria-disabled={pending || !dirty || undefined} className={`${btnPrimary} aria-disabled:opacity-50`}>
         Сохранить
       </button>
     </form>

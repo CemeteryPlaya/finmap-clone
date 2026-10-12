@@ -58,6 +58,16 @@ describe('categoryRows — строки вкладки', () => {
       [4, true],
     ]);
   });
+
+  it('у подкатегорий ✎ и ☰ называют родителя: одноимённые различимы (M6 итогов 1.5-4b)', () => {
+    const rows = categoryRows(tree, 'my-expense');
+    expect(rows.map((r) => [r.id, r.editLabel, r.moveLabel])).toEqual([
+      [2, undefined, undefined],
+      [21, 'Изменить c21 в c2', 'Переместить c21 в c2'],
+      [22, 'Изменить c22 в c2', 'Переместить c22 в c2'],
+      [3, undefined, undefined],
+    ]);
+  });
 });
 
 describe('categoryReorderPlan — порядок вкладки в полном порядке уровня (Review Focus 1)', () => {

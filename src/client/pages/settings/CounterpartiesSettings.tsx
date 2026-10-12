@@ -16,6 +16,7 @@ import { mergeSubsetOrder } from '../../lib/order';
 import { queryClient } from '../../lib/query';
 import { useCounterparties, type Counterparty } from '../../lib/queries';
 import { useEntityActions, useReorder } from '../../lib/settings-mutations';
+import { useEditedItem, useHeldWhile } from '../../lib/use-edited';
 import type { CompanyOutletContext } from '../CompanyLayout';
 
 /** Окно контрагента: 'new' — создание во вкладке, id — правка (свежие данные из списка), null — закрыто. */
@@ -38,11 +39,11 @@ export function CounterpartiesSettings() {
 
   // ошибка перестановки относится к вкладке, где она случилась
   useEffect(() => setListError(null), [tab]);
+  const edited = useEditedItem(counterparties.data, editing);
 
   if (!counterparties.data) return <Pending queries={[counterparties]} />;
   const all = counterparties.data;
   const inTab = all.filter((c) => tabOfType(c.type) === tab);
-  const editingCounterparty = typeof editing === 'number' ? (all.find((c) => c.id === editing) ?? null) : null;
 
   return (
     <section>
@@ -97,43 +98,45 @@ export function CounterpartiesSettings() {
       </div>
       <Modal open={editing !== null} title={editing === 'new' ? info.createTitle : info.editTitle} onClose={() => setEditing(null)} className="max-w-lg">
         {/* новое — со своим ключом на каждую вкладку: «Назад» в браузере меняет вкладку и тип создаваемого */}
-        {editing === 'new' && <CounterpartyEditor key={`new-${tab}`} companyId={company.id} tab={tab} counterparty={null} onDone={() => setEditing(null)} />}
-        {typeof editing === 'number' &&
-          (editingCounterparty ? (
-            <CounterpartyEditor key={editing} companyId={company.id} tab={tab} counterparty={editingCounterparty} onDone={() => setEditing(null)} />
-          ) : (
-            <p className="text-muted">Контрагент не найден — возможно, его удалили.</p>
-          ))}
+        {editing === 'new' && <CounterpartyEditor key={`new-${tab}`} companyId={company.id} tab={tab} counterparty={null} gone={false} onDone={() => setEditing(null)} />}
+        {typeof editing === 'number' && (
+          <CounterpartyEditor key={editing} companyId={company.id} tab={tab} counterparty={edited.item} gone={edited.gone} onDone={() => setEditing(null)} />
+        )}
       </Modal>
     </section>
   );
 }
 
-function CounterpartyEditor(props: { companyId: number; tab: CounterpartyTab; counterparty: Counterparty | null; onDone: () => void }) {
-  const { counterparty, onDone } = props;
+function CounterpartyEditor(props: { companyId: number; tab: CounterpartyTab; counterparty: Counterparty | null; gone: boolean; onDone: () => void }) {
+  const { onDone } = props;
+  const fresh = props.counterparty;
   const base = `/companies/${props.companyId}/counterparties`;
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['counterparties', props.companyId] });
-  const [name, setName] = useState(counterparty?.name ?? '');
-  const [comment, setComment] = useState(counterparty?.comment ?? '');
-  const [type, setType] = useState<CounterpartyType>(counterparty?.type ?? (props.tab === 'my' ? 'client' : props.tab));
+  const [name, setName] = useState(fresh?.name ?? '');
+  const [comment, setComment] = useState(fresh?.comment ?? '');
+  const [type, setType] = useState<CounterpartyType>(fresh?.type ?? (props.tab === 'my' ? 'client' : props.tab));
   const radioName = useId();
   const save = useMutation<unknown, ApiError>({
     mutationFn: () => {
       const body = { type, name, comment };
-      return counterparty ? api(`${base}/${counterparty.id}`, { method: 'PATCH', body }) : api(base, { method: 'POST', body });
+      return fresh ? api(`${base}/${fresh.id}`, { method: 'PATCH', body }) : api(base, { method: 'POST', body });
     },
     onSuccess: async () => {
       await refresh();
       onDone();
     },
   });
-  const actions = useEntityActions(counterparty ? `${base}/${counterparty.id}` : base, refresh, onDone);
+  const actions = useEntityActions(fresh ? `${base}/${fresh.id}` : base, refresh, onDone);
+  // во время своего запроса — контрагент такой, каким был при нажатии (R5)
+  const busy = actions.pending || save.isPending;
+  const counterparty = useHeldWhile(fresh, busy);
   const fields = save.error?.fields ?? {};
   const submit = (e: FormEvent) => {
     e.preventDefault();
     save.mutate();
   };
 
+  if (props.gone && !busy) return <p className="text-muted">Контрагент не найден — возможно, его удалили.</p>;
   return (
     <>
       {counterparty?.archivedAt ? (

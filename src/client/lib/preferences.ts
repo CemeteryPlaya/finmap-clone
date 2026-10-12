@@ -22,5 +22,5 @@ export function journalWrap(prefs: Record<string, unknown> | undefined): boolean
 export function prefsSaveError(saved: readonly string[], failed: string, reason: string): string {
   const why = reason.trim().replace(/[.!?…]+$/, '').trim() || 'Ошибка сервера';
   const head = `Не удалось сохранить «${failed}»: ${why}.`;
-  return saved.length > 0 ? `${head} Остальное сохранено: ${saved.map((s) => `«${s}»`).join(', ')}.` : head;
+  return saved.length > 0 ? `${head} Сохранено: ${saved.map((s) => `«${s}»`).join(', ')}.` : head;
 }

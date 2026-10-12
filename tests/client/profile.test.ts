@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { profileDirty, profilePlan, profileServerFields } from '../../src/client/lib/profile';
+import { clearEditedFields, profileDirty, profilePlan, profileServerError, profileServerFields } from '../../src/client/lib/profile';
 
 const draft = (patch: Partial<{ name: string; current: string; next: string; again: string }> = {}) => ({
   name: 'Админ',
@@ -46,5 +46,20 @@ describe('«Профиль»: одна «Сохранить» для имени 
       name: 'Слишком длинное',
     });
     expect(profileServerFields({})).toEqual({});
+  });
+
+  it('отказ без знакомых полей — общий текст, а не тишина', () => {
+    expect(profileServerError({ password: 'Слишком простой' }, 'Проверьте поля')).toEqual({ fields: {}, error: 'Проверьте поля' });
+    expect(profileServerError(undefined, 'Ошибка сервера')).toEqual({ fields: {}, error: 'Ошибка сервера' });
+    expect(profileServerError({ currentPassword: 'Неверный текущий пароль', password: 'x' }, 'Проверьте поля')).toEqual({
+      fields: { current: 'Неверный текущий пароль' },
+      error: null,
+    });
+  });
+
+  it('правка поля убирает его прежнюю ошибку, остальные остаются (M13 итогов 1.5-4b)', () => {
+    const fields = { again: 'Пароли не совпадают', current: 'Введите текущий пароль' };
+    expect(clearEditedFields(fields, { again: 'new-pass-12' })).toEqual({ current: 'Введите текущий пароль' });
+    expect(clearEditedFields(fields, { name: 'Админ' })).toEqual(fields);
   });
 });

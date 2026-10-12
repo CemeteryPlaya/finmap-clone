@@ -24,51 +24,31 @@ import {
 import { planMove, type MovePlan } from '../../lib/category-moves';
 import { queryClient } from '../../lib/query';
 import { useCategories, type CategoryNode, type CategoryTree } from '../../lib/queries';
-import { useEntityActions } from '../../lib/settings-mutations';
+import { useEntityActions, useReorder } from '../../lib/settings-mutations';
+import { useEditedItem, useHeldWhile } from '../../lib/use-edited';
 import type { CompanyOutletContext } from '../CompanyLayout';
 
 const SYSTEM_HINT = 'Системная — не переименовывается и не удаляется';
 const plusClass =
   'grid h-9 w-9 shrink-0 place-items-center rounded-full text-income-strong hover:bg-income-soft focus-visible:outline-2 focus-visible:outline-focus';
 
-/** Окно категории: создание (на верхнем уровне или в родителе) или правка (по id — свежие данные из дерева). */
-type CategoryDialog = { mode: 'new'; parent: CategoryNode | null } | { mode: 'edit'; id: number };
-
-/** Текст ошибки: сообщения полей (сервер отдаёт отказ переноса как ids / parentId) или общее сообщение. */
-const errorText = (e: ApiError) => (e.fields && Object.keys(e.fields).length > 0 ? Object.values(e.fields).join(' ') : e.message);
-
 /**
- * Новый порядок соседей: POST …/categories/reorder. В кэше дерева порядок меняется сразу; отказ — прежний порядок и
- * onError(сообщение). Быстрые перестановки подряд не мешают друг другу: откат и обновление с сервера — после последней
- * (как useReorder у остальных списков). onError(null) — перед запросом.
+ * Окно категории: создание (на верхнем уровне или в родителе — по его id, сам родитель берётся из свежего дерева)
+ * или правка (по id — свежие данные из дерева).
  */
+type CategoryDialog = { mode: 'new'; parentId: number | null } | { mode: 'edit'; id: number };
+
+const dialogTitle = (d: CategoryDialog) => (d.mode === 'edit' ? 'Категория' : d.parentId !== null ? 'Новая подкатегория' : 'Новая категория');
+
+const NOT_FOUND = 'Категория не найдена — возможно, её удалили.';
+
+/** Перестановка соседей дерева категорий — общий useReorder (R7 плана 1.5-4b): тело — план, в кэше — дерево. */
 function useCategoryReorder(companyId: number, onError: (message: string | null) => void) {
-  const queryKey = ['categories', companyId];
-  const mutationKey = ['reorder', ...queryKey];
-  // в onError/onSettled своя мутация ещё считается выполняющейся: «одна» — значит, других нет
-  const lastOne = () => queryClient.isMutating({ mutationKey }) === 1;
-  return useMutation<unknown, ApiError, MovePlan, { previous: CategoryTree | undefined }>({
-    mutationKey,
-    mutationFn: (plan) => api(`/companies/${companyId}/categories/reorder`, { method: 'POST', body: plan }),
-    onMutate: async (plan) => {
-      onError(null);
-      await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<CategoryTree>(queryKey);
-      if (previous) queryClient.setQueryData<CategoryTree>(queryKey, applyCategoryOrder(previous, plan));
-      return { previous };
-    },
-    onSuccess: () => {
-      if (lastOne()) onError(null);
-    },
-    onError: (e, _plan, context) => {
-      if (context?.previous && lastOne()) queryClient.setQueryData(queryKey, context.previous);
-      onError(errorText(e));
-    },
-    onSettled: () => (lastOne() ? queryClient.invalidateQueries({ queryKey }) : undefined),
+  return useReorder<CategoryTree, MovePlan>(['categories', companyId], `/companies/${companyId}/categories/reorder`, onError, {
+    body: (plan) => plan,
+    apply: applyCategoryOrder,
   });
 }
-
-const dialogTitle = (d: CategoryDialog) => (d.mode === 'edit' ? 'Категория' : d.parent ? 'Новая подкатегория' : 'Новая категория');
 
 /**
  * «Категории» (§7.2 этапа 1.5): подменю «Системные / Мои × дохода / расхода» (`?tab=`), справа — шаблон списка:
@@ -87,10 +67,13 @@ export function CategoriesSettings() {
   const reorder = useCategoryReorder(company.id, setListError);
   // ошибка прежней вкладки на новой не нужна
   useEffect(() => setListError(null), [tab]);
+  const nodes = categories.data?.[info.kind].flatMap((n) => [n, ...n.children]);
+  const edited = useEditedItem(nodes, dialog?.mode === 'edit' ? dialog.id : null);
 
   if (!categories.data) return <Pending queries={[categories]} />;
   const tree = categories.data;
-  const editingNode = dialog?.mode === 'edit' ? (tree[info.kind].flatMap((n) => [n, ...n.children]).find((n) => n.id === dialog.id) ?? null) : null;
+  // «+» по id: родитель — из свежего дерева; если его удалили или перевели в архив, пока окно открыто, — окно скажет об этом
+  const newParent = dialog?.mode === 'new' && dialog.parentId !== null ? (tree[info.kind].find((n) => n.id === dialog.parentId) ?? null) : null;
 
   return (
     <section>
@@ -115,7 +98,7 @@ export function CategoriesSettings() {
             label={info.label}
             rows={categoryRows(tree, tab)}
             addLabel={readOnly || info.system ? null : 'Добавить категорию'}
-            onAdd={() => setDialog({ mode: 'new', parent: null })}
+            onAdd={() => setDialog({ mode: 'new', parentId: null })}
             onReorder={
               readOnly
                 ? undefined
@@ -134,7 +117,7 @@ export function CategoriesSettings() {
                     type="button"
                     aria-label={`Добавить подкатегорию в ${row.name}`}
                     title="Добавить подкатегорию"
-                    onClick={() => setDialog({ mode: 'new', parent: row.node })}
+                    onClick={() => setDialog({ mode: 'new', parentId: row.id })}
                     className={plusClass}
                   >
                     <PlusIcon />
@@ -154,31 +137,30 @@ export function CategoriesSettings() {
       <Modal open={dialog !== null} title={dialog ? dialogTitle(dialog) : ''} onClose={() => setDialog(null)} className="max-w-lg">
         {dialog?.mode === 'new' && (
           <CategoryEditor
-            key={`new-${dialog.parent?.id ?? 'top'}`}
+            key={`new-${dialog.parentId ?? 'top'}`}
             companyId={company.id}
             kind={info.kind}
             tree={tree}
             tab={tab}
             node={null}
-            parent={dialog.parent}
+            gone={dialog.parentId !== null && newParent === null}
+            parent={newParent}
             onDone={() => setDialog(null)}
           />
         )}
-        {dialog?.mode === 'edit' &&
-          (editingNode ? (
-            <CategoryEditor
-              key={dialog.id}
-              companyId={company.id}
-              kind={info.kind}
-              tree={tree}
-              tab={tab}
-              node={editingNode}
-              parent={null}
-              onDone={() => setDialog(null)}
-            />
-          ) : (
-            <p className="text-muted">Категория не найдена — возможно, её удалили.</p>
-          ))}
+        {dialog?.mode === 'edit' && (
+          <CategoryEditor
+            key={dialog.id}
+            companyId={company.id}
+            kind={info.kind}
+            tree={tree}
+            tab={tab}
+            node={edited.item}
+            gone={edited.gone}
+            parent={null}
+            onDone={() => setDialog(null)}
+          />
+        )}
       </Modal>
     </section>
   );
@@ -190,16 +172,17 @@ function CategoryEditor(props: {
   tree: CategoryTree;
   tab: CategoryTab;
   node: CategoryNode | null;
+  /** Категории (или родителя новой подкатегории) уже нет в дереве: «не найдена», когда своего запроса в пути нет (R5). */
+  gone: boolean;
   parent: CategoryNode | null;
   onDone: () => void;
 }) {
-  const { node, parent, onDone } = props;
+  const { parent, onDone } = props;
   const base = `/companies/${props.companyId}/categories`;
   const level = props.tree[props.kind];
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['categories', props.companyId] });
-  const [name, setName] = useState(node?.name ?? '');
-  const [parentValue, setParentValue] = useState(node?.parentId == null ? 'top' : String(node.parentId));
-  const options = node ? parentOptions(level, node) : [];
+  const [name, setName] = useState(props.node?.name ?? '');
+  const [parentValue, setParentValue] = useState(props.node?.parentId == null ? 'top' : String(props.node.parentId));
   const save = useMutation<void, ApiError>({
     mutationFn: async () => {
       if (!node) {
@@ -225,7 +208,11 @@ function CategoryEditor(props: {
   const shift = useCategoryReorder(props.companyId, setShiftError);
   const upRef = useRef<HTMLButtonElement>(null);
   const downRef = useRef<HTMLButtonElement>(null);
-  const actions = useEntityActions(node ? `${base}/${node.id}` : base, refresh, onDone);
+  const actions = useEntityActions(props.node ? `${base}/${props.node.id}` : base, refresh, onDone);
+  // во время своего запроса — категория такой, какой была при нажатии (без вспышки «В архиве» и «не найдена»)
+  const busy = actions.pending || save.isPending;
+  const node = useHeldWhile(props.node, busy);
+  const options = node ? parentOptions(level, node) : [];
   const fields = save.error?.fields ?? {};
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -234,11 +221,14 @@ function CategoryEditor(props: {
   // среди видимых соседей вкладки: скрытые системные и архивные остаются на своих местах
   const up = node ? categoryShiftPlan(props.tree, props.tab, node.id, -1) : null;
   const down = node ? categoryShiftPlan(props.tree, props.tab, node.id, 1) : null;
-  // дошли до края — стрелка гаснет (aria-disabled), фокус переходит на другую, а не падает на body
+  // дошли до края — стрелка гаснет (aria-disabled), фокус переходит на другую, а не падает на body;
+  // зависимости — есть ли стрелка: план — новый объект на каждой отрисовке
+  const canUp = up !== null;
+  const canDown = down !== null;
   useEffect(() => {
-    if (!up && down && document.activeElement === upRef.current) downRef.current?.focus();
-    if (!down && up && document.activeElement === downRef.current) upRef.current?.focus();
-  }, [up, down]);
+    if (!canUp && canDown && document.activeElement === upRef.current) downRef.current?.focus();
+    if (!canDown && canUp && document.activeElement === downRef.current) upRef.current?.focus();
+  }, [canUp, canDown]);
   const shiftBusy = shift.isPending;
   const arrow = (dir: 'up' | 'down', plan: MovePlan | null) => (
     <button
@@ -260,6 +250,9 @@ function CategoryEditor(props: {
     .map(([, message]) => message);
   const saveAlert = save.error ? (otherFields.length > 0 ? otherFields.join(' ') : save.error.fields ? null : save.error.message) : null;
 
+  if (props.gone && !busy) return <p className="text-muted">{NOT_FOUND}</p>;
+  // родителя новой подкатегории перевели в архив, пока окно открыто
+  if (!node && parent?.archivedAt && !busy) return <p className="text-muted">Категория «{parent.name}» в архиве — сначала верните её из архива.</p>;
   return (
     <>
       {node?.archivedAt ? (

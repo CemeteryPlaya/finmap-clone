@@ -29,6 +29,11 @@ export const btnClose = `${btnIcon} shrink-0 max-md:flex max-md:size-11 max-md:i
 /** Круглая кнопка-иконка в тёмной шапке (история действий, настройки) с видимой рамкой фокуса. */
 export const headerIconClass =
   'grid h-10 w-10 shrink-0 place-items-center rounded-full max-md:size-11 bg-chrome-2 text-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
+/** Строка списка зоны настроек (§7.1 этапа 1.5): без рамки, с разделителем снизу; общая у SettingsList и «Курсов». */
+export const settingsRowClass = 'flex min-h-14 items-center gap-2 border-b border-field py-2 pr-1 hover:bg-field/60';
+/** Кнопка-иконка строки списка настроек и карточки компании (☰, ✎), 36 px. */
+export const rowIconClass =
+  'grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-card hover:text-ink focus-visible:outline-2 focus-visible:outline-focus';
 export const alertClass = 'mb-4 rounded-xl bg-expense-soft px-4 py-3 text-sm text-expense-strong';
 export const noticeClass = 'mb-4 rounded-xl bg-field px-4 py-3 text-sm text-muted';
 

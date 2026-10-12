@@ -5,7 +5,7 @@ import { CompanyAvatar } from '../../components/CompaniesDrawer';
 import { CompanyEditDialog } from '../../components/CompanyEditDialog';
 import { PencilIcon } from '../../components/icons';
 import { Pending, StaleNotice } from '../../components/QueryState';
-import { btnPrimary } from '../../components/ui';
+import { btnPrimary, rowIconClass } from '../../components/ui';
 import { useCompanies, useCompaniesSummary, type Company, type CompanyTotal } from '../../lib/queries';
 import type { CompanyOutletContext } from '../CompanyLayout';
 
@@ -17,13 +17,13 @@ export function CompaniesSettings() {
   const { company } = useOutletContext<CompanyOutletContext>();
   const companies = useCompanies();
   const summary = useCompaniesSummary(true);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editing, setEditing] = useState<number | null>(null);
 
   if (!companies.data) return <Pending queries={[companies]} />;
   const totals = new Map((summary.data ?? []).map((s) => [s.id, s.total]));
   const active = companies.data.filter((c) => !c.archivedAt);
   const archived = companies.data.filter((c) => c.archivedAt);
-  const card = (c: Company) => <CompanyCard key={c.id} company={c} total={totals.get(c.id)} onEdit={() => setEditingId(c.id)} />;
+  const card = (c: Company) => <CompanyCard key={c.id} company={c} total={totals.get(c.id)} onEdit={() => setEditing(c.id)} />;
 
   return (
     <section>
@@ -43,7 +43,7 @@ export function CompaniesSettings() {
           </ul>
         </>
       )}
-      <CompanyEditDialog company={companies.data.find((c) => c.id === editingId) ?? null} currentId={company.id} onClose={() => setEditingId(null)} />
+      <CompanyEditDialog companies={companies.data} editing={editing} currentId={company.id} onClose={() => setEditing(null)} />
     </section>
   );
 }
@@ -55,7 +55,12 @@ function CompanyCard({ company, total, onEdit }: { company: Company; total: Comp
       <dl className="grid min-w-0 flex-1 gap-x-8 gap-y-2 sm:grid-cols-3">
         <div className="min-w-0">
           <dt className="text-xs text-muted">Компания</dt>
-          <dd className="truncate font-semibold">{company.name}</dd>
+          {/* h3 — переход между карточками по заголовкам; title — полное название, если оно обрезано */}
+          <dd>
+            <h3 title={company.name} className="truncate font-semibold">
+              {company.name}
+            </h3>
+          </dd>
         </div>
         <div>
           <dt className="text-xs text-muted">Баланс на счетах</dt>
@@ -74,7 +79,7 @@ function CompanyCard({ company, total, onEdit }: { company: Company; total: Comp
         aria-label={`Изменить компанию «${company.name}»`}
         title="Изменить"
         onClick={onEdit}
-        className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-card hover:text-ink focus-visible:outline-2 focus-visible:outline-focus"
+        className={rowIconClass}
       >
         <PencilIcon />
       </button>

@@ -12,6 +12,7 @@ import { mergeSubsetOrder } from '../../lib/order';
 import { queryClient } from '../../lib/query';
 import { useProjects, useTemplates, type Project, type TemplateInfo } from '../../lib/queries';
 import { useEntityActions, useReorder } from '../../lib/settings-mutations';
+import { useEditedItem, useHeldWhile, type EditingId } from '../../lib/use-edited';
 import type { CompanyOutletContext } from '../CompanyLayout';
 import { ProjectsHeader } from './ProjectsTabs';
 
@@ -22,7 +23,7 @@ function projectSummary(p: Project, t: TemplateInfo | undefined): string {
 }
 
 /** Окно проекта: 'new' — «Новый проект», id — «Проект» (свежие данные из списка), null — закрыто. */
-type Editing = number | 'new' | null;
+type Editing = EditingId;
 
 /** «Проекты» на шаблоне списка (§7.4 этапа 1.5): «Добавить проект» и ✎ — окно проекта (шаблон, затем параметры). */
 export function ProjectsSettings() {
@@ -34,11 +35,11 @@ export function ProjectsSettings() {
   const [listError, setListError] = useState<string | null>(null);
   const readOnly = company.archivedAt !== null;
   const reorder = useReorder<Project>(['projects', company.id], `/companies/${company.id}/projects/reorder`, setListError);
+  const edited = useEditedItem(projects.data, editing);
 
   if (!projects.data || !templates.data) return <Pending queries={[projects, templates]} />;
   const list = projects.data;
   const templateList = templates.data;
-  const editingProject = typeof editing === 'number' ? (list.find((p) => p.id === editing) ?? null) : null;
   const open = (next: Editing) => {
     setNotice(null);
     setEditing(next);
@@ -50,11 +51,10 @@ export function ProjectsSettings() {
       <ProjectsHeader companyId={company.id} />
       <StaleNotice queries={[projects, templates]} />
       {readOnly && <p className={noticeClass}>Компания в архиве — изменения недоступны.</p>}
-      {notice && (
-        <p role="status" className={noticeClass}>
-          {notice}
-        </p>
-      )}
+      {/* живая область на месте всегда: вставленная сразу с текстом часто не объявляется */}
+      <p role="status" className={notice ? noticeClass : 'sr-only'}>
+        {notice}
+      </p>
       {listError && (
         <p role="alert" className={alertClass}>
           {listError}
@@ -88,29 +88,32 @@ export function ProjectsSettings() {
         empty="Проектов пока нет. Проект — это клуб, магазин или офис внутри компании."
       />
       <Modal open={editing !== null} title={editing === 'new' ? 'Новый проект' : 'Проект'} onClose={close} className="max-w-lg">
-        {editing === 'new' && (
-          <ProjectEditor key="new" companyId={company.id} templates={templateList} project={null} onRenamed={(count) => setNotice(`Переименовано счетов: ${count}`)} onDone={close} />
+        {editing !== null && (
+          <ProjectEditor
+            key={editing}
+            companyId={company.id}
+            templates={templateList}
+            project={edited.item}
+            gone={edited.gone}
+            onRenamed={(count) => setNotice(`Переименовано счетов: ${count}`)}
+            onDone={close}
+          />
         )}
-        {typeof editing === 'number' &&
-          (editingProject ? (
-            <ProjectEditor
-              key={editing}
-              companyId={company.id}
-              templates={templateList}
-              project={editingProject}
-              onRenamed={(count) => setNotice(`Переименовано счетов: ${count}`)}
-              onDone={close}
-            />
-          ) : (
-            <p className="text-muted">Проект не найден — возможно, его удалили.</p>
-          ))}
       </Modal>
     </section>
   );
 }
 
-function ProjectEditor(props: { companyId: number; templates: TemplateInfo[]; project: Project | null; onRenamed: (count: number) => void; onDone: () => void }) {
-  const { project, onDone } = props;
+function ProjectEditor(props: {
+  companyId: number;
+  templates: TemplateInfo[];
+  project: Project | null;
+  gone: boolean;
+  onRenamed: (count: number) => void;
+  onDone: () => void;
+}) {
+  const { onDone } = props;
+  const fresh = props.project;
   const base = `/companies/${props.companyId}/projects`;
   // шаблон создаёт счета и категории проекта
   const refresh = () =>
@@ -128,7 +131,7 @@ function ProjectEditor(props: { companyId: number; templates: TemplateInfo[]; pr
   });
   const update = useMutation<{ renamedAccounts: number }, ApiError, ProjectFormValues>({
     mutationFn: (v) =>
-      api(`${base}/${project!.id}`, {
+      api(`${base}/${fresh!.id}`, {
         method: 'PATCH',
         body: { name: v.name, templateParams: v.templateParams, ...(v.renameAccounts !== undefined ? { renameAccounts: v.renameAccounts } : {}) },
       }),
@@ -138,9 +141,13 @@ function ProjectEditor(props: { companyId: number; templates: TemplateInfo[]; pr
       onDone();
     },
   });
-  const actions = useEntityActions(project ? `${base}/${project.id}` : base, refresh, onDone);
+  const actions = useEntityActions(fresh ? `${base}/${fresh.id}` : base, refresh, onDone);
+  // во время своего запроса — проект такой, каким был при нажатии (R5)
+  const busy = actions.pending || create.isPending || update.isPending;
+  const project = useHeldWhile(fresh, busy);
   const error = project ? update.error : create.error;
 
+  if (props.gone && !busy) return <p className="text-muted">Проект не найден — возможно, его удалили.</p>;
   return (
     <>
       {project?.archivedAt ? (

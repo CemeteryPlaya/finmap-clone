@@ -72,7 +72,7 @@ function CompaniesList(props: { current: Company; companies: Company[]; onDone: 
   const navigate = useNavigate();
   const location = useLocation();
   const [query, setQuery] = useState('');
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editing, setEditing] = useState<number | null>(null);
   // итоги — при открытии панели (она монтирует список заново): свежие, без запросов на каждой странице
   const summary = useCompaniesSummary(true);
   const totals = new Map((summary.data ?? []).map((s) => [s.id, s.total]));
@@ -156,7 +156,7 @@ function CompaniesList(props: { current: Company; companies: Company[]; onDone: 
                 type="button"
                 aria-label={`Изменить компанию «${c.name}»`}
                 title="Изменить"
-                onClick={() => setEditingId(c.id)}
+                onClick={() => setEditing(c.id)}
                 className="mr-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-card hover:text-ink"
               >
                 <span aria-hidden="true">✎</span>
@@ -187,11 +187,7 @@ function CompaniesList(props: { current: Company; companies: Company[]; onDone: 
         </Link>
       </div>
       {/* окно поверх панели — вложенный <dialog>: его Esc и close панель не закрывают (Drawer проверяет target) */}
-      <CompanyEditDialog
-        company={props.companies.find((c) => c.id === editingId) ?? null}
-        currentId={props.current.id}
-        onClose={() => setEditingId(null)}
-      />
+      <CompanyEditDialog companies={props.companies} editing={editing} currentId={props.current.id} onClose={() => setEditing(null)} />
     </div>
   );
 }

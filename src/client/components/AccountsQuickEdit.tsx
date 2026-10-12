@@ -3,6 +3,7 @@ import { accountGroupKey, panelOrder } from '../lib/accounts-panel';
 import { mergeSubsetOrder } from '../lib/order';
 import { useAccounts, useProjects, type Account, type Company } from '../lib/queries';
 import { useReorder } from '../lib/settings-mutations';
+import { useEditedItem } from '../lib/use-edited';
 import { AccountEditor } from './AccountEditor';
 import { firstTabbable } from './focus-trap';
 import { Modal } from './Modal';
@@ -53,7 +54,7 @@ export function AccountsQuickEdit({ company, open, onClose }: { company: Company
   };
   const list = accounts.data ?? [];
   const sorted = panelOrder(list, projects.data ?? []);
-  const account = view.kind === 'edit' ? (list.find((a) => a.id === view.id) ?? null) : null;
+  const edited = useEditedItem(accounts.data, view.kind === 'edit' ? view.id : view.kind === 'create' ? 'new' : null);
   const back: number | 'add' = view.kind === 'edit' ? view.id : 'add';
   const title = view.kind === 'list' ? 'Счета' : view.kind === 'create' ? 'Добавление нового счёта' : 'Счёт';
 
@@ -95,11 +96,7 @@ export function AccountsQuickEdit({ company, open, onClose }: { company: Company
               <span aria-hidden="true">←</span> Назад
             </button>
             <div ref={editor}>
-              {view.kind === 'edit' && !account ? (
-                <p className="text-muted">Счёт не найден — возможно, его удалили.</p>
-              ) : (
-                <AccountEditor key={view.kind === 'edit' ? view.id : 'new'} company={company} account={account} onDone={() => toList(back)} />
-              )}
+              <AccountEditor key={view.kind === 'edit' ? view.id : 'new'} company={company} account={edited.item} gone={edited.gone} onDone={() => toList(back)} />
             </div>
           </>
         )}
