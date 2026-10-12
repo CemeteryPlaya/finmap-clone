@@ -5,7 +5,7 @@ import AdmZip from 'adm-zip';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDb } from '../../src/server/db/client';
 import { runMigrations } from '../../src/server/db/migrate';
-import { createBackupService } from '../../src/server/modules/backup/service';
+import { copyErrorText, createBackupService } from '../../src/server/modules/backup/service';
 import { createTestApp, loginAs, seedUser, testConfig } from '../helpers/test-app';
 
 let cleanup: (() => void) | null = null;
@@ -78,7 +78,7 @@ describe('backup', () => {
     const file = svc.create('daily');
     expect(fs.existsSync(file)).toBe(true);
     expect(fs.existsSync(missing)).toBe(false);
-    expect(svc.status().lastCopyError).toBe(`Не удалось скопировать в ${missing}: ENOENT`);
+    expect(svc.status().lastCopyError).toBe(`Папка ${missing} не найдена — подключите диск или создайте папку`);
     expect(logs.some((l) => /Не удалось скопировать бэкап/.test(l.msg) && l.err instanceof Error)).toBe(true);
   });
 
@@ -105,7 +105,7 @@ describe('backup', () => {
     expect(() => svc.create('daily')).not.toThrow();
     vi.restoreAllMocks();
     expect(svc.list()).toHaveLength(1);
-    expect(svc.status().lastCopyError).toBe(`Не удалось скопировать в ${copyDir}: EACCES`);
+    expect(svc.status().lastCopyError).toBe(`Нет доступа к папке ${copyDir}`);
     fs.rmSync(copyDir, { recursive: true, force: true });
   });
 
@@ -162,9 +162,33 @@ describe('backup', () => {
     });
     svc.create('daily');
     vi.restoreAllMocks();
-    expect(svc.status().lastCopyError).toMatch(/ENOSPC/);
+    expect(svc.status().lastCopyError).toBe(`На диске с папкой ${copyDir} нет места`);
     expect(fs.readdirSync(copyDir)).toEqual([]);
     fs.rmSync(copyDir, { recursive: true, force: true });
+  });
+
+  it.each([
+    ['EACCES', (dir: string) => `Нет доступа к папке ${dir}`],
+    ['EPERM', (dir: string) => `Нет доступа к папке ${dir}`],
+    ['ENOSPC', (dir: string) => `На диске с папкой ${dir} нет места`],
+    ['EBUSY', (dir: string) => `Папка ${dir} занята другой программой`],
+    ['EIO', (dir: string) => `Не удалось скопировать в ${dir} (код EIO)`],
+  ])('сбой копирования %s — понятный текст с папкой, без текста системной ошибки (R3)', (code, text) => {
+    const copyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-copy-code-'));
+    const { svc } = setup('fc-backup-', { BACKUP_COPY_DIR: copyDir });
+    vi.spyOn(fs, 'copyFileSync').mockImplementation(() => {
+      throw Object.assign(new Error(`${code}: C:\\Users\\Someone\\secret.tmp`), { code });
+    });
+    svc.create('daily');
+    vi.restoreAllMocks();
+    expect(svc.status().lastCopyError).toBe(text(copyDir));
+    expect(svc.status().lastCopyError).not.toContain('Someone');
+    fs.rmSync(copyDir, { recursive: true, force: true });
+  });
+
+  it('copyErrorText: ошибка без кода — «ошибка без кода», папка остаётся', () => {
+    expect(copyErrorText('E:\\copies', undefined)).toBe('Не удалось скопировать в E:\\copies (ошибка без кода)');
+    expect(copyErrorText('E:\\copies', 'ENOENT')).toBe('Папка E:\\copies не найдена — подключите диск или создайте папку');
   });
 
   it('ensureRecent делает бэкап, только если последнему больше 24 часов', () => {

@@ -27,6 +27,26 @@ export interface BackupService {
 
 const DAY_MS = 24 * 3600_000;
 
+/**
+ * Текст сбоя копии в BACKUP_COPY_DIR для экрана «Резервная копия» (R3 плана 1.5-4b): что сделать сотруднику,
+ * с настроенной папкой; текст системной ошибки не показываем — в нём бывают другие абсолютные пути (он идёт в журнал).
+ */
+export function copyErrorText(dir: string, code: string | undefined): string {
+  switch (code) {
+    case 'ENOENT':
+      return `Папка ${dir} не найдена — подключите диск или создайте папку`;
+    case 'EACCES':
+    case 'EPERM':
+      return `Нет доступа к папке ${dir}`;
+    case 'ENOSPC':
+      return `На диске с папкой ${dir} нет места`;
+    case 'EBUSY':
+      return `Папка ${dir} занята другой программой`;
+    default:
+      return `Не удалось скопировать в ${dir} (${code ? `код ${code}` : 'ошибка без кода'})`;
+  }
+}
+
 function listArchives(dir: string): BackupInfo[] {
   if (!fs.existsSync(dir)) return [];
   return fs
@@ -131,7 +151,7 @@ export function createBackupService(d: {
           lastCopyError = null;
         } catch (e) {
           // на экран — только настроенная папка и код ошибки: текст системной ошибки может содержать другие абсолютные пути
-          lastCopyError = `Не удалось скопировать в ${config.backupCopyDir}: ${(e as NodeJS.ErrnoException).code ?? 'ошибка'}`;
+          lastCopyError = copyErrorText(config.backupCopyDir, (e as NodeJS.ErrnoException).code);
           log(`Не удалось скопировать бэкап в ${config.backupCopyDir}`, e);
         }
       }
