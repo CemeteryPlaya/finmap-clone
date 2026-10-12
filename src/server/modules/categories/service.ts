@@ -31,6 +31,11 @@ export interface CategoryNodeDto extends CategoryRow {
 export interface CategoriesService {
   seedSystem(ex: Executor, companyId: number): void;
   mergeTemplate(ex: Executor, companyId: number, template: BusinessTemplate): number;
+  /**
+   * Низкоуровневое создание внутри чужой транзакции (импорт, §6.4 спецификации импорта): без истории — её пишет
+   * вызывающий. Порядок — после имеющихся на своём уровне; родитель — верхнего уровня того же вида и компании.
+   */
+  createIn(ex: Executor, input: { companyId: number; kind: CategoryKind; parentId: number | null; name: string }): CategoryRow;
   listTree(companyId: number): { income: CategoryNodeDto[]; expense: CategoryNodeDto[] };
   add(companyId: number, input: { kind: CategoryKind; name: string; parentId: number | null }, userId: number): CategoryRow;
   rename(companyId: number, id: number, name: string, userId: number): CategoryRow;
@@ -191,6 +196,14 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
         }
       }
       return created;
+    },
+
+    createIn(ex, input) {
+      if (input.parentId !== null) {
+        const p = ex.select().from(categories).where(and(eq(categories.id, input.parentId), eq(categories.companyId, input.companyId))).get();
+        if (!p || p.kind !== input.kind || p.parentId !== null) throw new Error(`Категория ${input.parentId} не может быть родителем`);
+      }
+      return toRow(insert(ex, { companyId: input.companyId, kind: input.kind, parentId: input.parentId, name: cleanName(input.name) }));
     },
 
     listTree(companyId) {

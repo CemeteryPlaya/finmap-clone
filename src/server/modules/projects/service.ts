@@ -3,7 +3,7 @@ import { todayInTimezone } from '../../../shared/dates';
 import { cleanName } from '../../../shared/text';
 import { getTemplate } from '../../../templates';
 import type { BusinessTemplate } from '../../../templates/types';
-import { ulower, type Db } from '../../db/client';
+import { ulower, type Db, type Executor } from '../../db/client';
 import { accounts, projects } from '../../db/schema';
 import { AppError } from '../../errors';
 import type { AccountsService } from '../accounts/service';
@@ -32,6 +32,11 @@ export interface ProjectsService {
     input: { name: string; templateKey: string; templateParams: Record<string, unknown> },
     userId: number,
   ): { project: ProjectRow; applied: { categories: number; accounts: number } };
+  /**
+   * Низкоуровневое создание внутри чужой транзакции (импорт, §4.7 и §6.4 спецификации импорта): проект по шаблону
+   * «Общий» — без параметров, категорий и счетов; без истории — её пишет вызывающий. Порядок — после имеющихся.
+   */
+  createIn(ex: Executor, input: { companyId: number; name: string }): ProjectRow;
   update(
     companyId: number,
     id: number,
@@ -58,6 +63,9 @@ function validateParams(template: BusinessTemplate, raw: Record<string, unknown>
   }
   throw new AppError(400, 'VALIDATION', 'Проверьте параметры проекта', fields);
 }
+
+/** Шаблон проектов, созданных импортом (§4.7 спецификации импорта): без параметров, категорий и счетов. */
+const GENERAL_TEMPLATE = 'general';
 
 export function createProjectsService(d: {
   db: Db;
@@ -144,6 +152,30 @@ export function createProjectsService(d: {
         });
         return { project: toRow(row), applied };
       });
+    },
+
+    createIn(ex, input) {
+      const name = cleanName(input.name);
+      assertNameFree(input.companyId, name);
+      const next = ex
+        .select({ m: sql<number>`coalesce(max(${projects.orderIndex}), -1)` })
+        .from(projects)
+        .where(eq(projects.companyId, input.companyId))
+        .get();
+      return toRow(
+        ex
+          .insert(projects)
+          .values({
+            companyId: input.companyId,
+            name,
+            templateKey: GENERAL_TEMPLATE,
+            templateParams: '{}',
+            orderIndex: (next?.m ?? -1) + 1,
+            createdAt: now().toISOString(),
+          })
+          .returning()
+          .get(),
+      );
     },
 
     update(companyId, id, input, userId) {

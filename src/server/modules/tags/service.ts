@@ -1,7 +1,7 @@
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { foldCase } from '../../../shared/search';
 import { cleanName } from '../../../shared/text';
-import type { Db } from '../../db/client';
+import type { Db, Executor } from '../../db/client';
 import { tags } from '../../db/schema';
 import { AppError } from '../../errors';
 import { changedFields, mutate } from '../audit/mutate';
@@ -14,6 +14,11 @@ export type TagRow = typeof tags.$inferSelect;
 
 export interface TagsService {
   list(companyId: number): TagRow[];
+  /**
+   * Низкоуровневое создание внутри чужой транзакции (импорт, §6.4 спецификации импорта): без истории — её пишет вызывающий.
+   * Свободу имени проверяет вызывающий (импорт сопоставляет теги по ключу, включая архивные); повтор ключа отклонит уникальный индекс.
+   */
+  createIn(ex: Executor, input: { companyId: number; name: string }): TagRow;
   add(companyId: number, name: string, userId: number): TagRow;
   rename(companyId: number, id: number, name: string, userId: number): TagRow;
   archive(companyId: number, id: number, userId: number): TagRow;
@@ -69,21 +74,26 @@ export function createTagsService(d: { db: Db; audit: AuditService; references?:
       return db.select().from(tags).where(eq(tags.companyId, companyId)).orderBy(asc(tags.orderIndex), asc(tags.id)).all();
     },
 
+    createIn(ex, input) {
+      const name = cleanName(input.name);
+      const next = ex
+        .select({ m: sql<number>`coalesce(max(${tags.orderIndex}), -1)` })
+        .from(tags)
+        .where(eq(tags.companyId, input.companyId))
+        .get();
+      return ex
+        .insert(tags)
+        .values({ companyId: input.companyId, name, nameKey: tagKey(name), orderIndex: (next?.m ?? -1) + 1, createdAt: now().toISOString() })
+        .returning()
+        .get();
+    },
+
     add(companyId, rawName, userId) {
       requireCompany(db, companyId, { writable: true });
       const name = cleanName(rawName);
       assertNameFree(companyId, name);
       return mutate(db, audit, (tx, record) => {
-        const next = tx
-          .select({ m: sql<number>`coalesce(max(${tags.orderIndex}), -1)` })
-          .from(tags)
-          .where(eq(tags.companyId, companyId))
-          .get();
-        const row = tx
-          .insert(tags)
-          .values({ companyId, name, nameKey: tagKey(name), orderIndex: (next?.m ?? -1) + 1, createdAt: now().toISOString() })
-          .returning()
-          .get();
+        const row = svc.createIn(tx, { companyId, name });
         record({ companyId, userId, entity: ENTITY, entityId: row.id, action: 'create', diff: { name } });
         return row;
       });

@@ -1,7 +1,7 @@
 import { and, asc, eq, sql } from 'drizzle-orm';
 import type { CounterpartyType } from '../../../shared/system-categories';
 import { cleanName } from '../../../shared/text';
-import type { Db } from '../../db/client';
+import type { Db, Executor } from '../../db/client';
 import { counterparties } from '../../db/schema';
 import { AppError } from '../../errors';
 import { changedFields, mutate } from '../audit/mutate';
@@ -20,6 +20,8 @@ export interface CounterpartyInput {
 
 export interface CounterpartiesService {
   list(companyId: number): CounterpartyRow[];
+  /** Низкоуровневое создание внутри чужой транзакции (импорт, §6.4 спецификации импорта): без истории — её пишет вызывающий. */
+  createIn(ex: Executor, input: { companyId: number; type: CounterpartyType; name: string }): CounterpartyRow;
   add(companyId: number, input: CounterpartyInput, userId: number): CounterpartyRow;
   update(companyId: number, id: number, input: Partial<CounterpartyInput>, userId: number): CounterpartyRow;
   archive(companyId: number, id: number, userId: number): CounterpartyRow;
@@ -57,6 +59,20 @@ export function createCounterpartiesService(d: { db: Db; audit: AuditService; re
     });
   }
 
+  /** Новый контрагент в конце списка компании. */
+  function insert(ex: Executor, v: { companyId: number; type: CounterpartyType; name: string; comment: string | null }): CounterpartyRow {
+    const next = ex
+      .select({ m: sql<number>`coalesce(max(${counterparties.orderIndex}), -1)` })
+      .from(counterparties)
+      .where(eq(counterparties.companyId, v.companyId))
+      .get();
+    return ex
+      .insert(counterparties)
+      .values({ companyId: v.companyId, type: v.type, name: cleanName(v.name), comment: v.comment, orderIndex: (next?.m ?? -1) + 1, createdAt: now().toISOString() })
+      .returning()
+      .get();
+  }
+
   const svc: CounterpartiesService = {
     list(companyId) {
       requireCompany(db, companyId);
@@ -68,26 +84,14 @@ export function createCounterpartiesService(d: { db: Db; audit: AuditService; re
         .all();
     },
 
+    createIn(ex, input) {
+      return insert(ex, { ...input, comment: null });
+    },
+
     add(companyId, input, userId) {
       requireCompany(db, companyId, { writable: true });
       return mutate(db, audit, (tx, record) => {
-        const next = tx
-          .select({ m: sql<number>`coalesce(max(${counterparties.orderIndex}), -1)` })
-          .from(counterparties)
-          .where(eq(counterparties.companyId, companyId))
-          .get();
-        const row = tx
-          .insert(counterparties)
-          .values({
-            companyId,
-            type: input.type,
-            name: cleanName(input.name),
-            comment: input.comment ?? null,
-            orderIndex: (next?.m ?? -1) + 1,
-            createdAt: now().toISOString(),
-          })
-          .returning()
-          .get();
+        const row = insert(tx, { companyId, type: input.type, name: input.name, comment: input.comment ?? null });
         record({ companyId, userId, entity: ENTITY, entityId: row.id, action: 'create', diff: { type: row.type, name: row.name, comment: row.comment } });
         return row;
       });
