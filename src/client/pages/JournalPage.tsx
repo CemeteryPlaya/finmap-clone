@@ -18,15 +18,17 @@ import { btnSecondary, noticeClass } from '../components/ui';
 import { JOURNAL_COLUMNS_PREF, visibleColumns } from '../lib/journal-columns';
 import { api } from '../lib/api';
 import {
-  applyDialogFields,
+  applyFilterDraft,
   filterConditionCount,
   isFiltered,
   journalApiParams,
+  journalExportHref,
   journalSearch,
   parseJournalSearch,
+  phoneFilterCount,
   savedFilterFromState,
   stateFromSavedFilter,
-  type DialogFields,
+  type FilterDraft,
   type JournalUrlState,
 } from '../lib/journal-filter';
 import { categoryLookup, uniqueById } from '../lib/journal-format';
@@ -262,7 +264,8 @@ function JournalScreen(props: {
   // повторы по id (операция изменилась на другой странице во время прокрутки) — иначе ключи строк совпадут
   const items = uniqueById(journal.data?.pages.flatMap((p) => p.items) ?? []);
   const columns = visibleColumns(prefs.data?.[JOURNAL_COLUMNS_PREF]);
-  const conditions = filterConditionCount(state);
+  // на телефоне воронка считает и период с суммой: они тоже в окне «Фильтры» (§8.5)
+  const conditions = mobile ? phoneFilterCount(state) : filterConditionCount(state);
   const selectedItems = items.filter((i) => selected.has(i.id));
   const selectedIds = selectedItems.map((i) => i.id);
   const undoShown = props.undoSummary;
@@ -314,9 +317,9 @@ function JournalScreen(props: {
     setSummary(bulkEditSummary(done, failed, failed ? actions.slice(next + 1).map((a) => a.action) : []));
     setBulkPending(false);
   };
-  // сохраняются поля окна поверх ТЕКУЩЕГО фильтра — как у «Готово», без устаревшего поиска из снимка
-  const saveFilter = async (draft: DialogFields, name: string) => {
-    await api(`/companies/${company.id}/saved-filters`, { method: 'POST', body: { name, filter: savedFilterFromState(applyDialogFields(state, draft), today) } });
+  // сохраняется черновик окна поверх ТЕКУЩЕГО фильтра — как у «Готово», без устаревшего поиска из снимка
+  const saveFilter = async (draft: FilterDraft, name: string) => {
+    await api(`/companies/${company.id}/saved-filters`, { method: 'POST', body: { name, filter: savedFilterFromState(applyFilterDraft(state, draft), today) } });
     await queryClient.invalidateQueries({ queryKey: ['saved-filters', company.id] });
   };
 
@@ -346,6 +349,7 @@ function JournalScreen(props: {
         filter={
           <FilterButton
             count={conditions}
+            compact={mobile}
             onOpen={() => setFilterOpen(true)}
             canSave={!readOnly}
             companyId={company.id}
@@ -366,8 +370,13 @@ function JournalScreen(props: {
         open={filterOpen}
         state={state}
         data={{ accounts: accounts.data!, categories: categories.data!, projects: projects.data!, counterparties: counterparties.data!, tags: tags.data }}
-        // поля модалки — поверх текущего фильтра: поиск, дошедший до адреса при открытом окне, не теряется
-        onApply={(draft) => update(applyDialogFields(state, draft))}
+        // на телефоне в окне ещё период, сумма и сортировка (§8.5); режим окно запоминает при открытии
+        phone={mobile}
+        today={today}
+        baseCurrency={company.baseCurrency}
+        exportHref={(s) => journalExportHref(company.id, s, today)}
+        // черновик окна — поверх текущего фильтра: поиск, дошедший до адреса при открытом окне, не теряется
+        onApply={(draft) => update(applyFilterDraft(state, draft))}
         onClose={() => setFilterOpen(false)}
         onSave={readOnly ? undefined : saveFilter}
       />

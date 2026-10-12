@@ -7,6 +7,10 @@ import { btnPrimary } from '../ui';
 export const pillClass =
   'inline-flex max-w-full items-center gap-2 rounded-full bg-field px-4 py-2 text-sm font-semibold text-ink hover:brightness-95 focus-visible:outline-2 focus-visible:outline-focus';
 
+/** Меню периода во всю ширину поля — первое поле окна «Фильтры» на телефоне (§8.5 этапа 1.5, снимок Finmap m06). */
+const wideClass =
+  'flex min-h-12 w-full items-center justify-between gap-2 rounded-xl bg-field px-4 text-sm font-semibold text-ink hover:brightness-95 focus-visible:outline-2 focus-visible:outline-focus';
+
 /** «Выбрать даты»: поля «С» и «По» с календарём; начинаются с границ выбранного периода (как прежнее «Произвольно»). */
 function PeriodDates(props: { state: JournalUrlState; today: string; onApply: (range: { from?: string; to?: string }) => void }) {
   const initial = periodRange(props.state, props.today);
@@ -89,7 +93,13 @@ function PeriodPanel(props: { state: JournalUrlState; today: string; onChange: (
  * aria-current. «Выбрать даты» переключает ту же панель на поля «С» и «По» с календарём и «Применить».
  * Имя кнопки — «Период: {подпись}». Ключи периода в адресе прежние.
  */
-export function PeriodMenu(props: { state: JournalUrlState; today: string; onChange: (next: JournalUrlState) => void }) {
+export function PeriodMenu(props: {
+  state: JournalUrlState;
+  today: string;
+  onChange: (next: JournalUrlState) => void;
+  /** Во всю ширину — первое поле окна «Фильтры» на телефоне (§8.5 этапа 1.5). */
+  wide?: boolean;
+}) {
   const label = periodLabel(props.state);
   return (
     <Popover
@@ -101,7 +111,7 @@ export function PeriodMenu(props: { state: JournalUrlState; today: string; onCha
       }
       ariaLabel={`Период: ${label}`}
       panelLabel="Период"
-      buttonClassName={pillClass}
+      buttonClassName={props.wide ? wideClass : pillClass}
       panelClassName="w-72 pointer-coarse:w-[336px]"
     >
       {(close) => <PeriodPanel state={props.state} today={props.today} onChange={props.onChange} close={close} />}

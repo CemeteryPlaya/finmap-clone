@@ -26,6 +26,12 @@ export const btnSmall = 'rounded-lg bg-field px-3 py-1.5 text-sm font-medium tex
 export const btnIcon = 'rounded-lg bg-field px-2.5 py-1.5 text-sm font-semibold text-ink hover:brightness-95 disabled:opacity-30';
 /** «×» в шапке окна: на телефоне цель касания не меньше 44×44 px, знак по центру; на компьютере размер как у btnIcon. */
 export const btnClose = `${btnIcon} shrink-0 max-md:flex max-md:size-11 max-md:items-center max-md:justify-center max-md:p-0`;
+/**
+ * Окно на весь экран телефона (форма операции §8.7, «Фильтры» §8.5 этапа 1.5) — вместе с `Modal phoneFullScreen`:
+ * без отступов и скруглений, поля не уходят под вырез экрана и «домашнюю» полосу (safe-area).
+ */
+export const phoneFullScreenModal =
+  'max-md:m-0 max-md:h-dvh max-md:max-h-dvh max-md:w-full max-md:max-w-none max-md:rounded-none max-md:pr-[env(safe-area-inset-right)] max-md:pb-[env(safe-area-inset-bottom)] max-md:pl-[env(safe-area-inset-left)]';
 /** Круглая кнопка-иконка в тёмной шапке (история действий, настройки) с видимой рамкой фокуса. */
 export const headerIconClass =
   'grid h-10 w-10 shrink-0 place-items-center rounded-full max-md:size-11 bg-chrome-2 text-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';

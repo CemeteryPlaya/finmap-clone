@@ -251,6 +251,11 @@ export function journalApiParams(state: JournalUrlState, today: string): URLSear
   return p;
 }
 
+/** Ссылка «Выгрузить в Excel» по фильтру — те же параметры, что у журнала. */
+export function journalExportHref(companyId: number, state: JournalUrlState, today: string): string {
+  return `/api/v1/companies/${companyId}/operations/export.xlsx?${journalApiParams(state, today).toString()}`;
+}
+
 /** Сколько условий выбрано в модалке «Фильтр»: тип, счета, категории, проекты, контрагенты, теги (по измерению). */
 export function filterConditionCount(state: JournalUrlState): number {
   return [
@@ -264,10 +269,10 @@ export function filterConditionCount(state: JournalUrlState): number {
 }
 
 /**
- * Число условий на кнопке «Фильтры» на телефоне (§7 «Мобильная версия»): всё, что спрятано в выезжающей
- * панели, — период, сумма от и до (каждая) и условия окна «Фильтр». Поиск на виду, сортировка не в счёт.
+ * Число условий на воронке телефона (§8.5 этапа 1.5): всё, что задаёт окно «Фильтры» на телефоне, — период, сумма
+ * от и до (каждая) и условия окна. Поиск на виду, сортировка не в счёт.
  */
-export function panelConditionCount(state: JournalUrlState): number {
+export function phoneFilterCount(state: JournalUrlState): number {
   return (state.period !== 'all' ? 1 : 0) + (state.amountMin !== undefined ? 1 : 0) + (state.amountMax !== undefined ? 1 : 0) + filterConditionCount(state);
 }
 
@@ -316,6 +321,60 @@ export function pickDialogFields(state: DialogFields): DialogFields {
  */
 export function applyDialogFields(state: JournalUrlState, draft: DialogFields): JournalUrlState {
   return { ...state, ...pickDialogFields(draft) };
+}
+
+/** Поля окна «Фильтры» на телефоне сверх условий окна (§8.5 этапа 1.5): период, сумма от и до, сортировка. */
+export type PhoneFilterFields = Pick<JournalUrlState, 'period' | 'from' | 'to' | 'amountMin' | 'amountMax' | 'sort' | 'order'>;
+
+/**
+ * Черновик окна «Фильтры»: условия окна и — если окно открыли на телефоне — период, сумма и сортировка. Режим
+ * запоминается при открытии: окно браузера стало шире при открытом окне — набранный период не теряется.
+ */
+export interface FilterDraft {
+  fields: DialogFields;
+  phone: PhoneFilterFields | null;
+}
+
+/** Период, сумма и сортировка фильтра; пустые границы и суммы не пишутся. */
+export function pickPhoneFilterFields(state: JournalUrlState): PhoneFilterFields {
+  const f: PhoneFilterFields = { period: state.period, sort: state.sort, order: state.order };
+  if (state.from !== undefined) f.from = state.from;
+  if (state.to !== undefined) f.to = state.to;
+  if (state.amountMin !== undefined) f.amountMin = state.amountMin;
+  if (state.amountMax !== undefined) f.amountMax = state.amountMax;
+  return f;
+}
+
+/** Начальный черновик окна по текущему фильтру. */
+export function filterDraftFrom(state: JournalUrlState, phone: boolean): FilterDraft {
+  return { fields: pickDialogFields(state), phone: phone ? pickPhoneFilterFields(state) : null };
+}
+
+/**
+ * «Готово» и «Сохранить фильтр»: черновик поверх ТЕКУЩЕГО фильтра. Поиск остаётся текущим всегда; на компьютере ещё
+ * период, сумма и сортировка; на телефоне их задаёт черновик (снятая в нём граница или сумма снимается и в фильтре).
+ */
+export function applyFilterDraft(state: JournalUrlState, draft: FilterDraft): JournalUrlState {
+  const next = applyDialogFields(state, draft.fields);
+  if (!draft.phone) return next;
+  delete next.from;
+  delete next.to;
+  delete next.amountMin;
+  delete next.amountMax;
+  return { ...next, ...draft.phone };
+}
+
+/** «Очистить»: условия окна, на телефоне — ещё период и сумма; сортировка остаётся (как у «Сбросить фильтр»). */
+export function clearFilterDraft(draft: FilterDraft): FilterDraft {
+  return {
+    fields: pickDialogFields(EMPTY_JOURNAL_STATE),
+    phone: draft.phone ? { period: 'all', sort: draft.phone.sort, order: draft.phone.order } : null,
+  };
+}
+
+/** Блок «Ещё условия» открыт при открытии окна: задана сумма или сортировка не «Сначала новые». */
+export function phoneMoreSet(f: PhoneFilterFields): boolean {
+  return f.amountMin !== undefined || f.amountMax !== undefined || f.sort !== EMPTY_JOURNAL_STATE.sort || f.order !== EMPTY_JOURNAL_STATE.order;
 }
 
 /**

@@ -66,6 +66,7 @@ import {
   btnTransfer,
   floatingTextareaClass,
   noticeClass,
+  phoneFullScreenModal,
 } from '../ui';
 import { ActionRow } from './ActionRow';
 import { AmountField } from './AmountField';
@@ -93,8 +94,7 @@ const LOCKED_HINT = 'счёт в архиве';
  * Окно 480 px в одну колонку (§6.1 этапа 1.5); на телефоне (меньше 768 px) — на весь экран (§7); в PWA на iPhone поля
  * не уходят под вырез экрана и «домашнюю» полосу (safe-area).
  */
-const MODAL_CLASS =
-  'max-w-[480px] max-md:m-0 max-md:h-dvh max-md:max-h-dvh max-md:w-full max-md:max-w-none max-md:rounded-none max-md:pr-[env(safe-area-inset-right)] max-md:pb-[env(safe-area-inset-bottom)] max-md:pl-[env(safe-area-inset-left)]';
+const MODAL_CLASS = `max-w-[480px] ${phoneFullScreenModal}`;
 
 /** Главная кнопка — цвета типа (§6.9 этапа 1.5). */
 const SUBMIT_CLASS: Record<OperationType, string> = { income: btnIncome, expense: btnExpense, transfer: btnTransfer };

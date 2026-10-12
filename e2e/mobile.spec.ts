@@ -558,7 +558,7 @@ test('меню «Ещё»: закрывается при расширении о
   await expect(menu).toHaveCount(0);
 });
 
-test('фильтры на телефоне — в панели справа: период, сумма, сортировка, окно «Фильтры» поверх панели, сброс; поиск на виду', async ({ page }) => {
+test('фильтр на телефоне в один шаг (§8.5): поиск, ⟳, воронка со счётчиком и ▾ в одной строке; окно «Фильтры» на весь экран — «Период» первым, «Ещё условия», «Готово» применяет всё вместе', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Фильтры ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
@@ -571,89 +571,127 @@ test('фильтры на телефоне — в панели справа: п�
 
   const list = cards(page).getByRole('listitem');
   await expect(list).toHaveCount(3);
-  // на виду — поиск и «Фильтры»; период, суммы и колонки спрятаны
-  await expect(page.getByRole('searchbox', { name: 'Поиск' })).toBeVisible();
+  // строка над списком: поиск, ⟳, воронка и ▾; панели «Период и условия», пилюли периода и «Ещё» журнала нет
+  const main = page.getByRole('main');
+  const search = page.getByRole('searchbox', { name: 'Поиск' });
+  const refresh = main.getByRole('button', { name: 'Обновить' });
+  const funnel = main.getByRole('button', { name: /^Фильтр( · \d+)?$/ });
+  const quick = main.getByRole('button', { name: 'Быстрые фильтры' });
+  await expect(search).toHaveAttribute('placeholder', 'Поиск');
+  await expect(page.getByRole('button', { name: /^Период и условия/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^Период:/ })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Колонки' })).toHaveCount(0);
-  const open = page.getByRole('button', { name: /^Период и условия/ });
-  await expect(open).toHaveText('Период и условия');
-
-  await open.click();
-  const panel = page.getByRole('dialog', { name: 'Период и условия' });
-  // выезжает справа
-  await expect.poll(async () => { const b = (await panel.boundingBox())!; return Math.round(b.x + b.width); }).toBe(PHONE.width);
-  await expect(panel.getByRole('button', { name: 'Колонки' })).toHaveCount(0);
-  // период — то же меню у пилюли, что в широком окне; меню рисуется внутри панели
-  const periodMenu = page.getByRole('dialog', { name: 'Период', exact: true });
-  await panel.getByRole('button', { name: /^Период:/ }).click();
-  await periodMenu.getByRole('button', { name: 'За вчера', exact: true }).click();
-  await expect(list).toHaveCount(1);
-  await expect(list.first()).toContainText('вчерашний');
-  await expect(panel).toBeVisible();
-  await panel.getByRole('button', { name: /^Период:/ }).click();
-  await periodMenu.getByRole('button', { name: 'За все время', exact: true }).click();
+  await expect(main.getByRole('button', { name: 'Ещё', exact: true })).toHaveCount(0);
+  const boxes: { x: number; y: number; width: number; height: number }[] = [];
+  for (const target of [search, refresh, funnel, quick]) boxes.push((await target.boundingBox())!);
+  const centre = (b: { y: number; height: number }) => b.y + b.height / 2;
+  for (let i = 1; i < boxes.length; i++) {
+    expect(Math.abs(centre(boxes[i]!) - centre(boxes[0]!)), 'одна строка').toBeLessThan(10);
+    expect(boxes[i]!.x).toBeGreaterThan(boxes[i - 1]!.x);
+    expect(boxes[i]!.height, 'цель касания').toBeGreaterThanOrEqual(44);
+  }
+  expect(boxes[3]!.x + boxes[3]!.width).toBeLessThanOrEqual(PHONE.width);
+  await expectNoSideScroll(page, 'строка поиска');
+  // 320×640 (решение R2 плана 1.5-5b): поиск, ⟳ и воронка — внутри экрана (воронка может перенестись строкой ниже), журнал не прокручивается вбок
+  await page.setViewportSize({ width: 320, height: 640 });
   await expect(list).toHaveCount(3);
+  for (const target of [search, refresh, funnel, quick]) {
+    const b = (await target.boundingBox())!;
+    expect(b.x, 'внутри экрана 320 px').toBeGreaterThanOrEqual(0);
+    expect(b.x + b.width, 'внутри экрана 320 px').toBeLessThanOrEqual(320);
+  }
+  await expectNoSideScroll(page, 'журнал, 320 px');
+  await page.setViewportSize(PHONE);
 
-  // сортировка: сначала крупные
-  await panel.getByLabel('Сортировка').selectOption({ label: 'Сначала крупные' });
-  await expect(page).toHaveURL(/sort=amount/);
-  await expect(list.first()).toContainText('выручка');
+  // ⟳ перечитывает журнал: операция, добавленная в обход экрана, появляется; итог — в живой области
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(1), accountId: cash, amount: 5000 });
+  await refresh.click();
+  await expect(list).toHaveCount(4);
+  await expect(page.getByText('Журнал обновлён')).toBeAttached();
 
-  // сумма от 200 ₸ — по Enter
-  await panel.getByLabel('Сумма от').fill('200');
-  await panel.getByLabel('Сумма от').press('Enter');
-  await expect(list).toHaveCount(2);
-
-  // окно «Фильтры» открывается поверх панели; «Готово» возвращает в панель
-  await panel.getByRole('button', { name: 'Фильтр', exact: true }).click();
+  // воронка сразу открывает окно «Фильтры» на весь экран; «Период» — первым полем
+  await expect(funnel).toHaveAccessibleName('Фильтр');
+  await funnel.click();
   const dialog = page.getByRole('dialog', { name: 'Фильтры', exact: true });
-  await dialog.getByRole('button', { name: /^Типы платежей и категории/ }).click();
+  const d = (await dialog.boundingBox())!;
+  expect(d.width).toBeGreaterThanOrEqual(PHONE.width - 1);
+  expect(d.height).toBeGreaterThanOrEqual(PHONE.height - 1);
+  const period = dialog.getByRole('button', { name: /^Период:/ });
+  const types = dialog.getByRole('button', { name: /^Типы платежей и категории/ });
+  expect((await period.boundingBox())!.y).toBeLessThan((await types.boundingBox())!.y);
+  await expect(period).toHaveAccessibleName('Период: За все время');
+  // смена периода — только в черновике: «×» закрывает без изменений (Review Focus 1)
+  const periodMenu = page.getByRole('dialog', { name: 'Период', exact: true });
+  await period.click();
+  await periodMenu.getByRole('button', { name: 'За вчера', exact: true }).click();
+  await expect(period).toHaveAccessibleName('Период: За вчера');
+  await expect(list).toHaveCount(4);
+  await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(funnel).toBeFocused();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/log$`));
+
+  // «Готово» применяет вместе период, условия окна, сумму и сортировку
+  await funnel.click();
+  await expect(period).toHaveAccessibleName('Период: За все время');
+  await period.click();
+  await periodMenu.getByRole('button', { name: 'За сегодня', exact: true }).click();
+  await types.click();
   await dialog.getByRole('checkbox', { name: 'Расход', exact: true }).check();
   await page.keyboard.press('Escape');
+  const more = dialog.getByRole('button', { name: 'Ещё условия' });
+  await expect(more).toHaveAttribute('aria-expanded', 'false');
+  await more.click();
+  await dialog.getByLabel('Сумма от').fill('60');
+  await dialog.getByLabel('Сумма от').press('Enter');
+  await dialog.getByLabel('Сортировка').selectOption({ label: 'Сначала крупные' });
+  // выгрузка — по черновику окна
+  await expect(dialog.getByRole('link', { name: 'Выгрузить в Excel' })).toHaveAttribute(
+    'href',
+    /\?from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}&amountMin=6000&types=expense&sort=amount&order=desc$/,
+  );
+  await expect(list).toHaveCount(4);
   await dialog.getByRole('button', { name: 'Готово' }).click();
   await expect(dialog).toBeHidden();
-  await expect(panel).toBeVisible();
-  await expect(panel.getByRole('button', { name: 'Фильтр · 1' })).toBeFocused();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?period=today&min=6000&type=expense&sort=amount$`));
   await expect(list).toHaveCount(1);
-  await expect(list.first()).toContainText('аренда');
+  await expect(list.first()).toContainText(/\u2212300\s₸/);
+  // на воронке — период, сумма «от» и тип
+  await expect(funnel).toHaveAccessibleName('Фильтр · 3');
 
-  // список сохранённых фильтров открывается внутри панели; Esc закрывает только его
-  await panel.getByRole('button', { name: 'Быстрые фильтры' }).click();
+  // окно открывается с применённым; «Ещё условия» уже открыт — задана сумма
+  await funnel.click();
+  await expect(more).toHaveAttribute('aria-expanded', 'true');
+  await expect(dialog.getByLabel('Сумма от')).toHaveValue('60');
+  // «Очистить» снимает период, условия и сумму; сортировка остаётся
+  await dialog.getByRole('button', { name: 'Очистить' }).click();
+  await expect(period).toHaveAccessibleName('Период: За все время');
+  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?sort=amount$`));
+  await expect(list).toHaveCount(4);
+  await expect(funnel).toHaveAccessibleName('Фильтр');
+
+  // «Быстрые фильтры» — рядом с воронкой; Esc закрывает только список
+  await quick.click();
   const saved = page.getByRole('dialog', { name: 'Быстрые фильтры' });
   await expect(saved).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(saved).toBeHidden();
-  await expect(panel).toBeVisible();
+  await expect(quick).toBeFocused();
 
-  // Esc закрывает панель; на кнопке — число спрятанных условий (сумма от и тип)
-  await page.keyboard.press('Escape');
-  await expect(panel).toBeHidden();
-  await expect(open).toBeFocused();
-  await expect(open).toHaveText('Период и условия · 2');
-
-  // касание фона слева от панели закрывает её; «Сбросить фильтр» в панели снимает всё
-  await open.click();
-  await page.mouse.click(10, PHONE.height / 2);
-  await expect(panel).toBeHidden();
-  await open.click();
-  await panel.getByRole('button', { name: 'Сбросить фильтр' }).click();
-  await expect(list).toHaveCount(3);
-  await page.keyboard.press('Escape');
-  await expect(open).toHaveText('Период и условия');
-
-  // поиск — без панели
-  await page.getByRole('searchbox', { name: 'Поиск' }).fill('вчерашн');
+  // поиск — без окна
+  await search.fill('вчерашн');
   await expect(list).toHaveCount(1);
+  await search.fill('');
+  await expect(list).toHaveCount(4);
 
-  // телефон повернули или окно стало шире при открытой панели: панель закрывается, тулбар и таблица — на месте
-  await open.click();
-  await expect(panel).toBeVisible();
+  // окно открыто, а окно браузера стало шире (поворот телефона): набранный период не теряется (Review Focus 2)
+  await funnel.click();
+  await period.click();
+  await periodMenu.getByRole('button', { name: 'За вчера', exact: true }).click();
   await page.setViewportSize({ width: 1280, height: 720 });
-  await expect(panel).toBeHidden();
-  await expect(page.getByRole('button', { name: /^Период:/ })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect(page).toHaveURL(/period=yesterday/);
   await expect(page.getByRole('table', { name: 'Операции' }).locator('tbody tr')).toHaveCount(1);
-  await page.setViewportSize(PHONE);
-  await expect(panel).toBeHidden();
 });
 
 /**
@@ -747,9 +785,8 @@ test('ширина 390 px: журнал, все разделы настроек,
   await page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' }).getByRole('button', { name: 'Закрыть' }).click();
   await expect(newForm(page)).toBeHidden();
 
-  // окно «Фильтры» поверх панели: длинное название категории переносится, панель поля не шире экрана
-  await page.getByRole('button', { name: /^Период и условия/ }).click();
-  await page.getByRole('dialog', { name: 'Период и условия' }).getByRole('button', { name: 'Фильтр', exact: true }).click();
+  // окно «Фильтры» (воронка, §8.5): длинное название категории переносится, панель поля не шире экрана
+  await page.getByRole('main').getByRole('button', { name: 'Фильтр', exact: true }).click();
   const filter = page.getByRole('dialog', { name: 'Фильтры', exact: true });
   // длинное название — в списке поля «Типы платежей и категории»: переносится, панель не шире экрана
   await filter.getByRole('button', { name: /^Типы платежей и категории/ }).click();
@@ -955,9 +992,9 @@ test.describe('касание (pointer: coarse), панели календаря
     await page.getByRole('alertdialog', { name: 'Ваши данные не сохранятся' }).getByRole('button', { name: 'Закрыть', exact: true }).click();
     await expect(dialog).toBeHidden();
 
-    // период журнала: меню внутри панели «Период и условия», ширина та же, что у остальных календарей
-    await page.getByRole('button', { name: /^Период и условия/ }).click();
-    const filters = page.getByRole('dialog', { name: 'Период и условия' });
+    // период журнала: первое поле окна «Фильтры» (§8.5), меню внутри окна, ширина та же, что у остальных календарей
+    await page.getByRole('main').getByRole('button', { name: 'Фильтр', exact: true }).click();
+    const filters = page.getByRole('dialog', { name: 'Фильтры', exact: true });
     await filters.getByRole('button', { name: /^Период:/ }).click();
     const period = page.getByRole('dialog', { name: 'Период', exact: true });
     await expect(period).toBeVisible();
@@ -965,6 +1002,64 @@ test.describe('касание (pointer: coarse), панели календаря
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(PHONE.width);
     expect(box.y + box.height).toBeLessThanOrEqual(PHONE.height);
+  });
+
+  test('«Выбрать даты» в окне «Фильтры»: вложенные календари «С» и «По» открываются касанием и помещаются на экране; Esc закрывает только календарь; «Применить» и «Готово» задают период', async ({ page }) => {
+    await login(page);
+    const cid = await createCompany(page, `ТОО Даты касанием ${Date.now()}`);
+    const base = `/api/v1/companies/${cid}`;
+    const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 1000000 })).account.id;
+    await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(2), accountId: cash, amount: 50000 });
+    await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: yesterdayNoon(), accountId: cash, amount: 10000 });
+    await page.reload();
+    await page.setViewportSize(PHONE);
+    const list = cards(page).getByRole('listitem');
+    await expect(list).toHaveCount(2);
+    const yesterday = yesterdayNoon().slice(0, 10);
+    const ru = (d: string) => d.split('-').reverse().join('.');
+    const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+    /** Имя ячейки дня в календаре: «11 октября 2026». */
+    const dayName = (d: string) => `${Number(d.slice(8))} ${MONTHS[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}`;
+
+    await page.getByRole('main').getByRole('button', { name: 'Фильтр', exact: true }).tap();
+    const dialog = page.getByRole('dialog', { name: 'Фильтры', exact: true });
+    const period = dialog.getByRole('button', { name: /^Период:/ });
+    const periodMenu = page.getByRole('dialog', { name: 'Период', exact: true });
+    // «За вчера», затем «Выбрать даты»: поля начинаются с границ выбранного периода — календари откроются на месяце вчерашнего дня
+    await period.tap();
+    await periodMenu.getByRole('button', { name: 'За вчера', exact: true }).tap();
+    await period.tap();
+    await periodMenu.getByRole('button', { name: 'Выбрать даты' }).tap();
+    const from = periodMenu.getByRole('button', { name: /^С:/ });
+    const to = periodMenu.getByRole('button', { name: /^По:/ });
+    await expect(from).toHaveAccessibleName(`С: ${ru(yesterday)}`);
+    await from.tap();
+    const fromCalendar = page.getByRole('dialog', { name: 'С: календарь' });
+    await expect(fromCalendar.getByRole('grid')).toBeVisible();
+    const box = (await fromCalendar.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(PHONE.width);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(PHONE.height);
+    await fromCalendar.getByRole('gridcell', { name: dayName(yesterday) }).tap();
+    await expect(fromCalendar).toBeHidden();
+    await expect(periodMenu).toBeVisible();
+    await expect(from).toHaveAccessibleName(`С: ${ru(yesterday)}`);
+    // Esc в календаре «По» закрывает только его: меню периода и окно «Фильтры» остаются (Review Focus 3)
+    await to.tap();
+    const toCalendar = page.getByRole('dialog', { name: 'По: календарь' });
+    await expect(toCalendar.getByRole('grid')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(toCalendar).toBeHidden();
+    await expect(periodMenu).toBeVisible();
+    await expect(dialog).toBeVisible();
+    await to.tap();
+    await toCalendar.getByRole('gridcell', { name: dayName(yesterday) }).tap();
+    await periodMenu.getByRole('button', { name: 'Применить' }).tap();
+    await expect(period).toHaveAccessibleName(`Период: ${ru(yesterday)}`);
+    await dialog.getByRole('button', { name: 'Готово' }).tap();
+    await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?from=${yesterday}&to=${yesterday}$`));
+    await expect(list).toHaveCount(1);
   });
 });
 
