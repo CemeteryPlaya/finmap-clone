@@ -2,21 +2,11 @@ import fs from 'node:fs';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../errors';
 import { contentDisposition } from '../../http/content-disposition';
-import { parseId } from '../../http/params';
+import { headerFileName, parseId } from '../../http/params';
 import { readSessionToken } from '../auth/plugin';
 import { ATTACHMENT_MAX_BYTES, type AttachmentsService } from './service';
 
 type P = { Params: { cid: string; id: string } };
-
-/** Заголовок с URI-кодированным именем файла; битая кодировка — пустое имя (ошибка поля). */
-function headerName(value: unknown): string {
-  if (typeof value !== 'string') return '';
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return '';
-  }
-}
 
 export function registerAttachmentsRoutes(app: FastifyInstance, deps: { attachments: AttachmentsService }): void {
   const { attachments } = deps;
@@ -36,7 +26,7 @@ export function registerAttachmentsRoutes(app: FastifyInstance, deps: { attachme
       const attachment = attachments.add(
         parseId(req.params.cid),
         parseId(req.params.id),
-        { name: headerName(req.headers['x-file-name']), data: req.body },
+        { name: headerFileName(req.headers['x-file-name']), data: req.body },
         req.user!.id,
       );
       return reply.status(201).send({ attachment });

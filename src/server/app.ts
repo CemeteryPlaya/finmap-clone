@@ -31,6 +31,8 @@ import { createOperationsReferences } from './modules/references/service';
 import { createCategoriesService } from './modules/categories/service';
 import { registerBalancesRoutes } from './modules/balances/routes';
 import { registerAttachmentsRoutes } from './modules/attachments/routes';
+import { registerImportsRoutes } from './modules/imports/routes';
+import { createImportsService } from './modules/imports/service';
 import { createAttachmentsService } from './modules/attachments/service';
 import { createBulkService } from './modules/operations/bulk';
 import { createJournal } from './modules/operations/journal';
@@ -138,6 +140,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerSavedFiltersRoutes(app, { savedFilters: createSavedFiltersService({ db, now }) });
   registerAttachmentsRoutes(app, { attachments: createAttachmentsService({ db, audit, uploadsDir: config.uploadsDir, now }) });
   registerBalancesRoutes(app, { companies, ledger: balances, rates, timezone: config.timezone, now });
+  registerImportsRoutes(app, { imports: createImportsService({ db, rates, timezone: config.timezone, now }) });
   const backup =
     deps.backup ??
     createBackupService({

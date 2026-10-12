@@ -2,7 +2,7 @@ import AdmZip from 'adm-zip';
 
 /**
  * Ячейка листа:
- * - text — строка (inline string: без общей таблицы строк, формулой не считается);
+ * - text — строка (inline или из таблицы общих строк — XlsxOptions.strings; формулой не считается);
  * - number — десятичная запись без экспоненты («-1500.50») и число знаков после запятой для формата;
  * - datetime / date — дата Excel: дни от 30.12.1899, у datetime — с долей суток.
  */
@@ -22,6 +22,14 @@ export interface XlsxSheet {
 
 export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
+export interface XlsxOptions {
+  /**
+   * Тексты: inline (по умолчанию) или таблица общих строк xl/sharedStrings.xml — её понимает любой читатель XLSX
+   * (§8.2 спецификации импорта).
+   */
+  strings?: 'inline' | 'shared';
+}
+
 /** Индексы стилей в cellXfs (styles.xml ниже). */
 const STYLE = { header: 1, datetime: 2, date: 3, int: 4, dec2: 5, dec3: 6, quoted: 7 } as const;
 
@@ -30,15 +38,33 @@ const NS_MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const NS_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const NS_PKG_REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 
-const CONTENT_TYPES = `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
+const CT = 'application/vnd.openxmlformats-officedocument.spreadsheetml';
+/** Типы частей пакета: книга, листы sheet1..N, стили и (если есть) общие строки. */
+function contentTypes(sheets: number, shared: boolean): string {
+  const parts = [
+    `<Override PartName="/xl/workbook.xml" ContentType="${CT}.sheet.main+xml"/>`,
+    ...Array.from({ length: sheets }, (_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="${CT}.worksheet+xml"/>`),
+    `<Override PartName="/xl/styles.xml" ContentType="${CT}.styles+xml"/>`,
+    ...(shared ? [`<Override PartName="/xl/sharedStrings.xml" ContentType="${CT}.sharedStrings+xml"/>`] : []),
+  ];
+  return `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>${parts.join('')}</Types>`;
+}
 const ROOT_RELS = `<Relationships xmlns="${NS_PKG_REL}"><Relationship Id="rId1" Type="${NS_REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
-const WORKBOOK_RELS = `<Relationships xmlns="${NS_PKG_REL}"><Relationship Id="rId1" Type="${NS_REL}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${NS_REL}/styles" Target="styles.xml"/></Relationships>`;
+/** Связи книги: листы rId1..rIdN, стили rId(N+1), общие строки rId(N+2). */
+function workbookRels(sheets: number, shared: boolean): string {
+  const rels = [
+    ...Array.from({ length: sheets }, (_, i) => `<Relationship Id="rId${i + 1}" Type="${NS_REL}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`),
+    `<Relationship Id="rId${sheets + 1}" Type="${NS_REL}/styles" Target="styles.xml"/>`,
+    ...(shared ? [`<Relationship Id="rId${sheets + 2}" Type="${NS_REL}/sharedStrings" Target="sharedStrings.xml"/>`] : []),
+  ];
+  return `<Relationships xmlns="${NS_PKG_REL}">${rels.join('')}</Relationships>`;
+}
 // 164 — дата и время, 165 — дата, 166 — три знака после запятой; 3 и 4 — встроенные «# ##0» и «# ##0,00»;
 // последний xf — quotePrefix: Excel показывает текст как есть и не превращает его в формулу при правке ячейки
 const STYLES = `<styleSheet xmlns="${NS_MAIN}"><numFmts count="3"><numFmt numFmtId="164" formatCode="dd.mm.yyyy hh:mm"/><numFmt numFmtId="165" formatCode="dd.mm.yyyy"/><numFmt numFmtId="166" formatCode="#,##0.000"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" quotePrefix="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
 
 /** Символы, недопустимые в XML 1.0: управляющие (кроме табуляции и переводов строки), одиночные суррогаты, U+FFFE и U+FFFF. */
-const INVALID_XML = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+const INVALID_XML = /[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 
 /** Текст без символов, недопустимых в XML. */
 const clean = (s: string) => s.replace(INVALID_XML, '');
@@ -70,14 +96,38 @@ function numberStyle(decimals: number): number {
   throw new Error(`Неподдерживаемое число знаков после запятой: ${decimals}`);
 }
 
-function cellXml(ref: string, cell: XlsxCell, style?: number): string {
+/** Таблица общих строк: индекс по первому появлению; count — число ссылок, uniqueCount — строк. */
+class SharedStrings {
+  private readonly index = new Map<string, number>();
+  readonly list: string[] = [];
+  count = 0;
+
+  ref(text: string): number {
+    this.count++;
+    let i = this.index.get(text);
+    if (i === undefined) {
+      i = this.list.length;
+      this.index.set(text, i);
+      this.list.push(text);
+    }
+    return i;
+  }
+
+  xml(): string {
+    const items = this.list.map((t) => `<si><t xml:space="preserve">${xmlText(t)}</t></si>`).join('');
+    return `<sst xmlns="${NS_MAIN}" count="${this.count}" uniqueCount="${this.list.length}">${items}</sst>`;
+  }
+}
+
+function cellXml(ref: string, cell: XlsxCell, shared: SharedStrings | null, style?: number): string {
   if (cell === null) return '';
   switch (cell.kind) {
     case 'text': {
-      // формул в листе нет (<f> не пишется); текст, похожий на формулу, — со стилем quotePrefix
-      const value = xmlText(cell.value);
+      // формул в листе нет (<f> не пишется); текст, похожий на формулу, — со стилем quotePrefix (и в общих строках)
       const s = style ?? (FORMULA_START.test(clean(cell.value)) ? STYLE.quoted : 0);
-      return `<c r="${ref}" t="inlineStr"${s ? ` s="${s}"` : ''}><is><t xml:space="preserve">${value}</t></is></c>`;
+      const attr = s ? ` s="${s}"` : '';
+      if (shared) return `<c r="${ref}" t="s"${attr}><v>${shared.ref(clean(cell.value))}</v></c>`;
+      return `<c r="${ref}" t="inlineStr"${attr}><is><t xml:space="preserve">${xmlText(cell.value)}</t></is></c>`;
     }
     case 'number':
       return `<c r="${ref}" s="${numberStyle(cell.decimals)}"><v>${cell.value}</v></c>`;
@@ -88,23 +138,32 @@ function cellXml(ref: string, cell: XlsxCell, style?: number): string {
   }
 }
 
-function sheetXml(sheet: XlsxSheet): string {
+function sheetXml(sheet: XlsxSheet, shared: SharedStrings | null): string {
   const cols = sheet.columns.map((c, i) => `<col min="${i + 1}" max="${i + 1}" width="${c.width}" customWidth="1"/>`).join('');
-  const header = `<row r="1">${sheet.columns.map((c, i) => cellXml(`${columnName(i)}1`, { kind: 'text', value: c.header }, STYLE.header)).join('')}</row>`;
-  const body = sheet.rows.map((row, r) => `<row r="${r + 2}">${row.map((cell, i) => cellXml(`${columnName(i)}${r + 2}`, cell)).join('')}</row>`);
+  const header = `<row r="1">${sheet.columns.map((c, i) => cellXml(`${columnName(i)}1`, { kind: 'text', value: c.header }, shared, STYLE.header)).join('')}</row>`;
+  const body = sheet.rows.map((row, r) => `<row r="${r + 2}">${row.map((cell, i) => cellXml(`${columnName(i)}${r + 2}`, cell, shared)).join('')}</row>`);
   // строка заголовков закреплена
   return `<worksheet xmlns="${NS_MAIN}"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${cols}</cols><sheetData>${header}${body.join('')}</sheetData></worksheet>`;
 }
 
-/** Минимальная книга XLSX с одним листом (ECMA-376): строки — inline, числа и даты — с форматом. */
-export function buildXlsx(sheet: XlsxSheet): Buffer {
+/**
+ * Минимальная книга XLSX (ECMA-376): один или несколько листов по порядку; строки — inline или общими строками,
+ * числа и даты — с форматом. Первый лист — первый в книге (его импортирует Finmap и наш импорт).
+ */
+export function buildXlsx(book: XlsxSheet | XlsxSheet[], opts: XlsxOptions = {}): Buffer {
+  const sheets = Array.isArray(book) ? book : [book];
+  if (sheets.length === 0) throw new Error('В книге нужен хотя бы один лист');
+  const shared = opts.strings === 'shared' ? new SharedStrings() : null;
   const zip = new AdmZip();
   const add = (name: string, xml: string) => zip.addFile(name, Buffer.from(HEAD + xml, 'utf8'));
-  add('[Content_Types].xml', CONTENT_TYPES);
+  const list = sheets.map((sh, i) => `<sheet name="${xmlText(sh.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
+  add('[Content_Types].xml', contentTypes(sheets.length, shared !== null));
   add('_rels/.rels', ROOT_RELS);
-  add('xl/workbook.xml', `<workbook xmlns="${NS_MAIN}" xmlns:r="${NS_REL}"><bookViews><workbookView/></bookViews><sheets><sheet name="${xmlText(sheet.name)}" sheetId="1" r:id="rId1"/></sheets></workbook>`);
-  add('xl/_rels/workbook.xml.rels', WORKBOOK_RELS);
+  add('xl/workbook.xml', `<workbook xmlns="${NS_MAIN}" xmlns:r="${NS_REL}"><bookViews><workbookView/></bookViews><sheets>${list}</sheets></workbook>`);
+  add('xl/_rels/workbook.xml.rels', workbookRels(sheets.length, shared !== null));
   add('xl/styles.xml', STYLES);
-  add('xl/worksheets/sheet1.xml', sheetXml(sheet));
+  sheets.forEach((sh, i) => add(`xl/worksheets/sheet${i + 1}.xml`, sheetXml(sh, shared)));
+  // общие строки собираются при записи листов, поэтому их часть — последней
+  if (shared) add('xl/sharedStrings.xml', shared.xml());
   return zip.toBuffer();
 }
