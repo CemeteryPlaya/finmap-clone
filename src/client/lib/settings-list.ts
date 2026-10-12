@@ -89,3 +89,21 @@ export function dropInGroup(group: readonly number[], id: number, index: number)
 export function movedText(name: string, group: readonly number[], id: number): string {
   return `«${name}» — место ${group.indexOf(id) + 1} из ${group.length}`;
 }
+
+/** Зона у края области прокрутки, где перетаскивание строки прокручивает список, px (итоги 1.5-4a). */
+export const EDGE_SCROLL_ZONE = 56;
+/** Наибольший шаг такой прокрутки за кадр, px. */
+export const EDGE_SCROLL_MAX = 18;
+
+/**
+ * Шаг прокрутки за кадр, пока строку тянут: указатель (y) ближе EDGE_SCROLL_ZONE к верху или низу видимой области
+ * [top, bottom] — прокрутка вверх (отрицательный шаг) или вниз, тем быстрее, чем ближе к краю, но не больше
+ * EDGE_SCROLL_MAX; за краем — предел. Иначе 0.
+ */
+export function edgeScrollStep(y: number, top: number, bottom: number): number {
+  const up = top + EDGE_SCROLL_ZONE - y;
+  if (up > 0) return -Math.ceil(EDGE_SCROLL_MAX * Math.min(1, up / EDGE_SCROLL_ZONE));
+  const down = y - (bottom - EDGE_SCROLL_ZONE);
+  if (down > 0) return Math.ceil(EDGE_SCROLL_MAX * Math.min(1, down / EDGE_SCROLL_ZONE));
+  return 0;
+}

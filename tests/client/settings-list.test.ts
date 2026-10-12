@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dropIndexAt, dropInGroup, moveGroup, movedText, shiftInGroup, visibleRows, type SettingsRow } from '../../src/client/lib/settings-list';
+import { dropIndexAt, dropInGroup, EDGE_SCROLL_MAX, EDGE_SCROLL_ZONE, edgeScrollStep, moveGroup, movedText, shiftInGroup, visibleRows, type SettingsRow } from '../../src/client/lib/settings-list';
 
 const row = (id: number, name: string, extra: Partial<SettingsRow> = {}): SettingsRow => ({ id, name, archived: false, ...extra });
 const ids = (rows: SettingsRow[]) => rows.map((r) => r.id);
@@ -98,5 +98,30 @@ describe('перетаскивание за ☰', () => {
 describe('movedText — объявление нового места', () => {
   it('«Касса» — место 2 из 3', () => {
     expect(movedText('Касса', [5, 7, 9], 7)).toBe('«Касса» — место 2 из 3');
+  });
+});
+
+describe('edgeScrollStep — прокрутка у края, пока строку тянут (итоги 1.5-4a)', () => {
+  it('в середине области — 0', () => {
+    expect(edgeScrollStep(400, 0, 800)).toBe(0);
+  });
+
+  it('у нижнего края — вниз; чем ближе к краю, тем быстрее; за краем — не быстрее предела', () => {
+    const near = edgeScrollStep(800 - 50, 0, 800);
+    const nearer = edgeScrollStep(800 - 10, 0, 800);
+    expect(near).toBeGreaterThan(0);
+    expect(nearer).toBeGreaterThan(near);
+    expect(edgeScrollStep(830, 0, 800)).toBe(EDGE_SCROLL_MAX);
+  });
+
+  it('у верхнего края — вверх (отрицательный шаг); край области — её верх, а не верх окна', () => {
+    expect(edgeScrollStep(110, 100, 800)).toBeLessThan(0);
+    expect(edgeScrollStep(50, 100, 800)).toBe(-EDGE_SCROLL_MAX);
+    expect(edgeScrollStep(110, 0, 800)).toBe(0);
+  });
+
+  it('граница зоны ещё не прокручивает', () => {
+    expect(edgeScrollStep(EDGE_SCROLL_ZONE, 0, 800)).toBe(0);
+    expect(edgeScrollStep(800 - EDGE_SCROLL_ZONE, 0, 800)).toBe(0);
   });
 });

@@ -922,3 +922,52 @@ test.describe('касание (pointer: coarse), панели календаря
     expect(box.y + box.height).toBeLessThanOrEqual(PHONE.height);
   });
 });
+
+test.describe('касание: перетаскивание в списках настроек, 390×844', () => {
+  test.use({ hasTouch: true });
+
+  test('теги: ☰ пальцем переставляет строку; у нижнего края экрана список едет сам и строка встаёт под пальцем ниже', async ({ page }) => {
+    await login(page);
+    const cid = await createCompany(page, `ТОО Касание тегов ${Date.now()}`);
+    const base = `/api/v1/companies/${cid}`;
+    for (let i = 1; i <= 30; i++) await apiPost(page, `${base}/tags`, { name: `Тег ${String(i).padStart(2, '0')}` });
+    await page.setViewportSize(PHONE);
+    await page.goto(`/c/${cid}/settings/tags`);
+    const list = page.getByRole('main').getByRole('list', { name: 'Теги' });
+    await expect(list.getByRole('listitem')).toHaveCount(30);
+    const order = async () => ((await (await page.request.get(`${base}/tags`)).json()).tags as { name: string }[]).map((t) => t.name);
+    // Playwright умеет только «тап»; протяжку пальцем шлём протоколом Chromium — touch-события дают pointer-события с pointerType «touch»
+    const cdp = await page.context().newCDPSession(page);
+    const touch = async (type: 'touchStart' | 'touchMove' | 'touchEnd', x = 0, y = 0) => {
+      await cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+    };
+    const centre = async (target: Locator) => {
+      const b = (await target.boundingBox())!;
+      return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    };
+    const grip = (name: string) => list.getByRole('button', { name: `Переместить ${name}`, exact: true });
+
+    // короткая протяжка вдали от края: «Тег 03» — на место «Тег 01»
+    const from = await centre(grip('Тег 03'));
+    const top = (await list.getByRole('listitem').first().boundingBox())!.y + 4;
+    await touch('touchStart', from.x, from.y);
+    for (let i = 1; i <= 6; i++) await touch('touchMove', from.x, from.y + ((top - from.y) * i) / 6);
+    await touch('touchEnd');
+    await expect(list.getByRole('listitem').first()).toContainText('Тег 03');
+    await expect.poll(async () => (await order())[0]).toBe('Тег 03');
+    // пока палец тянул ручку вдали от края, страница не прокручивалась
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+    // палец у нижнего края, над панелью вкладок: список едет сам; отпущенная строка встаёт далеко внизу (Review Focus 4)
+    const bar = (await page.getByRole('navigation', { name: 'Разделы', exact: true }).boundingBox())!;
+    const start = await centre(grip('Тег 03'));
+    await touch('touchStart', start.x, start.y);
+    await touch('touchMove', start.x, start.y + 20);
+    await touch('touchMove', start.x, bar.y - 10);
+    await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5000 }).toBeGreaterThan(400);
+    await touch('touchEnd');
+    await expect.poll(async () => (await order()).indexOf('Тег 03'), { timeout: 5000 }).toBeGreaterThan(9);
+    // после броска фокус — на ручке строки
+    await expect(grip('Тег 03')).toBeFocused();
+  });
+});

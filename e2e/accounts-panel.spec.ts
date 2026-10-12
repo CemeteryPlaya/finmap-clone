@@ -286,3 +286,31 @@ test('окно «Счета»: архив и удаление счёта воз�
   await expect(list.getByRole('listitem')).toHaveText([/Касса/]);
   await expect(quick.getByRole('button', { name: 'Добавить счёт' })).toBeFocused();
 });
+
+test('окно «Счета» без своей прокрутки: ☰ у нижнего края экрана не прокручивает страницу под окном; строка встаёт на место', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Край окна ${Date.now()}`);
+  for (const name of ['Касса', 'Kaspi']) await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name, currency: 'KZT', openedAt: '2020-01-01' });
+  await page.reload();
+  await page.getByRole('navigation', { name: 'Счета' }).getByRole('button', { name: 'Изменить счета' }).click();
+  const quick = page.getByRole('dialog', { name: 'Счета', exact: true });
+  const list = quick.getByRole('list', { name: 'Список счетов' });
+  await expect(list.getByRole('listitem')).toHaveText([/Касса/, /Kaspi/]);
+  // страница под окном длиннее экрана: прокрутка у края, доставшаяся странице, была бы видна; у окна своей прокрутки нет
+  await page.evaluate(() => {
+    document.body.style.minHeight = '3000px';
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight + 1000)).toBe(true);
+  expect(await quick.evaluate((d) => d.scrollHeight <= d.clientHeight)).toBe(true);
+
+  const grip = (await list.getByRole('button', { name: 'Переместить Касса', exact: true }).boundingBox())!;
+  const height = page.viewportSize()!.height;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2, height - 5, { steps: 8 });
+  // исключение из «без фиксированных пауз»: отсутствие прокрутки иначе не доказать, только подождать
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => window.scrollY), 'страница под окном не едет').toBe(0);
+  await page.mouse.up();
+  await expect(list.getByRole('listitem')).toHaveText([/Kaspi/, /Касса/]);
+});
