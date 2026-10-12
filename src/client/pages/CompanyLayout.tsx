@@ -5,6 +5,7 @@ import { AppHeader } from '../components/AppHeader';
 import { CompanyBlockButton } from '../components/CompaniesDrawer';
 import { HistoryButton } from '../components/HistoryDrawer';
 import { LoadError } from '../components/LoadError';
+import { MobileTabBar } from '../components/MobileTabBar';
 import { NewOperationButtons, OperationFormHost } from '../components/operation/OperationFormHost';
 import { mainCardClass } from '../components/ui';
 import { savePreference, useCompanies, usePreferences, type Company } from '../lib/queries';
@@ -57,7 +58,7 @@ export function CompanyLayout() {
             <>
               <AccountsPanel company={company} />
               <main className={mainCardClass}>
-                <nav className="mb-6 flex gap-2">
+                <nav className="mb-6 flex gap-2 max-md:hidden">
                   <NavLink to={`/c/${company.id}/log`} className={tab}>
                     Журнал
                   </NavLink>
@@ -67,6 +68,7 @@ export function CompanyLayout() {
             </>
           )}
         </div>
+        <MobileTabBar company={company} />
       </div>
     </OperationFormHost>
   );

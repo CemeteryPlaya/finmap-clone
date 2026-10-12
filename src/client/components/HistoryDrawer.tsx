@@ -12,55 +12,73 @@ import { btnPrimary, headerIconClass } from './ui';
 
 const AMOUNT_CLASS: Record<NonNullable<HistoryItem['type']>, string> = { income: 'text-income', expense: 'text-expense-strong', transfer: 'text-transfer' };
 
-/** Иконка «История действий» в шапке и правая панель с последними действиями по операциям (§3.4 этапа 1.5). */
-export function HistoryButton({ company }: { company: Company }) {
-  const [open, setOpen] = useState(false);
+/**
+ * Правая панель «История действий» (§3.4 этапа 1.5) — последние действия с операциями. Открывается значком в шапке
+ * (компьютер) и пунктом «История действий» в «Ещё» нижней панели (телефон, §8.3). Закрытие — фокус на то, чем открыли.
+ */
+export function HistoryPanel({ company, open, onClose }: { company: Company; open: boolean; onClose: () => void }) {
   const navigated = useRef(false);
-  /** Операция из списка: форма открывается, когда панель уже закрыта, — по закрытии формы фокус вернётся на эту кнопку. */
+  /** Операция из списка: форма открывается, когда панель уже закрыта, — по закрытии формы фокус вернётся на кнопку открытия. */
   const pendingOperation = useRef<number | null>(null);
   const openForm = useOpenOperationForm();
   return (
+    <Drawer
+      open={open}
+      side="right"
+      title="История действий"
+      onClose={onClose}
+      afterClose={() => {
+        const handled = navigated.current;
+        navigated.current = false;
+        const id = pendingOperation.current;
+        pendingOperation.current = null;
+        if (id === null) return handled;
+        openForm({ kind: 'edit', id });
+        return false; // фокус сначала на кнопку открытия: она станет «откуда открыли» для формы
+      }}
+      footer={
+        <Link
+          to={`/c/${company.id}/settings/audit`}
+          onClick={(e) => {
+            if (!isPlainLeftClick(e)) return;
+            navigated.current = true;
+            focusHeadingSoon(`/c/${company.id}/settings/audit`);
+            onClose();
+          }}
+          className={`${btnPrimary} block text-center`}
+        >
+          Подробнее
+        </Link>
+      }
+    >
+      <HistoryList
+        company={company}
+        onOpenOperation={(id) => {
+          pendingOperation.current = id;
+          onClose();
+        }}
+      />
+    </Drawer>
+  );
+}
+
+/** Значок «История действий» в шапке компьютера (§3.1); на телефоне история — в «Ещё» нижней панели (§8.3). */
+export function HistoryButton({ company }: { company: Company }) {
+  const [open, setOpen] = useState(false);
+  return (
     <>
-      <button type="button" aria-label="История действий" title="История действий" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)} className={headerIconClass}>
+      <button
+        type="button"
+        aria-label="История действий"
+        title="История действий"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
+        className={`${headerIconClass} max-md:hidden`}
+      >
         <HistoryIcon />
       </button>
-      <Drawer
-        open={open}
-        side="right"
-        title="История действий"
-        onClose={() => setOpen(false)}
-        afterClose={() => {
-          const handled = navigated.current;
-          navigated.current = false;
-          const id = pendingOperation.current;
-          pendingOperation.current = null;
-          if (id === null) return handled;
-          openForm({ kind: 'edit', id });
-          return false; // фокус сначала на кнопку открытия: она станет «откуда открыли» для формы
-        }}
-        footer={
-          <Link
-            to={`/c/${company.id}/settings/audit`}
-            onClick={(e) => {
-              if (!isPlainLeftClick(e)) return;
-              navigated.current = true;
-              focusHeadingSoon(`/c/${company.id}/settings/audit`);
-              setOpen(false);
-            }}
-            className={`${btnPrimary} block text-center`}
-          >
-            Подробнее
-          </Link>
-        }
-      >
-        <HistoryList
-          company={company}
-          onOpenOperation={(id) => {
-            pendingOperation.current = id;
-            setOpen(false);
-          }}
-        />
-      </Drawer>
+      <HistoryPanel company={company} open={open} onClose={() => setOpen(false)} />
     </>
   );
 }

@@ -278,7 +278,7 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   await expect(card.getByRole('button')).toBeFocused();
 });
 
-test('журнал карточками догружается при прокрутке; последняя карточка видна целиком', async ({ page }) => {
+test('журнал карточками догружается при прокрутке; последняя карточка не прячется под нижней панелью вкладок', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Прокрутка ${Date.now()}`);
   const cash = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
@@ -294,10 +294,11 @@ test('журнал карточками догружается при прокр
   await expect(list).toHaveCount(55);
   await expect(page.getByRole('button', { name: 'Показать ещё' })).toHaveCount(0);
   await expect(list.last()).toContainText('№55');
-  // в самом низу страницы последняя карточка видна целиком: кнопки операций — в шапке, внизу ничего не закреплено
+  // в самом низу страницы последняя карточка — над закреплённой нижней панелью вкладок
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   const last = (await list.last().boundingBox())!;
-  expect(last.y + last.height).toBeLessThanOrEqual(PHONE.height);
+  const barTop = (await page.getByRole('navigation', { name: 'Разделы', exact: true }).boundingBox())!.y;
+  expect(last.y + last.height).toBeLessThanOrEqual(barTop);
 });
 
 test('выделение из широкого окна на телефоне снимается: невидимые строки не удалить массовым действием', async ({ page }) => {
@@ -425,6 +426,92 @@ const todayAgo = (n: number) => {
 
 /** Вчера в полдень по Алматы. */
 const yesterdayNoon = () => new Date(startOfTodayAlmaty() - 12 * 3600_000).toISOString();
+
+test('нижняя панель «Разделы» (§8.3): «Журнал» и «Ещё» — «Пользователи», «Настройки», «История действий»; пилюли и значок истории на телефоне скрыты; на компьютере панели нет', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Вкладки ${Date.now()}`);
+  const cash = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: new Date(Date.now() - 60_000).toISOString(), accountId: cash, amount: 10000 });
+  await page.goto(`/c/${cid}/log?period=today`);
+  const tabs = page.getByRole('navigation', { name: 'Разделы', exact: true });
+  await expect(page.getByRole('table', { name: 'Операции' }).locator('tbody tr')).toHaveCount(1);
+  // компьютер: панели нет, вкладка-пилюля «Журнал» — в карточке
+  await expect(tabs).toBeHidden();
+  await expect(page.getByRole('main').getByRole('link', { name: 'Журнал', exact: true })).toBeVisible();
+
+  await page.setViewportSize(PHONE);
+  await expect(tabs).toBeVisible();
+  // у нижнего края во всю ширину; пилюля и значок истории в шапке на телефоне скрыты
+  const box = (await tabs.boundingBox())!;
+  expect(Math.round(box.y + box.height)).toBe(PHONE.height);
+  expect(Math.round(box.width)).toBe(PHONE.width);
+  await expect(page.getByRole('main').getByRole('link', { name: 'Журнал', exact: true })).toBeHidden();
+  await expect(page.getByRole('banner').getByRole('button', { name: 'История действий' })).toBeHidden();
+  const journal = tabs.getByRole('link', { name: 'Журнал', exact: true });
+  const more = tabs.getByRole('button', { name: 'Ещё', exact: true });
+  await expect(journal).toHaveAttribute('aria-current', 'page');
+  for (const tab of [journal, more]) expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+
+  // «Ещё» — меню над панелью, внутри экрана; Esc закрывает, фокус — на «Ещё»
+  const menu = page.getByRole('dialog', { name: 'Ещё', exact: true });
+  await more.click();
+  await expect(menu.getByRole('link')).toHaveText(['Пользователи', 'Настройки']);
+  await expect(menu.getByRole('button', { name: 'История действий' })).toBeVisible();
+  const m = (await menu.boundingBox())!;
+  expect(m.y + m.height).toBeLessThanOrEqual(box.y);
+  expect(m.x).toBeGreaterThanOrEqual(0);
+  expect(m.x + m.width).toBeLessThanOrEqual(PHONE.width);
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(more).toBeFocused();
+
+  // «История действий» — та же панель, что у значка в шапке компьютера; закрыли — фокус на «Ещё»
+  await more.click();
+  await menu.getByRole('button', { name: 'История действий' }).click();
+  const history = page.getByRole('dialog', { name: 'История действий' });
+  await expect(history.getByRole('list', { name: 'Последние действия' })).toBeVisible();
+  await expect(menu).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(history).toBeHidden();
+  await expect(more).toBeFocused();
+
+  // «Пользователи» — раздел настроек, фокус на заголовке; панель вкладок — и в зоне настроек
+  await more.click();
+  await menu.getByRole('link', { name: 'Пользователи' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/users$`));
+  await expect(page.getByRole('heading', { level: 1, name: 'Пользователи' })).toBeFocused();
+  await expect(tabs).toBeVisible();
+  await expect(journal).not.toHaveAttribute('aria-current', 'page');
+  // «Журнал» — обратно в журнал с прежним фильтром (Review Focus 5)
+  await journal.click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?period=today$`));
+  await expect(page.getByRole('heading', { level: 1, name: 'Журнал' })).toBeFocused();
+  // «Настройки» — экран со списком разделов (§8.6)
+  await more.click();
+  await menu.getByRole('link', { name: 'Настройки' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings$`));
+  await expect(page.getByRole('heading', { level: 1, name: 'Настройки', exact: true })).toBeFocused();
+
+  // компьютер: панели нет
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(tabs).toBeHidden();
+});
+
+test('история из «Ещё» не замораживает страницу, если окно стало шире телефона', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Ширина ${Date.now()}`);
+  await page.setViewportSize(PHONE);
+  await page.goto(`/c/${cid}/log`);
+  await page.getByRole('navigation', { name: 'Разделы', exact: true }).getByRole('button', { name: 'Ещё', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Ещё', exact: true }).getByRole('button', { name: 'История действий' }).click();
+  const history = page.getByRole('dialog', { name: 'История действий' });
+  await expect(history).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(history).toBeHidden();
+  // страница отзывается: кнопка шапки открывает панель
+  await page.getByRole('banner').getByRole('button', { name: 'История действий' }).click();
+  await expect(history).toBeVisible();
+});
 
 test('фильтры на телефоне — в панели справа: период, сумма, сортировка, окно «Фильтры» поверх панели, сброс; поиск на виду', async ({ page }) => {
   await login(page);
@@ -704,6 +791,8 @@ test('архивная компания: форма операции тольк�
   // телефон: кнопок операций в шапке нет, карточка открывает ту же форму для просмотра; Esc закрывает без вопросов
   await page.setViewportSize(PHONE);
   await expect(bar(page)).toHaveCount(0);
+  // нижняя панель вкладок у архивной компании есть: навигация не меняет данных
+  await expect(page.getByRole('navigation', { name: 'Разделы', exact: true })).toBeVisible();
   await cards(page).getByRole('button').first().click();
   await expect(view).toContainText('Компания в архиве — изменения недоступны');
   await expect(view.getByRole('button', { name: 'Сохранить изменения' })).toHaveCount(0);
