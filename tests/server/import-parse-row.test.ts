@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AppError } from '../../src/server/errors';
-import { groupIssues, type RowIssue } from '../../src/server/modules/imports/errors';
+import { groupIssues, ISSUE_GROUPS_MAX, type RowIssue } from '../../src/server/modules/imports/errors';
 import {
   decimalToMinor,
   findHeader,
@@ -15,7 +15,7 @@ import { CELL_TOO_LONG, readXlsx, type Cell, type SheetRow } from '../../src/ser
 import { FINMAP_COLUMNS, type FinmapField } from '../../src/shared/finmap-format';
 import { excelSerial, finmapLikeXlsx } from '../helpers/finmap-like';
 
-const CTX: ParseContext = { timezone: 'Asia/Almaty', baseCurrency: 'KZT', today: '2026-10-06', date1904: false };
+const CTX: ParseContext = { timezone: 'Asia/Almaty', baseCurrency: 'KZT', today: '2026-10-06' };
 const COL = Object.fromEntries(FINMAP_COLUMNS.map((c, i) => [c.field, i])) as Record<FinmapField, number>;
 const text = (value: string): Cell => ({ kind: 'text', value });
 const num = (value: number | string): Cell => ({ kind: 'number', value: String(value) });
@@ -345,5 +345,51 @@ describe('файл целиком (§2.2, §2.3, §4.10)', () => {
       ['R04', 'Нет суммы', 25, 20],
     ]);
     expect(g[3]!.rows).toEqual(Array.from({ length: 20 }, (_, i) => 76 + i));
+  });
+});
+
+describe('правки раунда 1', () => {
+  it('«Сумма в валюте компании» округлилась до нуля — как пусто (W10 остаётся)', () => {
+    const p = parse(row(2, { ...BASE, fromAccount: 'К', baseAmount: '0,004' }));
+    expect(p.rows[0]!.baseAmount).toBeNull();
+    expect(p.issues.map((i) => i.code)).toEqual(['W10']);
+  });
+
+  it('ошибка Excel в плановой строке — только W1; в дате платежа — R18; в обычной строке — R18', () => {
+    const p = parse(
+      row(2, { paidAt: '07.10.2026', amount: { kind: 'error', value: '#REF!' }, fromAccount: 'К' }),
+      row(3, { paidAt: { kind: 'error', value: '#REF!' }, amount: 1, fromAccount: 'К' }),
+      row(4, { ...BASE, fromAccount: 'К', comment: { kind: 'error', value: '#N/A' } }),
+    );
+    expect(p.future).toEqual([2]);
+    expect(p.issues.map((i) => `${i.row} ${i.code}`)).toEqual(['2 W1', '3 R18', '4 R18']);
+    expect(p.rows).toEqual([]);
+  });
+
+  it('разряды при обоих разделителях: группы ровно по 3 цифры', () => {
+    for (const bad of ['1,2,3.4', '1.5,0', '1,23.4', '1234,567.8']) expect(parseTextAmount(bad), bad).toBeNull();
+    expect(parseTextAmount('1 234 567,89')).toEqual({ negative: false, value: '1234567.89' });
+    expect(parseTextAmount('1.234.567,89')).toEqual({ negative: false, value: '1234567.89' });
+    expect(parseTextAmount('1,234,567.89')).toEqual({ negative: false, value: '1234567.89' });
+    expect(parseTextAmount('12,345.5')).toEqual({ negative: false, value: '12345.5' });
+  });
+
+  it('группы замечаний: ошибки не вытесняются предупреждениями при пределе групп; count — число разных строк', () => {
+    const warnings: RowIssue[] = Array.from({ length: ISSUE_GROUPS_MAX }, (_, i) => ({ code: 'W7' as const, message: `Колонка ${i}`, row: 1 }));
+    const g = groupIssues([...warnings, { code: 'R04', message: 'Нет суммы', row: 5 }]);
+    expect(g).toHaveLength(ISSUE_GROUPS_MAX);
+    expect(g.some((x) => x.code === 'R04')).toBe(true);
+    const twice = groupIssues([
+      { code: 'R18', message: 'Ошибка Excel #N/A', row: 7 },
+      { code: 'R18', message: 'Ошибка Excel #N/A', row: 7 },
+    ]);
+    expect(twice).toEqual([{ code: 'R18', message: 'Ошибка Excel #N/A', count: 1, rows: [7] }]);
+  });
+
+  it('лист date1904 разбирается через parseSheet по признаку листа', () => {
+    const p = parseSheet({ rows: [HEADER, row(2, { paidAt: num(44838), amount: 1, fromAccount: 'К' })], date1904: true }, CTX);
+    expect(p.rows[0]!.date).toBe('2026-10-05');
+    const q = parseSheet({ rows: [HEADER, row(2, { paidAt: num(46300), amount: 1, fromAccount: 'К' })], date1904: false }, CTX);
+    expect(q.rows[0]!.date).toBe('2026-10-05');
   });
 });

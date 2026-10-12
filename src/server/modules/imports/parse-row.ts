@@ -3,15 +3,13 @@ import { isValidDate, startOfDayUtc } from '../../../shared/dates';
 import { columnTitle, headerField, isHeaderRow, nameKey, type FinmapField } from '../../../shared/finmap-format';
 import { CATEGORY_NAME_MAX } from '../../../shared/schemas/categories';
 import { COUNTERPARTY_NAME_MAX } from '../../../shared/schemas/counterparties';
+import { PROJECT_NAME_MAX } from '../../../shared/schemas/projects';
 import { TAG_NAME_MAX } from '../../../shared/schemas/tags';
 import { cleanName } from '../../../shared/text';
 import { fileError, IMPORT_MAX_ROWS, MESSAGES as M, tooManyRows, type RowIssue } from './errors';
 import { CELL_TOO_LONG, type Cell, type SheetData, type SheetRow } from './xlsx-read';
 
 /** Разбор строк файла в строки импорта (§4 спецификации импорта): чистые функции, без базы. */
-
-/** Предел названия проекта — как у формы проекта (projectCreateSchema). */
-const PROJECT_NAME_MAX = 100;
 
 export type ImportType = 'income' | 'expense' | 'transfer';
 
@@ -54,7 +52,6 @@ export interface ParseContext {
   baseCurrency: string;
   /** Сегодня в APP_TIMEZONE: строки позже — плановые (W1). */
   today: string;
-  date1904: boolean;
 }
 
 export interface ParsedFile {
@@ -126,8 +123,12 @@ export function parseTextAmount(text: string): ParsedNumber | null {
   const comma = s.lastIndexOf(',');
   if (dot >= 0 && comma >= 0) {
     const dec = dot > comma ? '.' : ',';
+    const group = dec === '.' ? ',' : '.';
     if (s.indexOf(dec) !== s.lastIndexOf(dec)) return null;
-    s = s.split(dec === '.' ? ',' : '.').join('').replace(dec, '.');
+    // разряды: целая часть — 1–3 цифры и группы ровно по 3 («1,2,3.4» и «1.5,0» — не число)
+    const intPart = s.slice(0, s.indexOf(dec));
+    if (!new RegExp(`^\\d{1,3}(?:\\${group}\\d{3})+$`).test(intPart) || s.indexOf(dec) < s.lastIndexOf(group)) return null;
+    s = s.split(group).join('').replace(dec, '.');
   } else if (comma >= 0) {
     if (s.indexOf(',') !== comma) return null;
     s = s.replace(',', '.');
@@ -259,7 +260,7 @@ const R11_WHAT: Partial<Record<FinmapField, string>> = {
 export type RowResult = { kind: 'row'; row: ImportRow; issues: RowIssue[] } | { kind: 'future'; issues: RowIssue[] } | { kind: 'error'; issues: RowIssue[] };
 
 /** Одна строка данных (§4.1–§4.8). Ошибки R* — строка не импортируется; дата в будущем — строка пропускается с W1. */
-export function parseRow(sheetRow: SheetRow, columns: Map<FinmapField, number>, ctx: ParseContext): RowResult {
+export function parseRow(sheetRow: SheetRow, columns: Map<FinmapField, number>, ctx: ParseContext, date1904 = false): RowResult {
   const n = sheetRow.row;
   const issues: RowIssue[] = [];
   const err = (code: RowIssue['code'], message: string) => issues.push({ code, message, row: n });
@@ -270,23 +271,32 @@ export function parseRow(sheetRow: SheetRow, columns: Map<FinmapField, number>, 
   const raw = (f: FinmapField) => cell(f)?.value.trim() ?? '';
   const name = (f: FinmapField) => cleanName(cell(f)?.value ?? '');
 
-  // R18: ошибка Excel или слишком длинная ячейка в любой распознанной колонке
-  for (const [field, col] of columns) {
-    const c = sheetRow.cells.get(col);
-    if (c?.kind === 'error') err('R18', c.value === CELL_TOO_LONG ? M.R18_LONG : M.R18_EXCEL(c.value, columnTitle(field)));
-  }
-  if (issues.length) return { kind: 'error', issues };
+  // R18: ошибка Excel или слишком длинная ячейка в распознанной колонке
+  const checkErrors = (skipPaidAt: boolean) => {
+    for (const [field, col] of columns) {
+      if (skipPaidAt && field === 'paidAt') continue;
+      const c = sheetRow.cells.get(col);
+      if (c?.kind === 'error') err('R18', c.value === CELL_TOO_LONG ? M.R18_LONG : M.R18_EXCEL(c.value, columnTitle(field)));
+    }
+  };
 
-  // дата платежа: будущая строка — плановая операция Finmap, пропускается без других проверок
+  // дата платежа: будущая строка — плановая операция Finmap, пропускается с одним W1 — даже с ошибкой Excel в других ячейках
   const paidCell = cell('paidAt');
   let paid: WallTime | null = null;
+  if (paidCell?.kind === 'error') {
+    checkErrors(false);
+    return { kind: 'error', issues };
+  }
   if (!paidCell || raw('paidAt') === '') err('R01', M.R01);
   else {
-    paid = parseWallTime(paidCell, ctx.date1904);
+    paid = parseWallTime(paidCell, date1904);
     if (!paid) err('R02', M.R02(raw('paidAt')));
     else if (Number(paid.date.slice(0, 4)) < 1990) err('R03', M.R03);
     else if (paid.date > ctx.today) return { kind: 'future', issues: [{ code: 'W1', message: M.W1, row: n }] };
   }
+  const dateIssues = issues.length;
+  checkErrors(true);
+  if (issues.length > dateIssues) return { kind: 'error', issues };
 
   // тип по счетам (§4.1)
   const from = name('fromAccount');
@@ -319,7 +329,8 @@ export function parseRow(sheetRow: SheetRow, columns: Map<FinmapField, number>, 
       const minor = decimalToMinor(p.value, units);
       if (!minor) err('R07', M.R07);
       else {
-        baseAmount = minor.minor;
+        // округлилось до нуля («0,004») — как пусто: курс считается по правилам, а не нулевой
+        baseAmount = minor.minor === 0 ? null : minor.minor;
         if (minor.rounded) issues.push({ code: 'W10', message: M.W10(units), row: n });
       }
     }
@@ -332,7 +343,7 @@ export function parseRow(sheetRow: SheetRow, columns: Map<FinmapField, number>, 
     const c = cell(f);
     if (!c || raw(f) === '') continue;
     if (type === 'transfer') continue;
-    const w = parseWallTime(c, ctx.date1904);
+    const w = parseWallTime(c, date1904);
     if (!w) err('R11', M.R11(R11_WHAT[f]!, raw(f)));
     else dates[f] = w.date;
   }
@@ -416,7 +427,7 @@ export function parseSheet(sheet: SheetData, ctx: ParseContext): ParsedFile {
   const rows: ImportRow[] = [];
   const future: number[] = [];
   for (const r of data) {
-    const res = parseRow(r, columns, ctx);
+    const res = parseRow(r, columns, ctx, sheet.date1904);
     issues.push(...res.issues);
     if (res.kind === 'row') rows.push(res.row);
     else if (res.kind === 'future') future.push(r.row);

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { nameField } from '../text';
 
-const name = nameField(100);
+export const PROJECT_NAME_MAX = 100;
+const name = nameField(PROJECT_NAME_MAX);
 const params = z.record(z.string(), z.unknown());
 
 export const projectCreateSchema = z.object({
