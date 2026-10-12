@@ -39,13 +39,13 @@
 
 ## Решения, принятые при планировании
 
-Записаны в спецификацию (§14, блок «Решения планирования плана И-2», №1–№16) тем же коммитом, что и план.
+Записаны в спецификацию (§14, блок «Решения планирования плана И-2», №1–№19; правки по harness-review — в №3, №9, №10, №16, №17–№19) тем же коммитом, что и план.
 
 1. **Задачи — 7.** Порядок §14 сохранён, но границы — по файлам:
    1. справочники `createIn` и `OperationsWriter`;
    2. `commit.ts`, `POST …/imports`, версия проверки, `bench:import`;
    3. логика панели (`lib/import-panel.ts`), `Drawer.busy` и `wide`;
-   4. экран панели и e2e на компьютере;
+   4. экран панели (одна панель на компанию — в раскладке компании) и e2e на компьютере;
    5. телефон, доступность пункта «Ещё», «Импорт» в истории действий;
    6. `import:check`, `.gitignore`, README;
    7. `shots:ux`.
@@ -56,7 +56,7 @@
      - свежая проверка с ошибками — 422 `IMPORT_INVALID` «Данные компании изменились после проверки, и импорт сейчас невозможен — посмотрите ошибки в обновлённой проверке»;
      - свежая проверка без ошибок, но с другой версией — 409 `IMPORT_CHANGED` «Данные компании изменились после проверки — посмотрите обновлённый итог и нажмите «Импортировать» ещё раз».
 
-     В обоих — `details.preview`, ничего не записано.
+     В обоих — `details.preview`, ничего не записано. Если в свежей проверке ошибок нет, но добавлять нечего (тот же файл уже записал другой пользователь), 422 `IMPORT_INVALID` — с текстом «Нечего импортировать: все операции из файла уже есть в компании».
    - Так запись никогда не идёт по итогу, которого человек не видел: категория, добавленная другим пользователем, операция на счёте из файла, тот же файл, записанный другим пользователем.
 4. **`details` у ошибок** — `Record<string, unknown>` у `AppError` (сервер) и `ApiError` (клиент): в нём лежит предпросмотр. Строковые поля (`currency`, `date`, `fileCode`) читаются с проверкой типа.
 5. **Писатель операций** — `createOperationsWriter(sqlite)` получает соединение `better-sqlite3`, на котором Drizzle открыл транзакцию (тип `Db` не содержит `$client`). Устройство `insertImported(tx, { companyId, importId, userId, at, rows })`:
@@ -79,18 +79,24 @@
 8. **Ответ 201** — `{ import: ImportRecord, counts: ImportCounts }`:
    - `ImportRecord` — `{ id, fileName, fileSize, status, createdAt, counts, created }`, где `created` — числа созданного по видам;
    - в `imports.created` — массивы id.
-9. **`bench:import`.**
-   - Файлы собираются заранее. Замеры идут в двух свежих дочерних процессах с `--expose-gc`:
-     - «запись 16 000 строк» — бюджеты 3 с, 1 с, 5 с;
-     - «худший случай кэша» — три файла по 50 000 строк в трёх компаниях: пик RSS на первом файле (бюджет 400 МБ), куча кэша после сборки мусора, пик с тремя файлами.
-   - Код выхода 1 — если превышен любой бюджет.
-   - На машине планировщика (16 ядер): загрузка 1,4 с, пересчёт 0,5 с, запись 0,8 с; кэш — около 27 МБ кучи на файл.
-   - **Пик на файле 50 000 строк — около 450 МБ, больше бюджета 400 МБ §10.** Это записывается в итоги плана и в этом плане не исправляется: перенос в `worker_threads` остаётся в «Отложено» (§15.3). Настоящий файл — 16 000 строк.
+9. **Бюджеты памяти и `bench:import` (решение контролёра по harness-review).**
+   - Пик памяти процесса на файле 50 000 строк — около 450 МБ: больше прежних 400 МБ §10. Потоковое чтение и `worker_threads` сейчас не делаем, предел 50 000 строк остаётся.
+   - §10 получает два бюджета пика RSS:
+     - файл 16 000 строк (как настоящий) — 400 МБ, жёстко;
+     - файл 50 000 строк — принятые 500 МБ. Почему: пик кратковременный (на время загрузки и записи), пользователей несколько, настоящие файлы — около 16 000 строк.
+   - §15.3: условие «`bench:import` покажет больше бюджета» сработало (450 МБ при 400 МБ) — перенос в `worker_threads` сознательно отложен, бюджет 50 000 строк поднят.
+   - Замер — три свежих дочерних процесса с `--expose-gc`, файлы собираются заранее:
+     - «запись 16 000 строк» — загрузка, пересчёт и запись (3 с, 1 с, 5 с) и пик RSS за всё это (400 МБ);
+     - «запись 50 000 строк» — загрузка и запись: предпросмотр, план и вставка в одной транзакции; пик RSS (500 МБ);
+     - «худший случай кэша» — три файла по 50 000 строк: пик на первом файле (500 МБ), куча кэша после сборки мусора, пик с тремя файлами — без бюджета.
+   - Код выхода 1 — только если нарушен бюджет.
+   - На машине планировщика (16 ядер): загрузка 1,4 с, пересчёт 0,5 с, запись 0,8 с, пик 345 МБ; запись 50 000 строк — 2,6 с, пик 447 МБ; кэш — около 27 МБ кучи на файл, пик с тремя файлами — около 540 МБ.
 10. **Панель.**
     - Состояние живёт в `ImportFlow`: оно монтируется заново при каждом открытии (`Drawer`). Подвал с «Импортировать» рисуется порталом в слот `footer` панели.
     - `File` хранится в состоянии для повторной загрузки при 410.
     - Выбор счетов (`Map` по ключу) переживает «Выбрать другой файл», но не закрытие панели.
     - Запросы предпросмотра нумеруются с момента правки: ответ устаревшего не показывается.
+    - Свежий предпросмотр в ответе 409 и 422 проверяется по типу (`isImportPreview`): `token`, `revision`, `canImport`, `accounts`, `errors`, `counts`, `create`.
 11. **Сопоставления в запросе** — все карточки явно: выбор человека или то, что показал сервер (`requestMappings`). Без выбора (A1) карточка не отправляется. Поэтому счёт, ушедший в архив между проверкой и записью, даёт A5 (422), а не тихую замену на «новый счёт».
 12. **410 «Проверка устарела».** При `preview` и при `POST …/imports` панель сама загружает тот же `File`, пересчитывает с выбором человека и показывает над кнопкой: «Проверка устарела — файл проверен заново. Проверьте итог и нажмите «Импортировать» ещё раз».
 13. **Карточка счёта.**
@@ -110,7 +116,12 @@
 16. **`import:check`.**
     - Итоги по категориям — в валюте компании, по ключу листа: подкатегория, без неё — категория (`nameKey`); системная — по `systemKey` с учётом `FINMAP_SYSTEM_ALIASES`. Так строка «Администраторы» без J, попавшая в «Зарплата → Администраторы», не даёт ложного расхождения.
     - Перевод между валютами сверяется только при зачислении в базовую валюту с F; иначе — предупреждение.
-    - База открывается `better-sqlite3` с `readonly`. Выход 0 — «Совпадает», 1 — расхождения.
+    - База открывается `better-sqlite3` с `readonly` и закрывается и после ошибки: код выхода задаётся через `process.exitCode`, без `process.exit`. Выход 0 — «Совпадает», 1 — расхождения или ошибка.
+    - `--today ГГГГ-ММ-ДД` — «сегодня» разбора (строки позже — плановые и не считаются, как при импорте); по умолчанию — сегодня в `APP_TIMEZONE`. Дата печатается в отчёте.
+    - Одноимённые подкатегории разных родителей сверяются одной строкой, в подписи — все родители: «Расходы: Зарплата → Администраторы + Офис → Администраторы». Длинная подпись не обрезается: числа — строкой ниже.
+17. **Запись — `BEGIN IMMEDIATE`.** У `mutate` — необязательный `{ behavior: 'deferred' | 'immediate' }` (по умолчанию `deferred`, как раньше). `commit()` берёт блокировку записи до проверки: внешний писатель (скрипт, второй процесс) не вклинится между проверкой и вставкой и не вызовет `SQLITE_BUSY` → 500 посреди записи. Занятая база ждёт `busy_timeout` (5 с) ещё до проверки.
+18. **Одна панель импорта на компанию — в раскладке компании.** `ImportPanelHost` (в `CompanyLayout`, внутри `OperationFormHost`) держит панель и отдаёт `useOpenImport()`: его вызывают «Импортировать» в тулбаре журнала и «Импорт из Excel» в «Ещё» на телефоне; в архивной компании — `null` (ни кнопки, ни пункта, ни панели). Переход по истории браузера внутри компании, смена ширины окна и скрытие нижней панели не размонтируют панель, пока идёт запись (e2e: «Назад» во время записи).
+19. **Описание ограничений файла — у кнопки «Выберите файл»** (`aria-describedby` на «Формат — как выгрузка Finmap…»), а не у зоны перетаскивания: `div` без роли с описанием программы чтения не объявляют. Уточнение §5.8.
 
 ## Global Constraints
 
@@ -139,7 +150,7 @@
 - **Концы строк:** правки «замените → на» делайте инструментом правки файлов; если текст разошёлся с планом пробелами, копируйте его из файла.
 - **Безопасность среды (обязательно):**
   - никогда не запускайте `npm start`, `npm run stop`, `npm run setup`, `npm run service:install`, `npm run service:uninstall`, `schtasks` и `icacls` — ни в каком виде. На порту 3457 работает живое приложение пользователя, на порту 3460 — демо-экземпляр; их не трогайте;
-  - e2e идут на порту 41731 со своей временной базой; `npm run shots:ux` — на порту 41741 со своей временной папкой; `npm run bench:import` — во временной папке;
+  - e2e идут на порту 41731 со своей временной базой; `npm run shots:ux` — на порту 41741 со своей временной папкой; `npm run bench:import` — во временной папке (код выхода 1 — только нарушенный бюджет);
   - `npm run import:check` в задачах не запускается с настоящими данными: только тест на синтетическом файле;
   - shell-команды не содержат подстроку «.env».
 - **Завершение задачи:**
@@ -164,7 +175,7 @@
    - задача 4 — e2e «файл → проверка…» (левая панель);
    - задача 6 — `import:check` «Совпадает».
 5. **Повторное нажатие и закрытие во время записи.** Ожидание:
-   - Esc и «Закрыть» во время записи панель не закрывают;
+   - Esc и «Закрыть» во время записи панель не закрывают; «Назад» в браузере уводит со страницы журнала, но панель остаётся и показывает итог;
    - тот же файл второй раз — все строки дубликаты, «Нечего импортировать: все строки — дубликаты», W8.
 
    Тесты: задача 4 — e2e «Esc во время записи…» и конец «файл → проверка…»; задача 2 — «повторный импорт того же файла…».
@@ -185,17 +196,19 @@ src/server/modules/imports/service.ts         # commit(): 410, проверка 
 src/server/modules/imports/routes.ts          # POST /api/v1/companies/:cid/imports → 201, лог итога
 src/server/errors.ts                          # AppError.details: Record<string, unknown>
 src/server/app.ts                             # сервисы справочников и писатель — в сервис импорта
+src/server/modules/audit/mutate.ts            # необязательный behavior: 'immediate' (BEGIN IMMEDIATE)
 src/shared/schemas/imports.ts                 # importCommitSchema, revision, ImportCounts, ImportRecord, ImportCommitResult
 src/client/lib/api.ts                         # ApiError.details: Record<string, unknown>
 src/client/components/operation/OperationForm.tsx  # details.currency/date — с проверкой типа
 src/client/components/Drawer.tsx              # busy, wide
 src/client/components/icons.tsx               # UploadIcon, FolderIcon
 src/client/lib/import-panel.ts                # тексты, причины, сопоставление счетов, запросы
-src/client/components/import/ImportPanel.tsx        # панель, файл, статусы, подвал, 409/410/422, итог
+src/client/components/import/ImportPanel.tsx        # ImportPanelHost и useOpenImport; панель, файл, статусы, подвал, 409/410/422, итог
 src/client/components/import/ImportPreviewView.tsx  # итог, ошибки, счета, «Будет создано», предупреждения
 src/client/components/import/ImportAccountCard.tsx  # карточка счёта из файла
 src/client/components/journal/JournalToolbar.tsx    # ⤒ «Импортировать» после «Ещё»
-src/client/pages/JournalPage.tsx              # панель импорта журнала
+src/client/pages/JournalPage.tsx              # «Импортировать» открывает панель через useOpenImport
+src/client/pages/CompanyLayout.tsx            # ImportPanelHost — одна панель импорта на компанию
 src/client/components/MobileTabBar.tsx        # «Импорт из Excel» в «Ещё»
 src/client/lib/audit-format.ts                # «Импорт» в истории действий
 scripts/bench-import.ts                       # npm run bench:import
@@ -203,7 +216,7 @@ scripts/lib/import-check.ts, scripts/import-check.ts  # npm run import:check
 scripts/ux-shots.ts                           # c42, c42b, c42c, cm-import
 package.json, .gitignore, README.md
 tests/helpers/finmap-like.ts                  # finmapLikeMany
-tests/server/import-writer.test.ts, import-commit.test.ts, import-check.test.ts, import-zip.test.ts
+tests/server/import-writer.test.ts, import-commit.test.ts, import-check.test.ts, import-zip.test.ts, mutate.test.ts
 tests/client/import-panel.test.ts, audit-format.test.ts
 e2e/import.spec.ts, e2e/mobile.spec.ts
 ```
@@ -891,9 +904,9 @@ git commit -m "feat: импорт — справочники внутри тра
 ### Task 2: Запись одной транзакцией, версия проверки и `bench:import` (§6.2, §6.4, §6.5, §10)
 
 **Files:**
-- Modify: `src/server/errors.ts`, `src/shared/schemas/imports.ts`, `src/server/modules/imports/preview.ts`, `src/server/modules/imports/service.ts`, `src/server/modules/imports/routes.ts`, `src/server/app.ts`, `tests/helpers/finmap-like.ts`, `tests/server/import-zip.test.ts`, `package.json`
+- Modify: `src/server/errors.ts`, `src/server/modules/audit/mutate.ts`, `src/shared/schemas/imports.ts`, `src/server/modules/imports/preview.ts`, `src/server/modules/imports/service.ts`, `src/server/modules/imports/routes.ts`, `src/server/app.ts`, `tests/helpers/finmap-like.ts`, `tests/server/import-zip.test.ts`, `package.json`
 - Create: `src/server/modules/imports/commit.ts`, `scripts/bench-import.ts`
-- Test: `tests/server/import-commit.test.ts`
+- Test: `tests/server/import-commit.test.ts`, `tests/server/mutate.test.ts`
 
 **Interfaces:**
 - Consumes:
@@ -902,10 +915,11 @@ git commit -m "feat: импорт — справочники внутри тра
   - `AccountsService.create(ex, …)`, `changedFields`, `mutate`.
 - Produces:
   - `AppError.details?: Record<string, unknown>`;
+  - `mutate(db, audit, fn, opts?: { behavior?: 'deferred' | 'immediate' })` — `'immediate'` открывает транзакцию `BEGIN IMMEDIATE` (решение 17);
   - `src/shared/schemas/imports.ts`: `importCommitSchema` (`token`, `accounts`, `revision` — 16 шестнадцатеричных знаков), `ImportCommitRequest`, `ImportPreview.revision: string`, `ImportCounts`, `ImportCreatedCounts`, `ImportRecord`, `ImportCommitResult`;
   - `preview.ts`: `previewRevision(content: Omit<ImportPreview, 'token' | 'revision'>): string`;
   - `commit.ts`: `ImportWriterDeps`, `ImportWriteInput`, `ImportCreatedIds`, `writeImport(tx, deps, input, record): ImportRecord`;
-  - `service.ts`: `ImportsService.commit(companyId, userId, body: ImportCommitRequest): ImportCommitResult`; `importInvalid(preview)` (422 `IMPORT_INVALID`), `importChanged(preview)` (409 `IMPORT_CHANGED`); `createImportsService(d: { db; audit; rates; timezone; now?; cache? } & ImportWriterDeps)`;
+  - `service.ts`: `ImportsService.commit(companyId, userId, body: ImportCommitRequest): ImportCommitResult` — транзакция `BEGIN IMMEDIATE`; `importInvalid(preview)` (422 `IMPORT_INVALID`; без ошибок и без добавляемых строк — «Нечего импортировать: все операции из файла уже есть в компании»), `importChanged(preview)` (409 `IMPORT_CHANGED`); `createImportsService(d: { db; audit; rates; timezone; now?; cache? } & ImportWriterDeps)`;
   - маршрут `POST /api/v1/companies/:cid/imports` → 201 `ImportCommitResult`;
   - `tests/helpers/finmap-like.ts`: `finmapLikeMany(count: number, opts?: { perDay?: number }): FinmapLikeValue[][]`;
   - `npm run bench:import`.
@@ -1130,7 +1144,10 @@ describe('POST …/imports: запись одной транзакцией (§6.
     const res = await commit(p);
     expect(res.statusCode).toBe(422);
     const e = res.json().error;
-    expect(e.code).toBe('IMPORT_INVALID');
+    expect(e).toMatchObject({
+      code: 'IMPORT_INVALID',
+      message: 'Данные компании изменились после проверки, и импорт сейчас невозможен — посмотрите ошибки в обновлённой проверке',
+    });
     expect(e.details.preview.errors.byCode.map((g: { code: string }) => g.code)).toEqual(['R02']);
     expect(tableCounts()).toEqual(before);
   });
@@ -1195,7 +1212,10 @@ describe('POST …/imports: запись одной транзакцией (§6.
     expect(again.counts).toMatchObject({ add: 0, duplicates: 4 });
     expect(again.warnings.map((g) => g.code)).toContain('W8');
     expect(again.canImport).toBe(false);
-    expect((await commit(again)).statusCode).toBe(422);
+    const nothing = await commit(again);
+    expect(nothing.statusCode).toBe(422);
+    // ошибок нет, просто всё уже есть в компании — отдельный текст
+    expect(nothing.json().error).toMatchObject({ code: 'IMPORT_INVALID', message: 'Нечего импортировать: все операции из файла уже есть в компании' });
     expect(one('SELECT COUNT(*) n FROM operations').n).toBe(4);
   });
 
@@ -1296,6 +1316,73 @@ describe('большой файл (§11.2 «Производительность
   throw new Error('ожидалась ошибка файла');
 ```
 
+Блокировка записи с начала транзакции (решение 17) — в `tests/server/mutate.test.ts`:
+
+В `tests/server/mutate.test.ts` замените
+
+```ts
+import { afterEach, describe, expect, it } from 'vitest';
+import { changedFields } from '../../src/server/modules/audit/mutate';
+import { createApi, type ApiHarness } from '../helpers/api';
+
+```
+
+на
+
+```ts
+import path from 'node:path';
+import Database from 'better-sqlite3';
+import { afterEach, describe, expect, it } from 'vitest';
+import { changedFields, mutate } from '../../src/server/modules/audit/mutate';
+import { createAuditService } from '../../src/server/modules/audit/service';
+import { createApi, type ApiHarness } from '../helpers/api';
+
+```
+
+В `tests/server/mutate.test.ts` замените
+
+```ts
+    expect(changedFields({ a: 1 }, {})).toBeNull();
+    expect(changedFields({ a: 1 as number | null }, { a: null })).toEqual({ before: { a: 1 }, after: { a: null } });
+  });
+});
+```
+
+на
+
+```ts
+    expect(changedFields({ a: 1 }, {})).toBeNull();
+    expect(changedFields({ a: 1 as number | null }, { a: null })).toEqual({ before: { a: 1 }, after: { a: null } });
+  });
+});
+
+describe('mutate: когда берётся блокировка записи', () => {
+  it('immediate — с начала транзакции: другое соединение не начнёт запись; deferred — до первой записи может', async () => {
+    h = await createApi();
+    const other = new Database(path.join(h.t.dir, 'app.db'), { timeout: 0 });
+    try {
+      const audit = createAuditService(h.t.db);
+      /** Другое соединение пробует начать запись (без ожидания): удалось ли. */
+      const otherCanWrite = () => {
+        try {
+          other.exec('BEGIN IMMEDIATE');
+          other.exec('ROLLBACK');
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      expect(mutate(h.t.db, audit, () => otherCanWrite())).toBe(true);
+      expect(mutate(h.t.db, audit, () => otherCanWrite(), { behavior: 'immediate' })).toBe(false);
+      // после транзакции блокировки нет
+      expect(otherCanWrite()).toBe(true);
+    } finally {
+      other.close();
+    }
+  });
+});
+```
+
 Синтетический «большой» файл — общий для теста, замера и снимков. В `tests/helpers/finmap-like.ts`:
 
 В `tests/helpers/finmap-like.ts` замените
@@ -1340,6 +1427,9 @@ const NS_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationsh
 
 - [ ] **Step 2: Run test to verify it fails**
 
+Run: `npx vitest run tests/server/mutate.test.ts`
+Expected: FAIL — `mutate` без `behavior` открывает отложенную транзакцию: другое соединение начинает запись.
+
 Run: `npx vitest run tests/server/import-commit.test.ts`
 Expected: FAIL — у предпросмотра нет `revision`, `POST …/imports` отвечает 404; `createImportsService` не принимает `writer`.
 
@@ -1368,6 +1458,39 @@ Expected: FAIL — у предпросмотра нет `revision`, `POST …/im
     public readonly details?: Record<string, unknown>,
   ) {
     super(message);
+```
+
+В `src/server/modules/audit/mutate.ts` замените
+
+```ts
+import type { AuditEntry, AuditService } from './service';
+
+/** Изменение справочника и запись в историю — одной транзакцией: либо оба, либо ничего. */
+export function mutate<T>(db: Db, audit: AuditService, fn: (tx: Executor, record: (entry: AuditEntry) => void) => T): T {
+  return db.transaction((tx) => fn(tx, (entry) => audit.record(entry, tx)));
+}
+
+```
+
+на
+
+```ts
+import type { AuditEntry, AuditService } from './service';
+
+/**
+ * Изменение справочника и запись в историю — одной транзакцией: либо оба, либо ничего. `behavior: 'immediate'` —
+ * блокировка записи берётся в начале транзакции (BEGIN IMMEDIATE), а не при первой записи: проверка внутри транзакции
+ * и запись после неё не разделяются чужой записью (запись импорта, решение 17 плана И-2).
+ */
+export function mutate<T>(
+  db: Db,
+  audit: AuditService,
+  fn: (tx: Executor, record: (entry: AuditEntry) => void) => T,
+  opts: { behavior?: 'deferred' | 'immediate' } = {},
+): T {
+  return db.transaction((tx) => fn(tx, (entry) => audit.record(entry, tx)), { behavior: opts.behavior ?? 'deferred' });
+}
+
 ```
 
 В `src/shared/schemas/imports.ts` замените
@@ -1817,9 +1940,18 @@ export const importExpired = () => new AppError(410, 'IMPORT_EXPIRED', 'Пров
 ```ts
 
 export const importExpired = () => new AppError(410, 'IMPORT_EXPIRED', 'Проверка устарела — загрузите файл заново');
-/** Проверка внутри записи нашла ошибки (счёт ушёл в архив, справочник в архиве): панель показывает свежий предпросмотр. */
-export const importInvalid = (preview: ImportPreview) =>
-  new AppError(422, 'IMPORT_INVALID', 'Данные компании изменились после проверки, и импорт сейчас невозможен — посмотрите ошибки в обновлённой проверке', undefined, { preview });
+/**
+ * Проверка внутри записи не даёт импортировать: ошибки (счёт ушёл в архив, справочник в архиве) или нечего добавлять —
+ * все строки уже есть в компании (тот же файл записал другой пользователь). Панель показывает свежий предпросмотр.
+ */
+export const importInvalid = (preview: ImportPreview) => {
+  const errors = preview.errors.total > 0 || preview.accounts.some((a) => a.mapping === null || a.errors.length > 0);
+  const message =
+    !errors && preview.counts.add === 0
+      ? 'Нечего импортировать: все операции из файла уже есть в компании'
+      : 'Данные компании изменились после проверки, и импорт сейчас невозможен — посмотрите ошибки в обновлённой проверке';
+  return new AppError(422, 'IMPORT_INVALID', message, undefined, { preview });
+};
 /** Проверка внутри записи даёт другой итог, чем видел человек: панель показывает свежий и ждёт нового нажатия. */
 export const importChanged = (preview: ImportPreview) =>
   new AppError(409, 'IMPORT_CHANGED', 'Данные компании изменились после проверки — посмотрите обновлённый итог и нажмите «Импортировать» ещё раз', undefined, { preview });
@@ -1869,22 +2001,28 @@ export function createImportsService(
       if (!entry) throw importExpired();
       const src = { token: body.token, companyId, file: entry.file, parsed: entry.parsed };
       // проверка заново — внутри транзакции записи: better-sqlite3 синхронна, между проверкой и записью база не меняется;
-      // курсы — только чтение базы (rates.resolve), поэтому и они здесь (§6.4 п. 1–2)
-      const record = mutate(db, d.audit, (tx, audit) => {
-        const { preview, plan } = buildPreview(deps, src, body.accounts);
-        if (!preview.canImport) throw importInvalid(preview);
-        if (preview.revision !== body.revision) throw importChanged(preview);
-        const counts: ImportCounts = {
-          rows: preview.file.rows,
-          income: preview.counts.income,
-          expense: preview.counts.expense,
-          transfer: preview.counts.transfer,
-          added: plan.rows.length,
-          duplicates: preview.counts.duplicates,
-          skippedFuture: preview.counts.skippedFuture,
-        };
-        return writeImport(tx, d, { companyId, userId, at: now().toISOString(), file: entry.file, counts, plan }, audit);
-      });
+      // курсы — только чтение базы (rates.resolve), поэтому и они здесь (§6.4 п. 1–2). BEGIN IMMEDIATE: блокировка записи
+      // берётся до проверки — чужая запись (скрипт, второй процесс) не вклинится между проверкой и записью (решение 17)
+      const record = mutate(
+        db,
+        d.audit,
+        (tx, audit) => {
+          const { preview, plan } = buildPreview(deps, src, body.accounts);
+          if (!preview.canImport) throw importInvalid(preview);
+          if (preview.revision !== body.revision) throw importChanged(preview);
+          const counts: ImportCounts = {
+            rows: preview.file.rows,
+            income: preview.counts.income,
+            expense: preview.counts.expense,
+            transfer: preview.counts.transfer,
+            added: plan.rows.length,
+            duplicates: preview.counts.duplicates,
+            skippedFuture: preview.counts.skippedFuture,
+          };
+          return writeImport(tx, d, { companyId, userId, at: now().toISOString(), file: entry.file, counts, plan }, audit);
+        },
+        { behavior: 'immediate' },
+      );
       // записанный файл повторно не записывается: второй запрос с тем же токеном — 410
       cache.remove(body.token);
       return { import: record, counts: record.counts };
@@ -2021,7 +2159,7 @@ import { registerSavedFiltersRoutes } from './modules/saved-filters/routes';
 
 - [ ] **Step 6: Run tests to verify they pass**
 
-Run: `npx vitest run tests/server/import-commit.test.ts tests/server/imports-api.test.ts tests/server/import-preview.test.ts tests/server/import-zip.test.ts`
+Run: `npx vitest run tests/server/import-commit.test.ts tests/server/mutate.test.ts tests/server/imports-api.test.ts tests/server/import-preview.test.ts tests/server/import-zip.test.ts`
 Expected: PASS.
 
 - [ ] **Step 7: Замер `bench:import`**
@@ -2044,25 +2182,31 @@ import { createUsersService } from '../src/server/modules/users/service';
 import type { ImportCommitResult, ImportPreview } from '../src/shared/schemas/imports';
 import { finmapLikeMany, finmapLikeXlsx } from '../tests/helpers/finmap-like';
 
-// Замер импорта (§10 спецификации импорта), два свежих процесса:
+// Замер импорта (§10 спецификации импорта), три свежих процесса:
 // 1) «write» — синтетический файл «как у Finmap» на 16 000 строк: загрузка с проверкой, пересчёт предпросмотра и запись
-//    одной транзакцией (бюджеты 3 с, 1 с, 5 с);
-// 2) «cache» — худший случай кэша проверки, три файла по 50 000 строк в трёх компаниях: пик памяти процесса на первом
-//    файле (бюджет 400 МБ), память кэша (куча после сборки мусора, оценка §10 — около 25 МБ на файл) и пик с тремя файлами.
-// Запросы идут через app.inject. npm run bench:import. Файлы собираются заранее, замеры идут в дочерних процессах —
-// сборка файлов и первый замер не попадают в пик памяти второго. Всё — во временной папке, которая удаляется в конце;
-// папка данных приложения не трогается. Настоящие файлы владельца не используются. В CI не входит.
+//    одной транзакцией (бюджеты 3 с, 1 с, 5 с) и пик памяти процесса за всё это (бюджет 400 МБ);
+// 2) «commit50k» — 50 000 строк (предел §2.3): загрузка и запись — предпросмотр, план и вставка в одной транзакции;
+//    пик памяти процесса (принятый бюджет 500 МБ, решение 9 плана И-2);
+// 3) «cache» — худший случай кэша проверки, три файла по 50 000 строк в трёх компаниях: пик на первом файле
+//    (бюджет 500 МБ), память кэша (куча после сборки мусора, оценка §10 — около 25 МБ на файл) и пик с тремя файлами.
+// Код выхода 1 — только если нарушен бюджет. Запросы идут через app.inject. npm run bench:import. Файлы собираются
+// заранее, замеры идут в дочерних процессах — сборка файлов и прошлый замер не попадают в пик памяти следующего.
+// Всё — во временной папке, которая удаляется в конце; папка данных приложения не трогается. Настоящие файлы владельца
+// не используются. В CI не входит.
 
 const NOW = new Date('2026-10-06T12:00:00.000Z');
 const LOGIN = 'bench';
 const PASSWORD = 'bench-password-1';
 const HEADERS = { origin: 'http://localhost:3000', 'x-requested-with': 'fetch' };
 const BUDGET_MS = { upload: 3000, preview: 1000, commit: 5000 };
-const RSS_BUDGET_MB = 400;
+/** Пик памяти процесса (§10): файл 16 000 строк — 400 МБ; 50 000 строк — принятые 500 МБ. */
+const RSS_BUDGET_16K_MB = 400;
+const RSS_BUDGET_50K_MB = 500;
 const FILE_16K = '16k.xlsx';
 const FILE_50K = '50k.xlsx';
+const PHASES = ['write', 'commit50k', 'cache'] as const;
 
-type Phase = 'write' | 'cache';
+type Phase = (typeof PHASES)[number];
 
 const mb = (bytes: number) => bytes / 1024 / 1024;
 /** Пик памяти процесса с его начала, МБ (resourceUsage().maxRSS — в килобайтах). */
@@ -2076,16 +2220,19 @@ if (process.argv[2] !== '--measure') {
     fs.writeFileSync(path.join(dir, FILE_16K), finmapLikeXlsx(finmapLikeMany(16_000)));
     fs.writeFileSync(path.join(dir, FILE_50K), finmapLikeXlsx(finmapLikeMany(50_000, { perDay: 40 })));
     console.log(`Замер импорта (§10 спецификации импорта), Node ${process.version}, ${os.cpus().length} ядер`);
-    for (const phase of ['write', 'cache'] as const) {
+    for (const phase of PHASES) {
       const child = spawnSync(process.execPath, [...process.execArgv, '--expose-gc', fileURLToPath(import.meta.url), '--measure', dir, phase], { stdio: 'inherit' });
       if (child.status !== 0) failed = true;
     }
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+  console.log(failed ? '\nИтог: бюджет нарушен' : '\nИтог: все бюджеты соблюдены');
   process.exitCode = failed ? 1 : 0;
 } else {
-  await measure(process.argv[3]!, process.argv[4] === 'cache' ? 'cache' : 'write');
+  const phase = PHASES.find((p) => p === process.argv[4]);
+  if (!phase) throw new Error(`Неизвестный замер: ${process.argv[4]}`);
+  await measure(process.argv[3]!, phase);
 }
 
 async function measure(dir: string, phase: Phase): Promise<void> {
@@ -2111,6 +2258,11 @@ async function measure(dir: string, phase: Phase): Promise<void> {
     if (budget !== undefined && ms > budget) over = true;
     lines.push(`${name.padEnd(48)} ${ms.toFixed(0).padStart(7)} мс   ${verdict}`);
   };
+  const reportPeak = (name: string, budget: number) => {
+    const peak = peakMb();
+    if (peak > budget) over = true;
+    lines.push(`${name}: ${peak.toFixed(0)} МБ — ${peak <= budget ? 'OK' : 'ПРЕВЫШЕН'} (бюджет ${budget} МБ)`);
+  };
 
   try {
     const login = await app.inject({ method: 'POST', url: '/api/v1/auth/login', headers: HEADERS, payload: { login: LOGIN, password: PASSWORD } });
@@ -2134,6 +2286,14 @@ async function measure(dir: string, phase: Phase): Promise<void> {
       if (res.statusCode !== 200) throw new Error(`Загрузка: ${res.statusCode} ${res.body.slice(0, 300)}`);
       return { ms, preview: res.json() as ImportPreview };
     };
+    const commit = async (cid: number, p: ImportPreview, rows: number) => {
+      const t = performance.now();
+      const res = await app.inject({ method: 'POST', url: `/api/v1/companies/${cid}/imports`, headers, payload: { token: p.token, accounts: [], revision: p.revision } });
+      const ms = performance.now() - t;
+      if (res.statusCode !== 201) throw new Error(`Запись: ${res.statusCode} ${res.body.slice(0, 300)}`);
+      if ((res.json() as ImportCommitResult).counts.added !== rows) throw new Error(`Записаны не все ${rows} операций`);
+      return ms;
+    };
 
     if (phase === 'write') {
       const cid = await company('Замер импорта');
@@ -2142,30 +2302,31 @@ async function measure(dir: string, phase: Phase): Promise<void> {
       const up = await upload(cid, file);
       if (!up.preview.canImport || up.preview.counts.add !== 16_000) throw new Error('Проверка файла 16 000 строк не прошла');
       report('Загрузка и проверка (upload)', up.ms, BUDGET_MS.upload);
-      let t = performance.now();
+      const t = performance.now();
       const again = await app.inject({ method: 'POST', url: `/api/v1/companies/${cid}/imports/preview`, headers, payload: { token: up.preview.token, accounts: [] } });
       if (again.statusCode !== 200) throw new Error(`Пересчёт: ${again.statusCode} ${again.body.slice(0, 300)}`);
       report('Пересчёт предпросмотра (preview)', performance.now() - t, BUDGET_MS.preview);
-      const p = again.json() as ImportPreview;
-      t = performance.now();
-      const commit = await app.inject({ method: 'POST', url: `/api/v1/companies/${cid}/imports`, headers, payload: { token: p.token, accounts: [], revision: p.revision } });
-      const commitMs = performance.now() - t;
-      if (commit.statusCode !== 201) throw new Error(`Запись: ${commit.statusCode} ${commit.body.slice(0, 300)}`);
-      if ((commit.json() as ImportCommitResult).counts.added !== 16_000) throw new Error('Записаны не все 16 000 операций');
-      report('Запись одной транзакцией (POST /imports)', commitMs, BUDGET_MS.commit);
+      report('Запись одной транзакцией (POST /imports)', await commit(cid, again.json() as ImportPreview, 16_000), BUDGET_MS.commit);
+      reportPeak('Пик памяти процесса: загрузка, пересчёт и запись 16 000 строк', RSS_BUDGET_16K_MB);
+    } else if (phase === 'commit50k') {
+      // предел файла: предпросмотр, план и вставка 50 000 строк — внутри одной транзакции записи
+      const cid = await company('Замер записи 50 000');
+      const big = fs.readFileSync(path.join(dir, FILE_50K));
+      lines.push(`Файл: 50 000 строк, ${mb(big.length).toFixed(1)} МБ`);
+      const up = await upload(cid, big);
+      if (!up.preview.canImport || up.preview.counts.add !== 50_000) throw new Error('Проверка файла 50 000 строк не прошла');
+      report('Загрузка и проверка 50 000 строк', up.ms);
+      report('Запись 50 000 строк одной транзакцией', await commit(cid, up.preview, 50_000));
+      reportPeak('Пик памяти процесса: загрузка и запись 50 000 строк', RSS_BUDGET_50K_MB);
     } else {
-      // три файла по 50 000 строк (предел §2.3) в трёх компаниях — кэш (не больше 3 файлов) держит все три
+      // три файла по 50 000 строк в трёх компаниях — кэш (не больше 3 файлов) держит все три
       const big = fs.readFileSync(path.join(dir, FILE_50K));
       lines.push(`Файл: 50 000 строк, ${mb(big.length).toFixed(1)} МБ`);
       const heapBefore = heapMb();
       for (let i = 1; i <= 3; i++) {
         const res = await upload(await company(`Замер кэша ${i}`), big);
         report(`Загрузка 50 000 строк, файл ${i} из 3`, res.ms);
-        if (i === 1) {
-          const peak = peakMb();
-          if (peak > RSS_BUDGET_MB) over = true;
-          lines.push(`Пик памяти процесса на файле 50 000 строк: ${peak.toFixed(0)} МБ — ${peak <= RSS_BUDGET_MB ? 'OK' : 'ПРЕВЫШЕН'} (бюджет ${RSS_BUDGET_MB} МБ)`);
-        }
+        if (i === 1) reportPeak('Пик памяти процесса на первом файле 50 000 строк', RSS_BUDGET_50K_MB);
       }
       lines.push(`Кэш: 3 файла по 50 000 строк занимают ${(heapMb() - heapBefore).toFixed(0)} МБ кучи (оценка §10 — около 25 МБ на файл)`);
       lines.push(`Пик памяти процесса с тремя файлами в кэше: ${peakMb().toFixed(0)} МБ (без бюджета)`);
@@ -2178,7 +2339,8 @@ async function measure(dir: string, phase: Phase): Promise<void> {
     sqlite.close();
   }
 
-  console.log(`\n${phase === 'write' ? 'Запись 16 000 строк' : 'Худший случай кэша'}:`);
+  const titles: Record<Phase, string> = { write: 'Запись 16 000 строк', commit50k: 'Запись 50 000 строк', cache: 'Худший случай кэша' };
+  console.log(`\n${titles[phase]}:`);
   for (const l of lines) console.log(l);
   process.exitCode = over ? 1 : 0;
 }
@@ -2198,12 +2360,17 @@ async function measure(dir: string, phase: Phase): Promise<void> {
 ```
 
 Run: `npm run bench:import`
-Expected: две таблицы — «Запись 16 000 строк» и «Худший случай кэша». Время — в пределах бюджетов, на машине планировщика 1,4 с, 0,5 с и 0,8 с. Кэш — около 80 МБ кучи на три файла. Строка «Пик памяти процесса на файле 50 000 строк» — около 450 МБ, «ПРЕВЫШЕН»; код выхода 1. Это известное превышение (решение 9): в этой задаче не исправлять, цифры — в отчёт задачи для итогов плана. Если превышено время записи 16 000 строк (больше 5 с), остановитесь и сообщите контролёру.
+Expected: три таблицы — «Запись 16 000 строк», «Запись 50 000 строк», «Худший случай кэша» — и «Итог: все бюджеты соблюдены», код выхода 0. На машине планировщика:
+- 16 000 строк: загрузка 1,4 с, пересчёт 0,5 с, запись 0,8 с, пик 345 МБ (бюджет 400 МБ);
+- 50 000 строк: запись 2,6 с, пик 447 МБ (бюджет 500 МБ);
+- кэш — около 80 МБ кучи на три файла, пик с тремя файлами — около 540 МБ (без бюджета).
+
+Любое «ПРЕВЫШЕН» — остановитесь и сообщите контролёру с цифрами: бюджеты §10 — решение 9, их не меняют в задаче. Цифры — в отчёт задачи для итогов плана.
 
 - [ ] **Step 8: Full check**
 
 Run: `npm test`
-Expected: 988 пройдено и 1 пропущен.
+Expected: 989 пройдено и 1 пропущен.
 
 Run: `npm run typecheck`
 Expected: без ошибок.
@@ -2211,8 +2378,8 @@ Expected: без ошибок.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/server/errors.ts src/shared/schemas/imports.ts src/server/modules/imports/preview.ts src/server/modules/imports/commit.ts src/server/modules/imports/service.ts src/server/modules/imports/routes.ts src/server/app.ts tests/helpers/finmap-like.ts tests/server/import-zip.test.ts tests/server/import-commit.test.ts scripts/bench-import.ts package.json
-git commit -m "feat: импорт — запись одной транзакцией, версия проверки и 409, история импорта; bench:import" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git add src/server/errors.ts src/server/modules/audit/mutate.ts tests/server/mutate.test.ts src/shared/schemas/imports.ts src/server/modules/imports/preview.ts src/server/modules/imports/commit.ts src/server/modules/imports/service.ts src/server/modules/imports/routes.ts src/server/app.ts tests/helpers/finmap-like.ts tests/server/import-zip.test.ts tests/server/import-commit.test.ts scripts/bench-import.ts package.json
+git commit -m "feat: импорт — запись одной транзакцией (BEGIN IMMEDIATE), версия проверки и 409, история импорта; bench:import" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
@@ -2433,6 +2600,10 @@ describe('панель импорта: сопоставление счетов (
     expect(isImportPreview(preview())).toBe(true);
     expect(isImportPreview({ token: 'x' })).toBe(false);
     expect(isImportPreview(null)).toBe(false);
+    // ошибки, счётчики и «Будет создано» — тоже по типу: панель показывает их без проверок
+    expect(isImportPreview({ ...preview(), errors: { total: '1', byCode: [] } })).toBe(false);
+    expect(isImportPreview({ ...preview(), counts: null })).toBe(false);
+    expect(isImportPreview({ ...preview(), create: { ...preview().create, tags: { total: 0 } } })).toBe(false);
   });
 });
 ```
@@ -2757,7 +2928,20 @@ export function doneText(r: ImportCommitResult): string {
 export function isImportPreview(x: unknown): x is ImportPreview {
   if (!x || typeof x !== 'object') return false;
   const p = x as Partial<ImportPreview>;
-  return typeof p.token === 'string' && typeof p.revision === 'string' && Array.isArray(p.accounts) && typeof p.canImport === 'boolean';
+  const obj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+  return (
+    typeof p.token === 'string' &&
+    typeof p.revision === 'string' &&
+    typeof p.canImport === 'boolean' &&
+    Array.isArray(p.accounts) &&
+    obj(p.errors) &&
+    typeof p.errors.total === 'number' &&
+    Array.isArray(p.errors.byCode) &&
+    obj(p.counts) &&
+    typeof p.counts.add === 'number' &&
+    obj(p.create) &&
+    (['categories', 'counterparties', 'projects', 'tags'] as const).every((k) => obj(p.create![k]) && Array.isArray(p.create![k].items))
+  );
 }
 
 // ——— запросы ———
@@ -2960,7 +3144,7 @@ Run: `npx vitest run tests/client/import-panel.test.ts`
 Expected: PASS, 8 тестов.
 
 Run: `npm test`
-Expected: 996 пройдено и 1 пропущен.
+Expected: 997 пройдено и 1 пропущен.
 
 Run: `npm run typecheck`
 Expected: без ошибок.
@@ -2981,7 +3165,7 @@ git commit -m "feat: импорт — логика панели: тексты, �
 
 **Files:**
 - Create: `src/client/components/import/ImportAccountCard.tsx`, `src/client/components/import/ImportPreviewView.tsx`, `src/client/components/import/ImportPanel.tsx`
-- Modify: `src/client/components/journal/JournalToolbar.tsx`, `src/client/pages/JournalPage.tsx`
+- Modify: `src/client/components/journal/JournalToolbar.tsx`, `src/client/pages/JournalPage.tsx`, `src/client/pages/CompanyLayout.tsx`
 - Test: `e2e/import.spec.ts`
 
 **Interfaces:**
@@ -2989,7 +3173,10 @@ git commit -m "feat: импорт — логика панели: тексты, �
   - задача 3: всё из `lib/import-panel.ts`, `Drawer` (`busy`, `wide`, `footer`), `UploadIcon`, `FolderIcon`;
   - `ComboSelect`, `Field`, `accountOptions`, `useAccounts`, `formatFileSize`, `isFileDrag`, `nameKey`.
 - Produces:
-  - `ImportPanel({ company, open, onClose }: { company: Company; open: boolean; onClose: () => void })` — `src/client/components/import/ImportPanel.tsx`;
+  - `src/client/components/import/ImportPanel.tsx`:
+    - `ImportPanelHost({ company, children })` — одна панель импорта на компанию (решение 18), в `CompanyLayout` внутри `OperationFormHost`;
+    - `useOpenImport(): (() => void) | null` — открыть панель; `null` — архивная компания;
+    - `ImportPanel({ company, open, onClose })` — сама панель;
   - `ImportPreviewView`, `ImportAccountCard` (используются только панелью);
   - `JournalToolbar` — свойство `onImport?: () => void`: ⤒ «Импортировать» — последняя кнопка тулбара на компьютере, `aria-haspopup="dialog"`; без свойства кнопки нет;
   - доступность для e2e и снимков:
@@ -3060,6 +3247,10 @@ test('«Импортировать» — последняя кнопка тул�
   await open.click();
   await expect(panel(page)).toBeVisible();
   await expect(panel(page).getByText('Перетяните сюда файл (до 30 МБ)')).toBeVisible();
+  // ограничения файла — в описании кнопки «Выберите файл» (§5.8)
+  await expect(panel(page).getByRole('button', { name: 'Выберите файл' })).toHaveAccessibleDescription(
+    'Формат — как выгрузка Finmap «Excel» или шаблон: .xlsx или .csv. Импортируется первый лист',
+  );
   // кнопка «Импортировать» в подвале есть, но недоступна: файла ещё нет
   const go = panel(page).getByRole('button', { name: 'Импортировать' });
   await expect(go).toHaveAttribute('aria-disabled', 'true');
@@ -3177,8 +3368,12 @@ test('файл с ошибками: список ошибок, «Импорти�
   await expect(go).toHaveAccessibleDescription('Выберите другой файл');
 });
 
-test('Esc во время записи панель не закрывает; 410 «Проверка устарела» — файл проверяется заново, после повторного нажатия импорт проходит', async ({ page }) => {
-  await companyWithCash(page, 'Импорт занята');
+test('Esc во время записи панель не закрывает, «Назад» в браузере — тоже; 410 «Проверка устарела» — файл проверяется заново, после повторного нажатия импорт проходит', async ({ page }) => {
+  const cid = await companyWithCash(page, 'Импорт занята');
+  // в журнал — из настроек, переходом внутри приложения: «Назад» в браузере вернёт в настройки
+  await page.goto(`/c/${cid}/settings/tags`);
+  await page.getByRole('link', { name: /Назад к журналу/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/log`));
   await page.getByRole('main').getByRole('button', { name: 'Импортировать' }).click();
   await chooseFile(page, ROWS);
   const p = panel(page);
@@ -3216,6 +3411,10 @@ test('Esc во время записи панель не закрывает; 410
   await expect(closeButton).toHaveAttribute('aria-disabled', 'true');
   await closeButton.focus();
   await page.keyboard.press('Enter');
+  await expect(p).toBeVisible();
+  // «Назад» в браузере уводит с журнала, но панель живёт в раскладке компании — запись видна до конца
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/tags$`));
   await expect(p).toBeVisible();
   release();
   await expect(p.getByRole('heading', { level: 3, name: 'Импорт завершён' })).toBeFocused();
@@ -3573,7 +3772,7 @@ export function ImportPreviewView(props: {
 Создайте `src/client/components/import/ImportPanel.tsx`:
 
 ```tsx
-import { useEffect, useId, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { AccountMapping, ImportCommitResult, ImportPreview } from '../../../shared/schemas/imports';
 import { ApiError } from '../../lib/api';
@@ -3618,10 +3817,34 @@ function errorText(e: unknown): string {
 
 const expired = (e: unknown) => e instanceof ApiError && e.code === 'IMPORT_EXPIRED';
 
+const OpenImportContext = createContext<(() => void) | null>(null);
+
+/** Открыть панель импорта; null — импорт недоступен (архивная компания) или вне раскладки компании. */
+export function useOpenImport(): (() => void) | null {
+  return useContext(OpenImportContext);
+}
+
 /**
- * Правая панель «Импорт из Excel» (§5 спецификации импорта): кнопка «Импортировать» в тулбаре журнала и пункт
- * «Импорт из Excel» в «Ещё» нижней панели на телефоне. 480 px на компьютере, на телефоне — на весь экран; пока идёт
- * запись, панель не закрывается (Drawer.busy). Содержимое (и состояние) монтируется заново при каждом открытии;
+ * Одна панель импорта на компанию — в раскладке компании (CompanyLayout), а не в журнале или нижней панели: переход
+ * по истории браузера, смена ширины окна или скрытие нижней панели не размонтируют её, пока идёт запись (решение 18
+ * плана И-2). Открывают её «Импортировать» в тулбаре журнала и «Импорт из Excel» в «Ещё» на телефоне.
+ */
+export function ImportPanelHost({ company, children }: { company: Company; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const show = useCallback(() => setOpen(true), []);
+  // в архивную компанию импорт запрещён (§1.2 спецификации импорта): ни кнопки, ни пункта, ни панели
+  const canImport = company.archivedAt === null;
+  return (
+    <OpenImportContext.Provider value={canImport ? show : null}>
+      {children}
+      {canImport && <ImportPanel company={company} open={open} onClose={() => setOpen(false)} />}
+    </OpenImportContext.Provider>
+  );
+}
+
+/**
+ * Правая панель «Импорт из Excel» (§5 спецификации импорта). 480 px на компьютере, на телефоне — на весь экран; пока
+ * идёт запись, панель не закрывается (Drawer.busy). Содержимое (и состояние) монтируется заново при каждом открытии;
  * подвал с «Импортировать» — в закреплённом низу панели (портал в слот `footer`).
  */
 export function ImportPanel({ company, open, onClose }: { company: Company; open: boolean; onClose: () => void }) {
@@ -3859,7 +4082,6 @@ function ImportFlow(props: { company: Company; footer: HTMLDivElement | null; on
           {file === null ? (
             <div
               data-drop-zone=""
-              aria-describedby={hintId}
               onDragOver={(e) => {
                 if (!isFileDrag([...e.dataTransfer.types])) return;
                 e.preventDefault();
@@ -3882,7 +4104,7 @@ function ImportFlow(props: { company: Company; footer: HTMLDivElement | null; on
               </span>
               <p className="font-semibold [@media(pointer:coarse)]:hidden">Перетяните сюда файл (до 30 МБ)</p>
               <p className="text-sm text-muted [@media(pointer:coarse)]:hidden">или</p>
-              <button type="button" onClick={pick} className={`${btnSecondary} max-md:h-11 max-md:w-full`}>
+              <button type="button" onClick={pick} aria-describedby={hintId} className={`${btnSecondary} max-md:h-11 max-md:w-full`}>
                 Выберите файл
               </button>
             </div>
@@ -4036,7 +4258,7 @@ import { useOpenOperationForm } from '../components/operation/OperationFormHost'
 ```tsx
 import { JournalTable, type JournalLookups } from '../components/journal/JournalTable';
 import { JournalToolbar } from '../components/journal/JournalToolbar';
-import { ImportPanel } from '../components/import/ImportPanel';
+import { useOpenImport } from '../components/import/ImportPanel';
 import { LoadMore } from '../components/journal/LoadMore';
 import { useOpenOperationForm } from '../components/operation/OperationFormHost';
 ```
@@ -4055,7 +4277,8 @@ import { useOpenOperationForm } from '../components/operation/OperationFormHost'
 ```tsx
   const tags = useTags(company.id);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
+  // панель импорта живёт в раскладке компании (ImportPanelHost); null — архивная компания
+  const openImport = useOpenImport();
   const openForm = useOpenOperationForm();
   const savedFilters = useSavedFilters(company.id);
 ```
@@ -4067,7 +4290,6 @@ import { useOpenOperationForm } from '../components/operation/OperationFormHost'
         onPrefError={setActionError}
       />
       <FilterDialog
-        open={filterOpen}
 ```
 
 на
@@ -4076,11 +4298,108 @@ import { useOpenOperationForm } from '../components/operation/OperationFormHost'
         // колонки и «Показывать полностью» не сохранились, а «Ещё» уже закрыт — ошибку видно на странице
         onPrefError={setActionError}
         // в архивную компанию импорт запрещён (§1.2 спецификации импорта): кнопки нет
-        onImport={readOnly ? undefined : () => setImportOpen(true)}
+        onImport={openImport ?? undefined}
       />
-      {!readOnly && <ImportPanel company={company} open={importOpen} onClose={() => setImportOpen(false)} />}
       <FilterDialog
-        open={filterOpen}
+```
+
+Одна панель импорта на компанию — в раскладке компании (решение 18):
+
+В `src/client/pages/CompanyLayout.tsx` замените
+
+```tsx
+import { CompanyBlockButton } from '../components/CompaniesDrawer';
+import { HistoryButton } from '../components/HistoryDrawer';
+import { LoadError } from '../components/LoadError';
+import { MobileTabBar } from '../components/MobileTabBar';
+```
+
+на
+
+```tsx
+import { CompanyBlockButton } from '../components/CompaniesDrawer';
+import { HistoryButton } from '../components/HistoryDrawer';
+import { ImportPanelHost } from '../components/import/ImportPanel';
+import { LoadError } from '../components/LoadError';
+import { MobileTabBar } from '../components/MobileTabBar';
+```
+
+В `src/client/pages/CompanyLayout.tsx` замените
+
+```tsx
+  return (
+    <OperationFormHost company={company}>
+      <div className="min-h-dvh bg-chrome">
+        <AppHeader
+          // в зоне настроек панель счетов не нужна (§8.6)
+          menuButton={inSettings ? undefined : <AccountsDrawerButton company={company} />}
+          company={<CompanyBlockButton current={company} companies={companies.data} />}
+          // архивная компания — только чтение: кнопок новых операций нет ни на компьютере, ни на телефоне
+          actions={company.archivedAt ? undefined : <NewOperationButtons />}
+          tools={<HistoryButton company={company} />}
+          menu={{ companyId: company.id, companyName: company.name }}
+        />
+        <div className="flex items-start gap-4 md:mx-4">
+          {inSettings ? (
+            <Outlet context={{ company } satisfies CompanyOutletContext} />
+          ) : (
+            <>
+              <AccountsPanel company={company} />
+              <main className={mainCardClass}>
+                <nav className="mb-6 flex gap-2 max-md:hidden">
+                  <NavLink to={`/c/${company.id}/log`} className={tab}>
+                    Журнал
+                  </NavLink>
+                </nav>
+                <Outlet context={{ company } satisfies CompanyOutletContext} />
+              </main>
+            </>
+          )}
+        </div>
+        <MobileTabBar company={company} />
+      </div>
+    </OperationFormHost>
+  );
+```
+
+на
+
+```tsx
+  return (
+    <OperationFormHost company={company}>
+      <ImportPanelHost company={company}>
+        <div className="min-h-dvh bg-chrome">
+          <AppHeader
+            // в зоне настроек панель счетов не нужна (§8.6)
+            menuButton={inSettings ? undefined : <AccountsDrawerButton company={company} />}
+            company={<CompanyBlockButton current={company} companies={companies.data} />}
+            // архивная компания — только чтение: кнопок новых операций нет ни на компьютере, ни на телефоне
+            actions={company.archivedAt ? undefined : <NewOperationButtons />}
+            tools={<HistoryButton company={company} />}
+            menu={{ companyId: company.id, companyName: company.name }}
+          />
+          <div className="flex items-start gap-4 md:mx-4">
+            {inSettings ? (
+              <Outlet context={{ company } satisfies CompanyOutletContext} />
+            ) : (
+              <>
+                <AccountsPanel company={company} />
+                <main className={mainCardClass}>
+                  <nav className="mb-6 flex gap-2 max-md:hidden">
+                    <NavLink to={`/c/${company.id}/log`} className={tab}>
+                      Журнал
+                    </NavLink>
+                  </nav>
+                  <Outlet context={{ company } satisfies CompanyOutletContext} />
+                </main>
+              </>
+            )}
+          </div>
+          <MobileTabBar company={company} />
+        </div>
+      </ImportPanelHost>
+    </OperationFormHost>
+  );
 ```
 
 - [ ] **Step 7: Run tests to verify they pass**
@@ -4092,7 +4411,7 @@ Run: `npx playwright test e2e/import.spec.ts`
 Expected: 6 passed.
 
 Run: `npm test`
-Expected: 996 пройдено и 1 пропущен.
+Expected: 997 пройдено и 1 пропущен.
 
 Run: `npm run test:e2e` — два раза подряд.
 Expected: оба раза 148 из 148.
@@ -4100,7 +4419,7 @@ Expected: оба раза 148 из 148.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/client/components/import/ImportAccountCard.tsx src/client/components/import/ImportPreviewView.tsx src/client/components/import/ImportPanel.tsx src/client/components/journal/JournalToolbar.tsx src/client/pages/JournalPage.tsx e2e/import.spec.ts
+git add src/client/components/import/ImportAccountCard.tsx src/client/components/import/ImportPreviewView.tsx src/client/components/import/ImportPanel.tsx src/client/components/journal/JournalToolbar.tsx src/client/pages/JournalPage.tsx src/client/pages/CompanyLayout.tsx e2e/import.spec.ts
 git commit -m "feat: импорт — панель «Импорт из Excel»: файл, шаблон, проверка, счета из файла, «Импортировать», 409 и 410" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
 
@@ -4113,7 +4432,7 @@ git commit -m "feat: импорт — панель «Импорт из Excel»: 
 - Test: `e2e/mobile.spec.ts`, `tests/client/audit-format.test.ts`
 
 **Interfaces:**
-- Consumes: задача 4 — `ImportPanel({ company, open, onClose })`; `Drawer.wide` (на телефоне — на весь экран).
+- Consumes: задача 4 — `useOpenImport()` (панель живёт в `ImportPanelHost` раскладки компании); `Drawer.wide` (на телефоне — на весь экран).
 - Produces:
   - пункт «Импорт из Excel» в меню «Ещё» нижней панели — последним, после «История действий»; в архивной компании пункта нет; закрытие панели возвращает фокус на «Ещё»;
   - `ENTITY_LABELS.import = 'Импорт'`, `'import'` в `COMPANY_ENTITIES` (фильтр страницы «История действий»).
@@ -4272,7 +4591,7 @@ import { Popover } from './Popover';
 ```tsx
 import type { Company } from '../lib/queries';
 import { HistoryPanel } from './HistoryDrawer';
-import { ImportPanel } from './import/ImportPanel';
+import { useOpenImport } from './import/ImportPanel';
 import { Popover } from './Popover';
 
 ```
@@ -4301,25 +4620,6 @@ import { Popover } from './Popover';
 В `src/client/components/MobileTabBar.tsx` замените
 
 ```tsx
-export function MobileTabBar({ company }: { company: Company }) {
-  const [history, setHistory] = useState(false);
-  const mobile = useIsMobile();
-  // окно стало шире телефона — панель вкладок скрыта, а открытая история держала бы страницу недоступной
-```
-
-на
-
-```tsx
-export function MobileTabBar({ company }: { company: Company }) {
-  const [history, setHistory] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const mobile = useIsMobile();
-  // окно стало шире телефона — панель вкладок скрыта, а открытая история держала бы страницу недоступной
-```
-
-В `src/client/components/MobileTabBar.tsx` замените
-
-```tsx
     if (!mobile) setHistory(false);
   }, [mobile]);
   const location = useLocation();
@@ -4331,8 +4631,8 @@ export function MobileTabBar({ company }: { company: Company }) {
 ```tsx
     if (!mobile) setHistory(false);
   }, [mobile]);
-  // в архивную компанию импорт запрещён (§1.2 спецификации импорта): пункта нет
-  const canImport = company.archivedAt === null;
+  // в архивную компанию импорт запрещён (§1.2 спецификации импорта): пункта нет. Панель — в раскладке компании
+  const openImport = useOpenImport();
   const location = useLocation();
   const onJournal = useMatch('/c/:companyId/log') !== null;
 ```
@@ -4351,14 +4651,14 @@ export function MobileTabBar({ company }: { company: Company }) {
 ```tsx
                 </button>
               </li>
-              {canImport && (
+              {openImport && (
                 <li>
                   <button
                     type="button"
                     onClick={() => {
                       // фокус сначала на «Ещё»: панель импорта вернёт его туда при закрытии (§5.1 спецификации импорта)
                       close(true);
-                      setImporting(true);
+                      openImport();
                     }}
                     className={itemClass}
                   >
@@ -4368,25 +4668,6 @@ export function MobileTabBar({ company }: { company: Company }) {
               )}
             </ul>
           )}
-```
-
-В `src/client/components/MobileTabBar.tsx` замените
-
-```tsx
-      {/* вне <nav>: при скрытой (md:hidden) панели вкладок окно истории не должно оказаться внутри display:none */}
-      <HistoryPanel company={company} open={history} onClose={() => setHistory(false)} />
-    </>
-  );
-```
-
-на
-
-```tsx
-      {/* вне <nav>: при скрытой (md:hidden) панели вкладок окно истории не должно оказаться внутри display:none */}
-      <HistoryPanel company={company} open={history} onClose={() => setHistory(false)} />
-      {canImport && <ImportPanel company={company} open={importing} onClose={() => setImporting(false)} />}
-    </>
-  );
 ```
 
 В `src/client/lib/audit-format.ts` замените
@@ -4436,7 +4717,7 @@ Run: `npx playwright test e2e/mobile.spec.ts -g "Импорт из Excel|мен�
 Expected: 2 passed.
 
 Run: `npm test`
-Expected: 996 пройдено и 1 пропущен.
+Expected: 997 пройдено и 1 пропущен.
 
 Run: `npm run typecheck`
 Expected: без ошибок.
@@ -4465,8 +4746,8 @@ git commit -m "feat: импорт — «Импорт из Excel» в «Ещё» 
   - И-1: `readImportFile(data, name)`, `parseSheet(sheet, ctx)`, `decimalToMinor(value, minorUnits)`, `nameKey`, `systemKeyOf`;
   - задача 2: `POST …/imports` — в тесте.
 - Produces:
-  - `scripts/lib/import-check.ts`: `interface CheckLine { what; file; db; currency }`, `interface CheckReport { company; fileName; rows; counts; accounts; categories; notes; mismatches }`, `checkImport(input: { sqlite; companyId; data; fileName; timezone; today }): CheckReport`, `formatReport(r): string[]`;
-  - `npm run import:check -- <файл> <id компании>` — база только на чтение, выход 0 «Совпадает» и 1 «Расхождений: N»;
+  - `scripts/lib/import-check.ts`: `interface CheckLine { what; file; db; currency }`, `interface CheckReport { company; fileName; today; rows; counts; accounts; categories; notes; mismatches }`, `checkImport(input: { sqlite; companyId; data; fileName; timezone; today }): CheckReport`, `formatReport(r): string[]`;
+  - `npm run import:check -- <файл> <id компании> [--today ГГГГ-ММ-ДД]` — база только на чтение и закрывается и после ошибки, «сегодня» разбора печатается; выход 0 «Совпадает» и 1 «Расхождений: N» или ошибка;
   - `.gitignore`: `*.import-local.*`;
   - README: «Что уже работает» — импорт; раздел «Импорт из Finmap» (шаги §12 без реальных данных); команды `import:check` и `bench:import`.
 
@@ -4513,6 +4794,7 @@ describe('сверка импорта npm run import:check (§12 специфи�
     w = await opsWorld();
     await importFile();
     const r = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx(ROWS), ...CTX });
+    expect(r.today).toBe('2026-10-06');
     expect(r.rows).toEqual({ total: 6, future: 1, errors: 0 });
     expect(r.counts).toEqual([
       { what: 'доходы', file: 2, db: 2, currency: null },
@@ -4532,6 +4814,26 @@ describe('сверка импорта npm run import:check (§12 специфи�
     expect(r.notes).toEqual([]);
     expect(r.mismatches).toBe(0);
     expect(formatReport(r).at(-1)).toBe('Итог: Совпадает');
+    expect(formatReport(r)[1]).toBe('Сегодня для разбора: 06.10.2026 — строки с датой платежа позже пропущены как плановые (--today ГГГГ-ММ-ДД — другая дата)');
+    // другая «сегодня»: декабрьская строка уже не плановая — в файле на одну строку больше, чем в базе
+    const later = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx(ROWS), ...CTX, today: '2026-12-31' });
+    expect(later.rows.future).toBe(0);
+    expect(later.counts[0]).toEqual({ what: 'доходы', file: 3, db: 2, currency: null });
+  });
+
+  it('одноимённые подкатегории разных родителей: одна строка сверки, в подписи — оба родителя', async () => {
+    w = await opsWorld();
+    const rows = [
+      fr({ paidAt: at('2026-10-02', '10:00:00'), amount: 100, from: 'Касса', category: 'Зарплата', subcategory: 'Администраторы' }),
+      fr({ paidAt: at('2026-10-02', '11:00:00'), amount: 200, from: 'Касса', category: 'Офис', subcategory: 'Администраторы' }),
+    ];
+    await importFile(rows);
+    const r = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx(rows), ...CTX });
+    expect(r.categories).toEqual([{ what: 'Расходы: Зарплата → Администраторы + Офис → Администраторы', file: -30_000, db: -30_000, currency: 'KZT' }]);
+    expect(r.mismatches).toBe(0);
+    const text = formatReport(r);
+    // длинная подпись не обрезается: числа — строкой ниже
+    expect(text).toContain('  Расходы: Зарплата → Администраторы + Офис → Администраторы');
   });
 
   it('операция, добавленная после импорта, — расхождения по счёту и категории; строка с неизвестным счётом — предупреждение', async () => {
@@ -4568,6 +4870,7 @@ Expected: FAIL — модуль `scripts/lib/import-check` не найден.
 
 ```ts
 import { getCurrency, isKnownCurrency } from '../../src/shared/currencies';
+import { formatDateRu } from '../../src/shared/dates';
 import { nameKey, systemKeyOf } from '../../src/shared/finmap-format';
 import { formatAmount } from '../../src/shared/money';
 import type { Sqlite } from '../../src/server/db/client';
@@ -4593,6 +4896,8 @@ export interface CheckLine {
 export interface CheckReport {
   company: string;
   fileName: string;
+  /** «Сегодня» разбора: строки позже — плановые и не считаются. */
+  today: string;
   rows: { total: number; future: number; errors: number };
   counts: CheckLine[];
   accounts: CheckLine[];
@@ -4632,7 +4937,8 @@ export function checkImport(input: { sqlite: Sqlite; companyId: number; data: Bu
   // ——— файл
   const fileCounts = { income: 0, expense: 0, transfer: 0 };
   const fileMove = new Map<number, number>();
-  const fileCats = new Map<string, { title: string; sum: number }>();
+  /** Итоги по ключу листа; titles — подписи «Родитель → Подкатегория» всех строк с этим ключом. */
+  const fileCats = new Map<string, { kind: 'income' | 'expense'; titles: Set<string>; sum: number }>();
   let crossSkipped = 0;
   let baseSkipped = 0;
   const move = (id: number, delta: number) => fileMove.set(id, (fileMove.get(id) ?? 0) + delta);
@@ -4663,8 +4969,8 @@ export function checkImport(input: { sqlite: Sqlite; companyId: number; data: Bu
     const kind = r.type;
     const leaf = r.subcategory ?? r.category;
     const key = categoryKey(kind, leaf, r.subcategory ? null : r.category ? systemKeyOf(r.category, kind) : null);
-    const title = `${KIND_TITLE[kind]}: ${r.category ? (r.subcategory ? `${r.category} → ${r.subcategory}` : r.category) : 'Без категории'}`;
-    const c = fileCats.get(key) ?? { title, sum: 0 };
+    const c = fileCats.get(key) ?? { kind, titles: new Set<string>(), sum: 0 };
+    c.titles.add(r.category ? (r.subcategory ? `${r.category} → ${r.subcategory}` : r.category) : 'Без категории');
     c.sum += kind === 'income' ? base : -base;
     fileCats.set(key, c);
   }
@@ -4686,7 +4992,7 @@ export function checkImport(input: { sqlite: Sqlite; companyId: number; data: Bu
     )
     .all(companyId, companyId) as { id: number; m: number }[];
   for (const r of moves) dbMove.set(r.id, (dbMove.get(r.id) ?? 0) + r.m);
-  const dbCats = new Map<string, { title: string; sum: number }>();
+  const dbCats = new Map<string, { kind: 'income' | 'expense'; titles: Set<string>; sum: number }>();
   const lines = sqlite
     .prepare(
       `SELECT o.type AS kind, c.name AS name, c.system_key AS systemKey, p.name AS parent, SUM(l.base_amount) AS sum
@@ -4698,8 +5004,8 @@ export function checkImport(input: { sqlite: Sqlite; companyId: number; data: Bu
     .all(companyId) as { kind: 'income' | 'expense'; name: string | null; systemKey: string | null; parent: string | null; sum: number }[];
   for (const r of lines) {
     const key = categoryKey(r.kind, r.name, r.systemKey);
-    const title = `${KIND_TITLE[r.kind]}: ${r.name === null ? 'Без категории' : r.parent ? `${r.parent} → ${r.name}` : r.name}`;
-    const c = dbCats.get(key) ?? { title, sum: 0 };
+    const c = dbCats.get(key) ?? { kind: r.kind, titles: new Set<string>(), sum: 0 };
+    c.titles.add(r.name === null ? 'Без категории' : r.parent ? `${r.parent} → ${r.name}` : r.name);
     c.sum += r.kind === 'income' ? r.sum : -r.sum;
     dbCats.set(key, c);
   }
@@ -4714,13 +5020,20 @@ export function checkImport(input: { sqlite: Sqlite; companyId: number; data: Bu
   const accountLines: CheckLine[] = accounts
     .filter((a) => fileMove.has(a.id) || dbMove.has(a.id))
     .map((a) => ({ what: `${a.name}, ${a.currency}`, file: fileMove.get(a.id) ?? 0, db: dbMove.get(a.id) ?? 0, currency: a.currency }));
+  // подпись — по базе (там известен родитель), иначе по файлу; одноимённые подкатегории разных родителей сверяются вместе,
+  // и в подписи видны все родители: «Расходы: Зарплата → Администраторы + Офис → Администраторы»
+  const label = (k: string) => {
+    const c = (dbCats.get(k) ?? fileCats.get(k))!;
+    return `${KIND_TITLE[c.kind]}: ${[...c.titles].sort((a, b) => a.localeCompare(b, 'ru')).join(' + ')}`;
+  };
   const catLines: CheckLine[] = [...new Set([...fileCats.keys(), ...dbCats.keys()])]
-    .map((k) => ({ what: (dbCats.get(k) ?? fileCats.get(k))!.title, file: fileCats.get(k)?.sum ?? 0, db: dbCats.get(k)?.sum ?? 0, currency: company.base }))
+    .map((k) => ({ what: label(k), file: fileCats.get(k)?.sum ?? 0, db: dbCats.get(k)?.sum ?? 0, currency: company.base }))
     .sort((a, b) => a.what.localeCompare(b.what, 'ru'));
   const mismatches = [...counts, ...accountLines, ...catLines].filter((l) => l.file !== l.db).length;
   return {
     company: company.name,
     fileName: input.fileName,
+    today: input.today,
     rows: { total: parsed.total, future: parsed.future.length, errors: new Set(parsed.issues.filter((i) => i.code.startsWith('R')).map((i) => i.row)).size },
     counts,
     accounts: accountLines,
@@ -4737,13 +5050,16 @@ export function formatReport(r: CheckReport): string[] {
     '',
     title,
     `${'  '.padEnd(46)}${'файл'.padStart(18)}${'база'.padStart(18)}${'разница'.padStart(18)}`,
-    ...lines.map(
-      (l) =>
-        `${l.file === l.db ? '  ' : '≠ '}${l.what.length > 44 ? `${l.what.slice(0, 43)}…` : l.what.padEnd(44)}${value(l.file, l.currency).padStart(18)}${value(l.db, l.currency).padStart(18)}${value(l.file - l.db, l.currency).padStart(18)}`,
-    ),
+    ...lines.flatMap((l) => {
+      const mark = l.file === l.db ? '  ' : '≠ ';
+      const numbers = `${value(l.file, l.currency).padStart(18)}${value(l.db, l.currency).padStart(18)}${value(l.file - l.db, l.currency).padStart(18)}`;
+      // длинная подпись не обрезается (в ней родители одноимённых подкатегорий): числа — строкой ниже
+      return l.what.length > 44 ? [`${mark}${l.what}`, `${' '.repeat(46)}${numbers}`] : [`${mark}${l.what.padEnd(44)}${numbers}`];
+    }),
   ];
   return [
     `Сверка импорта: файл «${r.fileName}», компания «${r.company}»`,
+    `Сегодня для разбора: ${formatDateRu(r.today)} — строки с датой платежа позже пропущены как плановые (--today ГГГГ-ММ-ДД — другая дата)`,
     `Строк данных в файле: ${formatAmount(r.rows.total, 0)}; плановых пропущено: ${formatAmount(r.rows.future, 0)}; строк с ошибками: ${formatAmount(r.rows.errors, 0)}`,
     ...table('Операции, штук', r.counts),
     ...table('Движение по счетам (поступления минус списания), в валюте счёта', r.accounts),
@@ -4763,44 +5079,67 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { loadConfig } from '../src/server/config';
 import { AppError } from '../src/server/errors';
-import { todayInTimezone } from '../src/shared/dates';
+import { isValidDate, todayInTimezone } from '../src/shared/dates';
 import { checkImport, formatReport } from './lib/import-check';
 
-// Сверка импорта с файлом (§12 спецификации импорта): npm run import:check -- <файл .xlsx или .csv> <id компании>.
-// id компании — число в адресе журнала: /c/<id>/log. База открывается только на чтение (приложение может работать);
-// файл читается тем же разборщиком, что импорт, и никуда не копируется. Выход 0 — «Совпадает», 1 — расхождения или ошибка.
+// Сверка импорта с файлом (§12 спецификации импорта):
+//   npm run import:check -- <файл .xlsx или .csv> <id компании> [--today ГГГГ-ММ-ДД]
+// id компании — число в адресе журнала: /c/<id>/log. --today — «сегодня» для разбора (строки позже — плановые и не
+// считаются, как при импорте); по умолчанию — сегодня в APP_TIMEZONE. База открывается только на чтение (приложение может
+// работать); файл читается тем же разборщиком, что импорт, и никуда не копируется. Выход 0 — «Совпадает», 1 — расхождения
+// или ошибка.
 
-function fail(message: string): never {
-  console.error(message);
-  process.exit(1);
+const USAGE = 'Использование: npm run import:check -- <файл .xlsx или .csv> <id компании из адреса /c/<id>/log> [--today ГГГГ-ММ-ДД]';
+
+function main(): number {
+  const args = process.argv.slice(2);
+  const at = args.indexOf('--today');
+  const todayArg = at >= 0 ? args[at + 1] : undefined;
+  if (at >= 0) args.splice(at, 2);
+  const [file, cidArg] = args;
+  const companyId = Number(cidArg);
+  if (!file || !Number.isSafeInteger(companyId) || companyId <= 0 || args.length !== 2) {
+    console.error(USAGE);
+    return 1;
+  }
+  if (at >= 0 && (!todayArg || !isValidDate(todayArg))) {
+    console.error(`Неверная дата --today: ${todayArg ?? '(нет)'} — нужна ГГГГ-ММ-ДД`);
+    return 1;
+  }
+  if (!fs.existsSync(file)) {
+    console.error(`Файл не найден: ${file}`);
+    return 1;
+  }
+
+  if (fs.existsSync('.env')) process.loadEnvFile('.env');
+  const config = loadConfig();
+  if (!fs.existsSync(config.dbPath)) {
+    console.error(`База не найдена: ${config.dbPath}`);
+    return 1;
+  }
+  const sqlite = new Database(config.dbPath, { readonly: true, fileMustExist: true });
+  try {
+    const report = checkImport({
+      sqlite,
+      companyId,
+      data: fs.readFileSync(file),
+      fileName: path.basename(file),
+      timezone: config.timezone,
+      today: todayArg ?? todayInTimezone(config.timezone),
+    });
+    console.log(formatReport(report).join('\n'));
+    return report.mismatches === 0 ? 0 : 1;
+  } catch (e) {
+    // ошибка файла (F*) — тем же текстом, что в панели импорта
+    console.error(e instanceof AppError ? e.message : `Сверка не удалась: ${(e as Error).message}`);
+    return 1;
+  } finally {
+    // и после ошибки: база закрывается до выхода
+    sqlite.close();
+  }
 }
 
-const [file, cidArg] = process.argv.slice(2);
-const companyId = Number(cidArg);
-if (!file || !Number.isSafeInteger(companyId) || companyId <= 0) fail('Использование: npm run import:check -- <файл .xlsx или .csv> <id компании из адреса /c/<id>/log>');
-if (!fs.existsSync(file)) fail(`Файл не найден: ${file}`);
-
-if (fs.existsSync('.env')) process.loadEnvFile('.env');
-const config = loadConfig();
-if (!fs.existsSync(config.dbPath)) fail(`База не найдена: ${config.dbPath}`);
-const sqlite = new Database(config.dbPath, { readonly: true, fileMustExist: true });
-try {
-  const report = checkImport({
-    sqlite,
-    companyId,
-    data: fs.readFileSync(file),
-    fileName: path.basename(file),
-    timezone: config.timezone,
-    today: todayInTimezone(config.timezone),
-  });
-  console.log(formatReport(report).join('\n'));
-  process.exitCode = report.mismatches === 0 ? 0 : 1;
-} catch (e) {
-  // ошибка файла (F*) — тем же текстом, что в панели импорта
-  fail(e instanceof AppError ? e.message : `Сверка не удалась: ${(e as Error).message}`);
-} finally {
-  sqlite.close();
-}
+process.exitCode = main();
 ```
 
 В `package.json` замените
@@ -4819,10 +5158,10 @@ try {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run tests/server/import-check.test.ts`
-Expected: PASS, 3 теста.
+Expected: PASS, 4 теста.
 
 Run: `npm run import:check`
-Expected: строка «Использование: npm run import:check -- <файл .xlsx или .csv> <id компании из адреса /c/<id>/log>», код выхода 1. С настоящими данными скрипт в задаче не запускается.
+Expected: строка «Использование: npm run import:check -- <файл .xlsx или .csv> <id компании из адреса /c/<id>/log> [--today ГГГГ-ММ-ДД]», код выхода 1. С настоящими данными скрипт в задаче не запускается.
 
 - [ ] **Step 5: `.gitignore` и README**
 
@@ -4946,7 +5285,7 @@ Expected: строка с `.gitignore` и шаблоном `*.import-local.*`.
 - [ ] **Step 6: Full check**
 
 Run: `npm test`
-Expected: 999 пройдено и 1 пропущен (в том числе `tests/shared/terminology.test.ts` — README без слова «статья»).
+Expected: 1001 пройдено и 1 пропущен (в том числе `tests/shared/terminology.test.ts` — README без слова «статья»).
 
 Run: `npm run typecheck`
 Expected: без ошибок.
@@ -5129,13 +5468,13 @@ Expected: «снято 55 из 55». Откройте `docs/research/screens/v2/
 - [ ] **Step 3: Final check**
 
 Run: `npm test`
-Expected: 999 пройдено и 1 пропущен.
+Expected: 1001 пройдено и 1 пропущен.
 
 Run: `npm run test:e2e` — два раза подряд.
 Expected: оба раза 149 из 149.
 
 Run: `npm run bench:import`
-Expected: как в задаче 2. Цифры — в отчёт задачи для итогов плана.
+Expected: как в задаче 2 — «Итог: все бюджеты соблюдены», код выхода 0. Цифры — в отчёт задачи для итогов плана.
 
 - [ ] **Step 4: Commit**
 
@@ -5149,7 +5488,7 @@ git commit -m "feat: импорт — снимки shots:ux панели имп�
 ## После плана
 
 - Итоги и отложенные замечания — `docs/superpowers/followups/2026-10-12-import-2-followups.md` (пишет контролёр). В них:
-  - цифры `npm run bench:import` (задачи 2 и 7), в том числе пик памяти на файле 50 000 строк против бюджета 400 МБ (решение 9);
+  - цифры `npm run bench:import` (задачи 2 и 7): время, пик памяти на 16 000 строк (бюджет 400 МБ) и на 50 000 строк (принятый бюджет 500 МБ, решение 9), пик с тремя файлами в кэше;
   - раздел «Для плана И-3»:
     - в `imports.created` — массивы id;
     - в `imports.account_changes` — `before` и `after` каждого изменённого счёта;
