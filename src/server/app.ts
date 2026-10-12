@@ -39,6 +39,7 @@ import { createJournal } from './modules/operations/journal';
 import { registerOperationsRoutes } from './modules/operations/routes';
 import { registerRatesRoutes } from './modules/rates/routes';
 import { createOperationsService } from './modules/operations/service';
+import { createOperationsWriter } from './modules/operations/writer';
 import { createRatesService } from './modules/rates/service';
 import { registerSavedFiltersRoutes } from './modules/saved-filters/routes';
 import { createSavedFiltersService } from './modules/saved-filters/service';
@@ -126,8 +127,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerProjectsRoutes(app, { projects });
   registerCategoriesRoutes(app, { categories, companies });
   registerAccountsRoutes(app, { accounts, companies, references });
-  registerCounterpartiesRoutes(app, { counterparties: createCounterpartiesService({ db, audit, references, now }) });
-  registerTagsRoutes(app, { tags: createTagsService({ db, audit, references, now }) });
+  const counterparties = createCounterpartiesService({ db, audit, references, now });
+  registerCounterpartiesRoutes(app, { counterparties });
+  const tags = createTagsService({ db, audit, references, now });
+  registerTagsRoutes(app, { tags });
   registerSplitPresetsRoutes(app, { splitPresets: createSplitPresetsService({ db, audit, now }) });
   const rates = createRatesService({ db, audit, now });
   registerRatesRoutes(app, { db, rates });
@@ -140,7 +143,21 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerSavedFiltersRoutes(app, { savedFilters: createSavedFiltersService({ db, now }) });
   registerAttachmentsRoutes(app, { attachments: createAttachmentsService({ db, audit, uploadsDir: config.uploadsDir, now }) });
   registerBalancesRoutes(app, { companies, ledger: balances, rates, timezone: config.timezone, now });
-  registerImportsRoutes(app, { imports: createImportsService({ db, rates, timezone: config.timezone, now }) });
+  registerImportsRoutes(app, {
+    imports: createImportsService({
+      db,
+      audit,
+      rates,
+      timezone: config.timezone,
+      now,
+      accounts,
+      categories,
+      counterparties,
+      projects,
+      tags,
+      writer: createOperationsWriter(deps.sqlite),
+    }),
+  });
   const backup =
     deps.backup ??
     createBackupService({

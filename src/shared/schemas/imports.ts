@@ -37,6 +37,15 @@ export const importRequestSchema = z.object({
 });
 export type ImportRequest = z.infer<typeof importRequestSchema>;
 
+/**
+ * Тело POST …/imports (§6.2): то же, что у предпросмотра, и версия проверки, которую видел человек. Свежая проверка
+ * внутри транзакции записи с другой версией — 409 IMPORT_CHANGED (решение 4 плана И-2).
+ */
+export const importCommitSchema = importRequestSchema.extend({
+  revision: z.string().regex(/^[0-9a-f]{16}$/, 'Проверка устарела — загрузите файл заново'),
+});
+export type ImportCommitRequest = z.infer<typeof importCommitSchema>;
+
 /** Группа ошибок или предупреждений: код, текст, число строк и до 20 первых номеров. */
 export interface ImportIssueGroup {
   code: string;
@@ -87,4 +96,45 @@ export interface ImportPreview {
   warnings: ImportIssueGroup[];
   duplicates: { count: number; rows: number[] };
   canImport: boolean;
+  /** Версия проверки (16 шестнадцатеричных знаков): меняется с любым изменением итога; её отправляет «Импортировать». */
+  revision: string;
+}
+
+/** Счётчики импорта (imports.counts, §6.1). */
+export interface ImportCounts {
+  /** Непустых строк данных в файле. */
+  rows: number;
+  income: number;
+  expense: number;
+  transfer: number;
+  /** Добавлено операций. */
+  added: number;
+  duplicates: number;
+  skippedFuture: number;
+}
+
+/** Сколько создано импортом. */
+export interface ImportCreatedCounts {
+  accounts: number;
+  categories: number;
+  counterparties: number;
+  projects: number;
+  tags: number;
+}
+
+/** Запись импорта в ответе (§6.2). */
+export interface ImportRecord {
+  id: number;
+  fileName: string;
+  fileSize: number;
+  status: 'done' | 'undone';
+  createdAt: string;
+  counts: ImportCounts;
+  created: ImportCreatedCounts;
+}
+
+/** Ответ 201 POST …/imports. */
+export interface ImportCommitResult {
+  import: ImportRecord;
+  counts: ImportCounts;
 }

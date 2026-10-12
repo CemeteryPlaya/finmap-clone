@@ -1,5 +1,8 @@
+import path from 'node:path';
+import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import { changedFields } from '../../src/server/modules/audit/mutate';
+import { changedFields, mutate } from '../../src/server/modules/audit/mutate';
+import { createAuditService } from '../../src/server/modules/audit/service';
 import { createApi, type ApiHarness } from '../helpers/api';
 
 let h: ApiHarness;
@@ -11,6 +14,32 @@ describe('changedFields', () => {
     expect(changedFields({ a: 1, p: { k: 1 } }, { p: { k: 1 } })).toBeNull();
     expect(changedFields({ a: 1 }, {})).toBeNull();
     expect(changedFields({ a: 1 as number | null }, { a: null })).toEqual({ before: { a: 1 }, after: { a: null } });
+  });
+});
+
+describe('mutate: когда берётся блокировка записи', () => {
+  it('immediate — с начала транзакции: другое соединение не начнёт запись; deferred — до первой записи может', async () => {
+    h = await createApi();
+    const other = new Database(path.join(h.t.dir, 'app.db'), { timeout: 0 });
+    try {
+      const audit = createAuditService(h.t.db);
+      /** Другое соединение пробует начать запись (без ожидания): удалось ли. */
+      const otherCanWrite = () => {
+        try {
+          other.exec('BEGIN IMMEDIATE');
+          other.exec('ROLLBACK');
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      expect(mutate(h.t.db, audit, () => otherCanWrite())).toBe(true);
+      expect(mutate(h.t.db, audit, () => otherCanWrite(), { behavior: 'immediate' })).toBe(false);
+      // после транзакции блокировки нет
+      expect(otherCanWrite()).toBe(true);
+    } finally {
+      other.close();
+    }
   });
 });
 

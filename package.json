@@ -18,6 +18,7 @@
     "user:passwd": "tsx scripts/user-passwd.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "bench:journal": "tsx scripts/bench-journal.ts",
+    "bench:import": "tsx scripts/bench-import.ts",
     "shots:ux": "npm run build:client && tsx scripts/ux-shots.ts",
     "backup": "tsx scripts/backup.ts",
     "restore": "tsx scripts/restore.ts",

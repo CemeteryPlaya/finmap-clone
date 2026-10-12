@@ -114,6 +114,28 @@ export function finmapLikeSample(): FinmapLikeValue[][] {
   ];
 }
 
+/**
+ * Много строк «как у Finmap» для замеров и проверки скорости (§10, §11.2): доходы на «Касса-1» и «Банк-2», расходы с
+ * «Касса-1», 15 категорий доходов, «Зарплата» и 22 категории расходов, 86 контрагентов, редкие тег и комментарий.
+ * Даты — с 15.03.2023, perDay строк в день (по умолчанию 14: 16 000 строк — до мая 2026), время 08:00–19:59.
+ */
+export function finmapLikeMany(count: number, opts: { perDay?: number } = {}): FinmapLikeValue[][] {
+  const perDay = opts.perDay ?? 14;
+  return Array.from({ length: count }, (_, i) => {
+    const day = new Date(Date.UTC(2023, 2, 15) + Math.floor(i / perDay) * 86_400_000).toISOString().slice(0, 10);
+    const income = i % 3 !== 0;
+    return finmapLikeRow({
+      paidAt: excelSerial(day, `${String(8 + (i % 12)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}:00`),
+      amount: 1000 + (i % 977) + 0.5,
+      ...(income ? { to: i % 2 ? 'Касса-1' : 'Банк-2' } : { from: 'Касса-1' }),
+      category: income ? `Доход ${i % 15}` : i % 4 ? 'Зарплата' : `Расход ${i % 22}`,
+      counterparty: `Контрагент ${i % 86}`,
+      tags: i % 50 ? null : 'Смена',
+      comment: i % 7 ? null : `Комментарий ${i}`,
+    });
+  });
+}
+
 const NS_MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const NS_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const NS_PKG = 'http://schemas.openxmlformats.org/package/2006/relationships';

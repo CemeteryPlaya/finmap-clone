@@ -7,8 +7,11 @@ export class AppError extends Error {
     public readonly code: string,
     message: string,
     public readonly fields?: Record<string, string>,
-    /** Данные для действия в интерфейсе (у RATE_UNAVAILABLE — валюта и дата для «Указать курс на {D}»). */
-    public readonly details?: Record<string, string>,
+    /**
+     * Данные для действия в интерфейсе: у RATE_UNAVAILABLE — валюта и дата для «Указать курс на {D}», у IMPORT_FILE —
+     * код F*, у IMPORT_INVALID и IMPORT_CHANGED — свежий предпросмотр импорта.
+     */
+    public readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'AppError';

@@ -15,7 +15,7 @@ function fileErr(fn: () => unknown): { fileCode: string; message: string } {
     const err = e as AppError;
     expect(err.status).toBe(400);
     expect(err.code).toBe('IMPORT_FILE');
-    return { fileCode: err.details!.fileCode!, message: err.message };
+    return { fileCode: String(err.details!.fileCode), message: err.message };
   }
   throw new Error('ожидалась ошибка файла');
 }

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { getCurrency } from '../../../shared/currencies';
 import { formatDateTime, todayInTimezone, zoneOffsetMs } from '../../../shared/dates';
@@ -140,6 +141,14 @@ interface Resolved {
   m: MatchedRow;
 }
 
+/**
+ * Версия проверки: 16 шестнадцатеричных знаков SHA-256 содержимого предпросмотра без токена. Любое изменение итога —
+ * числа, счета и их остатки, «Будет создано», ошибки, предупреждения, дубликаты — меняет версию.
+ */
+export function previewRevision(content: Omit<ImportPreview, 'token' | 'revision'>): string {
+  return crypto.createHash('sha256').update(JSON.stringify(content)).digest('hex').slice(0, 16);
+}
+
 export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: AccountMapping[]): { preview: ImportPreview; plan: ImportPlan } {
   const { db, timezone } = deps;
   const companyId = src.companyId;
@@ -209,7 +218,7 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
       } catch (e) {
         if (!(e instanceof AppError && e.code === 'RATE_UNAVAILABLE')) throw e;
         // курса может не быть и у базовой валюты компании (не KZT): R16 называет валюту, курса которой нет
-        rateCache.set(k, { missing: e.details?.currency ?? currency });
+        rateCache.set(k, { missing: typeof e.details?.currency === 'string' ? e.details.currency : currency });
       }
     }
     return rateCache.get(k)!;
@@ -512,8 +521,7 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
   const items = <T>(list: T[], map: (x: T) => ImportCreateItem) => ({ total: list.length, items: list.slice(0, CREATE_ITEMS_MAX).map(map) });
   const byType = (t: ImportType) => src.parsed.rows.filter((r) => r.type === t).length;
 
-  const preview: ImportPreview = {
-    token: src.token,
+  const content: Omit<ImportPreview, 'token' | 'revision'> = {
     file: { name: src.file.name, size: src.file.size, rows: src.parsed.total },
     counts: {
       income: byType('income'),
@@ -537,6 +545,8 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
     duplicates: { count: duplicates.length, rows: duplicates.slice(0, ISSUE_ROWS_MAX) },
     canImport: rowErrors.length === 0 && accountErrors === 0 && counted.length > 0,
   };
+  // версия проверки: запись сравнивает её с проверкой, которую видел человек (решение 4 плана И-2)
+  const preview: ImportPreview = { token: src.token, ...content, revision: previewRevision(content) };
   return {
     preview,
     plan: {

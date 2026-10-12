@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { importRequestSchema } from '../../../shared/schemas/imports';
+import { importCommitSchema, importRequestSchema } from '../../../shared/schemas/imports';
 import { AppError } from '../../errors';
 import { contentDisposition } from '../../http/content-disposition';
 import { headerFileName, parseId } from '../../http/params';
@@ -31,6 +31,18 @@ export function registerImportsRoutes(app: FastifyInstance, deps: { imports: Imp
   });
 
   app.post<C>(`${BASE}/preview`, async (req) => imports.preview(parseId(req.params.cid), req.user!.id, importRequestSchema.parse(req.body)));
+
+  app.post<C>(BASE, async (req, reply) => {
+    const companyId = parseId(req.params.cid);
+    const started = performance.now();
+    const result = imports.commit(companyId, req.user!.id, importCommitSchema.parse(req.body));
+    // итог — без содержимого файла (§6.5)
+    req.log.info(
+      { companyId, userId: req.user!.id, importId: result.import.id, rows: result.counts.rows, added: result.counts.added, ms: Math.round(performance.now() - started) },
+      'Импорт записан',
+    );
+    return reply.status(201).send(result);
+  });
 
   app.get('/api/v1/imports/template.xlsx', async (_req, reply) => {
     const { fileName, data } = imports.template();
