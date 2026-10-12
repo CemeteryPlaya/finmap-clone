@@ -223,6 +223,39 @@ export const fixedRates = sqliteTable(
   (t) => [index('fixed_rates_company_idx').on(t.companyId, t.currency, t.validFrom)],
 );
 
+/** Импорт файла (§6.1 спецификации импорта): одна запись на импорт; ссылки в JSON — без внешних ключей (инвариант 10). */
+export const imports = sqliteTable(
+  'imports',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id),
+    /** Кто импортировал. */
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    /** Имя файла (cleanName, до 200 символов). */
+    fileName: text('file_name').notNull(),
+    fileSize: integer('file_size').notNull(),
+    /** SHA-256 файла: «этот файл уже импортирован» (W8). */
+    fileSha256: text('file_sha256').notNull(),
+    status: text('status', { enum: ['done', 'undone'] }).notNull(),
+    /** JSON `{ rows, income, expense, transfer, added, duplicates, skippedFuture }`. */
+    counts: text('counts').notNull(),
+    /** JSON id созданного: `{ accounts, categories, counterparties, projects, tags }`. */
+    created: text('created').notNull(),
+    /** JSON `[{ accountId, before: { startingBalance, openedAt }, after }]` — существующие счета, изменённые импортом. */
+    accountChanges: text('account_changes').notNull(),
+    /** JSON итога отмены (§7.3). */
+    undoResult: text('undo_result'),
+    createdAt: text('created_at').notNull(),
+    undoneAt: text('undone_at'),
+    undoneBy: integer('undone_by').references(() => users.id),
+  },
+  (t) => [index('imports_company_idx').on(t.companyId, t.id)],
+);
+
 export const operations = sqliteTable(
   'operations',
   {
@@ -253,9 +286,12 @@ export const operations = sqliteTable(
     updatedAt: text('updated_at').notNull(),
     version: integer('version').notNull(),
     deletedAt: text('deleted_at'),
+    /** Импорт, которым создана операция (§6.1 спецификации импорта); обычные операции — null. */
+    importId: integer('import_id').references(() => imports.id),
   },
   (t) => [
     index('operations_company_paid_idx').on(t.companyId, t.paidAt, t.id),
+    index('operations_import_idx').on(t.importId),
     index('operations_account_idx').on(t.accountId),
     index('operations_to_account_idx').on(t.toAccountId),
     index('operations_counterparty_idx').on(t.counterpartyId),

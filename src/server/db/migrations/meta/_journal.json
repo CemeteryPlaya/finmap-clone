@@ -43,6 +43,13 @@
       "when": 1791349618161,
       "tag": "0005_harsh_moonstone",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791817713605,
+      "tag": "0006_chubby_rawhide_kid",
+      "breakpoints": true
     }
   ]
 }
