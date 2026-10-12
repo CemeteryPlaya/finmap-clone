@@ -220,3 +220,14 @@ export function LockIcon() {
     </Svg>
   );
 }
+
+/** ☰ — «Счета» в шапке телефона (§8.1 этапа 1.5): только рисунок, имя кнопке даёт `aria-label`. */
+export function MenuIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <line x1="4" y1="18" x2="20" y2="18" />
+    </svg>
+  );
+}

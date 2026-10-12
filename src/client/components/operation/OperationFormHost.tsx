@@ -36,43 +36,38 @@ export function OperationFormHost(props: { company: Company; children: ReactNode
   );
 }
 
-const BUTTONS: { type: OperationType; symbol: string; label: string; bottom: string; header: string }[] = [
-  { type: 'income', symbol: '+', label: 'Доход', bottom: 'bg-income text-white', header: 'bg-income/20 text-income-on-dark' },
-  { type: 'expense', symbol: '\u2212', label: 'Расход', bottom: 'bg-expense text-white', header: 'bg-expense/20 text-expense-on-dark' },
-  { type: 'transfer', symbol: '⇄', label: 'Перевод', bottom: 'bg-chrome-2 text-white', header: 'bg-white/10 text-white' },
+const BUTTONS: { type: OperationType; symbol: string; label: string; className: string }[] = [
+  { type: 'income', symbol: '+', label: 'Доход', className: 'bg-income/20 text-income-on-dark' },
+  { type: 'expense', symbol: '\u2212', label: 'Расход', className: 'bg-expense/20 text-expense-on-dark' },
+  { type: 'transfer', symbol: '⇄', label: 'Перевод', className: 'bg-white/10 text-white' },
 ];
 
 /**
- * Кнопки «+ Доход», «\u2212 Расход», «⇄ Перевод» (§3.1 этапа 1.5; у минуса — знак U+2212). `header` — по центру шапки,
- * одинаковой ширины, тёмный полупрозрачный фон и цветной текст, только на компьютере; `bottom` — на телефоне
- * (меньше 768 px) панель, закреплённая у нижнего края экрана (§7 «Мобильная версия»; план 1.5-5 перенесёт её наверх).
+ * Кнопки новых операций (§3.1, §8.2 этапа 1.5; у минуса — знак U+2212) — одна разметка на обе ширины: группа
+ * «Добавить операцию» в шапке. На компьютере — по центру шапки, одинаковой ширины, «+ Доход», «\u2212 Расход», «⇄ Перевод»;
+ * на телефоне — второй строкой шапки во всю ширину, только значки, 44 px. Имя кнопки — `aria-label`, подсказка — `title`.
  */
-export function NewOperationButtons({ placement = 'header' }: { placement?: 'header' | 'bottom' }) {
+export function NewOperationButtons() {
   const open = useOpenOperationForm();
-  const buttons = BUTTONS.map((b) => (
-    <button
-      key={b.type}
-      type="button"
-      aria-haspopup="dialog"
-      onClick={() => open({ kind: 'create', type: b.type })}
-      className={
-        placement === 'header'
-          ? `rounded-xl px-8 py-2.5 text-base font-semibold whitespace-nowrap hover:brightness-125 ${b.header}`
-          : `rounded-xl px-2 py-3 text-base font-semibold hover:brightness-110 ${b.bottom}`
-      }
-    >
-      <span aria-hidden="true">{b.symbol}</span> {b.label}
-    </button>
-  ));
-  if (placement === 'header') return <div className="hidden grid-cols-3 gap-3 md:grid">{buttons}</div>;
   return (
-    <div
-      role="group"
-      aria-label="Добавить операцию"
-      // над «домашней» полосой iPhone и с учётом выреза в горизонтальном положении
-      className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-3 gap-2 bg-chrome pt-2 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] shadow-[0_-4px_16px_rgb(0_0_0/0.15)] md:hidden"
-    >
-      {buttons}
+    <div role="group" aria-label="Добавить операцию" className="grid grid-cols-3 gap-3 max-md:gap-4">
+      {BUTTONS.map((b) => (
+        <button
+          key={b.type}
+          type="button"
+          aria-haspopup="dialog"
+          aria-label={b.label}
+          title={b.label}
+          onClick={() => open({ kind: 'create', type: b.type })}
+          className={`rounded-xl px-8 py-2.5 text-base font-semibold whitespace-nowrap hover:brightness-125 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus max-md:h-11 max-md:px-2 max-md:py-0 max-md:text-xl ${b.className}`}
+        >
+          <span aria-hidden="true">{b.symbol}</span>
+          <span aria-hidden="true" className="max-md:hidden">
+            {' '}
+            {b.label}
+          </span>
+        </button>
+      ))}
     </div>
   );
 }

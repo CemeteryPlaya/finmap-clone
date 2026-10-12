@@ -42,13 +42,9 @@ export function CompanyLayout() {
     <OperationFormHost company={company}>
       <div className="min-h-dvh bg-chrome">
         <AppHeader
-          left={
-            <>
-              <AccountsDrawerButton company={company} />
-              <CompanyBlockButton current={company} companies={companies.data} />
-            </>
-          }
-          // архивная компания — только чтение: новых операций нет ни в шапке, ни в нижней панели
+          menuButton={<AccountsDrawerButton company={company} />}
+          company={<CompanyBlockButton current={company} companies={companies.data} />}
+          // архивная компания — только чтение: кнопок новых операций нет ни на компьютере, ни на телефоне
           actions={company.archivedAt ? undefined : <NewOperationButtons />}
           tools={<HistoryButton company={company} />}
           menu={{ companyId: company.id, companyName: company.name }}
@@ -70,7 +66,6 @@ export function CompanyLayout() {
             </>
           )}
         </div>
-        {!company.archivedAt && <NewOperationButtons placement="bottom" />}
       </div>
     </OperationFormHost>
   );

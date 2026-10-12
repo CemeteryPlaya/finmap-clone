@@ -30,30 +30,82 @@ const PHONE = { width: 390, height: 844 };
 const bar = (page: Page) => page.getByRole('group', { name: 'Добавить операцию' });
 const newForm = (page: Page) => page.getByRole('dialog', { name: /^Новый (доход|расход|перевод)$/ });
 
-test('нижняя панель «Доход», «Расход», «Перевод» на телефоне; на компьютере кнопки — в шапке', async ({ page }) => {
+test('шапка телефона (§8.1–8.2): ☰ «Счета» слева, компания ▾ по центру, шестерёнка справа; «+ \u2212 ⇄» второй строкой — только значки; на компьютере те же кнопки с подписями по центру шапки', async ({ page }) => {
   await login(page);
-  const cid = await createCompany(page, `ТОО Панель ${Date.now()}`);
+  const name = `ТОО Шапка с очень длинным названием компании ${Date.now()}`;
+  const cid = await createCompany(page, name);
   await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
   await page.reload();
-  // компьютер: панели нет, кнопки — в шапке
-  await expect(bar(page)).toBeHidden();
-  await expect(page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true })).toBeVisible();
+  const banner = page.getByRole('banner');
+  const menu = banner.getByRole('button', { name: 'Счета', exact: true });
+  const company = banner.getByRole('button', { name: `Сменить компанию: ${name}`, exact: true });
+  const gear = banner.getByRole('button', { name: 'Настройки', exact: true });
+  const income = bar(page).getByRole('button', { name: 'Доход', exact: true });
+  const middle = (b: { y: number; height: number }) => b.y + b.height / 2;
+
+  // компьютер: ☰ нет; кнопки с подписями — по центру шапки, в одной строке с блоком компании
+  await expect(menu).toBeHidden();
+  await expect(bar(page).getByRole('button')).toHaveText([/\+\s*Доход/, /\u2212\s*Расход/, /⇄\s*Перевод/], { useInnerText: true });
+  expect(Math.abs(middle((await income.boundingBox())!) - middle((await company.boundingBox())!))).toBeLessThan(12);
 
   await page.setViewportSize(PHONE);
-  await expect(page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true })).toBeHidden();
-  await expect(bar(page).getByRole('button')).toHaveText([/Доход/, /Расход/, /Перевод/]);
-  // закреплена у нижнего края во всю ширину
-  const box = (await bar(page).boundingBox())!;
-  expect(Math.round(box.y + box.height)).toBe(PHONE.height);
-  expect(Math.round(box.width)).toBe(PHONE.width);
+  // телефон: ☰ у левого края, шестерёнка у правого, компания между ними — в одной строке; цели касания 44 px
+  const m = (await menu.boundingBox())!;
+  const c = (await company.boundingBox())!;
+  const g = (await gear.boundingBox())!;
+  expect(m.x).toBeLessThan(24);
+  expect(g.x + g.width).toBeGreaterThan(PHONE.width - 24);
+  expect(c.x).toBeGreaterThanOrEqual(m.x + m.width);
+  expect(c.x + c.width).toBeLessThanOrEqual(g.x);
+  expect(Math.abs(middle(c) - middle(m))).toBeLessThan(8);
+  expect(Math.abs(middle(g) - middle(m))).toBeLessThan(8);
+  for (const b of [m, g]) {
+    expect(b.width).toBeGreaterThanOrEqual(44);
+    expect(b.height).toBeGreaterThanOrEqual(44);
+  }
+  // название — со стрелкой ▾, без подписи «Сменить компанию»; длинное обрезается, страница вбок не едет (Review Focus 1)
+  await expect(company).toContainText('▾', { useInnerText: true });
+  await expect(company).not.toContainText('Сменить компанию', { useInnerText: true });
+  await expectNoSideScroll(page, 'шапка телефона');
+  // «+ \u2212 ⇄» — в шапке второй строкой во всю ширину, только значки; имена и подсказки — «Доход», «Расход», «Перевод»
+  await expect(banner.getByRole('group', { name: 'Добавить операцию' })).toBeVisible();
+  const row = (await bar(page).boundingBox())!;
+  expect(row.y).toBeGreaterThanOrEqual(m.y + m.height);
+  expect(row.width).toBeGreaterThan(PHONE.width - 40);
+  await expect(bar(page).getByRole('button')).toHaveText(['+', '\u2212', '⇄'], { useInnerText: true });
+  for (const label of ['Доход', 'Расход', 'Перевод']) {
+    const button = bar(page).getByRole('button', { name: label, exact: true });
+    await expect(button).toHaveAttribute('title', label);
+    expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
 
-  // кнопка открывает форму своего типа; Esc без изменений закрывает, фокус — снова на кнопке панели
+  // кнопка открывает форму своего типа; Esc без изменений закрывает, фокус — снова на кнопке
   await bar(page).getByRole('button', { name: 'Перевод', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Новый перевод', exact: true })).toBeVisible();
   await expect(newForm(page).getByRole('combobox', { name: 'Со счёта', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(newForm(page)).toBeHidden();
   await expect(bar(page).getByRole('button', { name: 'Перевод', exact: true })).toBeFocused();
+
+  // ☰ — панель счетов, «Закрыть» — в её левом углу (§8.1, снимок Finmap m01)
+  await menu.click();
+  const drawer = page.getByRole('dialog', { name: 'Счета', exact: true });
+  const close = (await drawer.getByRole('button', { name: 'Закрыть' }).boundingBox())!;
+  const title = (await drawer.getByRole('heading', { name: 'Счета', exact: true }).boundingBox())!;
+  expect(close.x + close.width).toBeLessThanOrEqual(title.x);
+  expect(close.width).toBeGreaterThanOrEqual(44);
+  await page.keyboard.press('Escape');
+  await expect(drawer).toBeHidden();
+  await expect(menu).toBeFocused();
+  // название ▾ — панель «Компании»; шестерёнка — панель «Настройки» с «Выйти»
+  await company.click();
+  await expect(page.getByRole('dialog', { name: 'Компании' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(company).toBeFocused();
+  await gear.click();
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Выйти' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(gear).toBeFocused();
 });
 
 test('счета на телефоне выезжают слева: итог и балансы; Esc, касание фона и «Закрыть» закрывают, фокус возвращается; переход по счёту', async ({ page }) => {
@@ -226,7 +278,7 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   await expect(card.getByRole('button')).toBeFocused();
 });
 
-test('журнал карточками догружается при прокрутке; последняя карточка не прячется под нижней панелью', async ({ page }) => {
+test('журнал карточками догружается при прокрутке; последняя карточка видна целиком', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Прокрутка ${Date.now()}`);
   const cash = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
@@ -242,11 +294,10 @@ test('журнал карточками догружается при прокр
   await expect(list).toHaveCount(55);
   await expect(page.getByRole('button', { name: 'Показать ещё' })).toHaveCount(0);
   await expect(list.last()).toContainText('№55');
-  // в самом низу страницы последняя карточка — над закреплённой панелью
+  // в самом низу страницы последняя карточка видна целиком: кнопки операций — в шапке, внизу ничего не закреплено
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   const last = (await list.last().boundingBox())!;
-  const panelTop = (await bar(page).boundingBox())!.y;
-  expect(last.y + last.height).toBeLessThanOrEqual(panelTop);
+  expect(last.y + last.height).toBeLessThanOrEqual(PHONE.height);
 });
 
 test('выделение из широкого окна на телефоне снимается: невидимые строки не удалить массовым действием', async ({ page }) => {
@@ -557,7 +608,7 @@ test('архивная компания: форма операции тольк�
   await view.getByRole('button', { name: 'Закрыть', exact: true }).click();
   await expect(view).toBeHidden();
 
-  // телефон: нижней панели нет, карточка открывает ту же форму для просмотра; Esc закрывает без вопросов
+  // телефон: кнопок операций в шапке нет, карточка открывает ту же форму для просмотра; Esc закрывает без вопросов
   await page.setViewportSize(PHONE);
   await expect(bar(page)).toHaveCount(0);
   await cards(page).getByRole('button').first().click();

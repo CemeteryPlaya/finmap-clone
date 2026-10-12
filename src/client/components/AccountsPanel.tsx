@@ -11,7 +11,7 @@ import { AccountEditor } from './AccountEditor';
 import { AccountsQuickEdit } from './AccountsQuickEdit';
 import { CollapseButton } from './CollapseButton';
 import { Drawer } from './Drawer';
-import { PencilIcon, PlusIcon, RefreshIcon } from './icons';
+import { MenuIcon, PencilIcon, PlusIcon, RefreshIcon } from './icons';
 import { Modal } from './Modal';
 
 /** Иконка в строке «Мои счета»; на телефоне цель касания 44 px. */
@@ -148,8 +148,8 @@ export function AccountsPanel({ company }: { company: Company }) {
 }
 
 /**
- * Счета на телефоне (§7 «Мобильная версия»): кнопка «Счета» в шапке, «Всего на счетах» и балансы выезжают
- * слева. Переход по счёту (фильтр журнала) закрывает панель, фокус — на `<h1>` страницы (§11 этапа 1.5).
+ * Счета на телефоне (§8.1 этапа 1.5): ☰ «Счета» в левом углу шапки, «Всего на счетах» и балансы выезжают слева,
+ * «Закрыть» — в левом углу панели. Переход по счёту (фильтр журнала) закрывает панель, фокус — на `<h1>` страницы (§11 этапа 1.5).
  */
 export function AccountsDrawerButton({ company }: { company: Company }) {
   const [open, setOpen] = useState(false);
@@ -163,17 +163,20 @@ export function AccountsDrawerButton({ company }: { company: Company }) {
     <>
       <button
         type="button"
+        aria-label="Счета"
+        title="Счета"
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen(true)}
-        className="shrink-0 rounded-xl bg-chrome-2 px-3 py-2 text-sm hover:bg-white/10 md:hidden"
+        className="grid size-11 shrink-0 place-items-center rounded-xl text-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus md:hidden"
       >
-        Счета
+        <MenuIcon />
       </button>
       <Drawer
         open={open}
         title="Счета"
         side="left"
+        closeAt="left"
         onClose={() => setOpen(false)}
         afterClose={() => {
           const handled = navigated.current;

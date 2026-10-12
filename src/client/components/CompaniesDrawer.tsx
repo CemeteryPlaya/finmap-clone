@@ -34,12 +34,16 @@ export function CompanyBlockButton({ current, companies }: { current: Company; c
         aria-label={`Сменить компанию: ${current.name}`}
         onClick={() => setOpen(true)}
         title={current.name}
-        className="flex min-w-[10rem] max-w-xs items-center gap-3 rounded-xl px-2 py-1 text-left hover:bg-white/10 max-md:min-w-0"
+        className="flex min-w-[10rem] max-w-xs items-center gap-3 rounded-xl px-2 py-1 text-left hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus max-md:min-h-11 max-md:min-w-0 max-md:max-w-full max-md:gap-1.5"
       >
         <CompanyAvatar name={current.name} className="hidden h-10 w-10 text-sm md:grid" />
         <span className="min-w-0">
           <span className="block truncate font-semibold">{current.name}</span>
-          <span className="block truncate text-xs text-white/60">Сменить компанию</span>
+          <span className="block truncate text-xs text-white/60 max-md:hidden">Сменить компанию</span>
+        </span>
+        {/* телефон (§8.1): название по центру шапки со стрелкой ▾, без аватара и подписи */}
+        <span aria-hidden="true" className="shrink-0 text-sm md:hidden">
+          ▾
         </span>
       </button>
       <Drawer

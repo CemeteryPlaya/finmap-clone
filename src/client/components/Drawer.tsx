@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { cycleTab } from './focus-trap';
-import { btnIcon } from './ui';
+import { btnClose } from './ui';
 
 /**
  * Выезжающая панель (§7 «Мобильная версия»): модальное окно `<dialog>` у левого или правого края экрана.
@@ -24,6 +24,8 @@ export function Drawer(props: {
   afterClose?: () => boolean;
   /** Закреплённый низ панели вне прокручиваемой области (кнопка «Подробнее»). */
   footer?: ReactNode;
+  /** «Закрыть» в левом углу (панель «Счета» на телефоне, §8.1 этапа 1.5); по умолчанию — справа. */
+  closeAt?: 'left' | 'right';
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -49,6 +51,12 @@ export function Drawer(props: {
     props.side === 'left'
       ? 'ml-0 mr-auto starting:open:-translate-x-full'
       : 'ml-auto mr-0 starting:open:translate-x-full';
+  // на телефоне цель касания 44 px (btnClose)
+  const closeButton = (
+    <button type="button" aria-label="Закрыть" onClick={() => ref.current?.close()} className={btnClose}>
+      <span aria-hidden="true">✕</span>
+    </button>
+  );
   return (
     <dialog
       ref={ref}
@@ -73,16 +81,15 @@ export function Drawer(props: {
         <div
           className={`flex h-full flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ${props.side === 'left' ? 'pl-[env(safe-area-inset-left)]' : 'pr-[env(safe-area-inset-right)]'}`}
         >
-          <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-2">
+          <div className={`flex items-center gap-3 px-4 pt-4 pb-2 ${props.closeAt === 'left' ? '' : 'justify-between'}`}>
+            {props.closeAt === 'left' && closeButton}
             <div className="min-w-0">
               <h2 id={titleId} className="truncate text-xl font-bold">
                 {props.title}
               </h2>
               {props.subtitle && <p className="truncate text-sm text-muted">{props.subtitle}</p>}
             </div>
-            <button type="button" aria-label="Закрыть" onClick={() => ref.current?.close()} className={btnIcon}>
-              <span aria-hidden="true">✕</span>
-            </button>
+            {props.closeAt !== 'left' && closeButton}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">{props.children}</div>
           {props.footer && <div className="border-t border-field px-4 py-3">{props.footer}</div>}
