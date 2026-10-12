@@ -16,6 +16,8 @@ export function registerImportsRoutes(app: FastifyInstance, deps: { imports: Imp
 
   // отдельная область: парсер байтов и лимит 30 МБ действуют только на загрузку файла (§6.2)
   app.register(async (scope) => {
+    // только байты файла: корневые парсеры JSON и текста с лимитом 30 МБ здесь не действуют — другой тип — 415
+    scope.removeAllContentTypeParsers();
     scope.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: IMPORT_MAX_BYTES }, (_req, body, done) => done(null, body));
     // без куки сессии тело не читаем: полная проверка сеанса — как у всех маршрутов, в preHandler
     scope.addHook('onRequest', async (req) => {

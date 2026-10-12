@@ -92,7 +92,7 @@ describe('POST …/imports/upload и …/imports/preview (§6.2, §6.3 спец�
     expect(await fileErr(finmapLikeXlsx([], {}), 'пустой.xlsx')).toBe('F7: В файле нет операций');
   });
 
-  it('пределы загрузки: больше 30 МБ — 413 «Файл больше 30 МБ»; без сессии — 401 до чтения тела; без X-Requested-With — 403; не файл — 400', async () => {
+  it('пределы загрузки: больше 30 МБ — 413 «Файл больше 30 МБ»; без сессии — 401 до чтения тела; без X-Requested-With — 403; JSON и текст — 415, без тела — 400', async () => {
     w = await opsWorld();
     const big = await upload(Buffer.concat([finmapLikeXlsx(SAMPLE), Buffer.alloc(30 * MB)]));
     expect(big.statusCode).toBe(413);
@@ -106,7 +106,20 @@ describe('POST …/imports/upload и …/imports/preview (§6.2, §6.3 спец�
       payload: finmapLikeXlsx(SAMPLE),
     });
     expect(csrf.statusCode).toBe(403);
-    expect((await w.h.req('POST', uploadUrl(), { not: 'a file' })).json().error.fields).toEqual({ file: 'Нет файла' });
+    // в области загрузки — только парсер байтов: JSON и текст — 415 (корневые парсеры не читают до 30 МБ); без тела — 400
+    expect((await w.h.req('POST', uploadUrl(), { not: 'a file' })).statusCode).toBe(415);
+    for (const type of ['application/json', 'text/plain']) {
+      const other = await w.h.t.app.inject({
+        method: 'POST',
+        url: uploadUrl(),
+        headers: { ...ORIGIN_HEADERS, cookie: w.h.cookie, 'content-type': type },
+        payload: Buffer.alloc(2 * MB, 0x20),
+      });
+      expect(other.statusCode, type).toBe(415);
+    }
+    const noBody = await w.h.t.app.inject({ method: 'POST', url: uploadUrl(), headers: { ...ORIGIN_HEADERS, cookie: w.h.cookie } });
+    expect(noBody.statusCode).toBe(400);
+    expect(noBody.json().error.fields).toEqual({ file: 'Нет файла' });
     // лимит 30 МБ и парсер байтов — только у загрузки: preview принимает JSON с общим лимитом
     const elsewhere = await w.h.t.app.inject({
       method: 'POST',
@@ -129,6 +142,19 @@ describe('POST …/imports/upload и …/imports/preview (§6.2, §6.3 спец�
     const ok = await upload(csv, 'большой.csv');
     expect(ok.statusCode, ok.body.slice(0, 300)).toBe(200);
     expect((ok.json() as ImportPreview).file.rows).toBe(6_000);
+  });
+
+  it('имя файла: без управляющих символов, до 200 кодовых точек — суррогатная пара не разрезается; пустое — «Файл»', async () => {
+    w = await opsWorld();
+    const smile = '\u{1F600}';
+    const long = await upload(finmapLikeXlsx(SAMPLE), `a\u0001b\u007F\u0085${smile.repeat(250)}`);
+    expect(long.statusCode, long.body).toBe(200);
+    const name = (long.json() as ImportPreview).file.name;
+    expect(name).toBe(`ab${smile.repeat(198)}`);
+    expect(Array.from(name)).toHaveLength(200);
+    const empty = await upload(finmapLikeXlsx(SAMPLE), '\u0001\u0002\u009F');
+    expect(empty.statusCode, empty.body).toBe(200);
+    expect((empty.json() as ImportPreview).file.name).toBe('Файл');
   });
 
   it('токен: неизвестный, чужой компании или чужого пользователя — 410; архивная компания — 422 на обоих маршрутах; чужая — 404', async () => {

@@ -24,6 +24,15 @@ export interface ImportsService {
 
 export const importExpired = () => new AppError(410, 'IMPORT_EXPIRED', 'Проверка устарела — загрузите файл заново');
 
+/** Не больше символов (кодовых точек) в имени файла предпросмотра. */
+const FILE_NAME_MAX = 200;
+
+/** Имя файла для предпросмотра: без управляющих символов (\p{Cc}); обрезка — по кодовым точкам, суррогатная пара не разрезается. */
+export function importFileName(raw: string): string {
+  const name = cleanName(raw).replace(/\p{Cc}/gu, '');
+  return Array.from(name).slice(0, FILE_NAME_MAX).join('').trim() || 'Файл';
+}
+
 export function createImportsService(d: { db: Db; rates: RatesService; timezone: string; now?: () => Date; cache?: ImportCache }): ImportsService {
   const { db, timezone } = d;
   const now = d.now ?? (() => new Date());
@@ -35,7 +44,7 @@ export function createImportsService(d: { db: Db; rates: RatesService; timezone:
       // архивная компания — 422 до разбора файла
       const company = requireCompany(db, companyId, { writable: true });
       if (file.data.length > IMPORT_MAX_BYTES) throw new AppError(413, 'TOO_LARGE', 'Файл больше 30 МБ');
-      const name = cleanName(file.name).slice(0, 200) || 'Файл';
+      const name = importFileName(file.name);
       const sheet = readImportFile(file.data, name);
       // дата 1904 — свойство листа: parseSheet берёт её из sheet.date1904
       const parsed = parseSheet(sheet, {
