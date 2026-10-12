@@ -290,6 +290,17 @@ const SCENARIOS: Scenario[] = [
   },
   { ours: 'cm02-log.png', finmap: 'm02-log-closed-panel.png', phone: true, path: 'log' },
   {
+    ours: 'cm03-more.png',
+    finmap: 'm03-more.png',
+    phone: true,
+    path: 'log',
+    act: async (p) => {
+      // «Ещё» нижней панели — меню вверх: Пользователи, Настройки, История действий (§8.3)
+      await p.getByRole('navigation', { name: 'Разделы', exact: true }).getByRole('button', { name: 'Ещё', exact: true }).click();
+      await p.getByRole('dialog', { name: 'Ещё', exact: true }).waitFor();
+    },
+  },
+  {
     ours: 'cm04-op-open.png',
     finmap: 'm04-op-open.png',
     phone: true,
@@ -310,6 +321,8 @@ const SCENARIOS: Scenario[] = [
       await newForm(p).waitFor();
     },
   },
+  // экран «Настройки» на телефоне (§8.6); снимка Finmap нет — в index.html слева «нет снимка Finmap»
+  { ours: 'cm07-settings.png', finmap: 'm07-settings.png', phone: true, path: 'settings' },
 ];
 
 function fail(message: string): never {
