@@ -51,6 +51,16 @@ export function createOperationsWriter(sqlite: Sqlite): OperationsWriter {
     insertImported(_tx, b) {
       // tx — знак, что вызов внутри транзакции; сами вставки идут через соединение, на котором она открыта
       if (!sqlite.inTransaction) throw new Error('insertImported: только внутри транзакции');
+      // дешёвые защитные проверки: вызывающий строит строки по инвариантам, но порча данных тише ошибки не бывает
+      b.rows.forEach((r, i) => {
+        const bad = (why: string) => new Error(`insertImported: строка ${i + 1}: ${why}`);
+        if (!Number.isSafeInteger(r.amount) || r.amount <= 0) throw bad('сумма — положительное целое');
+        if (r.type === 'transfer') {
+          if (r.toAccountId === null || r.toAmount === null) throw bad('у перевода нужны счёт и сумма зачисления');
+          if (!Number.isSafeInteger(r.toAmount) || r.toAmount <= 0) throw bad('сумма зачисления — положительное целое');
+          if (r.categoryId !== null) throw bad('у перевода нет категории');
+        } else if (r.toAccountId !== null || r.toAmount !== null) throw bad('счёт и сумма зачисления — только у перевода');
+      });
       const insertOp = sqlite.prepare(
         `INSERT INTO operations (company_id, type, status, paid_at, accrual_date, account_id, amount, to_account_id, to_amount, rate,
            base_amount, counterparty_id, comment, created_by, created_at, updated_at, version, import_id)

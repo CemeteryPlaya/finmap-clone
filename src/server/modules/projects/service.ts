@@ -87,6 +87,20 @@ export function createProjectsService(d: {
     return toRow(row);
   }
 
+  /** Новый проект в конце списка компании (общий для create и createIn). */
+  function insertProject(ex: Executor, v: { companyId: number; name: string; templateKey: string; templateParams: string }) {
+    const next = ex
+      .select({ m: sql<number>`coalesce(max(${projects.orderIndex}), -1)` })
+      .from(projects)
+      .where(eq(projects.companyId, v.companyId))
+      .get();
+    return ex
+      .insert(projects)
+      .values({ ...v, orderIndex: (next?.m ?? -1) + 1, createdAt: now().toISOString() })
+      .returning()
+      .get();
+  }
+
   function assertNameFree(companyId: number, name: string, exceptId?: number): void {
     const key = ulower(name.trim());
     const clash = db
@@ -113,23 +127,7 @@ export function createProjectsService(d: {
       assertNameFree(companyId, name);
 
       return mutate(db, audit, (tx, record) => {
-        const next = tx
-          .select({ m: sql<number>`coalesce(max(${projects.orderIndex}), -1)` })
-          .from(projects)
-          .where(eq(projects.companyId, companyId))
-          .get();
-        const row = tx
-          .insert(projects)
-          .values({
-            companyId,
-            name,
-            templateKey: template.key,
-            templateParams: JSON.stringify(params),
-            orderIndex: (next?.m ?? -1) + 1,
-            createdAt: now().toISOString(),
-          })
-          .returning()
-          .get();
+        const row = insertProject(tx, { companyId, name, templateKey: template.key, templateParams: JSON.stringify(params) });
         const createdCategories = d.categories.mergeTemplate(tx, companyId, template);
         const openedAt = todayInTimezone(d.timezone, now());
         for (const acc of template.defaultAccounts) {
@@ -157,25 +155,7 @@ export function createProjectsService(d: {
     createIn(ex, input) {
       const name = cleanName(input.name);
       assertNameFree(input.companyId, name);
-      const next = ex
-        .select({ m: sql<number>`coalesce(max(${projects.orderIndex}), -1)` })
-        .from(projects)
-        .where(eq(projects.companyId, input.companyId))
-        .get();
-      return toRow(
-        ex
-          .insert(projects)
-          .values({
-            companyId: input.companyId,
-            name,
-            templateKey: GENERAL_TEMPLATE,
-            templateParams: '{}',
-            orderIndex: (next?.m ?? -1) + 1,
-            createdAt: now().toISOString(),
-          })
-          .returning()
-          .get(),
-      );
+      return toRow(insertProject(ex, { companyId: input.companyId, name, templateKey: GENERAL_TEMPLATE, templateParams: '{}' }));
     },
 
     update(companyId, id, input, userId) {

@@ -81,8 +81,12 @@ describe('низкоуровневое создание справочников
         s.categories.createIn(tx, { companyId: w.cid, kind: 'expense', parentId: null, name: 'Новая' });
         s.categories.createIn(tx, { companyId: w.cid, kind: 'expense', parentId: w.income, name: 'Чужой вид' });
       }),
-    ).toThrow(`Категория ${w.income} не может быть родителем`);
+    ).toThrow(expect.objectContaining({ code: 'VALIDATION', fields: { parentId: 'Родительская категория из другого дерева' } }));
     expect(one('SELECT COUNT(*) n FROM categories').n).toBe(before);
+    // родитель в архиве — как у add()
+    const archived = s.categories.add(w.cid, { kind: 'expense', name: 'Архивная', parentId: null }, adminId());
+    s.categories.archive(w.cid, archived.id, adminId());
+    expect(() => w.h.t.db.transaction((tx) => s.categories.createIn(tx, { companyId: w.cid, kind: 'expense', parentId: archived.id, name: 'Дочерняя' }))).toThrow('Родительская категория в архиве');
     // проект с занятым названием (без учёта регистра) — 400, как у обычного создания
     expect(() => w.h.t.db.transaction((tx) => s.projects.createIn(tx, { companyId: w.cid, name: 'клуб 1' }))).toThrow('Проверьте заполнение полей');
   });
@@ -140,6 +144,77 @@ describe('OperationsWriter.insertImported (§6.4 п. 3.5)', () => {
     expect(balances.get(w.usd)).toBe(100 - 10);
     // история операций не пишется: одна запись на импорт — у вызывающего (§6.5)
     expect(one("SELECT COUNT(*) n FROM audit_log WHERE entity = 'operation'").n).toBe(0);
+  });
+
+  it('эквивалентно OperationsService.create: те же строки operations, operation_lines и operation_tags', async () => {
+    w = await opsWorld();
+    const s = services();
+    const writer = createOperationsWriter(w.h.t.sqlite);
+    const kzt2 = (await w.post(`/api/v1/companies/${w.cid}/accounts`, { name: 'Касса 2', currency: 'KZT', openedAt: '2026-10-01', startingBalance: 0 })).account.id as number;
+    const day = (n: number) => `2026-10-0${n}T04:00:00.000Z`;
+    // пары «вход create / вход insertImported» одного смысла; rate и baseAmount импорта — как их считает предпросмотр
+    const cases: [Parameters<typeof s.operations.create>[1], ImportedOperation][] = [
+      [
+        { type: 'income', paidAt: day(1), accrualDate: '2026-10-01', accountId: w.kzt, amount: 150_000, toAccountId: null, toAmount: null, counterpartyId: w.counterparty, comment: 'выручка', lines: [{ categoryId: w.income, projectId: w.project, amount: 150_000 }], tagIds: [] },
+        { ...base, type: 'income', paidAt: day(1), accrualDate: '2026-10-01', accountId: w.kzt, amount: 150_000, baseAmount: 150_000, counterpartyId: w.counterparty, comment: 'выручка', categoryId: w.income, projectId: w.project },
+      ],
+      [
+        { type: 'expense', paidAt: day(2), accrualDate: null, accountId: w.kzt, amount: 50_000, toAccountId: null, toAmount: null, counterpartyId: null, comment: 'аренда', lines: [{ categoryId: w.expense, projectId: null, amount: 50_000 }], tagIds: [w.tag] },
+        { ...base, type: 'expense', paidAt: day(2), accountId: w.kzt, amount: 50_000, baseAmount: 50_000, comment: 'аренда', categoryId: w.expense, tagIds: [w.tag, w.tag] },
+      ],
+      [
+        { type: 'expense', paidAt: day(3), accrualDate: null, accountId: w.usd, amount: 10, toAccountId: null, toAmount: null, counterpartyId: null, comment: null, lines: [{ categoryId: w.expense, projectId: w.project2, amount: 10 }], tagIds: [] },
+        { ...base, type: 'expense', paidAt: day(3), accountId: w.usd, amount: 10, rate: '475.12', baseAmount: 4_751, categoryId: w.expense, projectId: w.project2 },
+      ],
+      [
+        { type: 'expense', paidAt: day(3), accrualDate: null, accountId: w.kzt, amount: 700, toAccountId: null, toAmount: null, counterpartyId: null, comment: null, lines: [], tagIds: [] },
+        { ...base, type: 'expense', paidAt: day(3), accountId: w.kzt, amount: 700, baseAmount: 700 },
+      ],
+      [
+        { type: 'transfer', paidAt: day(4), accrualDate: null, accountId: w.kzt, amount: 9_000, toAccountId: kzt2, toAmount: null, counterpartyId: null, comment: null, lines: [], tagIds: [] },
+        { ...base, type: 'transfer', paidAt: day(4), accountId: w.kzt, amount: 9_000, toAccountId: kzt2, toAmount: 9_000, baseAmount: 9_000 },
+      ],
+      [
+        { type: 'transfer', paidAt: day(4), accrualDate: null, accountId: w.kzt, amount: 47_512, toAccountId: w.usd, toAmount: 100, counterpartyId: null, comment: 'обмен', lines: [{ categoryId: null, projectId: w.project, amount: 47_512 }], tagIds: [w.tag] },
+        { ...base, type: 'transfer', paidAt: day(4), accountId: w.kzt, amount: 47_512, toAccountId: w.usd, toAmount: 100, baseAmount: 47_512, comment: 'обмен', projectId: w.project, tagIds: [w.tag] },
+      ],
+      [
+        { type: 'transfer', paidAt: day(5), accrualDate: null, accountId: w.usd, amount: 10, toAccountId: w.kzt, toAmount: 4_751, counterpartyId: null, comment: null, lines: [], tagIds: [] },
+        { ...base, type: 'transfer', paidAt: day(5), accountId: w.usd, amount: 10, toAccountId: w.kzt, toAmount: 4_751, rate: '475.12', baseAmount: 4_751 },
+      ],
+    ];
+    const viaService = cases.map(([input]) => s.operations.create(w.cid, input, adminId()).id);
+    const importId = importRow();
+    const viaWriter = w.h.t.db.transaction((tx) => writer.insertImported(tx, { companyId: w.cid, importId, userId: adminId(), at: NOW.toISOString(), rows: cases.map(([, row]) => row) }));
+    // без id, import_id и меток времени (у create их ставит now(), у импорта — batch.at; в тесте оба равны NOW, но не часть эквивалентности)
+    const snapshot = (id: number) => {
+      const { id: _id, import_id, created_at, updated_at, ...op } = one('SELECT * FROM operations WHERE id = ?', id) as Record<string, unknown>;
+      void import_id, created_at, updated_at;
+      return {
+        op,
+        lines: all('SELECT position, category_id, project_id, amount, base_amount FROM operation_lines WHERE operation_id = ? ORDER BY position', id),
+        tags: all('SELECT tag_id FROM operation_tags WHERE operation_id = ? ORDER BY tag_id', id),
+      };
+    };
+    viaService.forEach((svcId, i) => expect(snapshot(viaWriter[i]!), `случай ${i + 1}`).toEqual(snapshot(svcId)));
+    expect(one('SELECT COUNT(*) n FROM operations WHERE import_id = ?', importId).n).toBe(cases.length);
+  });
+
+  it('защитные проверки: перевод без суммы зачисления или с категорией, неположительная и не целая сумма', async () => {
+    w = await opsWorld();
+    const writer = createOperationsWriter(w.h.t.sqlite);
+    const importId = importRow();
+    const transfer: ImportedOperation = { ...base, type: 'transfer', paidAt: '2026-10-02T04:00:00Z', accountId: w.kzt, amount: 100, toAccountId: w.usd, toAmount: 1, baseAmount: 100 };
+    const income: ImportedOperation = { ...base, type: 'income', paidAt: '2026-10-02T04:00:00Z', accountId: w.kzt, amount: 100, baseAmount: 100 };
+    const insert = (row: ImportedOperation) => () => w.h.t.db.transaction((tx) => writer.insertImported(tx, { companyId: w.cid, importId, userId: adminId(), at: NOW.toISOString(), rows: [row] }));
+    expect(insert({ ...transfer, toAmount: null })).toThrow('у перевода нужны счёт и сумма зачисления');
+    expect(insert({ ...transfer, categoryId: w.expense })).toThrow('у перевода нет категории');
+    expect(insert({ ...income, amount: 0 })).toThrow('сумма — положительное целое');
+    expect(insert({ ...income, amount: -5 })).toThrow('сумма — положительное целое');
+    expect(insert({ ...income, amount: 1.5 })).toThrow('сумма — положительное целое');
+    expect(insert({ ...income, amount: Number.MAX_SAFE_INTEGER + 2 })).toThrow('сумма — положительное целое');
+    expect(insert({ ...income, toAmount: 5 })).toThrow('только у перевода');
+    expect(one('SELECT COUNT(*) n FROM operations').n).toBe(0);
   });
 
   it('вне транзакции — ошибка, ничего не записано', async () => {

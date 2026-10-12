@@ -33,7 +33,7 @@ export interface CategoriesService {
   mergeTemplate(ex: Executor, companyId: number, template: BusinessTemplate): number;
   /**
    * Низкоуровневое создание внутри чужой транзакции (импорт, §6.4 спецификации импорта): без истории — её пишет
-   * вызывающий. Порядок — после имеющихся на своём уровне; родитель — верхнего уровня того же вида и компании.
+   * вызывающий. Порядок — после имеющихся на своём уровне; родитель — верхнего уровня того же вида и компании, не в архиве (как у add).
    */
   createIn(ex: Executor, input: { companyId: number; kind: CategoryKind; parentId: number | null; name: string }): CategoryRow;
   listTree(companyId: number): { income: CategoryNodeDto[]; expense: CategoryNodeDto[] };
@@ -112,8 +112,8 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
       .get();
   }
 
-  function find(companyId: number, id: number) {
-    return db.select().from(categories).where(and(eq(categories.id, id), eq(categories.companyId, companyId))).get();
+  function find(companyId: number, id: number, ex: Executor = db) {
+    return ex.select().from(categories).where(and(eq(categories.id, id), eq(categories.companyId, companyId))).get();
   }
 
   function requireCategory(companyId: number, id: number): CategoryRow {
@@ -139,8 +139,8 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
   }
 
   /** Родитель для вложения: та же компания и вид, верхний уровень, не в архиве (вложенность ≤ 2). */
-  function checkParent(companyId: number, kind: CategoryKind, parentId: number, opts: { allowArchived?: boolean } = {}): void {
-    const p = find(companyId, parentId);
+  function checkParent(companyId: number, kind: CategoryKind, parentId: number, opts: { allowArchived?: boolean } = {}, ex: Executor = db): void {
+    const p = find(companyId, parentId, ex);
     if (!p) throw invalid('parentId', 'Родительская категория не найдена');
     if (p.kind !== kind) throw invalid('parentId', 'Родительская категория из другого дерева');
     if (p.parentId !== null) throw invalid('parentId', 'Вложенность — не больше двух уровней');
@@ -199,10 +199,7 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
     },
 
     createIn(ex, input) {
-      if (input.parentId !== null) {
-        const p = ex.select().from(categories).where(and(eq(categories.id, input.parentId), eq(categories.companyId, input.companyId))).get();
-        if (!p || p.kind !== input.kind || p.parentId !== null) throw new Error(`Категория ${input.parentId} не может быть родителем`);
-      }
+      if (input.parentId !== null) checkParent(input.companyId, input.kind, input.parentId, {}, ex);
       return toRow(insert(ex, { companyId: input.companyId, kind: input.kind, parentId: input.parentId, name: cleanName(input.name) }));
     },
 
@@ -231,9 +228,8 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
 
     add(companyId, input, userId) {
       requireCompany(db, companyId, { writable: true });
-      if (input.parentId !== null) checkParent(companyId, input.kind, input.parentId);
       return mutate(db, audit, (tx, record) => {
-        const row = toRow(insert(tx, { companyId, kind: input.kind, parentId: input.parentId, name: cleanName(input.name) }));
+        const row = svc.createIn(tx, { companyId, kind: input.kind, parentId: input.parentId, name: input.name });
         record({ companyId, userId, entity: 'category', entityId: row.id, action: 'create', diff: { kind: row.kind, name: row.name, parentId: row.parentId } });
         return row;
       });
