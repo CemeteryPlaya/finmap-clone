@@ -330,6 +330,18 @@ describe('файл целиком (§2.2, §2.3, §4.10)', () => {
     expect(f('F5', () => parse(...many))).toBe('В файле больше 50 000 строк — разбейте его по годам');
   });
 
+  it('название счёта (G или H) длиннее 120 символов — R13, строка не импортируется; ровно 120 — можно', () => {
+    const at120 = 'я'.repeat(120);
+    const at121 = 'я'.repeat(121);
+    expect(issuesOf({ ...BASE, fromAccount: at121 }, { ...BASE, toAccount: at121 }, { ...BASE, fromAccount: 'Касса', toAccount: at121 })).toEqual([
+      'R13: Счёт длиннее 120 символов',
+      'R13: Счёт длиннее 120 символов',
+      'R13: Счёт длиннее 120 символов',
+    ]);
+    const p = parse(row(2, { ...BASE, fromAccount: at121 }), row(3, { ...BASE, fromAccount: at120, toAccount: 'Касса' }));
+    expect(p.rows.map((r) => [r.row, r.account.name.length])).toEqual([[3, 120]]);
+  });
+
   it('больше 1 000 разных счетов в «Со счета» и «На счет» — F9; повтор названия (и его написание другим регистром) не считается', () => {
     // 500 переводов: 1 000 разных счетов — можно
     const transfers = Array.from({ length: 500 }, (_, i) => row(i + 2, { ...BASE, fromAccount: `Счёт ${i}`, toAccount: `Сейф ${i}` }));

@@ -1,6 +1,7 @@
 import { getCurrency } from '../../../shared/currencies';
 import { isValidDate, startOfDayUtc } from '../../../shared/dates';
 import { columnTitle, headerField, isHeaderRow, nameKey, type FinmapField } from '../../../shared/finmap-format';
+import { ACCOUNT_NAME_MAX } from '../../../shared/schemas/accounts';
 import { CATEGORY_NAME_MAX } from '../../../shared/schemas/categories';
 import { COUNTERPARTY_NAME_MAX } from '../../../shared/schemas/counterparties';
 import { IMPORT_ACCOUNTS_MAX } from '../../../shared/schemas/imports';
@@ -305,6 +306,8 @@ export function parseRow(sheetRow: SheetRow, columns: Map<FinmapField, number>, 
   const type: ImportType | null = from && to ? 'transfer' : from ? 'expense' : to ? 'income' : null;
   if (!type) err('R08', M.R08);
   else if (type === 'transfer' && nameKey(from) === nameKey(to)) err('R09', M.R09);
+  // название счёта длиннее ACCOUNT_NAME_MAX (§4.4): ошибка строки, карточки счёта нет — ключи карточек ограничены (§6.3)
+  if (from.length > ACCOUNT_NAME_MAX || to.length > ACCOUNT_NAME_MAX) err('R13', M.R13('Счёт', ACCOUNT_NAME_MAX));
 
   // сумма (§4.2): точная запись без знака; в минимальные единицы — по валюте счёта, в предпросмотре
   let amount: string | null = null;

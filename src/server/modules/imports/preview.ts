@@ -103,8 +103,9 @@ const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
 const isSafe = (v: bigint) => v >= -MAX_SAFE && v <= MAX_SAFE;
 
 /**
- * Название в карточке (§6.3): длиннее ACCOUNT_NAME_MAX — первые ACCOUNT_NAME_MAX символов и «…». Ответ не растёт
- * с длиной ячейки, а обрезанное название всё ещё длиннее предела — отправленное обратно, оно снова даст A3.
+ * Название в карточке (§6.3): длиннее ACCOUNT_NAME_MAX — первые ACCOUNT_NAME_MAX символов и «…». Название из файла
+ * длиннее предела уже R13 строки (§4.4); здесь — название из запроса (до 1 000 символов). Обрезанное название всё ещё
+ * длиннее предела — отправленное обратно, оно снова даст A3.
  */
 function clipName(s: string): string {
   if (s.length <= ACCOUNT_NAME_MAX) return s;

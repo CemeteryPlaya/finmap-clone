@@ -381,21 +381,38 @@ describe('предпросмотр: перенесено из ревью зад�
 });
 
 describe('предпросмотр: правки по ревью задачи 6', () => {
-  it('название счёта длиннее 120 символов: в карточке обрезано с «…», ошибка A3 остаётся и после отправки обрезанного названия обратно', async () => {
+  it('название счёта в файле длиннее 120 символов — ошибка строки R13, карточки нет: ответ мал и при 32 000 символах (R4)', async () => {
     w = await opsWorld();
+    const { preview: p, plan } = preview([
+      fr({ paidAt: at('2026-10-05', '10:00:00'), amount: 10, to: 'я'.repeat(32_000) }),
+      // перевод с длинным «На счет»: строка с ошибкой — и «Касса» без карточки
+      fr({ paidAt: at('2026-10-05', '10:00:00'), amount: 10, from: 'Касса', to: 'я'.repeat(ACCOUNT_NAME_MAX + 1) }),
+      fr({ paidAt: at('2026-10-05', '11:00:00'), amount: 10, to: 'я'.repeat(ACCOUNT_NAME_MAX) }),
+    ]);
+    expect(p.errors).toEqual({ total: 2, byCode: [{ code: 'R13', message: 'Счёт длиннее 120 символов', count: 2, rows: [2, 3] }] });
+    expect(p.accounts.map((a) => [a.key.length, a.fileName.length, a.errors])).toEqual([[ACCOUNT_NAME_MAX, ACCOUNT_NAME_MAX, []]]);
+    expect(plan.rows.map((r) => r.row)).toEqual([4]);
+    expect(JSON.stringify(p).length).toBeLessThan(3_000);
+    expect(p.canImport).toBe(false);
+  });
+
+  it('название нового счёта из запроса длиннее 120 символов: в карточке обрезано с «…» (пара не разрезана), A3 остаётся и после отправки обратно', async () => {
+    w = await opsWorld();
+    const rows = [fr({ paidAt: at('2026-10-05', '10:00:00'), amount: 10, to: 'Банк' }), fr({ paidAt: at('2026-10-05', '11:00:00'), amount: 10, to: 'Сейф' })];
     const long = `Счёт ${'я'.repeat(200)}`;
     const emoji = `${'я'.repeat(ACCOUNT_NAME_MAX - 1)}${String.fromCodePoint(0x1f600)}хвост`; // суррогатная пара на границе
-    const rows = [fr({ paidAt: at('2026-10-05', '10:00:00'), amount: 10, to: long }), fr({ paidAt: at('2026-10-05', '11:00:00'), amount: 10, to: emoji })];
-    const { preview: p } = preview(rows);
-    const clipped = `${long.slice(0, ACCOUNT_NAME_MAX)}…`;
-    expect(p.accounts[0]).toMatchObject({ fileName: clipped, mapping: { kind: 'new', name: clipped }, errors: [{ code: 'A3' }] });
-    // пара не разрезана: 119 букв, эмодзи целиком и «…»
-    expect(p.accounts[1]!.fileName).toBe(`${emoji.slice(0, ACCOUNT_NAME_MAX + 1)}…`);
-    expect(p.accounts[1]!.fileName.length).toBe(ACCOUNT_NAME_MAX + 2);
+    const { preview: p } = preview(rows, [
+      { key: 'банк', kind: 'new', name: long, currency: 'KZT', balance: null },
+      { key: 'сейф', kind: 'new', name: emoji, currency: 'KZT', balance: null },
+    ]);
+    expect(p.accounts[0]).toMatchObject({ fileName: 'Банк', mapping: { kind: 'new', name: `${long.slice(0, ACCOUNT_NAME_MAX)}…` }, errors: [{ code: 'A3' }] });
+    // 119 букв, эмодзи целиком и «…»
+    expect(p.accounts[1]!.mapping).toMatchObject({ name: `${emoji.slice(0, ACCOUNT_NAME_MAX + 1)}…` });
+    expect((p.accounts[1]!.mapping as { name: string }).name.length).toBe(ACCOUNT_NAME_MAX + 2);
     expect(p.counts.add).toBe(0);
 
-    const again = preview(rows, [p.accounts[0]!.mapping!]);
-    expect(again.preview.accounts[0]!.errors.map((e) => e.code)).toEqual(['A3']);
+    const again = preview(rows, p.accounts.map((a) => a.mapping!));
+    expect(again.preview.accounts.map((a) => a.errors.map((e) => e.code))).toEqual([['A3'], ['A3']]);
     expect(again.preview.canImport).toBe(false);
   });
 
