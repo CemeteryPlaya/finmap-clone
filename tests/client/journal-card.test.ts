@@ -4,7 +4,7 @@ import { journalCardText, type JournalCardText } from '../../src/client/lib/jour
 import type { Account, JournalItem, OperationLine } from '../../src/client/lib/queries';
 
 const TZ = 'Asia/Almaty';
-const ctx = { baseCurrency: 'KZT', timeZone: TZ, today: '2026-10-07' };
+const ctx = { baseCurrency: 'KZT', timeZone: TZ };
 
 const account = (id: number, name: string, currency: string): Account => ({
   id,
@@ -72,44 +72,45 @@ const item = (patch: Partial<JournalItem>): JournalItem => ({
 
 /** Неразрывные пробелы денег (U+00A0, U+202F) → обычные: так ожидания читаются. */
 const plain = (card: JournalCardText) =>
-  Object.fromEntries(Object.entries(card).map(([k, v]) => [k, v === null ? null : v.replace(/[\u00A0\u202F]/g, ' ')]));
+  Object.fromEntries(Object.entries(card).map(([k, v]) => [k, v === null ? null : v.replace(/[  ]/g, ' ')]));
 
-describe('карточка операции в журнале на телефоне', () => {
-  it('расход: категория, счёт, контрагент и комментарий, сумма со знаком, «сегодня» и время', () => {
+describe('карточка операции в журнале на телефоне (§8.4 этапа 1.5)', () => {
+  it('расход: дата без времени, сумма со знаком, контрагент, счёт, категория; комментария нет', () => {
     expect(plain(journalCardText(item({ counterpartyId: 30, comment: 'за октябрь' }), lookups, ctx))).toEqual({
-      title: 'Аренда',
-      account: 'Касса',
-      details: 'ТОО Ромашка · за октябрь',
-      amount: '\u22122 500 ₸',
+      date: '7 окт. 2026',
+      amount: '−2 500 ₸',
       extra: null,
-      date: 'сегодня 10:30',
+      counterparty: 'ТОО Ромашка',
+      account: 'Касса',
+      category: 'Аренда',
     });
   });
 
-  it('разбитый доход — «2 категории»; без категории — «Без категории»; вчера и раньше — по дате', () => {
-    const split = item({
-      type: 'income',
-      paidAt: '2026-10-06T03:00:00.000Z',
-      lines: [line(10, 20, 100000), line(11, 20, 150000, 1)],
-    });
-    expect(plain(journalCardText(split, lookups, ctx))).toMatchObject({ title: '2 категории', amount: '+2 500 ₸', date: 'вчера 08:00', details: null });
+  it('разбитый доход — «2 категории»; без категории — «Без категории»; без контрагента — строки нет', () => {
+    const split = item({ type: 'income', paidAt: '2026-10-06T03:00:00.000Z', lines: [line(10, 20, 100000), line(11, 20, 150000, 1)] });
+    expect(plain(journalCardText(split, lookups, ctx))).toMatchObject({ date: '6 окт. 2026', amount: '+2 500 ₸', counterparty: null, category: '2 категории' });
     const none = item({ paidAt: '2026-10-01T13:15:00.000Z', lines: [line(null, 20, 250000)] });
-    expect(journalCardText(none, lookups, ctx)).toMatchObject({ title: 'Без категории', date: '01.10.2026 18:15' });
+    expect(journalCardText(none, lookups, ctx)).toMatchObject({ date: '1 окт. 2026', category: 'Без категории' });
   });
 
-  it('перевод между валютами: оба счёта, сумма без знака и зачисление в валюте счёта получателя', () => {
+  it('дата — по поясу приложения: 19:30 UTC 6 октября — уже 7 октября в Алматы', () => {
+    expect(journalCardText(item({ paidAt: '2026-10-06T19:30:00.000Z' }), lookups, ctx).date).toBe('7 окт. 2026');
+  });
+
+  it('перевод между валютами: оба счёта, сумма без знака, зачисление в валюте получателя; строки категории нет', () => {
     const transfer = item({ type: 'transfer', accountId: 1, toAccountId: 2, amount: 50000, toAmount: 100, lines: [] });
     expect(plain(journalCardText(transfer, lookups, ctx))).toMatchObject({
-      title: 'Перевод',
       account: 'Касса → Валютный',
       amount: '500 ₸',
       extra: '→ 1 $',
+      counterparty: null,
+      category: null,
     });
   });
 
-  it('счёт не в базовой валюте — вторая строка в базовой; неизвестные справочники — «…»', () => {
+  it('счёт не в базовой валюте — под суммой сумма в базовой; неизвестные справочники — «…»', () => {
     const usd = item({ accountId: 2, amount: 100, baseAmount: 50000, counterpartyId: 99, lines: [line(77, null, 100)] });
-    expect(plain(journalCardText(usd, lookups, ctx))).toMatchObject({ title: '…', account: 'Валютный', amount: '\u22121 $', extra: '500 ₸', details: '…' });
+    expect(plain(journalCardText(usd, lookups, ctx))).toMatchObject({ category: '…', account: 'Валютный', amount: '−1 $', extra: '500 ₸', counterparty: '…' });
     expect(journalCardText(item({ accountId: 5 }), lookups, ctx).account).toBe('…');
   });
 });

@@ -9,16 +9,15 @@ const AMOUNT_CLASS: Record<JournalItem['type'], string> = {
 };
 
 /**
- * Журнал на телефоне (§7 «Мобильная версия»): список карточек — сумма, категория, счёт, дата (и контрагент
- * с комментарием, если есть). Карточка — кнопка: открывает операцию в форме на весь экран; после закрытия
- * формы фокус возвращается на неё. Выделения и «Указать» здесь нет — они в таблице на компьютере.
+ * Журнал на телефоне (§8.4 этапа 1.5, как в Finmap): карточка — дата слева и сумма справа, затем контрагент, счёт и
+ * мелко категория. Карточка — кнопка «Открыть операцию»: форма на весь экран, после закрытия фокус — на карточке.
+ * Выделения и «Указать» здесь нет — они в таблице на компьютере.
  */
 export function JournalCards(props: {
   items: JournalItem[];
   lookups: JournalLookups;
   baseCurrency: string;
   timeZone: string;
-  today: string;
   busy: boolean;
   onOpenOperation: (item: JournalItem) => void;
 }) {
@@ -31,22 +30,35 @@ export function JournalCards(props: {
             <button
               type="button"
               data-operation-id={item.id}
+              title="Открыть операцию"
               onClick={() => props.onOpenOperation(item)}
-              className="flex w-full items-start justify-between gap-3 rounded-lg py-3 text-left outline-none focus-visible:bg-field/60 focus-visible:ring-2 focus-visible:ring-focus"
+              className="block w-full rounded-lg py-3 text-left outline-none focus-visible:bg-field/60 focus-visible:ring-2 focus-visible:ring-focus"
             >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">{c.title}</span>
-                <span className="block truncate text-sm text-muted">{c.account}</span>
-                {c.details && <span className="block truncate text-xs text-muted">{c.details}</span>}
-              </span>
-              <span className="shrink-0 text-right tabular-nums">
-                <span className={`block font-semibold ${AMOUNT_CLASS[item.type]}`}>
-                  {item.type === 'transfer' && <span aria-hidden="true">⇄ </span>}
-                  {c.amount}
+              <span className="flex items-start justify-between gap-3">
+                <span data-card-line="date" className="pt-0.5 text-sm text-muted">
+                  {c.date}
                 </span>
-                {c.extra && <span className="block text-xs text-muted">{c.extra}</span>}
-                <span className="block text-xs text-muted">{c.date}</span>
+                <span className="shrink-0 text-right tabular-nums">
+                  <span data-card-line="amount" className={`block font-semibold ${AMOUNT_CLASS[item.type]}`}>
+                    {item.type === 'transfer' && <span aria-hidden="true">⇄ </span>}
+                    {c.amount}
+                  </span>
+                  {c.extra && <span className="block text-xs text-muted">{c.extra}</span>}
+                </span>
               </span>
+              {c.counterparty && (
+                <span data-card-line="counterparty" className="block truncate">
+                  {c.counterparty}
+                </span>
+              )}
+              <span data-card-line="account" className="block truncate text-sm text-muted">
+                {c.account}
+              </span>
+              {c.category && (
+                <span data-card-line="category" className="block truncate text-xs text-muted">
+                  {c.category}
+                </span>
+              )}
             </button>
           </li>
         );

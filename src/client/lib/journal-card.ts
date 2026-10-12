@@ -1,41 +1,35 @@
+import { formatDateShortRu } from '../../shared/dates';
 import { formatMoney, MONEY_SCREEN } from '../../shared/money';
 import type { JournalLookups } from '../components/journal/JournalTable';
-import { dayLabel, dayOf, lineDimension, signedMoney, splitLabel, timeLabel } from './journal-format';
+import { dayOf, lineDimension, signedMoney, splitLabel } from './journal-format';
 import type { JournalItem } from './queries';
 
-/** Текст карточки операции в журнале на телефоне (§7 «Мобильная версия»: сумма, категория, счёт, дата). */
+/** Текст карточки операции в журнале на телефоне (§8.4 этапа 1.5, как в Finmap). */
 export interface JournalCardText {
-  /** Категория: название, «2 категории» у разбитой операции или «Без категории»; у перевода — «Перевод». */
-  title: string;
-  /** Счёт; у перевода — «Касса → Валютный». */
-  account: string;
-  /** Контрагент и комментарий через « · »; если нет обоих — null. */
-  details: string | null;
-  /** Сумма со знаком в валюте счёта. */
-  amount: string;
-  /** Вторая строка суммы: зачисление перевода в другой валюте («→ 1 $») или сумма в базовой валюте; иначе null. */
-  extra: string | null;
-  /** «сегодня 10:30», «вчера 09:15», «05.10.2026 18:15» — в поясе приложения. */
+  /** Строка 1 слева: дата «27 сент. 2026» без времени, в поясе приложения. */
   date: string;
+  /** Строка 1 справа: сумма со знаком в валюте счёта. */
+  amount: string;
+  /** Мелко под суммой: зачисление перевода в другой валюте («→ 1 $») или сумма в базовой валюте; иначе null. */
+  extra: string | null;
+  /** Строка 2: контрагент; нет — null (пустой строки нет). */
+  counterparty: string | null;
+  /** Строка 3: счёт; у перевода — «Касса → Kaspi». */
+  account: string;
+  /** Строка 4 мелко: категория, «2 категории» у разбитой, «Без категории»; у перевода — null (решение владельца 1, §14.3). */
+  category: string | null;
 }
 
-export function journalCardText(
-  item: JournalItem,
-  lookups: JournalLookups,
-  ctx: { baseCurrency: string; timeZone: string; today: string },
-): JournalCardText {
+export function journalCardText(item: JournalItem, lookups: JournalLookups, ctx: { baseCurrency: string; timeZone: string }): JournalCardText {
   const account = lookups.accounts.get(item.accountId);
   const toAccount = item.toAccountId === null ? undefined : lookups.accounts.get(item.toAccountId);
   const currency = account?.currency ?? ctx.baseCurrency;
 
-  let title = 'Перевод';
+  let category: string | null = null;
   if (item.type !== 'transfer') {
     const d = lineDimension(item.lines, 'categoryId');
-    title = d.kind === 'many' ? splitLabel(d.count, 'category') : d.id === null ? 'Без категории' : (lookups.categories.get(d.id)?.name ?? '…');
+    category = d.kind === 'many' ? splitLabel(d.count, 'category') : d.id === null ? 'Без категории' : (lookups.categories.get(d.id)?.name ?? '…');
   }
-
-  const counterparty = item.counterpartyId === null ? null : (lookups.counterparties.get(item.counterpartyId) ?? '…');
-  const details = [counterparty, item.comment].filter((s): s is string => !!s).join(' · ');
 
   let extra: string | null = null;
   if (item.type === 'transfer' && toAccount && toAccount.currency !== currency && item.toAmount !== null) {
@@ -45,11 +39,11 @@ export function journalCardText(
   }
 
   return {
-    title,
-    account: item.type === 'transfer' ? `${account?.name ?? '…'} → ${toAccount?.name ?? '…'}` : (account?.name ?? '…'),
-    details: details === '' ? null : details,
+    date: formatDateShortRu(dayOf(item.paidAt, ctx.timeZone)),
     amount: signedMoney(item.type, item.amount, currency),
     extra,
-    date: `${dayLabel(dayOf(item.paidAt, ctx.timeZone), ctx.today)} ${timeLabel(item.paidAt, ctx.timeZone)}`,
+    counterparty: item.counterpartyId === null ? null : (lookups.counterparties.get(item.counterpartyId) ?? '…'),
+    account: item.type === 'transfer' ? `${account?.name ?? '…'} → ${toAccount?.name ?? '…'}` : (account?.name ?? '…'),
+    category,
   };
 }

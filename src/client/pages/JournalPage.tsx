@@ -493,7 +493,6 @@ function JournalScreen(props: {
           lookups={lookups}
           baseCurrency={company.baseCurrency}
           timeZone={timeZone}
-          today={today}
           busy={journal.isPlaceholderData}
           onOpenOperation={openOperation}
         />

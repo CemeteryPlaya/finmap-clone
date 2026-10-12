@@ -29,6 +29,11 @@ async function apiPost(page: Page, url: string, data: unknown) {
 const PHONE = { width: 390, height: 844 };
 const bar = (page: Page) => page.getByRole('group', { name: 'Добавить операцию' });
 const newForm = (page: Page) => page.getByRole('dialog', { name: /^Новый (доход|расход|перевод)$/ });
+/** «12 окт. 2026» — дата карточки журнала (§8.4), как formatDateShortRu. */
+const SHORT_MONTHS = ['янв.', 'февр.', 'мар.', 'апр.', 'мая', 'июн.', 'июл.', 'авг.', 'сент.', 'окт.', 'нояб.', 'дек.'];
+const shortDate = (iso: string) => `${Number(iso.slice(8, 10))} ${SHORT_MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
+/** Сегодня по Алматы — APP_TIMEZONE e2e-сервера. */
+const todayIso = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date());
 
 test('шапка телефона (§8.1–8.2): ☰ «Счета» слева, компания ▾ по центру, шестерёнка справа; «+ \u2212 ⇄» второй строкой — только значки; на компьютере те же кнопки с подписями по центру шапки', async ({ page }) => {
   await login(page);
@@ -248,14 +253,14 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   await dialog.getByRole('button', { name: 'Добавить расход' }).click();
   await expect(dialog).toBeHidden();
 
-  // журнал — карточки: сумма, категория, счёт, дата; таблицы и флажков выделения нет
+  // журнал — карточки: дата, сумма, счёт, категория (§8.4); таблицы и флажков выделения нет
   await expect(page.getByRole('table', { name: 'Операции' })).toHaveCount(0);
   await expect(page.getByRole('checkbox')).toHaveCount(0);
   const card = cards(page).getByRole('listitem').first();
   await expect(card).toContainText(/\u22122\s500\s₸/);
   await expect(card).toContainText('Аренда');
   await expect(card).toContainText('Касса');
-  await expect(card).toContainText(/сегодня \d\d:\d\d/);
+  await expect(card).toContainText(shortDate(todayIso()));
 
   // правка: карточка открывает операцию на весь экран; оператор дописывается в конец суммы
   await card.getByRole('button').click();
@@ -293,12 +298,67 @@ test('журнал карточками догружается при прокр
   await page.getByRole('button', { name: 'Показать ещё' }).scrollIntoViewIfNeeded();
   await expect(list).toHaveCount(55);
   await expect(page.getByRole('button', { name: 'Показать ещё' })).toHaveCount(0);
-  await expect(list.last()).toContainText('№55');
+  // комментария в карточке нет (§8.4): последняя — самая ранняя операция, 55 ₸
+  await expect(list.last()).toContainText(/\+55\s₸/);
   // в самом низу страницы последняя карточка — над закреплённой нижней панелью вкладок
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   const last = (await list.last().boundingBox())!;
   const barTop = (await page.getByRole('navigation', { name: 'Разделы', exact: true }).boundingBox())!.y;
   expect(last.y + last.height).toBeLessThanOrEqual(barTop);
+});
+
+test('карточка журнала (§8.4): дата слева и сумма справа, контрагент, счёт, категория мелко; у перевода строки категории нет; комментария нет; подсказка «Открыть операцию»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Карточка ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 1000000 })).account.id;
+  const kaspi = (await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  const rent = (await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда' })).category.id;
+  const supplier = (await apiPost(page, `${base}/counterparties`, { name: 'ТОО Ромашка', type: 'supplier' })).counterparty.id;
+  await apiPost(page, `${base}/operations`, {
+    type: 'expense',
+    paidAt: todayAgo(5),
+    accountId: cash,
+    amount: 250000,
+    counterpartyId: supplier,
+    comment: 'за октябрь',
+    lines: [{ categoryId: rent, projectId: null, amount: 250000 }],
+  });
+  await apiPost(page, `${base}/operations`, { type: 'transfer', paidAt: todayAgo(4), accountId: cash, toAccountId: kaspi, amount: 10000 });
+  await apiPost(page, `${base}/operations`, { type: 'income', paidAt: todayAgo(3), accountId: kaspi, amount: 5000 });
+  await page.setViewportSize(PHONE);
+  await page.reload();
+
+  const items = cards(page).getByRole('listitem');
+  await expect(items).toHaveCount(3);
+  const line = (card: Locator, name: string) => card.locator(`[data-card-line="${name}"]`);
+  const expense = items.filter({ hasText: 'ТОО Ромашка' });
+  await expect(line(expense, 'date')).toHaveText(shortDate(todayIso()));
+  await expect(line(expense, 'amount')).toHaveText(/\u22122\s500\s₸/);
+  await expect(line(expense, 'counterparty')).toHaveText('ТОО Ромашка');
+  await expect(line(expense, 'account')).toHaveText('Касса');
+  await expect(line(expense, 'category')).toHaveText('Аренда');
+  // сверху вниз: дата, контрагент, счёт, категория; сумма — в строке даты, справа
+  const ys: number[] = [];
+  for (const name of ['date', 'counterparty', 'account', 'category']) ys.push((await line(expense, name).boundingBox())!.y);
+  expect(ys).toEqual([...ys].sort((a, b) => a - b));
+  expect(new Set(ys).size).toBe(4);
+  const date = (await line(expense, 'date').boundingBox())!;
+  const amount = (await line(expense, 'amount').boundingBox())!;
+  expect(amount.x).toBeGreaterThan(date.x + date.width);
+  expect(Math.abs(amount.y - date.y)).toBeLessThan(8);
+  // комментария нет; подсказка кнопки — «Открыть операцию» (отложенное 7 №4)
+  await expect(expense).not.toContainText('за октябрь');
+  await expect(expense.getByRole('button')).toHaveAttribute('title', 'Открыть операцию');
+  // перевод: «Касса → Kaspi», без строк контрагента и категории (Review Focus 4)
+  const transfer = items.filter({ hasText: 'Касса → Kaspi' });
+  await expect(line(transfer, 'account')).toHaveText('Касса → Kaspi');
+  await expect(line(transfer, 'category')).toHaveCount(0);
+  await expect(line(transfer, 'counterparty')).toHaveCount(0);
+  // доход без категории и контрагента: «Без категории», пустой строки контрагента нет
+  const income = items.filter({ hasText: /\+50\s₸/ });
+  await expect(line(income, 'category')).toHaveText('Без категории');
+  await expect(line(income, 'counterparty')).toHaveCount(0);
 });
 
 test('выделение из широкого окна на телефоне снимается: невидимые строки не удалить массовым действием', async ({ page }) => {
