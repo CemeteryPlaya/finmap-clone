@@ -4,6 +4,7 @@ import { parseSheet } from '../../src/server/modules/imports/parse-row';
 import { buildPreview, minuteOf } from '../../src/server/modules/imports/preview';
 import { readXlsx } from '../../src/server/modules/imports/xlsx-read';
 import { createRatesService } from '../../src/server/modules/rates/service';
+import { ACCOUNT_NAME_MAX } from '../../src/shared/schemas/accounts';
 import type { AccountMapping } from '../../src/shared/schemas/imports';
 import { excelSerial as at, finmapLikeRow as fr, finmapLikeXlsx, type FinmapLikeValue } from '../helpers/finmap-like';
 import { opsWorld, type OpsWorld } from '../helpers/ops';
@@ -337,6 +338,8 @@ describe('предпросмотр: перенесено из ревью зад�
       ],
     });
     expect(p.warnings).toEqual([{ code: 'W10', message: 'Больше 2 знаков после запятой — сумма округлена', count: 1, rows: [5] }]);
+    // строки «Кассы» 05.10, счёт открыт 01.10: дата открытия только переносится раньше, никогда не позже
+    expect(plan.accountChanges).toEqual([]);
     expect(p.canImport).toBe(false);
   });
 
@@ -374,5 +377,80 @@ describe('предпросмотр: перенесено из ревью зад�
       errors: [],
     });
     expect(plan.accounts).toEqual([{ key: p.accounts[0]!.key, name: '\u0411\u0430\u043D\u043A Kaspi', currency: 'KZT', startingBalance: 0, openedAt: '2026-10-05' }]);
+  });
+});
+
+describe('предпросмотр: правки по ревью задачи 6', () => {
+  it('название счёта длиннее 120 символов: в карточке обрезано с «…», ошибка A3 остаётся и после отправки обрезанного названия обратно', async () => {
+    w = await opsWorld();
+    const long = `Счёт ${'я'.repeat(200)}`;
+    const emoji = `${'я'.repeat(ACCOUNT_NAME_MAX - 1)}${String.fromCodePoint(0x1f600)}хвост`; // суррогатная пара на границе
+    const rows = [fr({ paidAt: at('2026-10-05', '10:00:00'), amount: 10, to: long }), fr({ paidAt: at('2026-10-05', '11:00:00'), amount: 10, to: emoji })];
+    const { preview: p } = preview(rows);
+    const clipped = `${long.slice(0, ACCOUNT_NAME_MAX)}…`;
+    expect(p.accounts[0]).toMatchObject({ fileName: clipped, mapping: { kind: 'new', name: clipped }, errors: [{ code: 'A3' }] });
+    // пара не разрезана: 119 букв, эмодзи целиком и «…»
+    expect(p.accounts[1]!.fileName).toBe(`${emoji.slice(0, ACCOUNT_NAME_MAX + 1)}…`);
+    expect(p.accounts[1]!.fileName.length).toBe(ACCOUNT_NAME_MAX + 2);
+    expect(p.counts.add).toBe(0);
+
+    const again = preview(rows, [p.accounts[0]!.mapping!]);
+    expect(again.preview.accounts[0]!.errors.map((e) => e.code)).toEqual(['A3']);
+    expect(again.preview.canImport).toBe(false);
+  });
+
+  it('сумма зачисления перевода после пересчёта по курсу — ноль: R06 (0,01 ₸ → USD; 0,01 сум → ₸ без F), а не R07', async () => {
+    w = await opsWorld();
+    w.h.t.sqlite.prepare("INSERT INTO currencies (code, name, symbol, minor_units) VALUES ('UZS', 'Узбекский сум', 'сўм', 2)").run();
+    await w.post('/api/v1/rates/manual', { date: '2026-10-01', currency: 'UZS', rate: '0.04' });
+    const sum = { key: 'сумовой', kind: 'new', name: 'Сумовой', currency: 'UZS', balance: null } as const;
+    const { preview: p, plan } = preview(
+      [
+        fr({ paidAt: at('2026-10-05', '10:00:00'), amount: '0,01', from: 'Касса', to: 'Валютный' }),
+        fr({ paidAt: at('2026-10-05', '11:00:00'), amount: '0,01', from: 'Сумовой', to: 'Касса' }),
+        fr({ paidAt: at('2026-10-05', '12:00:00'), amount: 100, from: 'Сумовой', to: 'Касса' }),
+      ],
+      [sum],
+    );
+    const R06_TO = 'Сумма зачисления после пересчёта по курсу равна нулю — заполните «Сумму в валюте компании»';
+    expect(p.errors).toEqual({ total: 2, byCode: [{ code: 'R06', message: R06_TO, count: 2, rows: [2, 3] }] });
+    // 100 сум × 0,04 = 4 ₸ — пересчёт не нулевой
+    expect(plan.rows.map((r) => [r.row, r.amount, r.baseAmount, r.toAmount, r.rate])).toEqual([[4, 10_000, 400, 400, '0.04']]);
+    expect(p.canImport).toBe(false);
+  });
+
+  it('огромные суммы: движение и остаток после импорта вне безопасного целого — A4 у существующего счёта без цели и у нового в обоих режимах', async () => {
+    w = await opsWorld();
+    await w.post(w.ops, { type: 'income', paidAt: '2026-10-05T05:00:00Z', accountId: w.kzt, amount: 20000 }); // остаток «Кассы» 200 ₸
+    const MAX = '90071992547409,91'; // Number.MAX_SAFE_INTEGER тиын
+    const { preview: p, plan } = preview(
+      [
+        // «Касса»: движение = MAX, но с имеющимися 200 ₸ остаток больше MAX
+        fr({ paidAt: at('2026-10-05', '10:00:00'), amount: MAX, to: 'Касса' }),
+        // «Банк» (новый, без остатка): движение MAX + 100 тиын
+        fr({ paidAt: at('2026-10-05', '10:00:00'), amount: MAX, to: 'Банк' }),
+        fr({ paidAt: at('2026-10-05', '11:00:00'), amount: 1, to: 'Банк' }),
+        // «Сейф» (новый, «Стартовый баланс» MAX): остаток MAX + 100 тиын
+        fr({ paidAt: at('2026-10-05', '10:00:00'), amount: 1, to: 'Сейф' }),
+        fr({ paidAt: at('2026-10-05', '10:00:00'), amount: 10, to: 'Резерв' }),
+        // «Валютный»: движение файла 2 × MAX — одна ошибка A4, не две
+        fr({ paidAt: at('2026-10-05', '10:00:00'), amount: MAX, baseAmount: 1, to: 'Валютный' }),
+        fr({ paidAt: at('2026-10-05', '11:00:00'), amount: MAX, baseAmount: 1, to: 'Валютный' }),
+      ],
+      [{ key: 'сейф', kind: 'new', name: 'Сейф', currency: 'KZT', balance: { mode: 'start', amount: Number.MAX_SAFE_INTEGER } }],
+    );
+    const A4 = { code: 'A4', message: 'Слишком большие суммы: остаток счёта после импорта вне допустимого диапазона' };
+    expect(p.accounts.map((a) => [a.key, a.errors])).toEqual([
+      ['касса', [A4]],
+      ['банк', [A4]],
+      ['сейф', [A4]],
+      ['резерв', []],
+      ['валютный', [A4]],
+    ]);
+    expect(p.counts.add).toBe(1);
+    expect(plan.rows.map((r) => r.row)).toEqual([6]);
+    expect(plan.accounts).toEqual([{ key: 'резерв', name: 'Резерв', currency: 'KZT', startingBalance: 0, openedAt: '2026-10-05' }]);
+    expect(plan.accountChanges).toEqual([]);
+    expect(p.canImport).toBe(false);
   });
 });

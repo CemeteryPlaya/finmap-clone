@@ -3,10 +3,11 @@ import { isValidDate, startOfDayUtc } from '../../../shared/dates';
 import { columnTitle, headerField, isHeaderRow, nameKey, type FinmapField } from '../../../shared/finmap-format';
 import { CATEGORY_NAME_MAX } from '../../../shared/schemas/categories';
 import { COUNTERPARTY_NAME_MAX } from '../../../shared/schemas/counterparties';
+import { IMPORT_ACCOUNTS_MAX } from '../../../shared/schemas/imports';
 import { PROJECT_NAME_MAX } from '../../../shared/schemas/projects';
 import { TAG_NAME_MAX } from '../../../shared/schemas/tags';
 import { cleanName } from '../../../shared/text';
-import { fileError, IMPORT_MAX_ROWS, MESSAGES as M, tooManyRows, type RowIssue } from './errors';
+import { fileError, IMPORT_MAX_ROWS, MESSAGES as M, tooManyAccounts, tooManyRows, type RowIssue } from './errors';
 import { CELL_TOO_LONG, type Cell, type SheetData, type SheetRow } from './xlsx-read';
 
 /** Разбор строк файла в строки импорта (§4 спецификации импорта): чистые функции, без базы. */
@@ -416,7 +417,7 @@ export function parseRow(sheetRow: SheetRow, columns: Map<FinmapField, number>, 
 
 /**
  * Лист → строки импорта (§2.3, §4): строка заголовков, пустые строки пропускаются молча и не считаются;
- * больше 50 000 строк данных — F5, ни одной — F7.
+ * больше 50 000 строк данных — F5, ни одной — F7; больше 1 000 разных счетов (G и H) — F9.
  */
 export function parseSheet(sheet: SheetData, ctx: ParseContext): ParsedFile {
   const { headerRow, columns, issues } = findHeader(sheet.rows);
@@ -432,5 +433,8 @@ export function parseSheet(sheet: SheetData, ctx: ParseContext): ParsedFile {
     if (res.kind === 'row') rows.push(res.row);
     else if (res.kind === 'future') future.push(r.row);
   }
+  // карточка счёта на каждое название: без предела ответ предпросмотра рос бы с числом названий (§6.3)
+  const accountKeys = new Set(rows.flatMap((r) => (r.toAccount ? [r.account.key, r.toAccount.key] : [r.account.key])));
+  if (accountKeys.size > IMPORT_ACCOUNTS_MAX) throw tooManyAccounts();
   return { headerRow, total: data.length, rows, future, issues };
 }

@@ -98,6 +98,21 @@ function dupKey(type: string, accountId: number, toAccountId: number | null, min
 
 const idOf = (r: Ref | null): number | null => (r && 'id' in r ? r.id : null);
 
+const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
+/** Сумма в минимальных единицах помещается в безопасное целое (стартовый баланс, движение, остаток после импорта). */
+const isSafe = (v: bigint) => v >= -MAX_SAFE && v <= MAX_SAFE;
+
+/**
+ * Название в карточке (§6.3): длиннее ACCOUNT_NAME_MAX — первые ACCOUNT_NAME_MAX символов и «…». Ответ не растёт
+ * с длиной ячейки, а обрезанное название всё ещё длиннее предела — отправленное обратно, оно снова даст A3.
+ */
+function clipName(s: string): string {
+  if (s.length <= ACCOUNT_NAME_MAX) return s;
+  // не разрезать суррогатную пару
+  const high = s.charCodeAt(ACCOUNT_NAME_MAX - 1);
+  return `${s.slice(0, high >= 0xd800 && high <= 0xdbff ? ACCOUNT_NAME_MAX + 1 : ACCOUNT_NAME_MAX)}…`;
+}
+
 type AccountRow = typeof accounts.$inferSelect;
 
 interface AccountState {
@@ -256,10 +271,15 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
           continue;
         }
         toAmount = convertMinor(baseAmount, divDec(DEC_ONE, y.rate), baseUnits, getCurrency(toCurrency).minorUnits);
-        if (!Number.isSafeInteger(toAmount) || toAmount <= 0) {
+        if (!Number.isSafeInteger(toAmount)) {
           err('R07', M.R07);
           continue;
         }
+      }
+      // пересчёт по курсу округлился до нуля (0,01 ₸ → USD; 0,01 сум → ₸ без F): у перевода сумма зачисления больше нуля
+      if (toAmount === 0) {
+        err('R06', M.R06_TO);
+        continue;
       }
     }
     const m = matched.rows.get(r.row);
@@ -332,19 +352,20 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
 
   // ——— движение, остатки и дата открытия счетов (§5.4): по ключу из файла — для карточки; по id — для существующего
   // счёта, на который могут указывать несколько названий из файла (его дата открытия и стартовый баланс — общие)
-  const movement = new Map<string, number>();
+  // суммы — в bigint: сумма безопасных целых может выйти за MAX_SAFE_INTEGER и молча потерять точность (A4 ниже)
+  const movement = new Map<string, bigint>();
   const rowsOf = new Map<string, number>();
   const earliest = new Map<string, string>();
-  const movementById = new Map<number, number>();
+  const movementById = new Map<number, bigint>();
   const earliestById = new Map<number, string>();
   const touch = (st: AccountState, delta: number, date: string) => {
-    movement.set(st.key, (movement.get(st.key) ?? 0) + delta);
+    movement.set(st.key, (movement.get(st.key) ?? 0n) + BigInt(delta));
     rowsOf.set(st.key, (rowsOf.get(st.key) ?? 0) + 1);
     const e = earliest.get(st.key);
     if (!e || date < e) earliest.set(st.key, date);
     const id = idOf(st.ref);
     if (id !== null) {
-      movementById.set(id, (movementById.get(id) ?? 0) + delta);
+      movementById.set(id, (movementById.get(id) ?? 0n) + BigInt(delta));
       const ei = earliestById.get(id);
       if (!ei || date < ei) earliestById.set(id, date);
     }
@@ -354,6 +375,9 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
     else touch(x.acc, -x.amount, x.src.date);
     if (x.to) touch(x.to, x.toAmount!, x.src.date);
   }
+  // Цифры ниже (движение, accountChanges, стартовый баланс нового счёта) считаются по строкам до того, как A4 найдена
+  // в карточках: строки счёта с A4 исключаются уже после, и движение партнёра по переводу их ещё включает. Это только
+  // для показа: при любой ошибке счёта canImport = false, и план не записывается.
 
   // существующие счета: перенос даты открытия на первую операцию файла и «Остаток после импорта» — один раз на счёт;
   // разные «Остатки после импорта» у названий, сопоставленных одному счёту, — ошибка этих карточек
@@ -368,18 +392,31 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
     }
     const first = earliestById.get(acc.id) ?? null;
     const newOpenedAt = first !== null && first < acc.openedAt ? first : null;
+    const fail = (message: string) => existingResult.set(acc.id, { newOpenedAt, error: { code: 'A4', message } });
     if (targets.size > 1) {
-      existingResult.set(acc.id, { newOpenedAt, error: { code: 'A4', message: M.A4_TARGETS } });
+      fail(M.A4_TARGETS);
       continue;
     }
     const target = targets.size === 1 ? [...targets][0]! : null;
     const balance = balances.get(acc.id) ?? acc.startingBalance;
+    const existingMove = BigInt(balance) - BigInt(acc.startingBalance);
+    const fileMove = movementById.get(acc.id) ?? 0n;
     // «Остаток после импорта»: стартовый баланс = цель - (движение имеющихся операций + движение файла)
-    const startingBalance = target === null ? acc.startingBalance : target - (balance - acc.startingBalance + (movementById.get(acc.id) ?? 0));
-    if (!Number.isSafeInteger(startingBalance)) {
-      existingResult.set(acc.id, { newOpenedAt, error: { code: 'A4', message: M.A4 } });
+    const start = target === null ? BigInt(acc.startingBalance) : BigInt(target) - (existingMove + fileMove);
+    if (!isSafe(fileMove)) {
+      fail(M.A4_OVERFLOW);
       continue;
     }
+    if (!isSafe(start)) {
+      fail(M.A4);
+      continue;
+    }
+    // остаток после импорта: стартовый + движение имеющихся операций + движение файла
+    if (!isSafe(start + existingMove + fileMove)) {
+      fail(M.A4_OVERFLOW);
+      continue;
+    }
+    const startingBalance = Number(start);
     existingResult.set(acc.id, { newOpenedAt, error: null });
     if (startingBalance !== acc.startingBalance || newOpenedAt !== null) {
       accountChanges.push({
@@ -393,36 +430,37 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
   const planAccounts: ImportPlan['accounts'] = [];
   const cards: ImportPreviewAccount[] = [];
   for (const st of states.values()) {
-    const move = movement.get(st.key) ?? 0;
+    const move = movement.get(st.key) ?? 0n;
     const first = earliest.get(st.key) ?? null;
     const card: ImportPreviewAccount = {
       key: st.key,
-      fileName: st.fileName,
+      fileName: clipName(st.fileName),
       rows: rowsOf.get(st.key) ?? 0,
-      mapping: st.mapping,
+      mapping: st.mapping?.kind === 'new' ? { ...st.mapping, name: clipName(st.mapping.name) } : st.mapping,
       currency: st.currency,
-      movement: move,
+      movement: Number(move),
       archivedHint: st.archivedHint,
       errors: st.errors,
+    };
+    /** A4 (решение 18): строки счёта больше не считаются (движение в карточке остаётся — по нему видно, откуда ошибка). */
+    const fail = (message: string) => {
+      st.errors.push({ code: 'A4', message });
+      st.ref = null;
     };
     if (st.existing) {
       const acc = st.existing;
       const result = existingResult.get(acc.id)!;
       card.existing = { balance: balances.get(acc.id) ?? acc.startingBalance, openedAt: acc.openedAt, newOpenedAt: result.newOpenedAt };
-      if (result.error) {
-        // A4 существующего счёта (решение 18): строки этого названия больше не считаются — как у нового счёта с A4
-        st.errors.push(result.error);
-        st.ref = null;
-      }
+      if (result.error) fail(result.error.message);
+      else if (!isSafe(move)) fail(M.A4_OVERFLOW);
     } else if (st.mapping?.kind === 'new' && st.ref) {
       // «Текущий остаток» B: стартовый = B - движение; «Стартовый баланс» S — как есть; пусто — 0
       const b = st.mapping.balance;
-      const startingBalance = b === null ? 0 : b.mode === 'current' ? b.amount - move : b.amount;
-      if (!Number.isSafeInteger(startingBalance)) {
-        // A4: строки счёта больше не считаются (движение в карточке остаётся — по нему видно, откуда ошибка)
-        st.errors.push({ code: 'A4', message: M.A4 });
-        st.ref = null;
-      } else planAccounts.push({ key: st.key, name: cleanName(st.mapping.name), currency: st.currency!, startingBalance, openedAt: first ?? today });
+      const start = b === null ? 0n : b.mode === 'current' ? BigInt(b.amount) - move : BigInt(b.amount);
+      if (!isSafe(move)) fail(M.A4_OVERFLOW);
+      else if (!isSafe(start)) fail(M.A4);
+      else if (!isSafe(start + move)) fail(M.A4_OVERFLOW);
+      else planAccounts.push({ key: st.key, name: cleanName(st.mapping.name), currency: st.currency!, startingBalance: Number(start), openedAt: first ?? today });
     }
     cards.push(card);
   }

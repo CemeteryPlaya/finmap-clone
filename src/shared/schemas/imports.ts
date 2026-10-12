@@ -27,10 +27,13 @@ export const accountMappingSchema = z.discriminatedUnion('kind', [
 ]);
 export type AccountMapping = z.infer<typeof accountMappingSchema>;
 
+/** Не больше разных счетов в файле (иначе F9) — и сопоставлений в запросе. */
+export const IMPORT_ACCOUNTS_MAX = 1000;
+
 /** Тело POST …/imports/preview и POST …/imports: токен проверки и сопоставление счетов. */
 export const importRequestSchema = z.object({
   token: z.string().regex(/^[0-9a-f]{32}$/, 'Проверка устарела — загрузите файл заново'),
-  accounts: z.array(accountMappingSchema).max(1000, 'Слишком много счетов').default([]),
+  accounts: z.array(accountMappingSchema).max(IMPORT_ACCOUNTS_MAX, 'Слишком много счетов').default([]),
 });
 export type ImportRequest = z.infer<typeof importRequestSchema>;
 
