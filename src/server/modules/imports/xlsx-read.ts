@@ -101,7 +101,7 @@ function firstSheet(workbook: string, rels: string | null): { path: string; date
     close() {},
   });
   if (found.rid === null) throw damaged('в книге нет листов');
-  if (rels && found.rid) {
+  if (rels !== null) {
     scanXml(rels, {
       open(name, attrs) {
         if (name === 'Relationship' && attrs.Id === found.rid && found.target === null) found.target = attrs.Target ?? null;
@@ -110,6 +110,8 @@ function firstSheet(workbook: string, rels: string | null): { path: string; date
       close() {},
     });
   }
+  // sheet1.xml — только когда файла связей нет совсем; есть файл, но нет нужной связи — повреждён
+  if (rels !== null && !found.target) throw damaged('в связях книги нет первого листа');
   return { path: found.target ? resolvePart(found.target) : 'xl/worksheets/sheet1.xml', date1904: found.date1904 };
 }
 
@@ -203,7 +205,7 @@ function sheetRows(xml: string, shared: string[], maxRows: number, maxText: numb
           const c = columnIndex(attrs.r);
           if (c === null || c >= MAX_COL) throw damaged('неверная ссылка ячейки');
           col = c;
-        } else col++;
+        } else if (++col >= MAX_COL) throw damaged('неверная ссылка ячейки');
         type = attrs.t ?? 'n';
         v = null;
         inline = null;

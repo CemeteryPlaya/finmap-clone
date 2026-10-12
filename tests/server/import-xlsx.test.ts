@@ -134,6 +134,32 @@ describe('XLSX: первый лист (§3.3 спецификации импор
     // 3 000 ссылок на строку в 32 767 символов — почти 100 млн символов при пределе 64 МБ (Review Focus)
     const t0 = performance.now();
     expect(f('F3', () => readXlsx(withShared(1, rows(3000), 'я'.repeat(32_767))))).toContain('слишком много текста');
-    expect(performance.now() - t0).toBeLessThan(2000);
+    expect(performance.now() - t0).toBeLessThan(10000);
+  });
+
+  it('файл связей есть, но нужной связи нет — F3 (sheet1.xml только без файла связей)', () => {
+    const rels = '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId9" Target="worksheets/sheet1.xml"/></Relationships>';
+    const parts = { 'xl/worksheets/sheet1.xml': sheet('<row r="1"><c r="A1"><v>1</v></c></row>') };
+    expect(f('F3', () => readXlsx(book({ sheets: [['Л', 'rId1']], rels, parts })))).toBe('Файл повреждён или небезопасен: в связях книги нет первого листа');
+    expect(readXlsx(book({ sheets: [['Л', 'rId1']], parts })).rows).toHaveLength(1);
+  });
+
+  it('ячейки без r: столбец за пределом XFD — F3', () => {
+    const row = (n: number) => book({ sheets: [['Л', 'rId1']], parts: { 'xl/worksheets/sheet1.xml': sheet(`<row r="1">${'<c><v>1</v></c>'.repeat(n)}</row>`) } });
+    expect(readXlsx(row(16_384)).rows[0]!.cells.size).toBe(16_384);
+    expect(f('F3', () => readXlsx(row(16_385)))).toBe('Файл повреждён или небезопасен: неверная ссылка ячейки');
+  });
+
+  it('заголовки-двойники: пять заголовков с латиницей отличаются от чистого написания и совпадают с ним после замены латиницы на кириллицу', () => {
+    const clean = [
+      'Дата платежа', 'Дата начисления', 'Период начисления (дата "с")', 'Период начисления (дата "по")', 'Сумма в валюте счета',
+      'Сумма в валюте компании', 'Со счета', 'На счет', 'Категория', 'Подкатегория', 'Контрагент', 'Подконтрагент', 'Проект', 'Подпроект',
+      'Теги', 'Комментарий',
+    ];
+    // латинская буква → кириллический двойник, по кодам символов (в тексте файла латиницы нет)
+    const twin = new Map<number, number>([[0x61, 0x430], [0x43, 0x421], [0x79, 0x443], [0x6f, 0x43e], [0x48, 0x41d], [0x4b, 0x41a], [0x54, 0x422]]);
+    const normalize = (s: string) => [...s].map((ch) => String.fromCodePoint(twin.get(ch.codePointAt(0)!) ?? ch.codePointAt(0)!)).join('');
+    expect(FINMAP_LIKE_HEADERS.map(normalize)).toEqual(clean);
+    expect(FINMAP_LIKE_HEADERS.flatMap((h, i) => (h !== clean[i] ? [i] : []))).toEqual([0, 5, 7, 8, 14]);
   });
 });

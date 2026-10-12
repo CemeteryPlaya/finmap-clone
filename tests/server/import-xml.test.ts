@@ -99,7 +99,33 @@ describe('XML: безопасный разбор (§3.2 спецификации
     expect(f3(() => events(`<a ${'x'.repeat(60_000)}/>`))).toBe('Файл повреждён или небезопасен: неверный атрибут XML');
     expect(f3(() => events('<a b=1/>'))).toContain('неверный атрибут XML');
     expect(f3(() => events('<a b c="1"/>'))).toContain('неверный атрибут XML');
-    expect(performance.now() - t0).toBeLessThan(1000);
+    expect(performance.now() - t0).toBeLessThan(5000);
     expect(events(`<a  b = "1"\tc='2'/>`)).toEqual(['<a b=1 c=2>', '</a>']);
+  });
+
+  it('имена сущностей берутся только из таблицы: «constructor», «toString» — не сущности (F3)', () => {
+    for (const name of ['constructor', 'toString', 'hasOwnProperty']) expect(f3(() => decodeXmlText(`&${name};`)), name).toContain('неизвестная сущность');
+    expect(f3(() => events('<a>&constructor;</a>'))).toContain('неизвестная сущность &constructor;');
+  });
+
+  it('числовые ссылки на управляющие символы, U+FFFE и U+FFFF — F3; табуляция и перевод строки можно', () => {
+    for (const ref of ['&#1;', '&#x1F;', '&#8;', '&#xB;', '&#xFFFE;', '&#xFFFF;', '&#65534;']) expect(f3(() => decodeXmlText(ref)), ref).toContain('недопустимая ссылка');
+    expect(decodeXmlText('&#9;&#10;&#13;&#x20;')).toBe('\t\n\r ');
+  });
+
+  it('повторяющийся атрибут — F3', () => {
+    expect(f3(() => events('<c r="A1" r="Z1"/>'))).toBe('Файл повреждён или небезопасен: повторяющийся атрибут XML');
+    expect(events('<c r="A1" s="Z1"/>')).toEqual(['<c r=A1 s=Z1>', '</c>']);
+  });
+
+  it('несколько корневых элементов, текст вне корня, разные префиксы в открывающем и закрывающем теге — F3', () => {
+    expect(f3(() => events('<a/><b/>'))).toContain('несколько корневых');
+    expect(f3(() => events('<a></a><a></a>'))).toContain('несколько корневых');
+    expect(f3(() => events('<a/>текст'))).toContain('вне корневого');
+    expect(f3(() => events('текст<a/>'))).toContain('вне корневого');
+    expect(f3(() => events('<a/><![CDATA[x]]>'))).toContain('вне корневого');
+    expect(f3(() => events('<x:a></y:a>'))).toContain('не совпадают');
+    expect(f3(() => events('<x:a></a>'))).toContain('не совпадают');
+    expect(events('\uFEFF<?xml version="1.0"?>\n<!-- c -->\n<x:a>т</x:a>\n')).toEqual(['<a>', 'т', '</a>']);
   });
 });

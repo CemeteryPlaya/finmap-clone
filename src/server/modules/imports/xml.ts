@@ -23,7 +23,13 @@ export const XML_MAX_ATTRS = 64;
 /** Начальный тег и инструкция обработки — не длиннее 64 КБ: разбор атрибутов линейный, но огромный тег — признак атаки. */
 export const XML_MAX_TAG = 64 * 1024;
 
-const NAMED: Record<string, string> = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };
+const NAMED = new Map<string, string>([
+  ['lt', '<'],
+  ['gt', '>'],
+  ['amp', '&'],
+  ['quot', '"'],
+  ['apos', "'"],
+]);
 /** Пробельные символы XML: пробел, табуляция, CR, LF. */
 const isSpace = (c: number) => c === 32 || c === 9 || c === 13 || c === 10;
 
@@ -33,17 +39,17 @@ const local = (name: string) => {
   return i < 0 ? name : name.slice(i + 1);
 };
 
-/** Текст с раскрытыми ссылками: только &lt; &gt; &amp; &quot; &apos; и &#N; / &#xH; (не 0, не суррогат, не больше U+10FFFF). */
+/** Текст с раскрытыми ссылками: только &lt; &gt; &amp; &quot; &apos; и &#N; / &#xH; (не управляющий символ, не суррогат, не больше U+10FFFF). */
 export function decodeXmlText(s: string): string {
   if (!s.includes('&')) return s;
   return s.replace(/&(#x[0-9A-Fa-f]{1,6}|#[0-9]{1,7}|[A-Za-z][A-Za-z0-9]{0,30});|&/g, (whole, ref: string | undefined) => {
     if (ref === undefined) throw damaged('неверная ссылка на символ');
     if (ref.startsWith('#')) {
       const code = ref[1] === 'x' ? parseInt(ref.slice(2), 16) : parseInt(ref.slice(1), 10);
-      if (code === 0 || (code >= 0xd800 && code <= 0xdfff) || code > 0x10ffff) throw damaged(`недопустимая ссылка на символ ${whole}`);
+      if ((code < 0x20 && code !== 9 && code !== 10 && code !== 13) || (code >= 0xd800 && code <= 0xdfff) || code === 0xfffe || code === 0xffff || code > 0x10ffff) throw damaged(`недопустимая ссылка на символ ${whole}`);
       return String.fromCodePoint(code);
     }
-    const named = NAMED[ref];
+    const named = NAMED.get(ref);
     if (named === undefined) throw damaged(`неизвестная сущность ${whole}`);
     return named;
   });
@@ -54,7 +60,7 @@ export function decodeXmlText(s: string): string {
  * без возвратов (регулярное выражение с matchAll на огромном теге работало бы квадратично). Что-то иное — F3.
  */
 export function parseAttributes(body: string, maxAttrs: number): Record<string, string> {
-  const attrs: Record<string, string> = {};
+  const attrs: Record<string, string> = Object.create(null);
   const n = body.length;
   let count = 0;
   let i = 0;
@@ -73,6 +79,7 @@ export function parseAttributes(body: string, maxAttrs: number): Record<string, 
     if (quote !== '"' && quote !== "'") throw damaged('неверный атрибут XML');
     const end = body.indexOf(quote, q + 1);
     if (end < 0) throw damaged('неверный атрибут XML');
+    if (name in attrs) throw damaged('повторяющийся атрибут XML');
     if (++count > maxAttrs) throw damaged('слишком много атрибутов у элемента');
     attrs[name] = decodeXmlText(body.slice(q + 1, end));
     i = end + 1;
@@ -86,12 +93,16 @@ export function scanXml(xml: string, h: XmlHandler, limits: XmlLimits = {}): voi
   if (/<!\s*(?:doctype|entity)/i.test(xml)) throw damaged('объявления DOCTYPE и ENTITY запрещены');
 
   const stack: string[] = [];
+  let roots = 0;
   const n = xml.length;
   let i = xml.charCodeAt(0) === 0xfeff ? 1 : 0;
   while (i < n) {
     const lt = xml.indexOf('<', i);
     const textEnd = lt < 0 ? n : lt;
-    if (textEnd > i && stack.length > 0) h.text(decodeXmlText(xml.slice(i, textEnd)));
+    if (textEnd > i) {
+      if (stack.length > 0) h.text(decodeXmlText(xml.slice(i, textEnd)));
+      else if (/[^ \t\r\n]/.test(xml.slice(i, textEnd))) throw damaged('текст вне корневого элемента XML');
+    }
     if (lt < 0) break;
 
     if (xml.startsWith('<?', lt)) {
@@ -114,7 +125,8 @@ export function scanXml(xml: string, h: XmlHandler, limits: XmlLimits = {}): voi
     if (xml.startsWith('<![CDATA[', lt)) {
       const end = xml.indexOf(']]>', lt + 9);
       if (end < 0) throw damaged('XML оборван');
-      if (stack.length > 0) h.text(xml.slice(lt + 9, end));
+      if (stack.length === 0) throw damaged('текст вне корневого элемента XML');
+      h.text(xml.slice(lt + 9, end));
       i = end + 3;
       continue;
     }
@@ -123,9 +135,9 @@ export function scanXml(xml: string, h: XmlHandler, limits: XmlLimits = {}): voi
     if (xml.charCodeAt(lt + 1) === 47 /* / */) {
       const end = xml.indexOf('>', lt + 2);
       if (end < 0) throw damaged('XML оборван');
-      const name = local(xml.slice(lt + 2, end).trim());
-      if (stack.pop() !== name) throw damaged('теги XML не совпадают');
-      h.close(name);
+      const qname = xml.slice(lt + 2, end).trim();
+      if (stack.pop() !== qname) throw damaged('теги XML не совпадают');
+      h.close(local(qname));
       i = end + 1;
       continue;
     }
@@ -147,10 +159,12 @@ export function scanXml(xml: string, h: XmlHandler, limits: XmlLimits = {}): voi
     if (selfClosing) body = body.slice(0, -1);
     const m = /^[^\s/>]+/.exec(body);
     if (!m) throw damaged('неверный тег XML');
-    const name = local(m[0]);
+    const qname = m[0];
+    const name = local(qname);
+    if (stack.length === 0 && ++roots > 1) throw damaged('несколько корневых элементов XML');
     const attrs = parseAttributes(body.slice(m[0].length), maxAttrs);
     if (!selfClosing) {
-      stack.push(name);
+      stack.push(qname);
       if (stack.length > maxDepth) throw damaged('слишком глубокая вложенность XML');
     } else if (stack.length + 1 > maxDepth) throw damaged('слишком глубокая вложенность XML');
     h.open(name, attrs);
