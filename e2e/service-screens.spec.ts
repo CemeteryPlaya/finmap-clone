@@ -68,20 +68,62 @@ test('пользователи: окно «Пользователь» — сбр
   await login(kassir, user, 'kassir-pass-1');
 
   await row.getByRole('button', { name: /^Изменить/ }).click();
-  await dialog.getByLabel(`Новый пароль для ${user}`).fill('kassir-pass-2');
-  await dialog.getByRole('button', { name: 'Сбросить пароль' }).click();
+  const password = dialog.getByLabel(`Новый пароль для ${user}`);
+  const reset = dialog.getByRole('button', { name: 'Сбросить пароль' });
+  await password.fill('kassir-pass-2');
+  await reset.click();
   await expect(dialog.getByRole('status')).toHaveText('Пароль сброшен, сеансы пользователя завершены');
+  // поле пусто — кнопка недоступна (aria-disabled), но фокус остался на ней, а не упал на body (R4)
+  await expect(reset).toHaveAttribute('aria-disabled', 'true');
+  await expect(reset).toBeFocused();
+  // правка — прежнее сообщение уходит
+  await password.fill('x');
+  await expect(dialog.getByRole('status')).toHaveText('');
+  await password.fill('');
   await kassir.reload();
   await expect(kassir).toHaveURL(/\/login$/);
   await login(kassir, user, 'kassir-pass-2');
 
-  await dialog.getByRole('button', { name: 'Отключить' }).click();
+  // «Отключить» спрашивает: случайное нажатие не выбивает кассира посреди смены (M12)
+  const disable = dialog.getByRole('button', { name: 'Отключить' });
+  const confirm = page.getByRole('alertdialog', { name: 'Отключить Кассир?' });
+  await disable.click();
+  await expect(confirm).toContainText('Его сеансы сразу завершатся.');
+  await confirm.getByRole('button', { name: 'Отменить' }).click();
+  await expect(confirm).toBeHidden();
+  await expect(disable).toBeFocused();
+  await expect(row).not.toContainText('отключён');
+
+  await disable.click();
+  await confirm.getByRole('button', { name: 'Отключить' }).click();
   await expect(dialog.getByRole('status')).toHaveText('Пользователь отключён, его сеансы завершены');
-  await expect(dialog.getByRole('button', { name: 'Включить' })).toBeVisible();
+  const enable = dialog.getByRole('button', { name: 'Включить' });
+  await expect(enable).toBeVisible();
+  // та же кнопка, теперь «Включить»: фокус на ней (R4)
+  await expect(enable).toBeFocused();
   await expect(row).toContainText('отключён');
   await kassir.reload();
   await expect(kassir).toHaveURL(/\/login$/);
+
+  await enable.click();
+  await expect(dialog.getByRole('status')).toHaveText('Пользователь включён');
+  await expect(disable).toBeFocused();
+  await expect(row).not.toContainText('отключён');
   await ctx.close();
+});
+
+test('пользователи: одноимённые различимы по ✎ — «Изменить {имя} ({логин})» (R2)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Тёзки ${Date.now()}`);
+  const first = uniqueLogin('tezka');
+  const second = uniqueLogin('tezkb');
+  await addUser(page, cid, first, 'Тёзка', 'tezka-pass-01');
+  await addUser(page, cid, second, 'Тёзка', 'tezkb-pass-01');
+  const list = page.getByRole('main').getByRole('list', { name: 'Пользователи' });
+  await expect(list.getByRole('button', { name: `Изменить Тёзка (${first})`, exact: true })).toHaveCount(1);
+  await expect(list.getByRole('button', { name: `Изменить Тёзка (${second})`, exact: true })).toHaveCount(1);
+  await list.getByRole('button', { name: `Изменить Тёзка (${second})`, exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Пользователь', exact: true })).toContainText(`Логин: ${second}`);
 });
 
 test('профиль: смена пароля оставляет текущий сеанс и завершает остальные', async ({ page, browser }) => {
@@ -113,15 +155,28 @@ test('профиль: смена пароля оставляет текущий 
 
   await a.getByLabel('Текущий пароль').fill('wrong-password-0');
   await a.getByLabel('Повторите пароль').fill('profiler-pass-2');
+  // исправляемое поле больше не показывает прежнюю ошибку (M13)
+  await expect(a.getByText('Пароли не совпадают')).toHaveCount(0);
+  await expect(a.getByLabel('Повторите пароль')).not.toHaveAttribute('aria-invalid', 'true');
+  // имя и пароль вместе, пароль отклонён: имя сохранено, ошибка — у поля текущего пароля
+  await a.getByLabel('Имя', { exact: true }).fill('Профилёр 2');
   await a.getByRole('button', { name: 'Сохранить' }).click();
   await expect(a.getByText('Неверный текущий пароль')).toBeVisible();
   await expect(a.getByLabel('Текущий пароль')).toHaveAttribute('aria-invalid', 'true');
+  await expect(a.getByRole('status')).toHaveText('Имя сохранено.');
+  await expect
+    .poll(async () => ((await (await a.request.get('/api/v1/auth/me')).json()) as { user: { name: string } }).user.name)
+    .toBe('Профилёр 2');
+  await expect(a.getByLabel('Новый пароль', { exact: true })).toHaveValue('profiler-pass-2');
 
   await a.getByLabel('Текущий пароль').fill('profiler-pass-1');
-  await a.getByRole('button', { name: 'Сохранить' }).click();
+  const save = a.getByRole('button', { name: 'Сохранить' });
+  await save.click();
   await expect(a.getByRole('status')).toHaveText('Пароль изменён. Остальные сеансы завершены.');
   await expect(a.getByLabel('Текущий пароль')).toHaveValue('');
-  await expect(a.getByRole('button', { name: 'Сохранить' })).toBeDisabled();
+  // сохранять нечего: кнопка недоступна (aria-disabled), фокус остался на ней (R4)
+  await expect(save).toHaveAttribute('aria-disabled', 'true');
+  await expect(save).toBeFocused();
   await a.reload();
   await expect(a.getByRole('heading', { name: 'Профиль' })).toBeVisible();
   await b.reload();
@@ -283,11 +338,11 @@ test('резервная копия: папка не задана, ошибка 
   await expect(auto).toContainText('Не задана — копии хранятся только в data/backups');
   await expect(auto.getByRole('alert')).toHaveCount(0);
 
-  status.copyDir = 'E:\copies';
-  status.lastCopyError = 'Не удалось скопировать в E:\copies: EACCES';
+  status.copyDir = 'E:\\copies';
+  status.lastCopyError = 'Нет доступа к папке E:\\copies';
   await page.reload();
-  await expect(auto).toContainText('E:\copies');
-  await expect(auto.getByRole('alert')).toContainText('Не удалось скопировать в E:\copies: EACCES');
+  await expect(auto).toContainText('E:\\copies');
+  await expect(auto.getByRole('alert')).toHaveText('Нет доступа к папке E:\\copies');
   await expect(auto).toContainText('Включено');
 
   await auto.getByRole('button', { name: 'Скачать сейчас' }).click();

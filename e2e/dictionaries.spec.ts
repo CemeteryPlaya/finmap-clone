@@ -29,6 +29,25 @@ async function apiPost(page: Page, url: string, data: unknown) {
 
 const minuteAgo = () => new Date(Date.now() - 60_000).toISOString();
 
+/**
+ * Следит, появлялся ли текст на странице хоть в одной отрисовке (MutationObserver срабатывает до кадра): вспышка
+ * «не найдена» или «В архиве» в окне, которое закрывается после своего действия (R5 плана 1.5-4b). Возвращает проверку.
+ */
+async function watchText(page: Page, text: string): Promise<() => Promise<boolean>> {
+  const key = `seen:${text}`;
+  await page.evaluate(
+    ([t, k]) => {
+      const w = window as unknown as Record<string, boolean>;
+      w[k] = false;
+      new MutationObserver(() => {
+        if (document.body.textContent?.includes(t)) w[k] = true;
+      }).observe(document.body, { subtree: true, childList: true, characterData: true });
+    },
+    [text, key] as const,
+  );
+  return () => page.evaluate((k) => (window as unknown as Record<string, boolean>)[k] === true, key);
+}
+
 test('счета: «Добавление нового счёта» — валюта, название, стартовый баланс; архив только при нулевом остатке, ошибка — в окне; удаление через подтверждение', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Счета ${Date.now()}`);
@@ -111,7 +130,8 @@ test('категории: подменю «Системные / Мои», «До
   await expect(list.getByRole('listitem')).toHaveText([/Реклама/, /Таргет/, /Аренда/]);
 
   // ✎ — окно «Категория»: имя и «Перенести в…» на верхний уровень
-  await list.getByRole('button', { name: 'Изменить Таргет', exact: true }).click();
+  // у подкатегории ✎ называет и родителя: одноимённые в разных родителях различимы (M6)
+  await list.getByRole('button', { name: 'Изменить Таргет в Реклама', exact: true }).click();
   await expect(edit.getByLabel('Перенести в…').locator('option:checked')).toHaveText('Реклама');
   await edit.getByLabel('Название').fill('Таргетинг');
   await edit.getByLabel('Перенести в…').selectOption({ label: 'Верхний уровень' });
@@ -157,7 +177,7 @@ test('категории: подменю «Системные / Мои», «До
   await sub.getByLabel('Название').fill('Администраторы');
   await sub.getByRole('button', { name: 'Сохранить' }).click();
   await expect(sub).toBeHidden();
-  await expect(system.getByRole('button', { name: 'Изменить Администраторы', exact: true })).toBeVisible();
+  await expect(system.getByRole('button', { name: 'Изменить Администраторы в Зарплата', exact: true })).toBeVisible();
 
   // неверная вкладка в адресе — «Мои категории расхода»
   await page.goto(`/c/${cid}/settings/categories?tab=nope`);
@@ -261,6 +281,9 @@ test('контрагенты: подменю типов в порядке Finmap
 
   // ✎ в «Моих» — окно «Контрагент», тип меняется; поиск — и по комментарию
   await types.getByRole('link', { name: /^Мои контрагенты/ }).click();
+  // список вкладки монтируется заново (key={tab}) с пустым поиском: ввод до смены вкладки попал бы в поле
+  // «Сотрудников» и пропал (сбой в полном прогоне финальной волны 1.5-4b)
+  await expect(my).toBeVisible();
   await main.getByRole('searchbox', { name: 'Поиск' }).fill('ЗАЛА');
   await expect(my.getByRole('listitem')).toHaveText([/ИП Иванов/]);
   await my.getByRole('button', { name: 'Изменить ИП Иванов', exact: true }).click();
@@ -408,7 +431,7 @@ test('проекты и шаблоны разделения: Alt+↓ на ☰ м
   await expect.poll(() => names('split-presets')).toEqual(['Шаблон 2', 'Шаблон 1']);
 });
 
-test('архивная компания: на «Проектах» и «Шаблонах разделения» нет «Добавить», ☰ и ✎', async ({ page }) => {
+test('архивная компания: на «Проектах», «Шаблонах разделения» и «Категориях» нет «Добавить», «+», ☰ и ✎', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Архив проектов ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
@@ -421,25 +444,118 @@ test('архивная компания: на «Проектах» и «Шабл
       { categoryId: null, projectId: ids[1], bp: 5000 },
     ],
   });
+  const rent = (await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда', parentId: null })).category.id;
+  for (const name of ['Зал', 'Склад']) await apiPost(page, `${base}/categories`, { kind: 'expense', name, parentId: rent });
+  await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Реклама', parentId: null });
   const main = page.getByRole('main');
   // у активной компании управление есть — иначе проверка ниже ничего не доказывает
   await page.goto(`/c/${cid}/settings/projects`);
   await expect(main.getByRole('button', { name: 'Добавить проект' })).toBeVisible();
   await expect(main.getByRole('button', { name: /^Переместить/ })).toHaveCount(2);
+  await page.goto(`/c/${cid}/settings/categories`);
+  await expect(main.getByRole('button', { name: 'Добавить категорию' })).toBeVisible();
+  await expect(main.getByRole('button', { name: /^Добавить подкатегорию/ })).toHaveCount(2);
+  await expect(main.getByRole('button', { name: /^Переместить/ })).toHaveCount(4);
   await apiPost(page, `${base}/archive`, {});
 
-  for (const [path, add] of [
-    ['projects', 'Добавить проект'],
-    ['projects/split-presets', 'Создать шаблон'],
+  for (const [path, heading, add] of [
+    ['projects', 'Проекты', 'Добавить проект'],
+    ['projects/split-presets', 'Проекты', 'Создать шаблон'],
+    ['categories', 'Категории', 'Добавить категорию'],
   ] as const) {
     await page.goto(`/c/${cid}/settings/${path}`);
-    await expect(main.getByRole('heading', { level: 1, name: 'Проекты' })).toBeVisible();
+    await expect(main.getByRole('heading', { level: 1, name: heading })).toBeVisible();
     await expect(main.getByText('Компания в архиве — изменения недоступны.')).toBeVisible();
     await expect(main.getByRole('listitem').first()).toBeVisible();
     await expect(main.getByRole('button', { name: add })).toHaveCount(0);
+    await expect(main.getByRole('button', { name: /^Добавить подкатегорию/ })).toHaveCount(0);
     await expect(main.getByRole('button', { name: /^Переместить/ })).toHaveCount(0);
     await expect(main.getByRole('button', { name: /^Изменить/ })).toHaveCount(0);
   }
+
+  // системные: «банк» на месте, «+» и ✎ нет
+  await page.goto(`/c/${cid}/settings/categories?tab=system-expense`);
+  const salary = main.getByRole('list', { name: 'Системные категории расхода' }).getByRole('listitem').filter({ hasText: 'Зарплата' });
+  await expect(salary.getByRole('img', { name: 'Системная — не переименовывается и не удаляется' })).toBeVisible();
+  await expect(main.getByRole('button', { name: /^Добавить подкатегорию/ })).toHaveCount(0);
+  await expect(main.getByRole('button', { name: /^Изменить/ })).toHaveCount(0);
+});
+
+test('окно «Категория»: архив (строка приглушена, без «+»), «В архиве» и возврат, отказ удаления, удаление через подтверждение; одноимённые подкатегории различимы', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Архив категорий ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}/categories`;
+  await apiPost(page, base, { kind: 'expense', name: 'Склад', parentId: null });
+  const rent = (await apiPost(page, base, { kind: 'expense', name: 'Аренда', parentId: null })).category.id;
+  const ads = (await apiPost(page, base, { kind: 'expense', name: 'Реклама', parentId: null })).category.id;
+  const hall = (await apiPost(page, base, { kind: 'expense', name: 'Зал', parentId: rent })).category.id;
+  await apiPost(page, base, { kind: 'expense', name: 'Сцена', parentId: rent });
+  await apiPost(page, base, { kind: 'expense', name: 'Зал', parentId: ads });
+  await page.goto(`/c/${cid}/settings/categories`);
+  const main = page.getByRole('main');
+  const list = main.getByRole('list', { name: 'Мои категории расхода' });
+  const edit = page.getByRole('dialog', { name: 'Категория', exact: true });
+  const confirm = page.getByRole('alertdialog', { name: /^Удалить/ });
+
+  // одноимённые подкатегории: ✎ и ☰ называют родителя (M6)
+  await expect(list.getByRole('button', { name: 'Изменить Зал в Аренда', exact: true })).toHaveCount(1);
+  await expect(list.getByRole('button', { name: 'Изменить Зал в Реклама', exact: true })).toHaveCount(1);
+  await expect(list.getByRole('button', { name: 'Переместить Зал в Аренда', exact: true })).toHaveCount(1);
+
+  // удалить категорию с дочерними нельзя: ошибка в окне, окно открыто, фокус на «Удалить»
+  await list.getByRole('button', { name: 'Изменить Аренда', exact: true }).click();
+  await edit.getByRole('button', { name: 'Удалить' }).click();
+  await expect(confirm).toHaveAccessibleName('Удалить категорию «Аренда»?');
+  await confirm.getByRole('button', { name: 'Удалить' }).click();
+  await expect(confirm).toBeHidden();
+  await expect(edit.getByRole('alert')).toHaveText('Сначала удалите или перенесите дочерние категории');
+  await expect(edit.getByRole('button', { name: 'Удалить' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(edit).toBeHidden();
+
+  // «В архив» из окна: окно закрылось, строка ушла в конец, приглушена, без «+» и ☰
+  await expect(list.getByRole('listitem').first()).toContainText('Склад');
+  await list.getByRole('button', { name: 'Изменить Склад', exact: true }).click();
+  const archivedNoteFlashed = await watchText(page, 'В архиве. Чтобы изменить');
+  await edit.getByRole('button', { name: 'В архив' }).click();
+  await expect(edit).toBeHidden();
+  expect(await archivedNoteFlashed(), 'окно закрывается без кадра «В архиве» вместо формы').toBe(false);
+  const archived = list.getByRole('listitem').last();
+  await expect(archived).toContainText('Склад');
+  await expect(archived).toContainText('в архиве');
+  await expect(archived.getByRole('button', { name: 'Добавить подкатегорию в Склад' })).toHaveCount(0);
+  await expect(archived.getByRole('button', { name: 'Переместить Склад', exact: true })).toHaveCount(0);
+  await expect(list.getByRole('button', { name: 'Добавить подкатегорию в Реклама' })).toBeVisible();
+
+  // снова ✎: пояснение вместо формы, «Вернуть из архива»
+  await list.getByRole('button', { name: 'Изменить Склад', exact: true }).click();
+  await expect(edit.getByText('В архиве. Чтобы изменить, сначала верните из архива.')).toBeVisible();
+  await expect(edit.getByLabel('Название')).toHaveCount(0);
+  await edit.getByRole('button', { name: 'Вернуть из архива' }).click();
+  await expect(edit).toBeHidden();
+  await expect(list.getByRole('button', { name: 'Добавить подкатегорию в Склад' })).toBeVisible();
+
+  // удаление через подтверждение: строки больше нет, «не найдена» не мелькает
+  await list.getByRole('button', { name: 'Изменить Склад', exact: true }).click();
+  await edit.getByRole('button', { name: 'Удалить' }).click();
+  await expect(confirm).toHaveAccessibleName('Удалить категорию «Склад»?');
+  const notFoundFlashed = await watchText(page, 'Категория не найдена');
+  await confirm.getByRole('button', { name: 'Удалить' }).click();
+  await expect(edit).toBeHidden();
+  expect(await notFoundFlashed(), 'окно закрывается без кадра «не найдена»').toBe(false);
+  await expect(list.getByRole('button', { name: 'Изменить Склад', exact: true })).toHaveCount(0);
+  await expect(list.getByRole('listitem')).toHaveText([/Аренда/, /Зал/, /Сцена/, /Реклама/, /Зал/]);
+
+  // удалили в другом месте, пока окно открыто: после перечитывания дерева окно говорит «не найдена»
+  await list.getByRole('button', { name: 'Изменить Зал в Аренда', exact: true }).click();
+  const removed = await page.request.delete(`${base}/${hall}`, { headers: csrf(page) });
+  expect(removed.status()).toBe(204);
+  // ↓ — запрос с устаревшим порядком: сервер отказывает, дерево перечитывается
+  await edit.getByRole('button', { name: 'Ниже: Зал', exact: true }).click();
+  await expect(edit).toContainText('Категория не найдена — возможно, её удалили.');
+  await expect(edit.getByLabel('Название')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(list.getByRole('listitem')).toHaveText([/Аренда/, /Сцена/, /Реклама/, /Зал/]);
 });
 
 test('окно проекта: ошибка сервера — в окне, оно остаётся; архив из окна — «В архиве» без формы, «Вернуть из архива»', async ({ page }) => {
@@ -656,6 +772,9 @@ test('шаблон списка: порядок за ☰ мышью и Alt+↑/�
   await expect.poll(order).toEqual(['Бета', 'Альфа', 'Гамма']);
   await page.keyboard.press('Alt+ArrowUp');
   await expect.poll(order).toEqual(['Альфа', 'Бета', 'Гамма']);
+  // сервер мог ответить раньше, чем список отрисовал новый порядок: ждём отрисовку, иначе Alt+↑ ниже двигал бы
+  // «Альфу» со второго места прежней отрисовки (лишний запрос; сбой в полном прогоне финальной волны 1.5-4b)
+  await expect(list.getByRole('listitem')).toHaveText([/Альфа/, /Бета/, /Гамма/]);
   // Alt+↑ на первой строке ничего не меняет (Review Focus 5)
   const sent = reorders;
   await page.keyboard.press('Alt+ArrowUp');
@@ -732,13 +851,16 @@ test('шаблон списка: две быстрые перестановки 
   const order = async () => ((await (await page.request.get(`${base}/tags`)).json()).tags as { name: string }[]).map((t) => t.name);
   await expect(list.getByRole('listitem')).toHaveText([/Альфа/, /Бета/, /Гамма/]);
 
-  // оба запроса доходят до сервера сразу, но ответы заперты: открываем их сами, а не по таймеру
+  // запросы доходят до сервера по очереди (второй — после того, как сервер ответил на первый: иначе на разных
+  // соединениях второй мог бы обогнать первый и сервер закончил бы на промежуточном порядке), но ответы браузеру
+  // заперты: открываем их сами, а не по таймеру
   const gate = () => {
     let open!: () => void;
     const promise = new Promise<void>((resolve) => (open = resolve));
     return { promise, open };
   };
   const gates = [gate(), gate()];
+  const fetched = [gate(), gate()];
   let calls = 0;
   let refetches = 0;
   page.on('request', (r) => {
@@ -746,7 +868,9 @@ test('шаблон списка: две быстрые перестановки 
   });
   await page.route('**/api/v1/companies/*/tags/reorder', async (route) => {
     const n = calls++;
+    if (n > 0) await fetched[n - 1]!.promise;
     const response = await route.fetch();
+    fetched[n]!.open();
     await gates[n]!.promise;
     await route.fulfill({ response });
   });

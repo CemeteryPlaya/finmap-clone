@@ -210,8 +210,10 @@ test('«Мои компании»: карточки с балансом и ва�
   await page.getByRole('banner').getByRole('button', { name: /Сменить компанию/ }).click();
   await page.getByRole('dialog', { name: 'Компании' }).getByRole('button', { name: `Изменить компанию «${gone}»` }).click();
   await dialog.getByRole('button', { name: 'В архив' }).click();
-  await expect(page).toHaveURL(/\/c\/\d+\/log$/);
-  await expect(page).not.toHaveURL(new RegExp(`/c/${goneId}/`));
+  // одно ожидание: адрес уже другой компании (страница и так была на /c/{goneId}/log — первое совпало бы сразу)
+  await expect(page).toHaveURL(new RegExp(`/c/(?!${goneId}/)\\d+/log$`));
+  // фокус не потерян: на заголовке журнала другой компании (§11)
+  await expect(page.getByRole('heading', { level: 1, name: 'Журнал' })).toBeFocused();
 });
 
 test('«Мои компании»: «В архив» компании с активными счетами отклонён — ошибка в окне, окно открыто', async ({ page }) => {

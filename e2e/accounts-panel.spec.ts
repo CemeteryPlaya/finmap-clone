@@ -155,6 +155,10 @@ test('«Мои счета»: окно из левой панели закрыв�
   const dialog = page.getByRole('dialog', { name: 'Добавление нового счёта' });
   await expect(dialog).toBeVisible();
   await page.setViewportSize({ width: 600, height: 800 });
+  // на телефоне панель скрыта CSS, и невидимое окно getByRole не находит ещё до того, как приложение заметило
+  // смену ширины: ждём, пока окно закроется на самом деле (содержимое окна убрано из DOM). Без этого второе
+  // изменение размера могло успеть раньше события matchMedia, и окно оставалось открытым (5 из 30 прогонов)
+  await expect(page.getByRole('heading', { name: 'Добавление нового счёта', includeHidden: true })).toHaveCount(0);
   await expect(dialog).toHaveCount(0);
   await page.setViewportSize({ width: 1280, height: 720 });
   await expect(panel.getByRole('button', { name: 'Добавить счёт' })).toBeVisible();
