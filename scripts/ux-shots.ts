@@ -56,6 +56,24 @@ const formList = (field: string) => async (p: Page) => {
   await p.getByRole('listbox').first().waitFor();
 };
 
+/**
+ * Расход с категорией (в ячейке категории нет «Указать»): «Изменить в перевод» спросит, что будет убрано (§6.8 этапа 1.5).
+ * Возвращает окно «Расход» с суммой на месте.
+ */
+const openCategorizedExpense = async (p: Page) => {
+  // демо-данные детерминированы (seedDemo: фиксированный NOW, 400 операций); строку ищем по имени кнопки «Открыть операцию …»
+  // со знаком минус (расход), а не по тексту строки: минус может стоять и в остатке счёта
+  const row = table(p)
+    .locator('tbody tr')
+    .filter({ has: p.getByRole('button', { name: /^Открыть операцию.*\u2212/ }) })
+    .filter({ has: p.locator('[data-column="category"]', { hasNotText: 'Указать' }) })
+    .first();
+  await row.getByRole('button', { name: /^Открыть операцию/ }).click();
+  const dialog = p.getByRole('dialog', { name: 'Расход', exact: true });
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).waitFor();
+  return dialog;
+};
+
 /** Экраны, которые уже есть. Следующие планы этапа 1.5 добавляют сюда свои. */
 const SCENARIOS: Scenario[] = [
   { ours: 'c01-log.png', finmap: '01-log.png', path: 'log' },
@@ -85,12 +103,38 @@ const SCENARIOS: Scenario[] = [
     path: 'log',
     act: async (p) => {
       // как на снимке Finmap 05 — правка расхода (в подписи кнопки сумма со знаком «минус» U+2212)
-      await table(p).getByRole('button', { name: /^Открыть операцию.*−/ }).first().click();
+      await table(p).getByRole('button', { name: /^Открыть операцию.*\u2212/ }).first().click();
       const dialog = p.getByRole('dialog', { name: 'Расход', exact: true });
       await dialog.getByRole('textbox', { name: /^Сумма,/ }).waitFor();
       // окно выше экрана: прокручиваем тело вниз, чтобы на снимке были нижние строки — «Дублировать платёж», «Удалить платёж» и кнопка
       await dialog.getByRole('button', { name: 'Сохранить изменения' }).scrollIntoViewIfNeeded();
+      await dialog.getByRole('button', { name: 'Изменить в перевод' }).waitFor();
       await dialog.getByRole('button', { name: 'Удалить платёж' }).waitFor();
+    },
+  },
+  {
+    ours: 'c05c-convert-confirm.png',
+    finmap: '05c-convert-confirm.png',
+    path: 'log',
+    act: async (p) => {
+      // подтверждение «Изменить в перевод?» со списком того, что будет убрано (§6.8); снимка Finmap нет (§14.1)
+      const dialog = await openCategorizedExpense(p);
+      await dialog.getByRole('button', { name: 'Изменить в перевод' }).click();
+      await p.getByRole('alertdialog', { name: 'Изменить в перевод?' }).waitFor();
+      await p.mouse.move(0, 0);
+    },
+  },
+  {
+    ours: 'c05d-converted-transfer.png',
+    finmap: '05d-converted-transfer.png',
+    path: 'log',
+    act: async (p) => {
+      // после «Изменить»: та же операция в раскладке перевода, «На счёт» пусто и в фокусе (§6.8); снимка Finmap нет
+      const dialog = await openCategorizedExpense(p);
+      await dialog.getByRole('button', { name: 'Изменить в перевод' }).click();
+      await p.getByRole('alertdialog', { name: 'Изменить в перевод?' }).getByRole('button', { name: 'Изменить', exact: true }).click();
+      await p.getByRole('dialog', { name: 'Перевод', exact: true }).getByRole('combobox', { name: 'На счёт', exact: true }).waitFor();
+      await p.mouse.move(0, 0);
     },
   },
   { ours: 'c06-income.png', finmap: '06-income.png', path: 'log', act: openForm('Доход') },
@@ -307,7 +351,7 @@ const SCENARIOS: Scenario[] = [
     path: 'log',
     act: async (p) => {
       // как на снимке Finmap m04 — правка расхода (в карточке сумма со знаком «минус» U+2212)
-      await p.getByRole('list', { name: 'Операции' }).getByRole('button').filter({ hasText: /−/ }).first().click();
+      await p.getByRole('list', { name: 'Операции' }).getByRole('button').filter({ hasText: /\u2212/ }).first().click();
       await p.getByRole('dialog', { name: 'Расход', exact: true }).getByRole('textbox', { name: /^Сумма,/ }).waitFor();
       // указатель остался над строкой «Разделить платёж» — убрать, иначе на снимке hover-заливка (не различие продукта)
       await p.mouse.move(0, 0);
