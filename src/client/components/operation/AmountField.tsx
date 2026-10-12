@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useAutoFocus } from '../useAutoFocus';
+import { isCoarsePointer, refocusTarget } from '../focus-trap';
 import { CalculatorPopover } from './CalculatorPopover';
 import { CALC_MAX_LENGTH } from '../../../shared/calc';
 import { positiveAmount } from '../../lib/operation-form';
@@ -58,9 +59,12 @@ export function AmountField(props: {
   // фокус в поле при появлении, если он «ничей» (окно только что открылось) — useAutoFocus
   useAutoFocus(ref, props.autoFocus);
 
-  // явный возврат фокуса после «Добавить и создать похожий»: один раз, когда новое состояние уже в DOM
+  // явный возврат фокуса («Добавить и создать похожий», «Дублировать платёж»): один раз, когда новое состояние уже в DOM.
+  // На устройстве с пальцем — на «×» окна: фокус в поле поднял бы экранную клавиатуру (refocusTarget)
   useEffect(() => {
-    if (props.refocusSignal) ref.current?.focus();
+    if (!props.refocusSignal) return;
+    if (refocusTarget(isCoarsePointer()) === 'field') ref.current?.focus();
+    else ref.current?.closest('dialog')?.querySelector<HTMLElement>('[data-modal-close]')?.focus({ preventScroll: true });
   }, [props.refocusSignal]);
 
   /** Вычислить выражение поля; true — результат записан (или поле пусто), false — ошибка показана у поля. */

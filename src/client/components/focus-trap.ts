@@ -122,3 +122,12 @@ export function isCoarsePointer(): boolean {
 export function fieldAutoFocusAllowed(coarse: boolean): boolean {
   return !coarse;
 }
+
+/**
+ * Куда вернуть фокус, когда форма просит фокус в сумме («Добавить и создать похожий», «Дублировать платёж», «Загрузить
+ * актуальную», сбой без поля с ошибкой): на компьютере — в поле; на устройстве с пальцем — на «×» окна (итоги 1.5-3b
+ * «Телефон»): фокус в поле поднял бы экранную клавиатуру, поле человек выберет сам.
+ */
+export function refocusTarget(coarse: boolean): 'field' | 'close' {
+  return fieldAutoFocusAllowed(coarse) ? 'field' : 'close';
+}

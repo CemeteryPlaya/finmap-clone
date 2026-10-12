@@ -976,6 +976,102 @@ test('список поля над экранной клавиатурой те�
   await expect(dialog.getByRole('option', { name: 'Категория 18', exact: true })).toBeVisible();
 });
 
+test('список поля следит за видимой областью (visualViewport) только пока открыт: подписка при открытии, пересчёт по её событию, отписка при закрытии', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Видимая область ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 1000000 });
+  for (let i = 1; i <= 18; i++) await apiPost(page, `${base}/categories`, { kind: 'expense', name: `Категория ${String(i).padStart(2, '0')}` });
+  await page.setViewportSize(PHONE);
+  await page.reload();
+  // подменная видимая область — до открытия списка, со счётчиком подписок (итоги 1.5-3a №1)
+  await page.evaluate(() => {
+    const fake = Object.assign(new EventTarget(), { width: 390, height: 844, offsetTop: 0, offsetLeft: 0, scale: 1, pageTop: 0, pageLeft: 0 });
+    const w = window as unknown as { __vvListeners: number };
+    w.__vvListeners = 0;
+    const add = fake.addEventListener.bind(fake);
+    const remove = fake.removeEventListener.bind(fake);
+    fake.addEventListener = (...args: Parameters<EventTarget['addEventListener']>) => {
+      w.__vvListeners++;
+      add(...args);
+    };
+    fake.removeEventListener = (...args: Parameters<EventTarget['removeEventListener']>) => {
+      w.__vvListeners--;
+      remove(...args);
+    };
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: fake });
+  });
+  const listeners = () => page.evaluate(() => (window as unknown as { __vvListeners: number }).__vvListeners);
+
+  await bar(page).getByRole('button', { name: 'Расход', exact: true }).click();
+  const dialog = newForm(page);
+  const category = dialog.getByRole('combobox', { name: 'Категория', exact: true });
+  await expect(category).toBeVisible();
+  expect(await listeners(), 'пока списка нет, подписок нет').toBe(0);
+  await category.click();
+  const listbox = dialog.getByRole('listbox', { name: 'Категории' });
+  const panel = listbox.locator('..');
+  await expect(listbox).toBeVisible();
+  await expect.poll(listeners).toBeGreaterThan(0);
+  // клавиатура поднялась: над ней 500 px; событие — только у visualViewport, размер окна не менялся
+  await page.evaluate(() => {
+    const v = window.visualViewport as unknown as EventTarget & { height: number };
+    v.height = 500;
+    v.dispatchEvent(new Event('resize'));
+  });
+  await expect(async () => {
+    const box = (await panel.boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(500);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+  }).toPass();
+  // список закрыт — подписок на видимую область не осталось
+  await page.keyboard.press('Escape');
+  await expect(listbox).toBeHidden();
+  await expect(dialog).toBeVisible();
+  await expect.poll(listeners).toBe(0);
+});
+
+test('формы на 390 px (§8.7): доход, расход, перевод — на весь экран без прокрутки вбок, ряд операторов и калькулятор, главная кнопка во всю ширину, «×» в липкой шапке; «Указать», выделения и колонок на телефоне нет', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Формы 390 ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  const cash = (await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 1000000 })).account.id;
+  await apiPost(page, `${base}/accounts`, { name: 'Kaspi', currency: 'KZT', openedAt: '2020-01-01' });
+  await apiPost(page, `${base}/operations`, { type: 'expense', paidAt: todayAgo(2), accountId: cash, amount: 30000 });
+  await page.setViewportSize(PHONE);
+  await page.reload();
+  await expect(cards(page).getByRole('listitem')).toHaveCount(1);
+  // «Указать», выделение и колонки на телефоне не показываются
+  await expect(page.getByRole('button', { name: /Указать/ })).toHaveCount(0);
+  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Колонки' })).toHaveCount(0);
+
+  for (const [label, title, submit] of [
+    ['Доход', 'Новый доход', 'Добавить доход'],
+    ['Расход', 'Новый расход', 'Добавить расход'],
+    ['Перевод', 'Новый перевод', 'Добавить перевод'],
+  ] as const) {
+    await bar(page).getByRole('button', { name: label, exact: true }).click();
+    const form = page.getByRole('dialog', { name: title, exact: true });
+    const box = (await form.boundingBox())!;
+    expect(box.width, title).toBeGreaterThanOrEqual(PHONE.width - 1);
+    expect(box.height, title).toBeGreaterThanOrEqual(PHONE.height - 1);
+    // ряд операторов под суммой — вместе с иконкой калькулятора (§8.7)
+    await expect(form.getByRole('group', { name: /^Операторы/ }).first()).toBeVisible();
+    await expect(form.getByRole('button', { name: 'Калькулятор' }).first()).toBeVisible();
+    await expectNoSideScroll(page, title);
+    // главная кнопка — внизу формы во всю ширину; «×» в липкой шапке видна и после прокрутки
+    const main = form.getByRole('button', { name: submit, exact: true });
+    await main.scrollIntoViewIfNeeded();
+    const b = (await main.boundingBox())!;
+    expect(b.width, `${title}: ширина главной кнопки`).toBeGreaterThan(PHONE.width - 64);
+    expect(b.height).toBeGreaterThanOrEqual(44);
+    await expect(form.getByRole('button', { name: 'Закрыть', exact: true })).toBeInViewport();
+    await form.getByRole('button', { name: 'Закрыть', exact: true }).click();
+    await expect(form).toBeHidden();
+  }
+});
+
 test.describe('касание (pointer: coarse), ширина 390 px', () => {
   test.use({ hasTouch: true });
 
@@ -994,6 +1090,37 @@ test.describe('касание (pointer: coarse), ширина 390 px', () => {
     await page.waitForTimeout(300);
     await expect(dialog.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
     await expect(dialog.getByRole('combobox', { name: 'Со счёта', exact: true })).not.toBeFocused();
+  });
+
+  test('после «Добавить и создать похожий» и «Дублировать платёж» фокус — на «×», а не в сумме: экранная клавиатура сама не поднимается', async ({ page }) => {
+    await login(page);
+    const cid = await createCompany(page, `ТОО Похожий касанием ${Date.now()}`);
+    await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01', startingBalance: 1000000 });
+    await page.reload();
+    await page.setViewportSize(PHONE);
+    await bar(page).getByRole('button', { name: 'Расход', exact: true }).tap();
+    const form = newForm(page);
+    const amount = form.getByRole('textbox', { name: /^Сумма,/ });
+    await form.getByRole('combobox', { name: 'Со счёта', exact: true }).tap();
+    await form.getByRole('option', { name: 'Касса', exact: true }).tap();
+    await amount.tap();
+    await amount.fill('150');
+    await form.getByRole('button', { name: 'Добавить и создать похожий' }).tap();
+    await expect(form.getByText('Операция сохранена — можно ввести похожую')).toBeVisible();
+    // Review Focus 5
+    await expect(form.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
+    await expect(amount).not.toBeFocused();
+    await form.getByRole('button', { name: 'Закрыть', exact: true }).tap();
+    await expect(form).toBeHidden();
+
+    // «Дублировать платёж» в открытой операции: копия, фокус — на «×»
+    await cards(page).getByRole('button').first().tap();
+    const edit = page.getByRole('dialog', { name: 'Расход', exact: true });
+    await edit.getByRole('button', { name: 'Дублировать платёж' }).tap();
+    const copy = page.getByRole('dialog', { name: 'Новый расход', exact: true });
+    await expect(copy.getByText('Это копия — проверьте и сохраните')).toBeVisible();
+    await expect(copy.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
+    await expect(copy.getByRole('textbox', { name: /^Сумма,/ })).not.toBeFocused();
   });
 });
 
