@@ -5,6 +5,7 @@ import { journalBackHref, readLastJournal } from '../lib/last-journal';
 import { useIsMobile } from '../lib/media';
 import type { Company } from '../lib/queries';
 import { HistoryPanel } from './HistoryDrawer';
+import { useOpenImport } from './import/ImportPanel';
 import { Popover } from './Popover';
 
 /** Вкладка нижней панели: 56 px; текущая (`aria-current="page"`) — тёмным текстом и чертой сверху, как в Finmap. */
@@ -19,7 +20,8 @@ const itemClass =
 
 /**
  * Нижняя панель вкладок на телефоне (§8.3 этапа 1.5): «Журнал» и «Ещё» — меню вверх с «Пользователи», «Настройки»
- * (экран списка разделов, §8.6) и «История действий» (панель §3.4). «Аналитика» появится на этапе 2 между ними.
+ * (экран списка разделов, §8.6), «История действий» (панель §3.4) и «Импорт из Excel» (панель импорта на весь экран,
+ * §5.1 спецификации импорта; в архивной компании пункта нет). «Аналитика» появится на этапе 2 между ними.
  * «Журнал» в самом журнале — текущий адрес; из настроек — последний адрес журнала с фильтром. Переход по ссылке ставит
  * фокус на `<h1>` новой страницы; закрытие истории возвращает фокус на «Ещё». На компьютере панели нет.
  */
@@ -30,6 +32,8 @@ export function MobileTabBar({ company }: { company: Company }) {
   useEffect(() => {
     if (!mobile) setHistory(false);
   }, [mobile]);
+  // в архивную компанию импорт запрещён (§1.2 спецификации импорта): пункта нет. Панель — в раскладке компании
+  const openImport = useOpenImport();
   const location = useLocation();
   const onJournal = useMatch('/c/:companyId/log') !== null;
   const inSettings = useMatch('/c/:companyId/settings/*') !== null;
@@ -80,6 +84,21 @@ export function MobileTabBar({ company }: { company: Company }) {
                   История действий
                 </button>
               </li>
+              {openImport && (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // фокус сначала на «Ещё»: панель импорта вернёт его туда при закрытии (§5.1 спецификации импорта)
+                      close(true);
+                      openImport();
+                    }}
+                    className={itemClass}
+                  >
+                    Импорт из Excel
+                  </button>
+                </li>
+              )}
             </ul>
           )}
         </Popover>

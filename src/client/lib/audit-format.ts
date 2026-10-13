@@ -11,6 +11,7 @@ export const ENTITY_LABELS: Record<string, string> = {
   rate: 'Курс',
   fixed_rate: 'Фиксированный курс',
   attachment: 'Вложение',
+  import: 'Импорт',
 };
 
 export const ACTION_LABELS: Record<string, string> = {
@@ -38,6 +39,7 @@ export const COMPANY_ENTITIES = [
   'operation',
   'fixed_rate',
   'attachment',
+  'import',
 ] as const;
 
 /** Сущности общей ленты экземпляра (записи без компании): пользователи и ручные курсы. */

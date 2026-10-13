@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { excelSerial, finmapLikeRow, finmapLikeXlsx } from '../tests/helpers/finmap-like';
 
 async function login(page: Page) {
   await page.goto('/login');
@@ -607,6 +608,9 @@ test('меню «Ещё»: закрывается при расширении о
   await expect(menu.getByRole('link', { name: 'Настройки' })).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(menu.getByRole('button', { name: 'История действий' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  // последний пункт — «Импорт из Excel» (§5.1 спецификации импорта)
+  await expect(menu.getByRole('button', { name: 'Импорт из Excel' })).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(menu).toHaveCount(0);
   await expect(more).toBeFocused();
@@ -1501,4 +1505,75 @@ test('окно «Счета» на телефоне: верхняя зона п�
   await expect.poll(() => area.evaluate((p) => (p as HTMLElement).scrollTop), { timeout: 5000 }).toBeLessThan(startTop - 100);
   await page.keyboard.press('Escape');
   await page.mouse.up();
+});
+
+test('«Ещё» → «Импорт из Excel» (§5.1, §5.7 спецификации импорта): панель на весь экран, «Выберите файл» во всю ширину, суммы с цифровой клавиатурой, без прокрутки вбок; закрыли — фокус на «Ещё»; в архивной компании пункта нет', async ({ page }) => {
+  await page.setViewportSize(PHONE);
+  await login(page);
+  const cid = (await apiPost(page, '/api/v1/companies', { name: `ТОО Импорт телефон ${Date.now()}` })).company.id as number;
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await page.goto(`/c/${cid}/log`);
+  const tabs = page.getByRole('navigation', { name: 'Разделы', exact: true });
+  const more = tabs.getByRole('button', { name: 'Ещё', exact: true });
+  const menu = page.getByRole('dialog', { name: 'Ещё', exact: true });
+  // на телефоне в тулбаре журнала кнопки нет — вход через «Ещё»
+  await expect(page.getByRole('main').getByRole('button', { name: 'Импортировать' })).toHaveCount(0);
+  await more.click();
+  await menu.getByRole('button', { name: 'Импорт из Excel' }).click();
+  const panel = page.getByRole('dialog', { name: 'Импорт из Excel' });
+  await expect(panel).toBeVisible();
+  // панель выезжает справа (200 мс): ждём, пока встанет на место
+  await expect.poll(async () => Math.round((await panel.boundingBox())!.x)).toBe(0);
+  expect(Math.round((await panel.boundingBox())!.width)).toBe(PHONE.width);
+  const pick = (await panel.getByRole('button', { name: 'Выберите файл' }).boundingBox())!;
+  expect(pick.height).toBeGreaterThanOrEqual(44);
+  // во всю ширину зоны файла (отступы панели и зоны — по 16 px)
+  expect(pick.width).toBeGreaterThan(PHONE.width - 80);
+
+  await panel.locator('[data-import-file]').setInputFiles({
+    name: 'выгрузка.xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: finmapLikeXlsx([
+      finmapLikeRow({ paidAt: excelSerial('2025-03-15', '10:00:00'), amount: 1500, to: 'Касса', category: 'Бар' }),
+      finmapLikeRow({ paidAt: excelSerial('2025-03-16', '11:00:00'), amount: 500, from: 'Касса', to: 'Банк с очень длинным названием для проверки ширины', comment: 'x' }),
+    ]),
+  });
+  await expect(panel.getByRole('heading', { level: 3, name: 'Проверка файла' })).toBeFocused();
+  const bank = panel.getByRole('article', { name: /^Банк с очень длинным/ });
+  await expect(bank.getByLabel('Текущий остаток, ₸')).toHaveAttribute('inputmode', 'decimal');
+  // «Импортировать» — в закреплённом низу панели, внутри экрана
+  const go = (await panel.getByRole('button', { name: 'Импортировать' }).boundingBox())!;
+  expect(go.y + go.height).toBeLessThanOrEqual(PHONE.height);
+  expect(go.width).toBeGreaterThan(PHONE.width - 64);
+  await expectNoSideScroll(page, 'панель импорта');
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await expect(more).toBeFocused();
+
+  // архивная компания: пункта «Импорт из Excel» нет
+  const archived = (await apiPost(page, '/api/v1/companies', { name: `ТОО Импорт архив ${Date.now()}` })).company.id as number;
+  await apiPost(page, `/api/v1/companies/${archived}/archive`, {});
+  await page.goto(`/c/${archived}/log`);
+  await more.click();
+  await expect(menu.getByRole('button', { name: 'История действий' })).toBeVisible();
+  await expect(menu.getByRole('button', { name: 'Импорт из Excel' })).toHaveCount(0);
+});
+
+test('панель импорта, открытая из «Ещё», переживает смену ширины окна (поворот телефона) и закрывается как обычно', async ({ page }) => {
+  await page.setViewportSize(PHONE);
+  await login(page);
+  const cid = (await apiPost(page, '/api/v1/companies', { name: `ТОО Импорт поворот ${Date.now()}` })).company.id as number;
+  await page.goto(`/c/${cid}/log`);
+  await page.getByRole('navigation', { name: 'Разделы', exact: true }).getByRole('button', { name: 'Ещё', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Ещё', exact: true }).getByRole('button', { name: 'Импорт из Excel' }).click();
+  const panel = page.getByRole('dialog', { name: 'Импорт из Excel' });
+  await expect(panel).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(panel).toBeVisible();
+  await expect.poll(async () => Math.round((await panel.boundingBox())!.width)).toBe(480);
+  await page.setViewportSize(PHONE);
+  await expect(panel).toBeVisible();
+  await expect.poll(async () => Math.round((await panel.boundingBox())!.width)).toBe(PHONE.width);
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
 });
