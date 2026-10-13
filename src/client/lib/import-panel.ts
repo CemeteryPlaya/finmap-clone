@@ -49,7 +49,8 @@ export function issueText(g: ImportIssueGroup): string {
   return rows ? `${g.message} — ${rows}` : g.message;
 }
 
-const operations = (n: number) => `${formatCount(n)} ${pluralRu(n, 'операция', 'операции', 'операций')}`;
+/** «16 028 операций», «1 операция». */
+export const operationsText = (n: number) => `${formatCount(n)} ${pluralRu(n, 'операция', 'операции', 'операций')}`;
 const fileRows = (n: number) => `${formatCount(n)} ${pluralRu(n, 'строка', 'строки', 'строк')}`;
 
 /**
@@ -62,7 +63,7 @@ export function checkSummary(p: ImportPreview): string {
   const period = p.period ? `. Период: ${formatDateRu(p.period.from)} – ${formatDateRu(p.period.to)}` : '';
   const unread = Math.max(0, p.file.rows - c.income - c.expense - c.transfer - c.skippedFuture);
   const extra = `${unread > 0 ? `, с ошибками ${formatCount(unread)}` : ''}${c.skippedFuture > 0 ? `, плановых ${formatCount(c.skippedFuture)}` : ''}`;
-  const total = extra ? fileRows(p.file.rows) : operations(p.file.rows);
+  const total = extra ? fileRows(p.file.rows) : operationsText(p.file.rows);
   return `В файле ${total}: доходов ${formatCount(c.income)}, расходов ${formatCount(c.expense)}, переводов ${formatCount(c.transfer)}${extra}${period}`;
 }
 
@@ -259,7 +260,7 @@ export function doneText(r: ImportCommitResult): string {
     c.tags && `${formatCount(c.tags)} ${pluralRu(c.tags, 'тег', 'тега', 'тегов')}`,
   ].filter(Boolean);
   const created = parts.length > 0 ? ` Создано: ${parts.join(', ')}.` : '';
-  return `Добавлено ${operations(r.counts.added)}.${created} Пропущено дубликатов: ${formatCount(r.counts.duplicates)}`;
+  return `Добавлено ${operationsText(r.counts.added)}.${created} Пропущено дубликатов: ${formatCount(r.counts.duplicates)}`;
 }
 
 /** Свежий предпросмотр в ответе 409 и 422 (details.preview). */

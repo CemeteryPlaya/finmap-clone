@@ -8,9 +8,11 @@ export interface ConfirmDialogProps {
   text: string;
   /** Кнопка действия справа: «Закрыть», «Удалить», «Изменить». */
   confirmLabel: string;
+  /** Левая кнопка (по умолчанию «Отменить»): «Не отменять», когда действие само называется «Отменить импорт» (§7.3 спецификации импорта). */
+  cancelLabel?: string;
   /** Действие разрушительное: красная кнопка. */
   danger?: boolean;
-  /** Флажок под текстом (только в вопросе о несохранённом — «Больше не спрашивать»). */
+  /** Флажок под текстом: «Больше не спрашивать» в вопросе о несохранённом, «Удалить и изменённые (3)» при отмене импорта. */
   checkbox?: { label: string; checked: boolean; onChange: (checked: boolean) => void };
   /** Идёт запрос действия: обе кнопки недоступны, Esc не закрывает. */
   pending?: boolean;
@@ -22,7 +24,7 @@ export interface ConfirmDialogProps {
 
 /**
  * Вложенное окно подтверждения (§2.4, §11 этапа 1.5): `<dialog role="alertdialog">` через showModal() поверх
- * родительского окна. Кнопки в порядке Finmap: слева «Отменить» (фокус по умолчанию), справа действие.
+ * родительского окна. Кнопки в порядке Finmap: слева «Отменить» или `cancelLabel` (фокус по умолчанию), справа действие.
  * Esc = «Отменить»: закрывается только подтверждение — клавиши и события close/cancel дальше не идут
  * (React доставил бы их обработчикам родительского `<dialog>`). Открыто, пока владелец держит `open`.
  * После закрытия фокус возвращается на элемент, с которого открыли, а если его уже нет — `onFocusLost`.
@@ -114,7 +116,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
           )}
           <div className="grid grid-cols-2 gap-3">
             <button ref={cancelRef} type="button" disabled={props.pending} onClick={cancel} className={btnSecondary}>
-              Отменить
+              {props.cancelLabel ?? 'Отменить'}
             </button>
             <button type="button" disabled={props.pending} onClick={() => props.onConfirm()} className={props.danger ? btnDanger : btnSecondary}>
               {props.confirmLabel}

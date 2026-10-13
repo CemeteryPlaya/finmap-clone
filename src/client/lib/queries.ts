@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery, type InfiniteData } from '@tanstack/react-query';
 import { api, type ApiError } from './api';
+import type { ImportListPage } from '../../shared/schemas/imports';
 import type { CounterpartyType } from '../../shared/system-categories';
 import type { SavedJournalFilter } from './journal-filter';
 import { queryClient } from './query';
@@ -299,6 +300,17 @@ export function useOperationHistory(companyId: number) {
   return useQuery<AuditEntry[], ApiError>({
     queryKey: ['audit', companyId, 'operations-recent'],
     queryFn: async () => (await api<AuditPage>(`/companies/${companyId}/audit?entity=operation&limit=20`)).entries,
+    refetchOnMount: 'always',
+  });
+}
+
+/** Список «Импорты» панели «История действий» (§7.2 спецификации импорта): по 20, «Показать ещё»; при каждом открытии свежий. */
+export function useImports(companyId: number) {
+  return useInfiniteQuery<ImportListPage, ApiError, InfiniteData<ImportListPage, number | null>, readonly unknown[], number | null>({
+    queryKey: ['imports', companyId],
+    initialPageParam: null,
+    queryFn: ({ pageParam }) => api<ImportListPage>(`/companies/${companyId}/imports?limit=20${pageParam === null ? '' : `&beforeId=${pageParam}`}`),
+    getNextPageParam: (last) => last.nextBeforeId,
     refetchOnMount: 'always',
   });
 }
