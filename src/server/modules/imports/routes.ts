@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { importCommitSchema, importListQuerySchema, importRequestSchema } from '../../../shared/schemas/imports';
+import { importCommitSchema, importListQuerySchema, importRequestSchema, importUndoSchema } from '../../../shared/schemas/imports';
 import { AppError } from '../../errors';
 import { contentDisposition } from '../../http/content-disposition';
 import { headerFileName, parseId } from '../../http/params';
@@ -46,6 +46,19 @@ export function registerImportsRoutes(app: FastifyInstance, deps: { imports: Imp
 
   // список «Импорты» (§7.2): новые сверху, «Показать ещё» — по beforeId
   app.get<C>(BASE, async (req) => imports.list(parseId(req.params.cid), importListQuerySchema.parse(req.query)));
+
+  app.post<{ Params: { cid: string; id: string } }>(`${BASE}/:id/undo`, async (req) => {
+    const companyId = parseId(req.params.cid);
+    const importId = parseId(req.params.id);
+    const started = performance.now();
+    const result = imports.undo(companyId, req.user!.id, importId, importUndoSchema.parse(req.body));
+    // итог — числа, без названий (§6.5)
+    req.log.info(
+      { companyId, userId: req.user!.id, importId, deleted: result.result.deleted.operations, kept: result.result.kept.operations, ms: Math.round(performance.now() - started) },
+      'Импорт отменён',
+    );
+    return result;
+  });
 
   app.get('/api/v1/imports/template.xlsx', async (_req, reply) => {
     const { fileName, data } = imports.template();

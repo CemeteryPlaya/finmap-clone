@@ -1,6 +1,16 @@
 import crypto from 'node:crypto';
 import { todayInTimezone } from '../../../shared/dates';
-import type { ImportCommitRequest, ImportCommitResult, ImportCounts, ImportListPage, ImportListQuery, ImportPreview, ImportRequest } from '../../../shared/schemas/imports';
+import type {
+  ImportCommitRequest,
+  ImportCommitResult,
+  ImportCounts,
+  ImportListPage,
+  ImportListQuery,
+  ImportPreview,
+  ImportRequest,
+  ImportUndoRequest,
+  ImportUndoResponse,
+} from '../../../shared/schemas/imports';
 import { cleanName } from '../../../shared/text';
 import type { Db } from '../../db/client';
 import { AppError } from '../../errors';
@@ -10,11 +20,12 @@ import { requireCompany } from '../companies/guard';
 import type { RatesService } from '../rates/service';
 import { createImportCache, type ImportCache } from './cache';
 import { writeImport, type ImportWriterDeps } from './commit';
-import { listImports } from './history';
+import { importItem, listImports } from './history';
 import { parseSheet } from './parse-row';
 import { buildPreview } from './preview';
 import { IMPORT_MAX_BYTES, readImportFile } from './read-file';
 import { buildTemplate, TEMPLATE_FILE_NAME } from './template';
+import { undoImport } from './undo';
 
 /** Импорт: проверка файла, запись, список и отмена (§5.2, §6.2, §6.4, §7 спецификации импорта). */
 export interface ImportsService {
@@ -31,6 +42,12 @@ export interface ImportsService {
   template(): { fileName: string; data: Buffer };
   /** Список «Импорты» (§7.2): новые сверху, у неотменённых — pending; архивная компания — тоже (только чтение). */
   list(companyId: number, q: ImportListQuery): ImportListPage;
+  /**
+   * Отмена одной транзакцией (§7.3), блокировка записи — до проверок: импорт другой компании — 404; уже отменён — 409
+   * IMPORT_UNDONE; с includeEdited изменённых больше, чем видел человек, — 409 IMPORT_CHANGED; архивная компания или
+   * архивный счёт удаляемой операции — 422 ARCHIVED_REFERENCE.
+   */
+  undo(companyId: number, userId: number, importId: number, body: ImportUndoRequest): ImportUndoResponse;
 }
 
 export const importExpired = () => new AppError(410, 'IMPORT_EXPIRED', 'Проверка устарела — загрузите файл заново');
@@ -134,6 +151,22 @@ export function createImportsService(
     list(companyId, q) {
       requireCompany(db, companyId);
       return listImports(db, companyId, q);
+    },
+
+    undo(companyId, userId, importId, body) {
+      requireCompany(db, companyId, { writable: true });
+      // BEGIN IMMEDIATE: две отмены одного импорта не пройдут обе — вторая увидит status = 'undone' (409)
+      const result = mutate(
+        db,
+        d.audit,
+        (tx, audit) => {
+          // компания могла уйти в архив после проверки выше (другой процесс): проверка — уже под блокировкой записи
+          requireCompany(tx, companyId, { writable: true });
+          return undoImport(tx, { companyId, importId, userId, at: now().toISOString(), timezone, ...body }, audit);
+        },
+        { behavior: 'immediate' },
+      );
+      return { import: importItem(db, companyId, importId)!, result };
     },
   };
 }

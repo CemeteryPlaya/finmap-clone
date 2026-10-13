@@ -10,12 +10,12 @@ import { runMigrations } from '../src/server/db/migrate';
 import { seedCurrencies } from '../src/server/db/seed';
 import { createAuditService } from '../src/server/modules/audit/service';
 import { createUsersService } from '../src/server/modules/users/service';
-import type { ImportCommitResult, ImportPreview } from '../src/shared/schemas/imports';
+import type { ImportCommitResult, ImportPreview, ImportUndoResponse } from '../src/shared/schemas/imports';
 import { finmapLikeMany, finmapLikeXlsx } from '../tests/helpers/finmap-like';
 
 // Замер импорта (§10 спецификации импорта), три свежих процесса:
-// 1) «write» — синтетический файл «как у Finmap» на 16 000 строк: загрузка с проверкой, пересчёт предпросмотра и запись
-//    одной транзакцией (бюджеты 3 с, 1 с, 5 с) и пик памяти процесса за всё это (бюджет 400 МБ);
+// 1) «write» — синтетический файл «как у Finmap» на 16 000 строк: загрузка с проверкой, пересчёт предпросмотра, запись
+//    одной транзакцией и отмена (бюджеты 3 с, 1 с, 5 с, 3 с) и пик памяти процесса за всё это (бюджет 400 МБ);
 // 2) «commit50k» — 50 000 строк (предел §2.3): загрузка и запись — предпросмотр, план и вставка в одной транзакции;
 //    пик памяти процесса (принятый бюджет 500 МБ, решение 9 плана И-2);
 // 3) «cache» — худший случай кэша проверки, три файла по 50 000 строк в трёх компаниях: пик на первом файле
@@ -32,7 +32,7 @@ const NOW = new Date('2026-10-06T12:00:00.000Z');
 const LOGIN = 'bench';
 const PASSWORD = 'bench-password-1';
 const HEADERS = { origin: 'http://localhost:3000', 'x-requested-with': 'fetch' };
-const BUDGET_MS = { upload: 3000, preview: 1000, commit: 5000 };
+const BUDGET_MS = { upload: 3000, preview: 1000, commit: 5000, undo: 3000 };
 /** Пик памяти процесса (§10): файл 16 000 строк — 400 МБ; 50 000 строк — принятые 500 МБ. */
 const RSS_BUDGET_16K_MB = 400;
 const RSS_BUDGET_50K_MB = 500;
@@ -146,8 +146,9 @@ async function measure(dir: string, phase: Phase): Promise<void> {
       const res = await app.inject({ method: 'POST', url: `/api/v1/companies/${cid}/imports`, headers, payload: { token: p.token, accounts: [], revision: p.revision } });
       const ms = performance.now() - t;
       if (res.statusCode !== 201) throw new Error(`Запись: ${res.statusCode} ${res.body.slice(0, 300)}`);
-      if ((res.json() as ImportCommitResult).counts.added !== rows) throw new Error(`Записаны не все ${rows} операций`);
-      return ms;
+      const result = res.json() as ImportCommitResult;
+      if (result.counts.added !== rows) throw new Error(`Записаны не все ${rows} операций`);
+      return { ms, importId: result.import.id };
     };
 
     if (phase === 'write') {
@@ -161,8 +162,15 @@ async function measure(dir: string, phase: Phase): Promise<void> {
       const again = await app.inject({ method: 'POST', url: `/api/v1/companies/${cid}/imports/preview`, headers, payload: { token: up.preview.token, accounts: [] } });
       if (again.statusCode !== 200) throw new Error(`Пересчёт: ${again.statusCode} ${again.body.slice(0, 300)}`);
       report('Пересчёт предпросмотра (preview)', performance.now() - t, BUDGET_MS.preview);
-      report('Запись одной транзакцией (POST /imports)', await commit(cid, again.json() as ImportPreview, 16_000), BUDGET_MS.commit);
-      reportPeak('Пик памяти процесса: загрузка, пересчёт и запись 16 000 строк', RSS_BUDGET_16K_MB);
+      const written = await commit(cid, again.json() as ImportPreview, 16_000);
+      report('Запись одной транзакцией (POST /imports)', written.ms, BUDGET_MS.commit);
+      // отмена (§7.3): жёсткое удаление 16 000 операций и созданных справочников одной транзакцией
+      const t2 = performance.now();
+      const undone = await app.inject({ method: 'POST', url: `/api/v1/companies/${cid}/imports/${written.importId}/undo`, headers, payload: { includeEdited: false, edited: 0 } });
+      if (undone.statusCode !== 200) throw new Error(`Отмена: ${undone.statusCode} ${undone.body.slice(0, 300)}`);
+      if ((undone.json() as ImportUndoResponse).result.deleted.operations !== 16_000) throw new Error('Отмена удалила не все 16 000 операций');
+      report('Отмена (POST /imports/:id/undo)', performance.now() - t2, BUDGET_MS.undo);
+      reportPeak('Пик памяти процесса: загрузка, пересчёт, запись и отмена 16 000 строк', RSS_BUDGET_16K_MB);
     } else if (phase === 'commit50k') {
       // предел файла: предпросмотр, план и вставка 50 000 строк — внутри одной транзакции записи
       const cid = await company('Замер записи 50 000');
@@ -171,7 +179,7 @@ async function measure(dir: string, phase: Phase): Promise<void> {
       const up = await upload(cid, big);
       if (!up.preview.canImport || up.preview.counts.add !== 50_000) throw new Error('Проверка файла 50 000 строк не прошла');
       report('Загрузка и проверка 50 000 строк', up.ms);
-      report('Запись 50 000 строк одной транзакцией', await commit(cid, up.preview, 50_000));
+      report('Запись 50 000 строк одной транзакцией', (await commit(cid, up.preview, 50_000)).ms);
       reportPeak('Пик памяти процесса: загрузка и запись 50 000 строк', RSS_BUDGET_50K_MB);
     } else {
       // три файла по 50 000 строк в трёх компаниях — кэш (не больше 3 файлов) держит все три

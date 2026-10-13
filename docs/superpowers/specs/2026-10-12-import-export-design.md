@@ -653,8 +653,8 @@
 | `POST /imports/upload` | байты файла, `Content-Type: application/octet-stream`, имя — `X-File-Name` (URI-кодированное) | 200 `ImportPreview` (§6.3) с `token`; 400 `IMPORT_FILE`; 413 `TOO_LARGE` |
 | `POST /imports/preview` | `{ token, accounts: AccountMapping[] }` | 200 `ImportPreview`; 410 `IMPORT_EXPIRED` |
 | `POST /imports` | `{ token, accounts: AccountMapping[], revision }` | 201 `{ import: ImportRow, counts }`; 422 `IMPORT_INVALID` и 409 `IMPORT_CHANGED` с `details.preview`; 410 `IMPORT_EXPIRED` (решение 3 плана И-2) |
-| `GET /imports?limit=20&beforeId=` | — | `{ items: ImportListItem[] }` — новые сверху, с `userName` и, у `done`, `pending: { operations, edited }` (§7.2) |
-| `POST /imports/:id/undo` | `{ includeEdited: boolean }` | 200 `{ import, result }`; 409 `IMPORT_UNDONE`; 422 `ARCHIVED_REFERENCE` |
+| `GET /imports?limit=20&beforeId=` | — | `{ items: ImportListItem[], nextBeforeId }` — новые сверху, с `userName` и, у `done`, `pending: { operations, edited }` (§7.2); `nextBeforeId` — `beforeId` следующей страницы, `null` — больше нет |
+| `POST /imports/:id/undo` | `{ includeEdited: boolean, edited: number }` — `edited`: сколько изменённых операций видел человек в подтверждении (`pending.edited`) | 200 `{ import: ImportListItem, result }` (§7.3); 404 — импорта нет в этой компании; 409 `IMPORT_UNDONE` — уже отменён; 409 `IMPORT_CHANGED` с `details.pending: { operations, edited }` — с `includeEdited` изменённых стало больше, чем `edited` (решение 4 плана И-3); 422 `ARCHIVED_REFERENCE` |
 
 Вне компании: `GET /api/v1/imports/template.xlsx` — шаблон (§5.2), собирается при каждом запросе нашим писателем.
 
@@ -681,7 +681,7 @@ type AccountMapping =
 | HTTP | Код | Когда |
 |---|---|---|
 | 400 | `IMPORT_FILE` | ошибка файла F* |
-| 409 | `IMPORT_CHANGED` | при записи свежая проверка дала другой итог, чем видел человек (другая `revision`); `details.preview` — свежий предпросмотр |
+| 409 | `IMPORT_CHANGED` | при записи свежая проверка дала другой итог, чем видел человек (другая `revision`); `details.preview` — свежий предпросмотр. При отмене с `includeEdited` изменённых операций импорта больше, чем `edited` в запросе; `details.pending` — свежие `{ operations, edited }`, ничего не удалено |
 | 409 | `IMPORT_UNDONE` | импорт уже отменён |
 | 410 | `IMPORT_EXPIRED` | токена нет, он истёк или принадлежит другому пользователю или компании |
 | 413 | `TOO_LARGE` | файл больше 30 МБ (код уже есть у вложений) |
@@ -989,7 +989,7 @@ interface ImportPreview {
 - **Отмена** — `DELETE FROM operations WHERE import_id = ? …`, каскад строк и тегов.
 
 **Память** — пик RSS процесса (замер `bench:import`):
-- файл 16 000 строк (как настоящий): загрузка, пересчёт и запись — меньше 400 МБ;
+- файл 16 000 строк (как настоящий): загрузка, пересчёт, запись и отмена — меньше 400 МБ;
 - файл 50 000 строк (предел §2.3): загрузка и запись — меньше 500 МБ. Это принятый бюджет (план И-2, решение 9): замер показал около 450 МБ при прежних 400 МБ; пик кратковременный, на время загрузки и записи; пользователей несколько; настоящие файлы — около 16 000 строк. Потоковое чтение и `worker_threads` ради 50 000 строк не делаются, предел 50 000 строк остаётся.
 
 Из чего складывается пик на 50 000 строк:

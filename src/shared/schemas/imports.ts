@@ -175,3 +175,45 @@ export interface ImportListPage {
   items: ImportListItem[];
   nextBeforeId: number | null;
 }
+
+/**
+ * Тело POST …/imports/:id/undo (§6.2, §7.3): удалять ли изменённые после импорта операции и сколько изменённых видел
+ * человек в подтверждении (pending.edited). С includeEdited изменённых стало больше — 409 IMPORT_CHANGED (решение 4 плана И-3).
+ */
+export const importUndoSchema = z.object({
+  includeEdited: z.boolean(),
+  edited: z.number().int().min(0),
+});
+export type ImportUndoRequest = z.infer<typeof importUndoSchema>;
+
+/** Справочник, который создал импорт. */
+export type ImportCreatedEntity = 'account' | 'category' | 'counterparty' | 'project' | 'tag';
+
+/** Поле существующего счёта, которое отмена не вернула: изменено после импорта, есть операции раньше прежней даты, счёт в архиве. */
+export interface ImportKeptAccountField {
+  accountId: number;
+  name: string;
+  field: 'startingBalance' | 'openedAt';
+  reason: 'changed' | 'operations' | 'archived';
+}
+
+/** Итог отмены (§7.3): imports.undo_result и ответ отмены. */
+export interface ImportUndoResult {
+  deleted: { operations: number } & ImportCreatedCounts;
+  kept: {
+    /** Изменённые после импорта операции, которые остались (без «Удалить и изменённые»). */
+    operations: number;
+    /** Созданное импортом, которое используется и осталось, — по видам. */
+    created: ImportCreatedCounts;
+    /** Первые 20 названий оставленного созданного. */
+    names: { entity: ImportCreatedEntity; name: string }[];
+    /** Поля существующих счетов, которые остались как есть. */
+    accounts: ImportKeptAccountField[];
+  };
+}
+
+/** Ответ 200 POST …/imports/:id/undo: запись импорта после отмены и итог. */
+export interface ImportUndoResponse {
+  import: ImportListItem;
+  result: ImportUndoResult;
+}
