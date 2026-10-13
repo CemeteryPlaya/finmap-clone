@@ -148,8 +148,15 @@ describe('сверка импорта: что не сверено, не даёт
     expect(r.accounts.find((l) => l.what === 'Валютный, USD')).toMatchObject({ currency: 'USD', file: 600 });
     expect(r.categories).toEqual([{ what: 'Доходы: Бар', file: 475_120, db: 475_120, currency: 'KZT' }]);
     expect(r.notes).toContain('Переводов между валютами без суммы в валюте компании: 1 — сумма зачисления не сверялась');
+    // получатель такого перевода не сверяется — это не расхождение: итог «Не сверено», а не «Расхождений»
+    expect(r.notes).toContain('Движение этих счетов не сверялось: Валютный');
+    expect(r.accounts.find((l) => l.what === 'Валютный, USD')?.unverified).toBe(true);
+    expect(r.accounts.find((l) => l.what === 'Касса, KZT')?.unverified).toBeUndefined();
+    expect(r.mismatches).toBe(0);
     expect(r.unchecked).toBeGreaterThanOrEqual(1);
     expect(isMatch(r)).toBe(false);
+    expect(formatReport(r).at(-1)).toMatch(/^Итог: Не сверено: \d+ — см\. «Внимание»$/);
+    expect(formatReport(r).some((l) => l.startsWith('? Валютный, USD'))).toBe(true);
   });
 
   it('чтение базы — одна транзакция чтения, на соединении только на чтение: файл не меняется', async () => {
