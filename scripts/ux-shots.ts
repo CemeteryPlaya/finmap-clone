@@ -75,6 +75,13 @@ const openCategorizedExpense = async (p: Page) => {
   return dialog;
 };
 
+/** «Ещё» → «Экспорт»: панель с раскрытым разделом «Экспортировать в» (§8.1 спецификации импорта). */
+const openExportMenu = async (p: Page) => {
+  await p.getByRole('button', { name: 'Ещё', exact: true }).click();
+  await p.getByRole('dialog', { name: 'Ещё', exact: true }).getByRole('button', { name: 'Экспорт', exact: true }).click();
+  await p.getByRole('group', { name: 'Экспортировать в' }).waitFor();
+};
+
 /** Панель «Импорт из Excel» (§5 спецификации импорта): «Импортировать» в тулбаре журнала или «Ещё» → «Импорт из Excel» на телефоне. */
 const importPanel = (p: Page) => p.getByRole('dialog', { name: 'Импорт из Excel' });
 const openImport = async (p: Page, phone = false) => {
@@ -378,6 +385,24 @@ const SCENARIOS: Scenario[] = [
   { ours: 'c34-settings-rates.png', finmap: '34-settings-rates.png', path: 'settings/rates' },
   { ours: 'c35-settings-backup.png', finmap: '35-settings-backup.png', path: 'settings/backup' },
   { ours: 'c36-settings-log-view.png', finmap: '36-settings-log-view.png', path: 'settings/journal' },
+  // экспорт (§8 спецификации импорта): «Ещё» с раскрытым «Экспортировать в» и окно «Собрать Excel» — пары к Finmap 40 и 43
+  {
+    ours: 'c40-export-click.png',
+    finmap: '40-export-click.png',
+    path: 'log',
+    act: openExportMenu,
+  },
+  {
+    ours: 'c43-export-custom.png',
+    finmap: '43-export-custom.png',
+    path: 'log',
+    act: async (p) => {
+      await openExportMenu(p);
+      await p.getByRole('group', { name: 'Экспортировать в' }).getByRole('button', { name: 'Собрать Excel', exact: true }).click();
+      // превью загрузилось: первая строка операции видна
+      await p.getByRole('dialog', { name: 'Собрать Excel', exact: true }).getByRole('table', { name: 'Превью файла' }).locator('tbody tr').first().waitFor();
+    },
+  },
   // панель «Импорт из Excel» (§11.4 спецификации импорта): пустая — пара к Finmap 42; предпросмотр и ошибки — снимков Finmap нет
   { ours: 'c42-import-excel.png', finmap: '42-import-excel.png', path: 'log', act: (p) => openImport(p) },
   {
