@@ -9,6 +9,7 @@ import { seedCurrencies } from '../src/server/db/seed';
 import { startServer } from '../src/server/main';
 import { createAuditService } from '../src/server/modules/audit/service';
 import { createUsersService } from '../src/server/modules/users/service';
+import { excelSerial, finmapLikeRow, finmapLikeSample, finmapLikeXlsx, type FinmapLikeValue } from '../tests/helpers/finmap-like';
 import { seedDemo } from './lib/demo';
 
 // Визуальная сверка с Finmap (§12.3 этапа 1.5): снимки наших экранов под парными к снимкам Finmap именами и
@@ -73,6 +74,32 @@ const openCategorizedExpense = async (p: Page) => {
   await dialog.getByRole('textbox', { name: /^Сумма,/ }).waitFor();
   return dialog;
 };
+
+/** Панель «Импорт из Excel» (§5 спецификации импорта): «Импортировать» в тулбаре журнала или «Ещё» → «Импорт из Excel» на телефоне. */
+const importPanel = (p: Page) => p.getByRole('dialog', { name: 'Импорт из Excel' });
+const openImport = async (p: Page, phone = false) => {
+  if (phone) {
+    await p.getByRole('navigation', { name: 'Разделы', exact: true }).getByRole('button', { name: 'Ещё', exact: true }).click();
+    await p.getByRole('dialog', { name: 'Ещё', exact: true }).getByRole('button', { name: 'Импорт из Excel' }).click();
+  } else {
+    await p.getByRole('main').getByRole('button', { name: 'Импортировать' }).click();
+  }
+  await importPanel(p).getByRole('button', { name: 'Выберите файл' }).waitFor();
+};
+/** Синтетический файл «как у Finmap» (tests/helpers/finmap-like.ts) — без настоящих данных; ждёт итог проверки. */
+const importFile = async (p: Page, rows: FinmapLikeValue[][], expect: 'Проверка файла' | 'Найдено ошибок') => {
+  await importPanel(p)
+    .locator('[data-import-file]')
+    .setInputFiles({ name: 'выгрузка.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: finmapLikeXlsx(rows) });
+  await (expect === 'Проверка файла' ? importPanel(p).getByRole('heading', { level: 3, name: 'Проверка файла' }) : importPanel(p).getByText(/^Найдено ошибок: \d+\./)).waitFor();
+};
+/** Файл с ошибками строк: дата текстом, пустая сумма, строка без счёта. */
+const IMPORT_ERRORS = [
+  ...finmapLikeSample(),
+  finmapLikeRow({ paidAt: 'вчера', amount: 1500, to: 'Касса-1' }),
+  finmapLikeRow({ paidAt: excelSerial('2026-10-06', '12:00:00'), amount: null, to: 'Касса-1' }),
+  finmapLikeRow({ paidAt: excelSerial('2026-10-06', '13:00:00'), amount: 700 }),
+];
 
 /** Экраны, которые уже есть. Следующие планы этапа 1.5 добавляют сюда свои. */
 const SCENARIOS: Scenario[] = [
@@ -327,6 +354,28 @@ const SCENARIOS: Scenario[] = [
   { ours: 'c34-settings-rates.png', finmap: '34-settings-rates.png', path: 'settings/rates' },
   { ours: 'c35-settings-backup.png', finmap: '35-settings-backup.png', path: 'settings/backup' },
   { ours: 'c36-settings-log-view.png', finmap: '36-settings-log-view.png', path: 'settings/journal' },
+  // панель «Импорт из Excel» (§11.4 спецификации импорта): пустая — пара к Finmap 42; предпросмотр и ошибки — снимков Finmap нет
+  { ours: 'c42-import-excel.png', finmap: '42-import-excel.png', path: 'log', act: (p) => openImport(p) },
+  {
+    ours: 'c42b-import-preview.png',
+    finmap: '42b-import-preview.png',
+    path: 'log',
+    act: async (p) => {
+      await openImport(p);
+      await importFile(p, finmapLikeSample(), 'Проверка файла');
+      // первая группа «Будет создано» раскрыта (в демо-компании категории файла уже есть — это контрагенты)
+      await importPanel(p).getByRole('button', { name: /^(Категории|Контрагенты|Проекты|Теги): \d+$/ }).first().click();
+    },
+  },
+  {
+    ours: 'c42c-import-errors.png',
+    finmap: '42c-import-errors.png',
+    path: 'log',
+    act: async (p) => {
+      await openImport(p);
+      await importFile(p, IMPORT_ERRORS, 'Найдено ошибок');
+    },
+  },
   {
     ours: 'cm01-accounts.png',
     finmap: 'm01-log.png',
@@ -385,6 +434,17 @@ const SCENARIOS: Scenario[] = [
   },
   // экран «Настройки» на телефоне (§8.6); снимка Finmap нет — в index.html слева «нет снимка Finmap»
   { ours: 'cm07-settings.png', finmap: 'm07-settings.png', phone: true, path: 'settings' },
+  {
+    // панель импорта на телефоне 390×844 — на весь экран (§5.7 спецификации импорта); снимка Finmap нет
+    ours: 'cm-import.png',
+    finmap: 'm42-import.png',
+    phone: true,
+    path: 'log',
+    act: async (p) => {
+      await openImport(p, true);
+      await importFile(p, finmapLikeSample(), 'Проверка файла');
+    },
+  },
 ];
 
 function fail(message: string): never {
