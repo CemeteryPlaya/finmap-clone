@@ -162,6 +162,33 @@ describe('журнал: «Excel» в формате Finmap (§8.2 специфи
     expect([by('аренда')[B], by('аренда')[C], by('аренда')[D]]).toEqual(['46266', '', '']);
   });
 
+  it('разбитая операция с зарплатой и арендой, дата начисления 1-го числа: у строки зарплаты — период, у строки аренды — дата (R14)', async () => {
+    w = await opsWorld();
+    const salary = await systemCategory('salary');
+    await op({
+      paidAt: '2026-10-02T10:00:00Z',
+      accrualDate: '2026-09-01',
+      amount: 1000,
+      lines: [
+        { categoryId: salary, projectId: null, amount: 600 },
+        { categoryId: w.expense, projectId: null, amount: 400 },
+      ],
+    });
+    const rows = sheetRows((await download()).rawPayload).slice(1);
+    expect(rows).toHaveLength(2);
+    const byCategory = (name: string) => rows.find((r) => r[I] === name)!;
+    expect([byCategory('Зарплата')[B], byCategory('Зарплата')[C], byCategory('Зарплата')[D]]).toEqual(['', '01.09.2026 00:00:00', '30.09.2026 23:59:59']);
+    expect([byCategory('Аренда')[B], byCategory('Аренда')[C], byCategory('Аренда')[D]]).toEqual(['46266', '', '']);
+  });
+
+  it('теги операции — через «, » в порядке справочника (orderIndex), а не в порядке выбора (R14)', async () => {
+    w = await opsWorld();
+    const second = (await w.post(`/api/v1/companies/${w.cid}/tags`, { name: 'Альфа' })).tag.id as number;
+    await op({ paidAt: '2026-10-02T10:00:00Z', tagIds: [second, w.tag], comment: 'два тега' });
+    const row = sheetRows((await download()).rawPayload)[1]!;
+    expect(row[O]).toBe('Смена, Альфа');
+  });
+
   it('текст, похожий на формулу, — со стилем quotePrefix и в общих строках; комментарий длиннее 1 000 знаков пишется целиком (Review Focus 4)', async () => {
     w = await opsWorld();
     const long = `${'д'.repeat(1500)}\r\n вторая строка`;
@@ -175,7 +202,11 @@ describe('журнал: «Excel» в формате Finmap (§8.2 специфи
     const xml = sheetOf(res.rawPayload);
     expect(xml).not.toContain('<f>');
     // колонка P — комментарий; строки журнала — по убыванию даты
-    const styleOf = (ref: string) => new RegExp(`<c r="${ref}" t="s"( s="7")?>`).exec(xml)?.[1] ?? '';
+    const styleOf = (ref: string) => {
+      const m = new RegExp(`<c r="${ref}" t="s"( s="7")?>`).exec(xml);
+      expect(m, `ячейка ${ref} не найдена`).not.toBeNull();
+      return m![1] ?? '';
+    };
     expect(styleOf('P2')).toBe(''); // длинный и обычный — без стиля
     expect(styleOf('P3')).toBe('');
     expect(styleOf('P4')).toBe(' s="7"'); // -скидка
@@ -329,6 +360,43 @@ describe('журнал: «Собрать Excel» — format=custom (§8.3 спе
     expect(transfers).toEqual([['Сумма зачисления', 'Валюта зачисления'], ['1.00', 'USD'], ['1.00', 'Итого']]);
     // без операций — только заголовок, строки «Итого» нет
     expect(sheetRows((await custom(['amount'], 'q=нет такого')).rawPayload)).toEqual([['Сумма в валюте счета']]);
+  });
+
+  it('«Итого»: подпись — в первой колонке, не являющейся суммой, даже если итог суммы недоступен (R10)', async () => {
+    await mixedWorld();
+    // разные валюты счетов: «Сумма в валюте счета» без итога — подпись не в ней, а в «Категории»
+    const rows = sheetRows((await custom(['amount', 'baseAmount', 'category'])).rawPayload);
+    expect(rows.at(-1)).toEqual(['', '1490.50', 'Итого']);
+    expect(sheetOf((await custom(['amount', 'baseAmount', 'category'])).rawPayload)).toMatch(/<c r="C6" t="s" s="1">/);
+  });
+
+  it('превью и файл: те же 3 первые операции, все 20 колонок, после приведения форматов (R11)', async () => {
+    await mixedWorld();
+    const ids = [
+      'paidAt', 'accrualDate', 'periodFrom', 'periodTo', 'amount', 'baseAmount', 'type', 'fromAccount', 'toAccount', 'category', 'subcategory',
+      'counterparty', 'project', 'tags', 'comment', 'currency', 'balanceAfter', 'toAmount', 'toCurrency', 'toBalanceAfter',
+    ];
+    const preview = ((await w.h.req('GET', `${w.ops}/export-preview`)).json() as { rows: Record<string, string>[] }).rows;
+    const file = sheetRows((await custom(ids)).rawPayload).slice(1, 4);
+    expect(preview).toHaveLength(3);
+    const two = (n: number) => String(n).padStart(2, '0');
+    const dateOf = (ms: number) => `${two(new Date(ms).getUTCDate())}.${two(new Date(ms).getUTCMonth() + 1)}.${new Date(ms).getUTCFullYear()}`;
+    const serialMs = (serial: string) => Date.UTC(1899, 11, 30) + Math.round(Number(serial) * 1440) * 60_000;
+    const money = new Set(['amount', 'baseAmount', 'balanceAfter', 'toAmount', 'toBalanceAfter']);
+    const fromPreview = (id: string, text: string): string => {
+      if (money.has(id)) return text.replace(/\u2212/g, '-').replace(/[\u202F\u00A0 ]/g, '').replace(',', '.');
+      return text;
+    };
+    const fromFile = (id: string, value: string): string => {
+      if (id === 'paidAt') return `${dateOf(serialMs(value))} ${two(new Date(serialMs(value)).getUTCHours())}:${two(new Date(serialMs(value)).getUTCMinutes())}`;
+      if (id === 'accrualDate') return value === '' ? '' : dateOf(serialMs(value));
+      return value;
+    };
+    for (let r = 0; r < 3; r++) {
+      ids.forEach((id, c) => {
+        expect(fromFile(id, file[r]![c]!), `строка ${r + 1}, колонка ${id}`).toBe(fromPreview(id, preview[r]![id]!));
+      });
+    }
   });
 
   it('«Остатки и валюты»: валюта счёта, остаток после операции, сумма, валюта и остаток зачисления — по истории счетов', async () => {

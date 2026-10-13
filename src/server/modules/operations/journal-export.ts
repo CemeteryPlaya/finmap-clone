@@ -244,7 +244,7 @@ const safeSum = (xs: number[]): number | null => {
 /**
  * Строка «Итого» (§8.3), полужирным, значения — не формулы: «Сумма в валюте компании» — сумма значений со знаком;
  * «Сумма в валюте счета» — только если у всех операций одна валюта; «Сумма зачисления» — только если у всех переводов одна
- * валюта зачисления; остальные колонки пусты. Подпись «Итого» — в первой колонке без суммы (если такая есть). Операций
+ * валюта зачисления; остальные колонки пусты. Подпись «Итого» — в первой колонке, не являющейся суммой (если все колонки — суммы, то в первой пустой). Операций
  * нет — строки нет.
  */
 function totalsRow(ops: ExportOperation[], columns: readonly ExportColumnId[], baseCurrency: string): XlsxCell[] | null {
@@ -259,7 +259,10 @@ function totalsRow(ops: ExportOperation[], columns: readonly ExportColumnId[], b
     return NONE;
   };
   const cells = columns.map((id) => total(id).cell);
-  const label = cells.findIndex((c) => c === null);
+  // подпись — в первой колонке, которая не может нести сумму; если все колонки — суммы, то в первой пустой
+  const isTotalColumn = (id: ExportColumnId) => id === 'amount' || id === 'baseAmount' || id === 'toAmount';
+  const firstText = columns.findIndex((id) => !isTotalColumn(id));
+  const label = firstText >= 0 ? firstText : cells.findIndex((c) => c === null);
   return cells.map((cell, i) => (i === label ? { kind: 'text', value: 'Итого', bold: true } : cell && { ...cell, bold: true }));
 }
 

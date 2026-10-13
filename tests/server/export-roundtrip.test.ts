@@ -274,7 +274,7 @@ describe('круг: перевод между валютами (§4.2, §8.2)', 
     const report = checkImport({ sqlite: sqlite(), companyId: target, data: file, fileName: 'круг.xlsx', timezone: 'Asia/Almaty', today: '2026-10-06' });
     expect(report.mismatches).toBe(0);
     expect(report.accounts.find((a) => a.what === 'Валютный, USD')?.unverified).toBe(true);
-    expect(report.notes).toContain('Движение этих счетов не сверялось: Валютный');
+    expect(report.notes).toContain('Зачисления переводов между валютами на эти счета не сверялись (остальное движение сверено): Валютный');
     expect(formatReport(report).at(-1)).toBe('Итог: Не сверено: 1 — см. «Внимание»');
     expect(isMatch(report)).toBe(false);
   });

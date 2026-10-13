@@ -24,8 +24,8 @@ export interface CheckLine {
   /** Валюта сумм; null — это число операций. */
   currency: string | null;
   /**
-   * Движение счёта не сверялось: на него зачислен перевод между валютами, суммы зачисления в файле нет (она считается по
-   * нашим курсам). Расхождением не считается — итог «Не сверено», а не «Расхождений».
+   * На счёт зачислен перевод между валютами, суммы зачисления в файле нет (она считается по нашим курсам). Строка
+   * сверяется без зачислений таких переводов (file и db — движение без них); итог «Не сверено», пока такие переводы есть.
    */
   unverified?: true;
 }
@@ -95,6 +95,8 @@ function checkImportIn(input: CheckInput): CheckReport {
   let crossSkipped = 0;
   /** Счета, на которые зачислены такие переводы. */
   const crossTargets = new Set<number>();
+  /** Зачисления переводов между валютами по файлу (по «Сумме в валюте компании»): на счетах crossTargets они не сверяются. */
+  const fileCross = new Map<number, number>();
   let baseSkipped = 0;
   /** Строки, которые не сверялись, потому что счёта нет в компании (в числа файла не входят). */
   let unmatchedRows = 0;
@@ -114,7 +116,10 @@ function checkImportIn(input: CheckInput): CheckReport {
     move(acc.id, r.type === 'income' ? amount : -amount);
     if (r.type === 'transfer' && to) {
       if (to.currency === acc.currency) move(to.id, amount);
-      else if (to.currency === company.base && r.baseAmount !== null) move(to.id, r.baseAmount);
+      else if (to.currency === company.base && r.baseAmount !== null) {
+        move(to.id, r.baseAmount);
+        fileCross.set(to.id, (fileCross.get(to.id) ?? 0) + r.baseAmount);
+      }
       else {
         crossSkipped++;
         crossTargets.add(to.id);
@@ -141,7 +146,7 @@ function checkImportIn(input: CheckInput): CheckReport {
   if (errorRows) notes.push(`Строк с ошибками разбора: ${errorRows} — они не импортируются и не сверялись`);
   if (crossSkipped) {
     notes.push(`Переводов между валютами без суммы в валюте компании: ${crossSkipped} — сумма зачисления не сверялась`);
-    notes.push(`Движение этих счетов не сверялось: ${accounts.filter((a) => crossTargets.has(a.id)).map((a) => a.name).join(', ')}`);
+    notes.push(`Зачисления переводов между валютами на эти счета не сверялись (остальное движение сверено): ${accounts.filter((a) => crossTargets.has(a.id)).map((a) => a.name).join(', ')}`);
   }
   if (baseSkipped) notes.push(`Строк на счетах не в валюте компании без «Суммы в валюте компании»: ${baseSkipped} — в итогах по категориям не учтены`);
 
@@ -159,6 +164,20 @@ function checkImportIn(input: CheckInput): CheckReport {
     )
     .all(companyId, companyId) as { id: number; m: number }[];
   for (const r of moves) dbMove.set(r.id, (dbMove.get(r.id) ?? 0) + r.m);
+  // зачисления переводов между валютами на счета crossTargets: из движения исключаются с обеих сторон
+  const crossIn = sqlite
+    .prepare(
+      `SELECT o.to_account_id AS id, SUM(o.to_amount) AS m
+         FROM operations o JOIN accounts a ON a.id = o.account_id JOIN accounts t ON t.id = o.to_account_id
+        WHERE o.company_id = ? AND o.deleted_at IS NULL AND o.status = 'actual' AND o.type = 'transfer' AND a.currency <> t.currency
+        GROUP BY o.to_account_id`,
+    )
+    .all(companyId) as { id: number; m: number }[];
+  for (const r of crossIn) {
+    if (!crossTargets.has(r.id)) continue;
+    dbMove.set(r.id, (dbMove.get(r.id) ?? 0) - r.m);
+    fileMove.set(r.id, (fileMove.get(r.id) ?? 0) - (fileCross.get(r.id) ?? 0));
+  }
   const dbCats = new Map<string, { kind: 'income' | 'expense'; titles: Set<string>; sum: number }>();
   const lines = sqlite
     .prepare(
@@ -202,7 +221,7 @@ function checkImportIn(input: CheckInput): CheckReport {
   const catLines: CheckLine[] = [...new Set([...fileCats.keys(), ...dbCats.keys()])]
     .map((k) => ({ what: label(k), file: fileCats.get(k)?.sum ?? 0, db: dbCats.get(k)?.sum ?? 0, currency: company.base }))
     .sort((a, b) => a.what.localeCompare(b.what, 'ru'));
-  const mismatches = [...counts, ...accountLines, ...catLines].filter((l) => !l.unverified && l.file !== l.db).length;
+  const mismatches = [...counts, ...accountLines, ...catLines].filter((l) => l.file !== l.db).length;
   return {
     company: company.name,
     fileName: input.fileName,
@@ -225,7 +244,7 @@ export function formatReport(r: CheckReport): string[] {
     title,
     `${'  '.padEnd(46)}${'файл'.padStart(18)}${'база'.padStart(18)}${'разница'.padStart(18)}`,
     ...lines.flatMap((l) => {
-      const mark = l.unverified ? '? ' : l.file === l.db ? '  ' : '≠ ';
+      const mark = l.file !== l.db ? '≠ ' : l.unverified ? '? ' : '  ';
       const numbers = `${value(l.file, l.currency).padStart(18)}${value(l.db, l.currency).padStart(18)}${value(l.file - l.db, l.currency).padStart(18)}`;
       // длинная подпись не обрезается (в ней родители одноимённых подкатегорий): числа — строкой ниже
       return l.what.length > 44 ? [`${mark}${l.what}`, `${' '.repeat(46)}${numbers}`] : [`${mark}${l.what.padEnd(44)}${numbers}`];

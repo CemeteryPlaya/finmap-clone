@@ -149,14 +149,44 @@ describe('сверка импорта: что не сверено, не даёт
     expect(r.categories).toEqual([{ what: 'Доходы: Бар', file: 475_120, db: 475_120, currency: 'KZT' }]);
     expect(r.notes).toContain('Переводов между валютами без суммы в валюте компании: 1 — сумма зачисления не сверялась');
     // получатель такого перевода не сверяется — это не расхождение: итог «Не сверено», а не «Расхождений»
-    expect(r.notes).toContain('Движение этих счетов не сверялось: Валютный');
-    expect(r.accounts.find((l) => l.what === 'Валютный, USD')?.unverified).toBe(true);
+    expect(r.notes).toContain('Зачисления переводов между валютами на эти счета не сверялись (остальное движение сверено): Валютный');
+    // движение без зачисления перевода: доход 10 USD в файле и в базе
+    expect(r.accounts.find((l) => l.what === 'Валютный, USD')).toMatchObject({ file: 1000 - 400, db: 1000 - 400, unverified: true });
     expect(r.accounts.find((l) => l.what === 'Касса, KZT')?.unverified).toBeUndefined();
     expect(r.mismatches).toBe(0);
-    expect(r.unchecked).toBeGreaterThanOrEqual(1);
+    expect(r.unchecked).toBe(1);
     expect(isMatch(r)).toBe(false);
-    expect(formatReport(r).at(-1)).toMatch(/^Итог: Не сверено: \d+ — см\. «Внимание»$/);
+    expect(formatReport(r).at(-1)).toBe('Итог: Не сверено: 1 — см. «Внимание»');
     expect(formatReport(r).some((l) => l.startsWith('? Валютный, USD'))).toBe(true);
+  });
+
+  const CROSS_ROWS = [
+    fr({ paidAt: at('2026-10-02', '10:00:00'), amount: 10, baseAmount: 4751.2, to: 'Валютный', category: 'Бар' }),
+    fr({ paidAt: at('2026-10-04', '10:00:00'), amount: 3000, from: 'Касса', to: 'Валютный' }),
+  ];
+
+  it('настоящее расхождение на счёте-получателе перевода между валютами (удвоенный доход) — «Расхождений», а не «Не сверено»', async () => {
+    w = await opsWorld();
+    await importFile(CROSS_ROWS);
+    await w.post(w.ops, { type: 'income', paidAt: '2026-10-02T05:00:00Z', accountId: w.usd, amount: 1000, lines: [{ categoryId: w.income, projectId: null, amount: 1000 }] });
+    const r = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx(CROSS_ROWS), ...CTX });
+    expect(r.accounts.find((l) => l.what === 'Валютный, USD')).toMatchObject({ file: 1000, db: 2000, unverified: true });
+    expect(r.mismatches).toBeGreaterThanOrEqual(1);
+    expect(formatReport(r).some((l) => l.startsWith('≠ Валютный, USD'))).toBe(true);
+    expect(formatReport(r).at(-1)).toMatch(/^Итог: Расхождений: \d+; не сверено: 1 — см\. «Внимание»$/);
+  });
+
+  it('настоящее расхождение на другом счёте при переводе между валютами по-прежнему считается', async () => {
+    w = await opsWorld();
+    await importFile(CROSS_ROWS);
+    const before = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx(CROSS_ROWS), ...CTX });
+    expect(before.mismatches).toBe(0);
+    await w.post(w.ops, { type: 'income', paidAt: '2026-10-02T05:00:00Z', accountId: w.kzt, amount: 777, lines: [{ categoryId: w.income, projectId: null, amount: 777 }] });
+    const r = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx(CROSS_ROWS), ...CTX });
+    expect(r.accounts.find((l) => l.what === 'Касса, KZT')).toMatchObject({ db: r.accounts.find((l) => l.what === 'Касса, KZT')!.file + 777 });
+    expect(r.accounts.find((l) => l.what === 'Валютный, USD')).toMatchObject({ file: 1000, db: 1000 });
+    expect(r.mismatches).toBe(3);
+    expect(formatReport(r).some((l) => l.startsWith('≠ Касса, KZT'))).toBe(true);
   });
 
   it('чтение базы — одна транзакция чтения, на соединении только на чтение: файл не меняется', async () => {
