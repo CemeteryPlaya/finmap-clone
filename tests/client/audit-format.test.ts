@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { OPERATION_FIELD_LABELS } from '../../src/client/lib/history';
-import { COMPANY_ENTITIES, diffRows, ENTITY_LABELS, formatBytes, pageDiff, SYSTEM_ENTITIES } from '../../src/client/lib/audit-format';
+import { auditSubject, COMPANY_ENTITIES, diffRows, ENTITY_LABELS, formatBytes, importDetails, pageDiff, SYSTEM_ENTITIES } from '../../src/client/lib/audit-format';
 
 describe('audit-format', () => {
   it('diffRows: «было → стало» по полям before/after; иначе null', () => {
@@ -69,5 +69,42 @@ describe('audit-format', () => {
     };
     const names = diffRows(diff, 'operation')!.map((r) => OPERATION_FIELD_LABELS[r.field]);
     expect(names).toEqual(['Тип', 'Счёт', 'Счёт зачисления', 'Сумма', 'Сумма зачисления', 'Контрагент', 'Дата сделки', 'Комментарий', 'Категория и проект', 'Теги', 'Дата']);
+  });
+
+  it('импорт на странице «История действий»: имя файла рядом с «Импорт №…», в подробностях — числа (§6.5 спецификации импорта)', () => {
+    const diff = {
+      fileName: 'выгрузка.xlsx',
+      counts: { rows: 1234, income: 700, expense: 500, transfer: 34, added: 1234, duplicates: 0, skippedFuture: 2 },
+      created: { accounts: 2, categories: 37, counterparties: 86, projects: 0, tags: 1 },
+    };
+    expect(auditSubject({ entity: 'import', diff })).toBe('выгрузка.xlsx');
+    expect(auditSubject({ entity: 'tag', diff: { name: 'x', fileName: 'y' } })).toBeNull();
+    expect(importDetails({ entity: 'import', action: 'create', diff })).toEqual([
+      { label: 'Строк в файле', value: '1\u202F234' },
+      { label: 'Добавлено', value: '1\u202F234 операции (доходов 700, расходов 500, переводов 34)' },
+      { label: 'Пропущено дубликатов', value: '0' },
+      { label: 'Пропущено плановых', value: '2' },
+      { label: 'Создано', value: '2 счёта, 37 категорий, 86 контрагентов, 1 тег' },
+    ]);
+    expect(importDetails({ entity: 'import', action: 'create', diff: { ...diff, created: { accounts: 0, categories: 0, counterparties: 0, projects: 0, tags: 0 } } })!.at(-1)).toEqual({
+      label: 'Создано',
+      value: 'ничего',
+    });
+  });
+
+  it('отмена импорта: в подробностях — итог; запись другого вида или с неполным diff — как есть (null)', () => {
+    const zero = { accounts: 0, categories: 0, counterparties: 0, projects: 0, tags: 0 };
+    const diff = {
+      fileName: 'выгрузка.xlsx',
+      deleted: { operations: 3, ...zero, accounts: 1 },
+      kept: { operations: 1, created: { ...zero, categories: 1 }, names: [{ entity: 'category', name: 'Бар' }], accounts: [] },
+    };
+    expect(importDetails({ entity: 'import', action: 'delete', diff })).toEqual([
+      { label: 'Итог', value: 'Импорт отменён: удалено 3 операции, 1 счёт. Оставлено: 1 изменённая операция, категория «Бар» (используется).' },
+    ]);
+    expect(importDetails({ entity: 'import', action: 'delete', diff: { fileName: 'x', deleted: { operations: 1 } } })).toBeNull();
+    expect(importDetails({ entity: 'import', action: 'create', diff: { fileName: 'x' } })).toBeNull();
+    expect(importDetails({ entity: 'tag', action: 'create', diff: { name: 'x' } })).toBeNull();
+    expect(importDetails({ entity: 'import', action: 'create', diff: null })).toBeNull();
   });
 });

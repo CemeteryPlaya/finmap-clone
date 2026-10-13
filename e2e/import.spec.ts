@@ -565,7 +565,7 @@ test('запись идёт, а ширина окна меняется (пово
   await expect(page.getByRole('table', { name: 'Операции' }).locator('tbody tr')).toHaveCount(3);
 });
 
-test('запись об импорте в «Истории действий»: «Импорт №…», «Создание», в подробностях — имя файла и числа', async ({ page }) => {
+test('запись об импорте в «Истории действий»: «Импорт №…», «Создание», имя файла, в подробностях — числа; отмена — «Удаление» с итогом', async ({ page }) => {
   const cid = await companyWithCash(page, 'Импорт история');
   await page.getByRole('main').getByRole('button', { name: 'Импортировать' }).click();
   await chooseFile(page, ROWS);
@@ -576,13 +576,28 @@ test('запись об импорте в «Истории действий»: �
   await p.getByRole('button', { name: 'Готово' }).click();
 
   await page.goto(`/c/${cid}/settings/audit`);
-  const item = page.getByRole('listitem').filter({ hasText: /Импорт №\d+/ });
-  await expect(item).toHaveCount(1);
-  await expect(item).toContainText('Создание');
-  await item.getByText('Подробности').click();
-  const details = item.locator('pre');
-  await expect(details).toContainText('"fileName": "выгрузка.xlsx"');
-  await expect(details).toContainText('"created"');
+  const created = page.getByRole('listitem').filter({ hasText: /Импорт №\d+/ });
+  await expect(created).toHaveCount(1);
+  await expect(created).toContainText('Создание');
+  await expect(created).toContainText('выгрузка.xlsx');
+  await created.getByText('Подробности').click();
+  await expect(created.getByRole('definition')).toHaveText([
+    '3',
+    '3 операции (доходов 1, расходов 1, переводов 1)',
+    '0',
+    '0',
+    '1 счёт, 2 категории, 1 контрагент',
+  ]);
+  await expect(created.getByRole('term')).toHaveText(['Строк в файле', 'Добавлено', 'Пропущено дубликатов', 'Пропущено плановых', 'Создано']);
+
+  // отмена — запись «Удаление» того же импорта с итогом в подробностях
+  const list = await (await page.request.get(`/api/v1/companies/${cid}/imports`)).json();
+  await apiPost(page, `/api/v1/companies/${cid}/imports/${list.items[0].id}/undo`, { includeEdited: false, edited: 0 });
+  await page.reload();
+  const deleted = page.getByRole('listitem').filter({ hasText: /Импорт №\d+/ }).filter({ hasText: 'Удаление' });
+  await expect(deleted).toContainText('выгрузка.xlsx');
+  await deleted.getByText('Подробности').click();
+  await expect(deleted.getByRole('definition')).toHaveText('Импорт отменён: удалено 3 операции, 1 счёт, 2 категории, 1 контрагент.');
 });
 
 test('архивная компания: кнопки «Импортировать» нет', async ({ page }) => {

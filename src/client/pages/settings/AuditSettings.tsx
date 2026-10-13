@@ -4,7 +4,7 @@ import { formatDateTime } from '../../../shared/dates';
 import { Field } from '../../components/Field';
 import { Pending, StaleNotice } from '../../components/QueryState';
 import { btnSecondary, inputClass } from '../../components/ui';
-import { ACTION_LABELS, COMPANY_ENTITIES, diffRows, ENTITY_LABELS, pageDiff, SYSTEM_ENTITIES } from '../../lib/audit-format';
+import { ACTION_LABELS, auditSubject, COMPANY_ENTITIES, diffRows, ENTITY_LABELS, importDetails, pageDiff, SYSTEM_ENTITIES } from '../../lib/audit-format';
 import { OPERATION_FIELD_LABELS } from '../../lib/history';
 import { useMeta } from '../../lib/query';
 import { useAuditFeed, useUsers, type AuditEntry } from '../../lib/queries';
@@ -15,6 +15,9 @@ type Scope = 'company' | 'system';
 function AuditItem({ e, timeZone }: { e: AuditEntry; timeZone: string }) {
   const diff = pageDiff(e);
   const rows = diffRows(diff, e.entity);
+  // импорт (§6.5 спецификации импорта): имя файла в строке записи, в подробностях — числа или итог отмены
+  const subject = auditSubject(e);
+  const details = importDetails(e);
   return (
     <li className="rounded-2xl border border-field p-3 text-sm">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -27,11 +30,21 @@ function AuditItem({ e, timeZone }: { e: AuditEntry; timeZone: string }) {
           {ENTITY_LABELS[e.entity] ?? e.entity}
           {e.entityId !== null ? ` №${e.entityId}` : ''}
         </span>
+        {subject && <span className="min-w-0 [overflow-wrap:anywhere]">{subject}</span>}
       </div>
       {diff && (
         <details className="mt-2">
           <summary className="cursor-pointer text-muted">Подробности</summary>
-          {rows ? (
+          {details ? (
+            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+              {details.map((d) => (
+                <div key={d.label} className="contents">
+                  <dt className="text-muted">{d.label}</dt>
+                  <dd>{d.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : rows ? (
             <table className="mt-2 w-full text-left">
               <thead>
                 <tr className="text-muted">

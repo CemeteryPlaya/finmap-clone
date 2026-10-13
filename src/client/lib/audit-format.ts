@@ -1,3 +1,7 @@
+import type { ImportUndoResult } from '../../shared/schemas/imports';
+import { undoResultText } from './import-history';
+import { createdParts, formatCount, operationsText } from './import-panel';
+
 export const ENTITY_LABELS: Record<string, string> = {
   company: 'Компания',
   project: 'Проект',
@@ -100,4 +104,48 @@ export function pageDiff(e: { entity: string; action: string; diff: Record<strin
     return rest;
   }
   return e.diff;
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isCounts = <K extends string>(v: unknown, keys: readonly K[]): v is Record<K, number> => isObj(v) && keys.every((k) => typeof v[k] === 'number');
+const COUNT_KEYS = ['rows', 'income', 'expense', 'transfer', 'added', 'duplicates', 'skippedFuture'] as const;
+const CREATED_KEYS = ['accounts', 'categories', 'counterparties', 'projects', 'tags'] as const;
+
+/** Что изменилось, кроме сущности и номера: у импорта — имя файла («Импорт №5 · выгрузка.xlsx», §6.5 спецификации импорта). */
+export function auditSubject(e: { entity: string; diff: Record<string, unknown> | null }): string | null {
+  return e.entity === 'import' && typeof e.diff?.fileName === 'string' ? e.diff.fileName : null;
+}
+
+/**
+ * «Подробности» записи импорта на странице «История действий» (§6.5 спецификации импорта): у импорта — числа строк,
+ * добавленного, пропущенного и созданного, у отмены — её итог. null — запись не импорта или неизвестного вида
+ * (показывается как есть).
+ */
+export function importDetails(e: { entity: string; action: string; diff: Record<string, unknown> | null }): { label: string; value: string }[] | null {
+  if (e.entity !== 'import' || !e.diff) return null;
+  const d = e.diff;
+  if (e.action === 'create' && isCounts(d.counts, COUNT_KEYS) && isCounts(d.created, CREATED_KEYS)) {
+    const c = d.counts;
+    const created = createdParts(d.created);
+    return [
+      { label: 'Строк в файле', value: formatCount(c.rows) },
+      { label: 'Добавлено', value: `${operationsText(c.added)} (доходов ${formatCount(c.income)}, расходов ${formatCount(c.expense)}, переводов ${formatCount(c.transfer)})` },
+      { label: 'Пропущено дубликатов', value: formatCount(c.duplicates) },
+      { label: 'Пропущено плановых', value: formatCount(c.skippedFuture) },
+      { label: 'Создано', value: created.length > 0 ? created.join(', ') : 'ничего' },
+    ];
+  }
+  if (e.action === 'delete' && isObj(d.deleted) && isObj(d.kept)) {
+    const kept = d.kept;
+    if (
+      isCounts(d.deleted, ['operations', ...CREATED_KEYS] as const) &&
+      typeof kept.operations === 'number' &&
+      isCounts(kept.created, CREATED_KEYS) &&
+      Array.isArray(kept.names) &&
+      Array.isArray(kept.accounts)
+    ) {
+      return [{ label: 'Итог', value: undoResultText({ deleted: d.deleted, kept: kept as unknown as ImportUndoResult['kept'] }) }];
+    }
+  }
+  return null;
 }
