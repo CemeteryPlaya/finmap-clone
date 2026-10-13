@@ -187,14 +187,60 @@ test('«Собрать Excel»: превью, чипы, «Отмена» не м
     await expect(link).toHaveAttribute('aria-disabled', 'true');
     await expect(link).toHaveAccessibleDescription('Выберите хотя бы одну колонку.');
     // aria-disabled — не disabled: щелчок возможен (force), но ничего не скачивает и окно остаётся
+    let downloads = 0;
+    let prefWrites = 0;
+    page.on('download', () => downloads++);
+    page.on('request', (r) => {
+      if (r.url().endsWith('/api/v1/preferences/export.columns') && r.method() === 'PUT') prefWrites++;
+    });
     await link.click({ force: true });
+    // круг до сервера: все события щелчка к этому моменту уже дошли
+    await expect(link).toHaveAttribute('aria-disabled', 'true');
+    expect((await page.request.get('/api/v1/preferences')).ok()).toBe(true);
     await expect(builder(page)).toBeVisible();
+    expect(downloads).toBe(0);
+    expect(prefWrites).toBe(0);
     // Esc закрывает окно и возвращает фокус на «Ещё»
     await page.keyboard.press('Escape');
     await expect(builder(page)).toBeHidden();
     await expect(more).toBeFocused();
   } finally {
     // настройка пользователя общая для всех тестов: возвращаем «по умолчанию»
+    const res = await page.request.put('/api/v1/preferences/export.columns', { data: { value: null }, headers: csrf(page) });
+    expect(res.ok()).toBe(true);
+  }
+});
+
+async function openBuilder(page: Page) {
+  const { group } = await openExportMenu(page);
+  await group.getByRole('button', { name: 'Собрать Excel', exact: true }).click();
+  await expect(builder(page)).toBeVisible();
+}
+
+test('«Собрать Excel»: сбой превью — сообщение в окне, «Собрать файл» всё равно скачивает', async ({ page }) => {
+  await companyWithOperations(page);
+  await page.route('**/operations/export-preview?*', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { message: 'сбой' } }) }));
+  await openBuilder(page);
+  await expect(builder(page).getByRole('alert')).toContainText('Не удалось загрузить превью');
+  const [download] = await Promise.all([page.waitForEvent('download'), builder(page).getByRole('link', { name: 'Собрать файл' }).click()]);
+  expect(download.suggestedFilename()).toMatch(/\.xlsx$/);
+  expect(sheetRows(fs.readFileSync(await download.path()))).toHaveLength(6);
+  await page.request.put('/api/v1/preferences/export.columns', { data: { value: null }, headers: csrf(page) });
+});
+
+test('«Собрать Excel»: сбой записи набора не отменяет скачивание', async ({ page }) => {
+  await companyWithOperations(page);
+  try {
+    await page.route('**/api/v1/preferences/export.columns', (route) =>
+      route.request().method() === 'PUT' ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { message: 'сбой' } }) }) : route.fallback(),
+    );
+    await openBuilder(page);
+    const [download] = await Promise.all([page.waitForEvent('download'), builder(page).getByRole('link', { name: 'Собрать файл' }).click()]);
+    expect(download.suggestedFilename()).toMatch(/\.xlsx$/);
+    expect(sheetRows(fs.readFileSync(await download.path()))).toHaveLength(1 + 4 + 1);
+    await expect(builder(page)).toBeHidden();
+  } finally {
+    await page.unroute('**/api/v1/preferences/export.columns');
     const res = await page.request.put('/api/v1/preferences/export.columns', { data: { value: null }, headers: csrf(page) });
     expect(res.ok()).toBe(true);
   }
