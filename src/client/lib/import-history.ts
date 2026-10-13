@@ -98,7 +98,7 @@ const ENTITY_SINGULAR: Record<ImportCreatedEntity, string> = {
   tag: 'тег',
 };
 
-/** Поле счёта, оставленное как есть: «стартовый баланс счёта «Касса» (изменён после импорта)». */
+/** Поле существующего счёта, оставленное как есть: «стартовый баланс счёта «Касса» (изменён после импорта)». */
 function keptAccountText(k: ImportKeptAccountField): string {
   const what = k.field === 'startingBalance' ? 'стартовый баланс' : 'дата открытия';
   const why =
@@ -112,12 +112,17 @@ function keptAccountText(k: ImportKeptAccountField): string {
   return `${what} счёта «${k.name}» (${why})`;
 }
 
+/** Оставленный созданный импортом счёт с обнулённым стартовым балансом (решение 16 плана И-3) — отдельным предложением. */
+const zeroedAccountText = (k: ImportKeptAccountField) =>
+  `Счёт «${k.name}» оставлен: на нём есть операции; стартовый баланс обнулён — проверьте его в настройках счетов.`;
+
 /**
  * Итог отмены (§7.3) — в живую область панели: «Импорт отменён: удалено 1 230 операций, 2 счёта, 12 категорий,
- * 25 контрагентов, 1 тег. Оставлено: 4 изменённые операции, категория «Аренда» (используется).»
+ * 25 контрагентов, 1 тег. Оставлено: 4 изменённые операции, категория «Аренда» (используется).» Удалённых операций
+ * нет — их число не называется; ничего не удалено — «Импорт отменён.».
  */
 export function undoResultText(r: ImportUndoResult): string {
-  const deleted = [operationsText(r.deleted.operations), ...createdParts(r.deleted)];
+  const deleted = [...(r.deleted.operations > 0 ? [operationsText(r.deleted.operations)] : []), ...createdParts(r.deleted)];
   const keptTotal = r.kept.created.accounts + r.kept.created.categories + r.kept.created.counterparties + r.kept.created.projects + r.kept.created.tags;
   const more = keptTotal - r.kept.names.length;
   const kept = [
@@ -125,10 +130,14 @@ export function undoResultText(r: ImportUndoResult): string {
       ? [`${formatCount(r.kept.operations)} ${pluralRu(r.kept.operations, 'изменённая операция', 'изменённые операции', 'изменённых операций')}`]
       : []),
     ...r.kept.names.map((x) => `${ENTITY_SINGULAR[x.entity]} «${x.name}» (используется)`),
-    ...(more > 0 ? [`и ещё ${formatCount(more)} (используются)`] : []),
-    ...r.kept.accounts.map(keptAccountText),
+    ...(more > 0 ? [`и ещё ${formatCount(more)} (${pluralRu(more, 'используется', 'используются', 'используются')})`] : []),
+    ...r.kept.accounts.filter((k) => k.reason !== 'created').map(keptAccountText),
   ];
-  return `Импорт отменён: удалено ${deleted.join(', ')}.${kept.length > 0 ? ` Оставлено: ${kept.join(', ')}.` : ''}`;
+  const zeroed = r.kept.accounts.filter((k) => k.reason === 'created').map(zeroedAccountText);
+  return [
+    `Импорт отменён${deleted.length > 0 ? `: удалено ${deleted.join(', ')}` : ''}.${kept.length > 0 ? ` Оставлено: ${kept.join(', ')}.` : ''}`,
+    ...zeroed,
+  ].join(' ');
 }
 
 /** Запись импорта после отмены — вместо прежней в загруженных страницах списка (до перечитывания). */

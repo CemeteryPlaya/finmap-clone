@@ -90,10 +90,17 @@ export function HistoryButton({ company }: { company: Company }) {
 /**
  * Вкладки-пилюли «Журнал | Импорты» (§7.1 спецификации импорта): tablist, стрелки ←/→ (и Home, End) переключают вкладку
  * и переводят на неё фокус — в порядке Tab только выбранная вкладка (roving tabindex). Обе панели в DOM, неактивная
- * `hidden` — aria-controls всегда указывает на существующий элемент; «Импорты» наполняются только при открытии вкладки.
+ * `hidden` — aria-controls всегда указывает на существующий элемент. «Импорты» наполняются при первом открытии вкладки
+ * и дальше остаются смонтированными до закрытия панели: итог отмены переживает переход на «Журнал» и обратно.
  */
 function HistoryTabs(props: { company: Company; onOpenOperation: (id: number) => void }) {
-  const [tab, setTab] = useState<HistoryTab>('log');
+  const [tab, setTabState] = useState<HistoryTab>('log');
+  /** Вкладку «Импорты» уже открывали в этой панели. */
+  const [importsSeen, setImportsSeen] = useState(false);
+  const setTab = (t: HistoryTab) => {
+    setTabState(t);
+    if (t === 'imports') setImportsSeen(true);
+  };
   const refs = useRef(new Map<HistoryTab, HTMLButtonElement>());
   const id = useId();
   const tabId = (t: HistoryTab) => `${id}-tab-${t}`;
@@ -130,7 +137,7 @@ function HistoryTabs(props: { company: Company; onOpenOperation: (id: number) =>
       </div>
       {HISTORY_TABS.map((t) => (
         <div key={t.key} role="tabpanel" id={panelId(t.key)} aria-labelledby={tabId(t.key)} tabIndex={0} hidden={tab !== t.key}>
-          {t.key === 'log' ? <HistoryList company={props.company} onOpenOperation={props.onOpenOperation} /> : tab === 'imports' && <ImportHistory company={props.company} onFocusLost={() => refs.current.get('imports')?.focus()} />}
+          {t.key === 'log' ? <HistoryList company={props.company} onOpenOperation={props.onOpenOperation} /> : importsSeen && <ImportHistory company={props.company} onFocusLost={() => refs.current.get('imports')?.focus()} />}
         </div>
       ))}
     </div>

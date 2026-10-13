@@ -75,7 +75,7 @@ describe('audit-format', () => {
     const diff = {
       fileName: 'выгрузка.xlsx',
       counts: { rows: 1234, income: 700, expense: 500, transfer: 34, added: 1234, duplicates: 0, skippedFuture: 2 },
-      created: { accounts: 2, categories: 37, counterparties: 86, projects: 0, tags: 1 },
+      created: { accounts: 2, categories: 12, counterparties: 25, projects: 0, tags: 1 },
     };
     expect(auditSubject({ entity: 'import', diff })).toBe('выгрузка.xlsx');
     expect(auditSubject({ entity: 'tag', diff: { name: 'x', fileName: 'y' } })).toBeNull();
@@ -84,7 +84,7 @@ describe('audit-format', () => {
       { label: 'Добавлено', value: '1\u202F234 операции (доходов 700, расходов 500, переводов 34)' },
       { label: 'Пропущено дубликатов', value: '0' },
       { label: 'Пропущено плановых', value: '2' },
-      { label: 'Создано', value: '2 счёта, 37 категорий, 86 контрагентов, 1 тег' },
+      { label: 'Создано', value: '2 счёта, 12 категорий, 25 контрагентов, 1 тег' },
     ]);
     expect(importDetails({ entity: 'import', action: 'create', diff: { ...diff, created: { accounts: 0, categories: 0, counterparties: 0, projects: 0, tags: 0 } } })!.at(-1)).toEqual({
       label: 'Создано',
@@ -103,8 +103,36 @@ describe('audit-format', () => {
       { label: 'Итог', value: 'Импорт отменён: удалено 3 операции, 1 счёт. Оставлено: 1 изменённая операция, категория «Бар» (используется).' },
     ]);
     expect(importDetails({ entity: 'import', action: 'delete', diff: { fileName: 'x', deleted: { operations: 1 } } })).toBeNull();
+    // элементы kept.names и kept.accounts неизвестного вида — как есть, а не исключение при показе
+    expect(importDetails({ entity: 'import', action: 'delete', diff: { ...diff, kept: { ...diff.kept, names: [null] } } })).toBeNull();
+    expect(importDetails({ entity: 'import', action: 'delete', diff: { ...diff, kept: { ...diff.kept, names: [{ entity: 'user', name: 'x' }] } } })).toBeNull();
+    expect(importDetails({ entity: 'import', action: 'delete', diff: { ...diff, kept: { ...diff.kept, accounts: [null] } } })).toBeNull();
+    expect(
+      importDetails({ entity: 'import', action: 'delete', diff: { ...diff, kept: { ...diff.kept, accounts: [{ accountId: 1, name: 'Касса', field: 'openedAt', reason: 'other' }] } } }),
+    ).toBeNull();
     expect(importDetails({ entity: 'import', action: 'create', diff: { fileName: 'x' } })).toBeNull();
     expect(importDetails({ entity: 'tag', action: 'create', diff: { name: 'x' } })).toBeNull();
     expect(importDetails({ entity: 'import', action: 'create', diff: null })).toBeNull();
+  });
+
+  it('отмена импорта: в итоге — поля счетов, обнулённый стартовый баланс созданного счёта и «и ещё N»', () => {
+    const zero = { accounts: 0, categories: 0, counterparties: 0, projects: 0, tags: 0 };
+    const diff = {
+      fileName: 'выгрузка.xlsx',
+      deleted: { operations: 2, ...zero },
+      kept: {
+        operations: 0,
+        created: { ...zero, accounts: 1, counterparties: 21 },
+        names: [{ entity: 'account', name: 'Банк-2' }, ...Array.from({ length: 19 }, (_, i) => ({ entity: 'counterparty', name: `К${i}` }))],
+        accounts: [
+          { accountId: 1, name: 'Касса', field: 'startingBalance', reason: 'changed' },
+          { accountId: 5, name: 'Банк-2', field: 'startingBalance', reason: 'created' },
+        ],
+      },
+    };
+    const value = importDetails({ entity: 'import', action: 'delete', diff })![0]!.value;
+    expect(value).toMatch(/^Импорт отменён: удалено 2 операции\. Оставлено: счёт «Банк-2» \(используется\), контрагент «К0» \(используется\), /);
+    expect(value).toContain('контрагент «К18» (используется), и ещё 2 (используются), стартовый баланс счёта «Касса» (изменён после импорта). ');
+    expect(value).toMatch(/ Счёт «Банк-2» оставлен: на нём есть операции; стартовый баланс обнулён — проверьте его в настройках счетов\.$/);
   });
 });

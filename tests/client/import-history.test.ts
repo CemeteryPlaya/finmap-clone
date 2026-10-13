@@ -16,7 +16,7 @@ import type { ImportListItem, ImportListPage, ImportUndoResult } from '../../src
 
 const TZ = 'Asia/Almaty';
 
-/** Запись списка: импорт 12.10.2026 15:02:11 по Алматы, 1 234 операций. */
+/** Запись списка: импорт 12.10.2026 15:02:11 по Алматы, 1 234 операции. */
 function item(over: Partial<ImportListItem> = {}): ImportListItem {
   return {
     id: 7,
@@ -133,6 +133,52 @@ describe('итог отмены (§7.3)', () => {
     expect(text).toContain('контрагент «К19» (используется), и ещё 2 (используются), ');
     expect(text).toMatch(
       /стартовый баланс счёта «Касса» \(изменён после импорта\), дата открытия счёта «Касса» \(есть операции раньше прежней даты\), дата открытия счёта «Сейф» \(счёт в архиве\)\.$/,
+    );
+  });
+
+  it('«и ещё N» согласует «используется»: 1 и 21 — «используется», 2 и 5 — «используются»', () => {
+    const more = (n: number) =>
+      undoResultText({
+        deleted: { operations: 1, ...zero },
+        kept: { operations: 0, created: { ...zero, tags: 20 + n }, names: Array.from({ length: 20 }, (_, i) => ({ entity: 'tag' as const, name: `Т${i}` })), accounts: [] },
+      });
+    expect(more(1)).toMatch(/, и ещё 1 \(используется\)\.$/);
+    expect(more(21)).toMatch(/, и ещё 21 \(используется\)\.$/);
+    expect(more(2)).toMatch(/, и ещё 2 \(используются\)\.$/);
+    expect(more(5)).toMatch(/, и ещё 5 \(используются\)\.$/);
+  });
+
+  it('операций не удалено — «удалено 0 операций» не пишется; ничего не удалено — «Импорт отменён.»', () => {
+    expect(
+      undoResultText({
+        deleted: { operations: 0, ...zero, categories: 2 },
+        kept: { operations: 3, created: zero, names: [], accounts: [] },
+      }),
+    ).toBe('Импорт отменён: удалено 2 категории. Оставлено: 3 изменённые операции.');
+    expect(
+      undoResultText({
+        deleted: { operations: 0, ...zero },
+        kept: { operations: 2, created: { ...zero, categories: 1 }, names: [{ entity: 'category', name: 'Аренда' }], accounts: [] },
+      }),
+    ).toBe('Импорт отменён. Оставлено: 2 изменённые операции, категория «Аренда» (используется).');
+  });
+
+  it('оставленный созданный импортом счёт: стартовый баланс обнулён — отдельное предложение после «Оставлено» (решение 16 плана И-3)', () => {
+    const r: ImportUndoResult = {
+      deleted: { operations: 3, ...zero, categories: 1 },
+      kept: {
+        operations: 1,
+        created: { ...zero, accounts: 1 },
+        names: [{ entity: 'account', name: 'Банк-2' }],
+        accounts: [
+          { accountId: 1, name: 'Касса', field: 'openedAt', reason: 'operations' },
+          { accountId: 5, name: 'Банк-2', field: 'startingBalance', reason: 'created' },
+        ],
+      },
+    };
+    expect(undoResultText(r)).toBe(
+      'Импорт отменён: удалено 3 операции, 1 категория. Оставлено: 1 изменённая операция, счёт «Банк-2» (используется), дата открытия счёта «Касса» (есть операции раньше прежней даты). ' +
+        'Счёт «Банк-2» оставлен: на нём есть операции; стартовый баланс обнулён — проверьте его в настройках счетов.',
     );
   });
 });

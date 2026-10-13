@@ -73,6 +73,16 @@ test('«История действий»: вкладки «Журнал | Им�
   await expect(log).toHaveAttribute('tabindex', '0');
   await expect(imports).toHaveAttribute('tabindex', '-1');
   await expect(history(page).getByRole('tabpanel', { name: 'Журнал' })).toBeVisible();
+  // обе панели в разметке, неактивная — hidden: aria-controls каждой вкладки указывает на существующую панель
+  for (const [tab, selected] of [[log, true], [imports, false]] as const) {
+    const controls = await tab.getAttribute('aria-controls');
+    const tabpanel = history(page).locator(`[id="${controls}"]`);
+    await expect(tabpanel).toHaveCount(1);
+    await expect(tabpanel).toHaveAttribute('role', 'tabpanel');
+    await expect(tabpanel).toHaveAttribute('aria-labelledby', (await tab.getAttribute('id'))!);
+    if (selected) await expect(tabpanel).not.toHaveAttribute('hidden');
+    else await expect(tabpanel).toHaveAttribute('hidden', '');
+  }
 
   await log.focus();
   await page.keyboard.press('ArrowRight');
@@ -130,6 +140,28 @@ const confirmDialog = (page: Page) => page.getByRole('alertdialog', { name: 'О�
 const undoButton = (page: Page, file: string) =>
   history(page).getByRole('button', { name: new RegExp(`^Отменить импорт «${file}» от \\d{2}\\.\\d{2}\\.\\d{4}, \\d{2}:\\d{2}$`) });
 
+/**
+ * Следит за живыми областями панели «История действий»: каждый новый текст `role=status` и `role=alert` — вместе с тем,
+ * открыто ли в этот момент подтверждение (модальный `<dialog>` делает остальную страницу инертной, R11).
+ */
+async function watchLiveRegions(page: Page) {
+  await page.evaluate(() => {
+    const log: { role: string; text: string; modal: boolean }[] = [];
+    (window as unknown as { __live: typeof log }).__live = log;
+    const last = new Map<string, string>();
+    new MutationObserver(() => {
+      const modal = document.querySelector('dialog[role="alertdialog"][open]') !== null;
+      for (const role of ['status', 'alert']) {
+        const el = document.querySelector(`dialog[open] [role="tabpanel"] [role="${role}"]`);
+        const text = el?.textContent ?? '';
+        if (text && text !== last.get(role)) log.push({ role, text, modal });
+        last.set(role, text);
+      }
+    }).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+  });
+  return () => page.evaluate(() => (window as unknown as { __live: { role: string; text: string; modal: boolean }[] }).__live);
+}
+
 test('«Отменить»: «Импорт завершён» подсказывает, где отменить; «Не отменять | Отменить импорт» → итог в живой области, «Отменён», журнал пуст, «Банк-2» удалён', async ({ page }) => {
   await companyWithCash(page, 'Отмена импорта');
   await page.getByRole('main').getByRole('button', { name: 'Импортировать' }).click();
@@ -161,16 +193,25 @@ test('«Отменить»: «Импорт завершён» подсказыв
   await expect(undo).toBeFocused();
 
   await undo.click();
+  const live = await watchLiveRegions(page);
   const done = page.waitForResponse((r) => /\/imports\/\d+\/undo$/.test(r.url()));
   await confirmDialog(page).getByRole('button', { name: 'Отменить импорт' }).click();
   expect((await done).status()).toBe(200);
   const result = 'Импорт отменён: удалено 3 операции, 1 счёт, 2 категории, 1 контрагент.';
   await expect(history(page).getByRole('status')).toHaveText(result);
+  // итог появился, когда подтверждение уже закрылось: страница не инертна, программа чтения его объявит
+  expect(await live()).toEqual([{ role: 'status', text: result, modal: false }]);
   const item = history(page).getByRole('list', { name: 'Импорты' }).getByRole('listitem');
   await expect(item).toContainText(/Отменён \d{2}\.\d{2}\.\d{4}, \d{2}:\d{2} \(Админ\)/);
   // «Отменить» исчезла вместе с подтверждением — фокус на вкладке «Импорты»
   await expect(undo).toHaveCount(0);
   await expect(history(page).getByRole('tab', { name: 'Импорты' })).toBeFocused();
+  // «Журнал» и обратно: вкладка «Импорты» не монтируется заново — итог на месте
+  await page.keyboard.press('ArrowLeft');
+  await expect(history(page).getByRole('tab', { name: 'Журнал' })).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('ArrowRight');
+  await expect(history(page).getByRole('status')).toHaveText(result);
+  await expect(history(page).getByRole('tabpanel', { name: 'Импорты' }).locator('p[aria-hidden="true"]', { hasText: result })).toBeVisible();
 
   await page.keyboard.press('Escape');
   await expect(page.getByText('Операций пока нет.')).toBeVisible();
@@ -213,12 +254,74 @@ test('импорт отменили в другом окне, пока откр�
   await expect(confirmDialog(page)).toBeVisible();
   await apiPost(page, `/api/v1/companies/${cid}/imports/${id}/undo`, { includeEdited: false, edited: 0 });
 
+  const live = await watchLiveRegions(page);
   await confirmDialog(page).getByRole('button', { name: 'Отменить импорт' }).click();
   await expect(history(page).getByRole('alert')).toHaveText('Импорт уже отменён');
+  expect(await live()).toEqual([{ role: 'alert', text: 'Импорт уже отменён', modal: false }]);
   await expect(confirmDialog(page)).toBeHidden();
   await expect(history(page).getByRole('list', { name: 'Импорты' }).getByRole('listitem')).toContainText('Отменён');
   await expect(undoButton(page, 'выгрузка.xlsx')).toHaveCount(0);
   await expect(history(page).getByRole('tab', { name: 'Импорты' })).toBeFocused();
+});
+
+test('с флажком изменили ещё операцию, пока открыто подтверждение: 409 «…подтвердите отмену ещё раз», ничего не удалено, фокус на «Отменить»', async ({ page }) => {
+  const cid = await companyWithCash(page, 'Отмена гонка правки');
+  await apiImport(page, cid, ROWS);
+  const journal = await (await page.request.get(`/api/v1/companies/${cid}/operations`)).json();
+  const ops = journal.items as { id: number; version: number; type: string }[];
+  const edit = async (op: { id: number; version: number }, comment: string) => {
+    const res = await page.request.patch(`/api/v1/companies/${cid}/operations/${op.id}`, { data: { version: op.version, comment }, headers: csrf(page) });
+    expect(res.status(), await res.text()).toBe(200);
+  };
+  await edit(ops.find((o) => o.type === 'income')!, 'сверено');
+  await page.reload();
+
+  await openHistory(page);
+  await history(page).getByRole('tab', { name: 'Импорты' }).click();
+  const undo = undoButton(page, 'выгрузка.xlsx');
+  await undo.click();
+  await confirmDialog(page).getByRole('checkbox', { name: 'Удалить и изменённые (1)' }).check();
+  // в другом окне изменили ещё одну операцию импорта
+  await edit(ops.find((o) => o.type === 'transfer')!, 'и эту');
+
+  const live = await watchLiveRegions(page);
+  await confirmDialog(page).getByRole('button', { name: 'Отменить импорт' }).click();
+  const message = 'После открытия подтверждения изменены ещё операции импорта — проверьте и подтвердите отмену ещё раз';
+  await expect(history(page).getByRole('alert')).toHaveText(message);
+  expect(await live()).toEqual([{ role: 'alert', text: message, modal: false }]);
+  await expect(confirmDialog(page)).toBeHidden();
+  // импорт не отменён: «Отменить» на месте и с фокусом; новое подтверждение видит обе изменённые
+  await expect(undo).toBeFocused();
+  await undo.click();
+  await expect(confirmDialog(page).getByRole('checkbox', { name: 'Удалить и изменённые (2)' })).toBeVisible();
+  await confirmDialog(page).getByRole('button', { name: 'Не отменять' }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('table', { name: 'Операции' }).locator('tbody tr')).toHaveCount(3);
+});
+
+test('счёт удаляемой операции в архиве: 422 «Счёт «Сейф» в архиве…» в role=alert, фокус на «Отменить»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Отмена архивный счёт ${Date.now()}`);
+  // остаток нового «Сейфа» после импорта — 0: счёт можно перевести в архив, компания — не в архиве
+  await apiImport(page, cid, [fr({ paidAt: at('2025-03-15', '10:00:00'), amount: 100, to: 'Сейф' })], 'сейф.xlsx', [
+    { key: 'сейф', kind: 'new', name: 'Сейф', currency: 'KZT', balance: { mode: 'current', amount: 0 } },
+  ]);
+  const accounts = await (await page.request.get(`/api/v1/companies/${cid}/accounts`)).json();
+  await apiPost(page, `/api/v1/companies/${cid}/accounts/${accounts.accounts[0].id}/archive`, {});
+  await page.reload();
+
+  await openHistory(page);
+  await history(page).getByRole('tab', { name: 'Импорты' }).click();
+  const undo = undoButton(page, 'сейф.xlsx');
+  await undo.click();
+  const live = await watchLiveRegions(page);
+  await confirmDialog(page).getByRole('button', { name: 'Отменить импорт' }).click();
+  const message = 'Счёт «Сейф» в архиве — верните его из архива, чтобы отменить импорт';
+  await expect(history(page).getByRole('alert')).toHaveText(message);
+  expect(await live()).toEqual([{ role: 'alert', text: message, modal: false }]);
+  await expect(confirmDialog(page)).toBeHidden();
+  await expect(undo).toBeFocused();
+  await expect(history(page).getByRole('list', { name: 'Импорты' }).getByRole('listitem')).not.toContainText('Отменён');
 });
 
 test('архивная компания: список импортов есть, кнопки «Отменить» нет', async ({ page }) => {

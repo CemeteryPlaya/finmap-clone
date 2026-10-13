@@ -28,6 +28,8 @@ const undoable = (data: ImportPages, id: number) => data?.pages.some((p) => p.it
  * Вкладка «Импорты» панели «История действий» (§7.2–§7.3 спецификации импорта): импорты компании, новые сверху,
  * «Показать ещё»; у неотменённого (компания не в архиве) — «Отменить» с подтверждением «Не отменять | Отменить импорт».
  * Итог отмены — в живой области; кнопка «Отменить» исчезает вместе с подтверждением — фокус на вкладку (onFocusLost).
+ * Итог и ошибка появляются только после закрытия подтверждения: пока открыт модальный `<dialog>`, остальная страница
+ * инертна, и программа чтения могла бы не объявить живую область.
  */
 export function ImportHistory({ company, onFocusLost }: { company: Company; onFocusLost: () => void }) {
   const feed = useImports(company.id);
@@ -46,6 +48,8 @@ export function ImportHistory({ company, onFocusLost }: { company: Company; onFo
    * закроется после исчезновения кнопки (список обновляется отдельным уведомлением запроса).
    */
   const focusTabAfter = useRef<number | null>(null);
+  /** Итог или ошибка отмены, которые покажутся, когда подтверждение закроется (его закрывает эффект ConfirmDialog — раньше нашего). */
+  const announce = useRef<{ result: string } | { error: string } | null>(null);
   const hasNext = feed.hasNextPage;
   const fetching = feed.isFetchingNextPage;
   const data = feed.data;
@@ -67,6 +71,14 @@ export function ImportHistory({ company, onFocusLost }: { company: Company; onFo
     onFocusLost();
   }, [confirm, data, onFocusLost]);
 
+  useEffect(() => {
+    const a = announce.current;
+    if (confirm !== null || a === null) return;
+    announce.current = null;
+    if ('result' in a) setResult(a.result);
+    else setError(a.error);
+  }, [confirm]);
+
   const ask = (item: ImportListItem) => {
     setIncludeEdited(false);
     setError(null);
@@ -84,13 +96,13 @@ export function ImportHistory({ company, onFocusLost }: { company: Company; onFo
       // запись — «Отменён» до перечитывания: кнопка «Отменить» исчезает вместе с подтверждением
       queryClient.setQueryData(['imports', company.id], (d: ImportPages) => replaceImportItem(d, r.import));
       focusTabAfter.current = r.import.id;
-      setResult(undoResultText(r.result));
+      announce.current = { result: undoResultText(r.result) };
       setConfirm(null);
       void invalidateAfterImport(company.id);
     } catch (e) {
       // уже отменён (409), изменены ещё операции (409), счёт в архиве (422): свежий список — до закрытия подтверждения;
       // «Отменить» осталась — фокус вернётся на неё, исчезла — на вкладку
-      setError(e instanceof ApiError ? e.message : 'Ошибка сервера');
+      announce.current = { error: e instanceof ApiError ? e.message : 'Ошибка сервера' };
       await queryClient.invalidateQueries({ queryKey: ['imports', company.id] });
       if (!undoable(queryClient.getQueryData<ImportPages>(['imports', company.id]), confirm.id)) focusTabAfter.current = confirm.id;
       setConfirm(null);
@@ -113,12 +125,12 @@ export function ImportHistory({ company, onFocusLost }: { company: Company; onFo
       </p>
       {/* видимая копия итога: читалка его уже услышала из живой области выше */}
       {result && (
-        <p aria-hidden="true" className="mb-3 rounded-xl bg-field px-4 py-3 text-sm">
+        <p aria-hidden="true" className="mb-3 rounded-xl bg-field px-4 py-3 text-sm [overflow-wrap:anywhere]">
           {result}
         </p>
       )}
       {error && (
-        <p role="alert" className={alertClass}>
+        <p role="alert" className={`${alertClass} [overflow-wrap:anywhere]`}>
           {error}
         </p>
       )}

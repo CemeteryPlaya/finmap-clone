@@ -110,6 +110,14 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 const isCounts = <K extends string>(v: unknown, keys: readonly K[]): v is Record<K, number> => isObj(v) && keys.every((k) => typeof v[k] === 'number');
 const COUNT_KEYS = ['rows', 'income', 'expense', 'transfer', 'added', 'duplicates', 'skippedFuture'] as const;
 const CREATED_KEYS = ['accounts', 'categories', 'counterparties', 'projects', 'tags'] as const;
+const KEPT_ENTITIES: readonly unknown[] = ['account', 'category', 'counterparty', 'project', 'tag'];
+const KEPT_FIELDS: readonly unknown[] = ['startingBalance', 'openedAt'];
+const KEPT_REASONS: readonly unknown[] = ['changed', 'operations', 'archived', 'created'];
+/** Элемент kept.names: { entity, name }. */
+const isKeptName = (v: unknown) => isObj(v) && KEPT_ENTITIES.includes(v.entity) && typeof v.name === 'string';
+/** Элемент kept.accounts: { accountId, name, field, reason }. */
+const isKeptAccount = (v: unknown) =>
+  isObj(v) && typeof v.accountId === 'number' && typeof v.name === 'string' && KEPT_FIELDS.includes(v.field) && KEPT_REASONS.includes(v.reason);
 
 /** Что изменилось, кроме сущности и номера: у импорта — имя файла («Импорт №5 · выгрузка.xlsx», §6.5 спецификации импорта). */
 export function auditSubject(e: { entity: string; diff: Record<string, unknown> | null }): string | null {
@@ -142,7 +150,9 @@ export function importDetails(e: { entity: string; action: string; diff: Record<
       typeof kept.operations === 'number' &&
       isCounts(kept.created, CREATED_KEYS) &&
       Array.isArray(kept.names) &&
-      Array.isArray(kept.accounts)
+      kept.names.every(isKeptName) &&
+      Array.isArray(kept.accounts) &&
+      kept.accounts.every(isKeptAccount)
     ) {
       return [{ label: 'Итог', value: undoResultText({ deleted: d.deleted, kept: kept as unknown as ImportUndoResult['kept'] }) }];
     }
