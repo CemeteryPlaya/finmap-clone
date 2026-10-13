@@ -65,7 +65,7 @@ describe('предпросмотр: счета, движение, остатки
       },
     ]);
     expect(p.canImport).toBe(true);
-    expect(plan.accounts).toEqual([{ key: 'банк-2', name: 'Банк-2', currency: 'KZT', startingBalance: 0, openedAt: '2026-10-03' }]);
+    expect(plan.accounts).toEqual([{ key: 'банк-2', name: 'Банк-2', currency: 'KZT', startingBalance: 0, openedAt: '2026-10-03', computedStart: false }]);
     expect(plan.accountChanges).toEqual([{ accountId: w.kzt, before: { startingBalance: 0, openedAt: '2026-10-01' }, after: { startingBalance: 0, openedAt: '2026-09-20' } }]);
     // план: по времени, суммы в минимальных единицах, счета — id или ключ нового
     expect(plan.rows.map((r) => [r.row, r.type, r.account, r.toAccount, r.amount, r.toAmount, r.baseAmount, r.rate])).toEqual([
@@ -80,7 +80,7 @@ describe('предпросмотр: счета, движение, остатки
       { key: 'касса', kind: 'existing', accountId: w.kzt, targetBalance: 900_000 },
     ]);
     // новый счёт в USD: суммы — по курсу; «Текущий остаток» B → стартовый B - движение
-    expect(modes.plan.accounts).toEqual([{ key: 'банк-2', name: 'Банк 2', currency: 'USD', startingBalance: 1_000_000 - 400_000, openedAt: '2026-10-03' }]);
+    expect(modes.plan.accounts).toEqual([{ key: 'банк-2', name: 'Банк 2', currency: 'USD', startingBalance: 1_000_000 - 400_000, openedAt: '2026-10-03', computedStart: true }]);
     // перевод USD → KZT: сумма зачисления — в базовой валюте
     expect(modes.plan.rows.find((r) => r.type === 'transfer')).toMatchObject({ amount: 100_000, baseAmount: 47_512_000, toAmount: 47_512_000, rate: '475.12' });
     // «Остаток после импорта» 9 000 ₸: стартовый = цель - (движение имеющихся операций + движение файла)
@@ -89,6 +89,7 @@ describe('предпросмотр: счета, движение, остатки
     ]);
     const start = preview(rows, [{ key: 'банк-2', kind: 'new', name: 'Банк-2', currency: 'KZT', balance: { mode: 'start', amount: 50_000 } }]);
     expect(start.plan.accounts[0]!.startingBalance).toBe(50_000);
+    expect(start.plan.accounts[0]!.computedStart).toBe(false);
   });
 
   it('ошибки счетов: несколько подходящих (A1), выбран несуществующий (A1) или архивный (A5), название (A3), валюта (A2), остаток (A4)', async () => {
@@ -376,7 +377,7 @@ describe('предпросмотр: перенесено из ревью зад�
       mapping: { kind: 'new', name: '\u0411\u0430\u043D\u043A Kaspi', currency: 'KZT', balance: null },
       errors: [],
     });
-    expect(plan.accounts).toEqual([{ key: p.accounts[0]!.key, name: '\u0411\u0430\u043D\u043A Kaspi', currency: 'KZT', startingBalance: 0, openedAt: '2026-10-05' }]);
+    expect(plan.accounts).toEqual([{ key: p.accounts[0]!.key, name: '\u0411\u0430\u043D\u043A Kaspi', currency: 'KZT', startingBalance: 0, openedAt: '2026-10-05', computedStart: false }]);
   });
 });
 
@@ -466,7 +467,7 @@ describe('предпросмотр: правки по ревью задачи 6'
     ]);
     expect(p.counts.add).toBe(1);
     expect(plan.rows.map((r) => r.row)).toEqual([6]);
-    expect(plan.accounts).toEqual([{ key: 'резерв', name: 'Резерв', currency: 'KZT', startingBalance: 0, openedAt: '2026-10-05' }]);
+    expect(plan.accounts).toEqual([{ key: 'резерв', name: 'Резерв', currency: 'KZT', startingBalance: 0, openedAt: '2026-10-05', computedStart: false }]);
     expect(plan.accountChanges).toEqual([]);
     expect(p.canImport).toBe(false);
   });

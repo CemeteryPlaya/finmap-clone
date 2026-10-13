@@ -48,6 +48,8 @@ export interface PlannedAccount {
   currency: string;
   startingBalance: number;
   openedAt: string;
+  /** «Текущий остаток»: стартовый баланс рассчитан по движению файла (отмена обнулит его у оставленного счёта, решение 16 плана И-3). */
+  computedStart: boolean;
 }
 
 /** Существующий счёт, который импорт меняет: перенос openedAt и (или) новый startingBalance. */
@@ -478,7 +480,15 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
       if (!isSafe(move)) fail(M.A4_OVERFLOW);
       else if (!isSafe(start)) fail(M.A4);
       else if (!isSafe(start + move)) fail(M.A4_OVERFLOW);
-      else planAccounts.push({ key: st.key, name: cleanName(st.mapping.name), currency: st.currency!, startingBalance: Number(start), openedAt: first ?? today });
+      else
+        planAccounts.push({
+          key: st.key,
+          name: cleanName(st.mapping.name),
+          currency: st.currency!,
+          startingBalance: Number(start),
+          openedAt: first ?? today,
+          computedStart: b?.mode === 'current',
+        });
     }
     cards.push(card);
   }

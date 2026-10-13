@@ -160,13 +160,26 @@ export function undoImport(tx: Executor, input: UndoInput, record: (entry: Audit
       .get();
     if (exists(used)) {
       keep('account', a.name);
-      // стартовый баланс созданного счёта импорт рассчитал по операциям файла: без них он не имеет смысла — обнуляется
-      // (решение 16 плана И-3); счёт в архиве не меняется (у него нулевой баланс, операции на нём не удалялись)
-      const zeroed = a.archivedAt ? null : changedFields({ startingBalance: a.startingBalance }, { startingBalance: 0 });
-      if (zeroed) {
-        tx.update(accounts).set({ startingBalance: 0 }).where(eq(accounts.id, a.id)).run();
-        record({ companyId, userId, entity: 'account', entityId: a.id, action: 'update', diff: { ...zeroed, importId } });
-        keptAccounts.push({ accountId: a.id, name: a.name, field: 'startingBalance', reason: 'created' });
+      // стартовый баланс «Текущего остатка» импорт рассчитал по операциям файла: без них он не имеет смысла — обнуляется,
+      // если его не меняли после импорта; изменённый остаётся (changed), введённый человеком («Стартовый баланс») — как
+      // есть; импорт без computedStarts (записан раньше) — остаётся, итог просит проверить (решение 16 плана И-3). Счёт в
+      // архиве не меняется (у него нулевой баланс, операции на нём не удалялись)
+      const kept = (reason: ImportKeptAccountField['reason']) => keptAccounts.push({ accountId: a.id, name: a.name, field: 'startingBalance', reason });
+      const computed = created.computedStarts?.[String(a.id)];
+      if (a.archivedAt) {
+        // как есть
+      } else if (created.computedStarts === undefined) {
+        if (a.startingBalance !== 0) kept('unverified');
+      } else if (computed === undefined) {
+        // «Стартовый баланс» или пусто — введено человеком, остаётся
+      } else if (a.startingBalance !== computed) kept('changed');
+      else {
+        const zeroed = changedFields({ startingBalance: a.startingBalance }, { startingBalance: 0 });
+        if (zeroed) {
+          tx.update(accounts).set({ startingBalance: 0 }).where(eq(accounts.id, a.id)).run();
+          record({ companyId, userId, entity: 'account', entityId: a.id, action: 'update', diff: { ...zeroed, importId } });
+          kept('created');
+        }
       }
     } else {
       tx.delete(accounts).where(eq(accounts.id, a.id)).run();

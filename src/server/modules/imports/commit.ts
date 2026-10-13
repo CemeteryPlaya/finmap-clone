@@ -40,6 +40,12 @@ export interface ImportCreatedIds {
   counterparties: number[];
   projects: number[];
   tags: number[];
+  /**
+   * Стартовые балансы новых счетов «Текущего остатка», рассчитанные импортом: id счёта → значение. По ним отмена
+   * обнуляет стартовый баланс оставленного счёта, только если его не меняли (решение 16 плана И-3). У импортов, записанных
+   * раньше, поля нет.
+   */
+  computedStarts: Record<string, number>;
 }
 
 /**
@@ -66,7 +72,7 @@ export function writeImport(tx: Executor, deps: ImportWriterDeps, input: ImportW
     })
     .returning({ id: imports.id })
     .get();
-  const created: ImportCreatedIds = { accounts: [], categories: [], counterparties: [], projects: [], tags: [] };
+  const created: ImportCreatedIds = { accounts: [], categories: [], counterparties: [], projects: [], tags: [], computedStarts: {} };
   const audit = (entity: string, entityId: number, action: 'create' | 'update', diff: Record<string, unknown>) =>
     record({ companyId, userId, entity, entityId, action, diff: { ...diff, importId } });
 
@@ -76,6 +82,7 @@ export function writeImport(tx: Executor, deps: ImportWriterDeps, input: ImportW
     const row = deps.accounts.create(tx, { companyId, name: a.name, currency: a.currency, startingBalance: a.startingBalance, openedAt: a.openedAt });
     accountIds.set(a.key, row.id);
     created.accounts.push(row.id);
+    if (a.computedStart) created.computedStarts[String(row.id)] = row.startingBalance;
     audit('account', row.id, 'create', { name: row.name, currency: row.currency, startingBalance: row.startingBalance, openedAt: row.openedAt, projectId: row.projectId });
   }
   // существующие счета: перенос даты открытия и новый стартовый баланс; прежние значения — в account_changes

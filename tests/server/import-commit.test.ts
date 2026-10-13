@@ -218,6 +218,8 @@ describe('POST …/imports: запись одной транзакцией (§6.
       counterparties: ['Сотрудник А', 'Поставщик Б'].map((n) => one('SELECT id FROM counterparties WHERE company_id = ? AND name = ?', w.cid, n).id),
       projects: [one("SELECT id FROM projects WHERE name = 'Клуб 9'").id],
       tags: [one("SELECT id FROM tags WHERE name = 'Ночь'").id],
+      // «Текущий остаток» 10 000: стартовый баланс, рассчитанный импортом (по нему отмена решает, обнулять ли, — решение 16 плана И-3)
+      computedStarts: { [String(bank.id)]: 1_000_000 - (5_000_000 - 820_050) },
     });
     expect(JSON.parse(row.account_changes)).toEqual([
       { accountId: w.kzt, before: { startingBalance: 0, openedAt: '2026-10-01' }, after: { startingBalance: 2_000_000 - (1_059_600 - 850_000 - 5_000_000), openedAt: '2026-09-20' } },
@@ -561,6 +563,9 @@ describe('гонки между проверкой и записью', () => {
     expect(ledger.get(w.kzt)).toBe(123_400 + 1_059_600 - 850_000 - 5_000_000);
     expect(ledger.get(one("SELECT id FROM accounts WHERE name = 'Банк-2'").id)).toBe(300_000 + 5_000_000 - 820_050);
     expect(ledger.get(one("SELECT id FROM accounts WHERE name = 'Сейф'").id)).toBe(7_700);
+    // «Стартовый баланс» и пустой остаток — введены человеком, не рассчитаны: в computedStarts их нет
+    const importId = (res.json() as ImportCommitResult).import.id;
+    expect(JSON.parse(one('SELECT created FROM imports WHERE id = ?', importId).created).computedStarts).toEqual({});
   });
 });
 

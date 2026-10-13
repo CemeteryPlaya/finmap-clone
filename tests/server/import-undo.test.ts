@@ -329,8 +329,9 @@ describe('POST …/imports/:id/undo — отмена (§7.3 спецификац
     const r = await importRows(w, FILE, { accounts: mappings() });
     const bank = one("SELECT id FROM accounts WHERE name = 'Банк-2'").id as number;
     const bankBefore = one('SELECT starting_balance, opened_at FROM accounts WHERE id = ?', bank);
-    // «Текущий остаток» 10 000 при движении файла +41 799,50: стартовый баланс импорта — минус 31 799,50
+    // «Текущий остаток» 10 000 при движении файла +41 799,50: стартовый баланс импорта — минус 31 799,50; он же — в computedStarts
     expect(bankBefore.starting_balance).toBe(1_000_000 - (5_000_000 - 820_050));
+    expect(JSON.parse(one('SELECT created FROM imports WHERE id = ?', r.import.id).created).computedStarts).toEqual({ [String(bank)]: bankBefore.starting_balance });
     // операция «Банка-2», добавленная после импорта: из-за неё счёт остаётся
     await w.post(w.ops, {
       type: 'income',
@@ -364,6 +365,89 @@ describe('POST …/imports/:id/undo — отмена (§7.3 спецификац
     expect(zeroed.map((a) => JSON.parse(a.diff))).toEqual([
       { before: { startingBalance: bankBefore.starting_balance }, after: { startingBalance: 0 }, importId: r.import.id },
     ]);
+  });
+
+  it('оставленный созданный счёт в режиме «Стартовый баланс»: введённый стартовый баланс остаётся, в итоге полей счёта нет', async () => {
+    w = await opsWorld(NOW);
+    const entered: AccountMapping[] = [{ key: 'банк-2', kind: 'new', name: 'Банк-2', currency: 'KZT', balance: { mode: 'start', amount: 500_000 } }];
+    const r = await importRows(w, FILE, { accounts: entered });
+    const bank = one("SELECT id FROM accounts WHERE name = 'Банк-2'").id as number;
+    await w.post(w.ops, {
+      type: 'income',
+      paidAt: '2026-10-05T06:00:00.000Z',
+      accrualDate: null,
+      accountId: bank,
+      amount: 30_000,
+      toAccountId: null,
+      toAmount: null,
+      counterpartyId: null,
+      comment: null,
+      lines: [{ categoryId: w.income, projectId: null, amount: 30_000 }],
+      tagIds: [],
+    });
+    const res = await undo(r.import.id);
+    expect(res.statusCode, res.body).toBe(200);
+    const { result } = res.json() as ImportUndoResponse;
+    expect(result.kept.names).toEqual([{ entity: 'account', name: 'Банк-2' }]);
+    expect(result.kept.accounts).toEqual([]);
+    expect(one('SELECT starting_balance FROM accounts WHERE id = ?', bank).starting_balance).toBe(500_000);
+    expect((await balances()).find((b) => b.accountId === bank)!.balance).toBe(500_000 + 30_000);
+  });
+
+  it('стартовый баланс созданного счёта изменён после импорта: остаётся, причина «изменён после импорта»', async () => {
+    w = await opsWorld(NOW);
+    const r = await importRows(w, FILE, { accounts: mappings() });
+    const bank = one("SELECT id FROM accounts WHERE name = 'Банк-2'").id as number;
+    const patch = await w.h.req('PATCH', `/api/v1/companies/${w.cid}/accounts/${bank}`, { startingBalance: 12_300 });
+    expect(patch.statusCode, patch.body).toBe(200);
+    await w.post(w.ops, {
+      type: 'income',
+      paidAt: '2026-10-05T06:00:00.000Z',
+      accrualDate: null,
+      accountId: bank,
+      amount: 30_000,
+      toAccountId: null,
+      toAmount: null,
+      counterpartyId: null,
+      comment: null,
+      lines: [{ categoryId: w.income, projectId: null, amount: 30_000 }],
+      tagIds: [],
+    });
+    const auditBefore = one('SELECT MAX(id) m FROM audit_log').m as number;
+
+    const res = await undo(r.import.id);
+    expect(res.statusCode, res.body).toBe(200);
+    expect((res.json() as ImportUndoResponse).result.kept.accounts).toEqual([{ accountId: bank, name: 'Банк-2', field: 'startingBalance', reason: 'changed' }]);
+    expect(one('SELECT starting_balance FROM accounts WHERE id = ?', bank).starting_balance).toBe(12_300);
+    expect(one("SELECT COUNT(*) n FROM audit_log WHERE entity = 'account' AND action = 'update' AND entity_id = ? AND id > ?", bank, auditBefore).n).toBe(0);
+  });
+
+  it('импорт, записанный без computedStarts (до решения 16): стартовый баланс оставленного счёта не меняется, итог просит проверить', async () => {
+    w = await opsWorld(NOW);
+    const r = await importRows(w, FILE, { accounts: mappings() });
+    const bank = one("SELECT id FROM accounts WHERE name = 'Банк-2'").id as number;
+    const start = one('SELECT starting_balance FROM accounts WHERE id = ?', bank).starting_balance as number;
+    // как у импорта, записанного раньше: в imports.created нет computedStarts
+    w.h.t.sqlite.prepare("UPDATE imports SET created = json_remove(created, '$.computedStarts') WHERE id = ?").run(r.import.id);
+    expect(JSON.parse(one('SELECT created FROM imports WHERE id = ?', r.import.id).created)).not.toHaveProperty('computedStarts');
+    await w.post(w.ops, {
+      type: 'income',
+      paidAt: '2026-10-05T06:00:00.000Z',
+      accrualDate: null,
+      accountId: bank,
+      amount: 30_000,
+      toAccountId: null,
+      toAmount: null,
+      counterpartyId: null,
+      comment: null,
+      lines: [{ categoryId: w.income, projectId: null, amount: 30_000 }],
+      tagIds: [],
+    });
+
+    const res = await undo(r.import.id);
+    expect(res.statusCode, res.body).toBe(200);
+    expect((res.json() as ImportUndoResponse).result.kept.accounts).toEqual([{ accountId: bank, name: 'Банк-2', field: 'startingBalance', reason: 'unverified' }]);
+    expect(one('SELECT starting_balance FROM accounts WHERE id = ?', bank).starting_balance).toBe(start);
   });
 
   it('существующий счёт в архиве: поля, изменённые импортом, остаются как есть — причина «счёт в архиве»', async () => {

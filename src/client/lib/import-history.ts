@@ -102,7 +102,9 @@ const ENTITY_SINGULAR: Record<ImportCreatedEntity, string> = {
 function keptAccountText(k: ImportKeptAccountField): string {
   const what = k.field === 'startingBalance' ? 'стартовый баланс' : 'дата открытия';
   const why =
-    k.reason === 'archived'
+    k.reason === 'unverified'
+      ? 'мог быть рассчитан импортом — проверьте его в настройках счетов'
+      : k.reason === 'archived'
       ? 'счёт в архиве'
       : k.reason === 'operations'
         ? 'есть операции раньше прежней даты'

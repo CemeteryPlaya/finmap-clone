@@ -112,7 +112,7 @@ const COUNT_KEYS = ['rows', 'income', 'expense', 'transfer', 'added', 'duplicate
 const CREATED_KEYS = ['accounts', 'categories', 'counterparties', 'projects', 'tags'] as const;
 const KEPT_ENTITIES: readonly unknown[] = ['account', 'category', 'counterparty', 'project', 'tag'];
 const KEPT_FIELDS: readonly unknown[] = ['startingBalance', 'openedAt'];
-const KEPT_REASONS: readonly unknown[] = ['changed', 'operations', 'archived', 'created'];
+const KEPT_REASONS: readonly unknown[] = ['changed', 'operations', 'archived', 'created', 'unverified'];
 /** Элемент kept.names: { entity, name }. */
 const isKeptName = (v: unknown) => isObj(v) && KEPT_ENTITIES.includes(v.entity) && typeof v.name === 'string';
 /** Элемент kept.accounts: { accountId, name, field, reason }. */

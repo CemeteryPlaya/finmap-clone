@@ -191,13 +191,15 @@ export type ImportCreatedEntity = 'account' | 'category' | 'counterparty' | 'pro
 
 /**
  * Поле счёта в итоге отмены: поле существующего счёта, которое отмена не вернула (изменено после импорта, есть операции
- * раньше прежней даты, счёт в архиве), или стартовый баланс оставленного созданного импортом счёта — обнулён (`created`).
+ * раньше прежней даты, счёт в архиве), или стартовый баланс оставленного созданного импортом счёта: рассчитанный
+ * импортом — обнулён (`created`), изменён после импорта — остался (`changed`), импорт записан до учёта рассчитанных
+ * балансов — остался, проверить (`unverified`).
  */
 export interface ImportKeptAccountField {
   accountId: number;
   name: string;
   field: 'startingBalance' | 'openedAt';
-  reason: 'changed' | 'operations' | 'archived' | 'created';
+  reason: 'changed' | 'operations' | 'archived' | 'created' | 'unverified';
 }
 
 /** Итог отмены (§7.3): imports.undo_result и ответ отмены. */
