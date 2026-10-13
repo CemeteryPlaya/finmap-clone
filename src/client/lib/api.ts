@@ -4,8 +4,8 @@ export class ApiError extends Error {
     public readonly code: string,
     message: string,
     public readonly fields?: Record<string, string>,
-    /** Данные для действия в интерфейсе (у RATE_UNAVAILABLE — `currency` и `date`). */
-    public readonly details?: Record<string, string>,
+    /** Данные для действия в интерфейсе: у RATE_UNAVAILABLE — `currency` и `date`, у IMPORT_INVALID и IMPORT_CHANGED — `preview`. */
+    public readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -41,7 +41,7 @@ export async function api<T>(
   }
   if (res.status === 204) return undefined as T;
   const data = (await res.json().catch(() => null)) as {
-    error?: { code: string; message: string; fields?: Record<string, string>; details?: Record<string, string> };
+    error?: { code: string; message: string; fields?: Record<string, string>; details?: Record<string, unknown> };
   } | null;
   if (!res.ok) {
     throw new ApiError(res.status, data?.error?.code ?? 'INTERNAL', data?.error?.message ?? 'Ошибка сервера', data?.error?.fields, data?.error?.details);

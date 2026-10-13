@@ -243,3 +243,23 @@ export function MenuIcon() {
     </svg>
   );
 }
+
+/** ⤒ — «Импортировать» в тулбаре журнала (§5.1 спецификации импорта). */
+export function UploadIcon() {
+  return (
+    <Svg>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
+    </Svg>
+  );
+}
+
+/** Папка зоны файла панели импорта (§5.2 спецификации импорта): 32 px. */
+export function FolderIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    </svg>
+  );
+}

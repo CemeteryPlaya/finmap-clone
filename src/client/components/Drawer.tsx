@@ -26,6 +26,13 @@ export function Drawer(props: {
   footer?: ReactNode;
   /** «Закрыть» в левом углу (панель «Счета» на телефоне, §8.1 этапа 1.5); по умолчанию — справа. */
   closeAt?: 'left' | 'right';
+  /**
+   * Идёт запись (импорт, §5.1 спецификации импорта): Esc, «Закрыть» и касание фона панель не закрывают — как у формы
+   * операции (решение 6b). «Закрыть» остаётся в порядке Tab с aria-disabled.
+   */
+  busy?: boolean;
+  /** Широкая панель: 480 px на компьютере, на телефоне — на весь экран (импорт, §5.1 и §5.7 спецификации импорта). */
+  wide?: boolean;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -33,6 +40,11 @@ export function Drawer(props: {
   /** Нажатие началось на фоне: выделение текста, отпущенное над фоном, панель не закрывает. */
   const pressedOnBackdrop = useRef(false);
   const titleId = useId();
+  const busy = useRef(false);
+  busy.current = props.busy === true;
+  const close = () => {
+    if (!busy.current) ref.current?.close();
+  };
 
   useEffect(() => {
     const dialog = ref.current;
@@ -53,7 +65,7 @@ export function Drawer(props: {
       : 'ml-auto mr-0 starting:open:translate-x-full';
   // на телефоне цель касания 44 px (btnClose)
   const closeButton = (
-    <button type="button" aria-label="Закрыть" onClick={() => ref.current?.close()} className={btnClose}>
+    <button type="button" aria-label="Закрыть" aria-disabled={props.busy || undefined} onClick={close} className={`${btnClose} aria-disabled:opacity-50`}>
       <span aria-hidden="true">✕</span>
     </button>
   );
@@ -61,12 +73,19 @@ export function Drawer(props: {
     <dialog
       ref={ref}
       aria-labelledby={titleId}
-      onKeyDown={(e) => cycleTab(e, ref.current)}
+      onKeyDown={(e) => {
+        cycleTab(e, ref.current);
+        // Esc во время записи: без отмены keydown браузер закрыл бы окно (повторный cancel отменить нельзя)
+        if (e.key === 'Escape' && busy.current) e.preventDefault();
+      }}
+      onCancel={(e) => {
+        if (busy.current && e.target === e.currentTarget) e.preventDefault();
+      }}
       onPointerDown={(e) => {
         pressedOnBackdrop.current = e.target === e.currentTarget;
       }}
       onClick={(e) => {
-        if (pressedOnBackdrop.current && e.target === e.currentTarget) ref.current?.close();
+        if (pressedOnBackdrop.current && e.target === e.currentTarget) close();
         pressedOnBackdrop.current = false;
       }}
       onClose={(e) => {
@@ -79,7 +98,7 @@ export function Drawer(props: {
         if (back?.isConnected && back.getClientRects().length > 0) back.focus();
         else focusPageHeading();
       }}
-      className={`my-0 h-dvh max-h-none w-[min(22rem,calc(100vw-3rem))] max-w-none bg-card p-0 text-ink shadow-2xl transition-transform duration-200 backdrop:bg-black/40 motion-reduce:transition-none ${side}`}
+      className={`my-0 h-dvh max-h-none ${props.wide ? 'w-full md:w-[min(30rem,calc(100vw-3rem))]' : 'w-[min(22rem,calc(100vw-3rem))]'} max-w-none bg-card p-0 text-ink shadow-2xl transition-transform duration-200 backdrop:bg-black/40 motion-reduce:transition-none ${side}`}
     >
       {props.open && (
         <div

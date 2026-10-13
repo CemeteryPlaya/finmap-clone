@@ -484,8 +484,10 @@ function OperationEditor(p: {
       setStatus('Операция сохранена — можно ввести похожую');
       setRefocusAmount((n) => n + 1);
     } catch (e) {
-      if (e instanceof ApiError && e.code === 'RATE_UNAVAILABLE' && e.details?.currency && e.details.date) {
-        setMissingRate({ message: e.message, currency: e.details.currency, date: e.details.date });
+      const currency = e instanceof ApiError ? e.details?.currency : undefined;
+      const date = e instanceof ApiError ? e.details?.date : undefined;
+      if (e instanceof ApiError && e.code === 'RATE_UNAVAILABLE' && typeof currency === 'string' && typeof date === 'string') {
+        setMissingRate({ message: e.message, currency, date });
         setErrorFocus((x) => x + 1);
         return;
       }
