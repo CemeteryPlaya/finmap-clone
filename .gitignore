@@ -27,3 +27,4 @@ docs/research/screens/
 # Playwright
 test-results/
 playwright-report/
+.superpowers/
