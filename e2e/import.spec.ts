@@ -72,6 +72,8 @@ test('«Импортировать» — последняя кнопка тул�
   await expect(open).toHaveAttribute('aria-haspopup', 'dialog');
   await open.click();
   await expect(panel(page)).toBeVisible();
+  // фокус сразу внутри панели (ловушка Tab), а не на странице под ней
+  await expect(panel(page).locator(':focus')).toHaveCount(1);
   await expect(panel(page).getByText('Перетяните сюда файл (до 30 МБ)')).toBeVisible();
   // ограничения файла — в описании кнопки «Выберите файл» (§5.8)
   await expect(panel(page).getByRole('button', { name: 'Выберите файл' })).toHaveAccessibleDescription(
@@ -96,6 +98,16 @@ test('«Импортировать» — последняя кнопка тул�
     .setInputFiles({ name: 'большой.xlsx', mimeType: XLSX_MIME, buffer: Buffer.alloc(30 * 1024 * 1024 + 1) });
   await expect(panel(page).getByRole('alert')).toHaveText('Файл больше 30 МБ');
   expect(uploads).toBe(0);
+
+  // файл, брошенный мимо зоны (на саму панель), страница не открывает: событие отменено
+  const prevented = await panel(page).evaluate((el) => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(['x'], 'a.csv', { type: 'text/csv' }));
+    const ev = new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true });
+    el.dispatchEvent(ev);
+    return ev.defaultPrevented;
+  });
+  expect(prevented).toBe(true);
 
   // Esc закрывает панель, фокус возвращается на «Импортировать»
   await page.keyboard.press('Escape');
@@ -439,8 +451,8 @@ test('запись в прежнюю компанию не прошла (409), �
   await expect(p.getByRole('button', { name: /^Импорт/ })).toHaveCount(0);
   await expect(p.getByRole('heading', { level: 3, name: 'Проверка файла' })).toHaveCount(0);
   await expect(p.getByRole('button', { name: 'Выберите файл' })).toHaveCount(0);
-  // «Закрыть» в подвале (вторая — ✕ в заголовке)
-  await p.getByRole('button', { name: 'Закрыть' }).last().click();
+  // «Закрыть» в подвале: у кнопки есть текст, у ✕ в заголовке — только подпись
+  await p.getByRole('button', { name: 'Закрыть' }).filter({ hasText: 'Закрыть' }).click();
   await expect(p).toBeHidden();
   // запись ушла в А; после ответа 409 — ни повторной загрузки, ни пересчёта: ни к А, ни к Б
   expect(imports[before - 1]).toMatch(new RegExp(`/companies/${a}/imports$`));
@@ -449,6 +461,8 @@ test('запись в прежнюю компанию не прошла (409), �
 });
 
 test('во время записи карточки счетов недоступны; после записи — «Импорт завершён», без пересчёта и новой загрузки', async ({ page }) => {
+  // часы страницы: пауза пересчёта (300 мс) проходит по команде, а не по ожиданию
+  await page.clock.install();
   await companyWithCash(page, 'Импорт карточки');
   await page.getByRole('main').getByRole('button', { name: 'Импортировать' }).click();
   await chooseFile(page, ROWS);
@@ -479,9 +493,96 @@ test('во время записи карточки счетов недосту�
   const done = p.getByRole('heading', { level: 3, name: 'Импорт завершён' });
   await expect(done).toBeFocused();
   // дольше паузы пересчёта (300 мс): итог остаётся, запросов проверки нет
-  await page.waitForTimeout(700);
+  await page.clock.runFor(1000);
   await expect(done).toBeVisible();
+  await page.evaluate(() => 0); // события запросов дошли до теста
   expect(later).toEqual([]);
+});
+
+test('файл больше 30 МБ при открытой проверке: сообщение, прежний итог и состояние «Импортировать» не меняются, запросов нет', async ({ page }) => {
+  await companyWithCash(page, 'Импорт большой');
+  await page.getByRole('main').getByRole('button', { name: 'Импортировать' }).click();
+  // файл с ошибкой: «Импортировать» недоступна с причиной
+  await chooseFile(page, [...ROWS, fr({ paidAt: at('2025-03-18'), amount: null, to: 'Касса' })]);
+  const p = panel(page);
+  const go = p.getByRole('button', { name: 'Импортировать' });
+  await expect(p.getByRole('alert').filter({ hasText: 'Найдено ошибок' })).toContainText('Найдено ошибок: 1');
+  await expect(go).toHaveAttribute('aria-disabled', 'true');
+  await expect(go).toHaveAccessibleDescription('Исправьте ошибки в файле и загрузите его снова');
+
+  const requests: string[] = [];
+  page.on('request', (r) => {
+    if (/\/imports(\/|$)/.test(r.url())) requests.push(r.url());
+  });
+  const big = { name: 'большой.xlsx', mimeType: XLSX_MIME, buffer: Buffer.alloc(30 * 1024 * 1024 + 1) };
+  await p.locator('[data-import-file]').setInputFiles(big);
+  await expect(p.getByRole('alert').filter({ hasText: 'Файл больше 30 МБ' })).toHaveText('Файл больше 30 МБ');
+  await expect(p.getByText('выгрузка.xlsx')).toBeVisible();
+  await expect(p.getByRole('alert').filter({ hasText: 'Найдено ошибок' })).toContainText('Найдено ошибок: 1');
+  await expect(go).toHaveAttribute('aria-disabled', 'true');
+  await expect(go).toHaveAccessibleDescription('Исправьте ошибки в файле и загрузите его снова');
+
+  // исправный файл: «Импортировать» доступна, и большой файл её не отключает
+  await chooseFile(page, ROWS);
+  await expect(p.getByRole('status')).toHaveText('Проверка завершена: ошибок нет, можно импортировать');
+  await expect(go).not.toHaveAttribute('aria-disabled', 'true');
+  const before = requests.length;
+  await p.locator('[data-import-file]').setInputFiles(big);
+  await expect(p.getByRole('alert').filter({ hasText: 'Файл больше 30 МБ' })).toBeVisible();
+  await expect(p.getByText(/^В файле 3 операции:/)).toBeVisible();
+  await expect(go).not.toHaveAttribute('aria-disabled', 'true');
+  expect(requests.length).toBe(before);
+});
+
+test('запись идёт, а ширина окна меняется (поворот телефона): панель остаётся и показывает «Импорт завершён»', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await companyWithCash(page, 'Импорт поворот запись');
+  await page.getByRole('main').getByRole('button', { name: 'Импортировать' }).click();
+  await chooseFile(page, ROWS);
+  const p = panel(page);
+  await expect(p.getByRole('heading', { level: 3, name: 'Проверка файла' })).toBeFocused();
+
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  await page.route(/\/imports$/, async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    await gate;
+    await route.fallback();
+  });
+  await p.getByRole('button', { name: 'Импортировать' }).click();
+  await expect(p.getByRole('button', { name: 'Импортируем…' })).toBeVisible();
+  // телефонная ширина и обратно, пока запись не закончилась
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(p).toBeVisible();
+  await expect(p.getByRole('button', { name: 'Импортируем…' })).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(p).toBeVisible();
+  await expect(p.getByRole('button', { name: 'Импортируем…' })).toBeVisible();
+  release();
+  await expect(p.getByRole('heading', { level: 3, name: 'Импорт завершён' })).toBeFocused();
+  await p.getByRole('button', { name: 'Готово' }).click();
+  await expect(p).toBeHidden();
+  await expect(page.getByRole('table', { name: 'Операции' }).locator('tbody tr')).toHaveCount(3);
+});
+
+test('запись об импорте в «Истории действий»: «Импорт №…», «Создание», в подробностях — имя файла и числа', async ({ page }) => {
+  const cid = await companyWithCash(page, 'Импорт история');
+  await page.getByRole('main').getByRole('button', { name: 'Импортировать' }).click();
+  await chooseFile(page, ROWS);
+  const p = panel(page);
+  await expect(p.getByRole('heading', { level: 3, name: 'Проверка файла' })).toBeFocused();
+  await p.getByRole('button', { name: 'Импортировать' }).click();
+  await expect(p.getByRole('heading', { level: 3, name: 'Импорт завершён' })).toBeFocused();
+  await p.getByRole('button', { name: 'Готово' }).click();
+
+  await page.goto(`/c/${cid}/settings/audit`);
+  const item = page.getByRole('listitem').filter({ hasText: /Импорт №\d+/ });
+  await expect(item).toHaveCount(1);
+  await expect(item).toContainText('Создание');
+  await item.getByText('Подробности').click();
+  const details = item.locator('pre');
+  await expect(details).toContainText('"fileName": "выгрузка.xlsx"');
+  await expect(details).toContainText('"created"');
 });
 
 test('архивная компания: кнопки «Импортировать» нет', async ({ page }) => {

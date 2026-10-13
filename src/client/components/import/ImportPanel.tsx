@@ -176,6 +176,21 @@ function ImportFlow(props: {
     },
     [],
   );
+  // пока панель открыта, файл, брошенный мимо зоны (заголовок, подвал, фон, уже выбранный файл), не должен открыться
+  // в браузере: страница с панелью и записью была бы потеряна (как у формы операции)
+  useEffect(() => {
+    const guard = (e: DragEvent) => {
+      if (!e.dataTransfer || !isFileDrag([...e.dataTransfer.types])) return;
+      e.preventDefault();
+      if (!(e.target instanceof Element && e.target.closest('[data-drop-zone]'))) e.dataTransfer.dropEffect = 'none';
+    };
+    window.addEventListener('dragover', guard);
+    window.addEventListener('drop', guard);
+    return () => {
+      window.removeEventListener('dragover', guard);
+      window.removeEventListener('drop', guard);
+    };
+  }, []);
   useEffect(() => {
     if (!focusTarget) return;
     ({ heading: headingRef, done: doneRef, abandoned: abandonedRef })[focusTarget.to].current?.focus();
@@ -198,6 +213,8 @@ function ImportFlow(props: {
     const n = ++seq.current;
     clearTimeout(timer.current);
     setRefreshing(false);
+    // карточки при новой проверке монтируются заново из ответа сервера: прежние пометки «неверная сумма» устарели
+    setInvalid(new Map());
     setPhase({ kind: 'checking' });
     setStatus('Проверяем файл…');
     try {

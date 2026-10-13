@@ -65,6 +65,20 @@ describe('панель импорта: тексты (§5.3, §5.6 специфи
     expect(importSizeError(30 * 1024 * 1024 + 1)).toBe('Файл больше 30 МБ');
   });
 
+  it('итог проверки: строки с ошибками и плановые дописываются, части складываются в «в файле» (R6)', () => {
+    // R6: части складываются в «в файле» — строки с ошибками и плановые дописываются, вместо «операций» — «строк»
+    const seven = { name: 'ф', size: 1, rows: 7 };
+    expect(checkSummary(preview({ file: seven, counts: { income: 1, expense: 2, transfer: 1, add: 4, duplicates: 0, skippedFuture: 0 }, period: null }))).toBe(
+      'В файле 7 строк: доходов 1, расходов 2, переводов 1, с ошибками 3',
+    );
+    expect(checkSummary(preview({ file: seven, counts: { income: 1, expense: 2, transfer: 1, add: 4, duplicates: 0, skippedFuture: 3 }, period: null }))).toBe(
+      'В файле 7 строк: доходов 1, расходов 2, переводов 1, плановых 3',
+    );
+    expect(checkSummary(preview({ file: { name: 'ф', size: 1, rows: 10 }, counts: { income: 1, expense: 2, transfer: 1, add: 4, duplicates: 0, skippedFuture: 2 }, period: null }))).toBe(
+      'В файле 10 строк: доходов 1, расходов 2, переводов 1, с ошибками 4, плановых 2',
+    );
+  });
+
   it('причина недоступности «Импортировать» и живая область', () => {
     expect(blockReason(preview(), { refreshing: false, invalidCards: [] })).toBeNull();
     expect(checkStatus(preview())).toBe('Проверка завершена: ошибок нет, можно импортировать');

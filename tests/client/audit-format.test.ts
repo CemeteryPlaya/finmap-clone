@@ -41,6 +41,12 @@ describe('audit-format', () => {
     expect(SYSTEM_ENTITIES).toEqual(['user', 'rate']);
   });
 
+  it('запись об импорте: подробности без «было / стало» показываются как есть (JSON с именем файла и числами)', () => {
+    const diff = { fileName: 'выгрузка.xlsx', counts: { rows: 3, income: 1, expense: 1, transfer: 1, added: 3, duplicates: 0, skippedFuture: 0 }, created: { accounts: 1 } };
+    expect(pageDiff({ entity: 'import', action: 'create', diff })).toBe(diff);
+    expect(diffRows(diff, 'import')).toBeNull();
+  });
+
   it('pageDiff: у операции — без счёта в удалении и без подробностей восстановления; остальные записи как есть', () => {
     const del = { entity: 'operation', action: 'delete', diff: { type: 'expense', amount: 100, accountId: 3, paidAt: '2026-10-05T10:00:00.000Z' } };
     expect(pageDiff(del)).toEqual({ type: 'expense', amount: 100, paidAt: '2026-10-05T10:00:00.000Z' });

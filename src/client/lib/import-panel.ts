@@ -50,12 +50,20 @@ export function issueText(g: ImportIssueGroup): string {
 }
 
 const operations = (n: number) => `${formatCount(n)} ${pluralRu(n, 'операция', 'операции', 'операций')}`;
+const fileRows = (n: number) => `${formatCount(n)} ${pluralRu(n, 'строка', 'строки', 'строк')}`;
 
-/** Первая строка итога (§5.3): «В файле 16 028 операций: доходов 9 812, расходов 6 104, переводов 112. Период: 15.03.2023 – 11.10.2026». */
+/**
+ * Первая строка итога (§5.3): «В файле 16 028 операций: доходов 9 812, расходов 6 104, переводов 112. Период: 15.03.2023 – 11.10.2026».
+ * Всего — все непустые строки данных; части складываются в него: строки с ошибками разбора и плановые (дата позже сегодня)
+ * добавляются в конец («, с ошибками 3», «, плановых 2»), и тогда вместо «операций» — «строк» (R6).
+ */
 export function checkSummary(p: ImportPreview): string {
   const c = p.counts;
   const period = p.period ? `. Период: ${formatDateRu(p.period.from)} – ${formatDateRu(p.period.to)}` : '';
-  return `В файле ${operations(p.file.rows)}: доходов ${formatCount(c.income)}, расходов ${formatCount(c.expense)}, переводов ${formatCount(c.transfer)}${period}`;
+  const unread = Math.max(0, p.file.rows - c.income - c.expense - c.transfer - c.skippedFuture);
+  const extra = `${unread > 0 ? `, с ошибками ${formatCount(unread)}` : ''}${c.skippedFuture > 0 ? `, плановых ${formatCount(c.skippedFuture)}` : ''}`;
+  const total = extra ? fileRows(p.file.rows) : operations(p.file.rows);
+  return `В файле ${total}: доходов ${formatCount(c.income)}, расходов ${formatCount(c.expense)}, переводов ${formatCount(c.transfer)}${extra}${period}`;
 }
 
 /**
