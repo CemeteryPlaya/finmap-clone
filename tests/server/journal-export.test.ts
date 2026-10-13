@@ -2,9 +2,10 @@ import AdmZip from 'adm-zip';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createLedgerBalances } from '../../src/server/modules/balances/service';
 import { createJournal } from '../../src/server/modules/operations/journal';
-import { excelDate, excelDateTime, minorToDecimal } from '../../src/server/modules/operations/journal-export';
+import { accrualPeriod, excelDate, excelDateTime, minorToDecimal } from '../../src/server/modules/operations/journal-export';
 import { buildXlsx, columnName, xmlText } from '../../src/server/http/xlsx';
 import { opsWorld, type OpsWorld } from '../helpers/ops';
+import { sheetRows } from '../helpers/xlsx-rows';
 
 let w: OpsWorld;
 afterEach(async () => w?.h.t.cleanup());
@@ -12,9 +13,44 @@ afterEach(async () => w?.h.t.cleanup());
 const op = async (body: Record<string, unknown>) =>
   (await w.post(w.ops, { type: 'expense', accountId: w.kzt, amount: 1000, ...body })).operation.id as number;
 const exportUrl = (qs = '') => `${w.ops}/export.xlsx${qs ? `?${qs}` : ''}`;
+const download = async (qs = '') => {
+  const res = await w.h.req('GET', exportUrl(qs));
+  expect(res.statusCode, res.body).toBe(200);
+  return res;
+};
 const sheetOf = (body: Buffer) => new AdmZip(body).getEntry('xl/worksheets/sheet1.xml')!.getData().toString('utf8');
+/** Системная категория компании по ключу (у новой компании они есть). */
+const systemCategory = async (key: string): Promise<number> => {
+  const tree = (await w.h.req('GET', `/api/v1/companies/${w.cid}/categories`)).json() as {
+    income: { id: number; systemKey: string | null }[];
+    expense: { id: number; systemKey: string | null }[];
+  };
+  return [...tree.income, ...tree.expense].find((c) => c.systemKey === key)!.id;
+};
 
-describe('журнал: выгрузка в Excel (§7)', () => {
+/** Заголовки шаблона Finmap §2.1 — ровно эти тексты, со звёздочками у обязательных. */
+const HEADERS = [
+  'Дата платежа*',
+  'Дата начисления',
+  'Период начисления (дата "с")',
+  'Период начисления (дата "по")',
+  'Сумма в валюте счета*',
+  'Сумма в валюте компании',
+  'Со счета*',
+  'На счет*',
+  'Категория',
+  'Подкатегория',
+  'Контрагент',
+  'Подконтрагент',
+  'Проект',
+  'Подпроект',
+  'Теги',
+  'Комментарий',
+];
+// индексы колонок A–P
+const [A, B, C, D, E, F, G, H, I, J, K, , M, , O, P] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
+
+describe('журнал: «Excel» в формате Finmap (§8.2 спецификации импорта)', () => {
   it('вспомогательные: суммы — точной десятичной записью, даты Excel по часам Алматы, буквы столбцов, текст для XML', () => {
     expect(minorToDecimal(150050, 2)).toBe('1500.50');
     expect(minorToDecimal(-5, 2)).toBe('-0.05');
@@ -24,12 +60,51 @@ describe('журнал: выгрузка в Excel (§7)', () => {
     expect(excelDate('2026-10-05')).toBe(46300);
     expect(excelDateTime('2026-10-05T05:00:00.000Z', 'Asia/Almaty')).toBeCloseTo(46300 + 10 / 24, 9); // 10:00 по Алматы
     expect(excelDateTime('2026-10-04T19:30:00.000Z', 'Asia/Almaty')).toBeCloseTo(46300 + 0.5 / 24, 9); // 00:30 следующего дня
+    // до 2024-03-01 в Алматы UTC+6: 17:30 UTC — 23:30 по местным часам того же дня (R1)
+    expect(excelDateTime('2023-06-15T17:30:00.000Z', 'Asia/Almaty')).toBeCloseTo(excelDate('2023-06-15') + 23.5 / 24, 9);
     expect([0, 25, 26, 27, 701, 702].map(columnName)).toEqual(['A', 'Z', 'AA', 'AB', 'ZZ', 'AAA']);
     expect(xmlText('<b>&"\u0007\uD800ok\u{1F389}')).toBe('&lt;b&gt;&amp;&quot;ok\u{1F389}');
   });
 
-  it('файл XLSX: части пакета, заголовки, числа и даты с форматом, остатки, разбиения, экранирование; имя файла по RFC 8187 (Review Focus 5)', async () => {
+  it('период начисления: зарплата, налоги и НДС с первым числом месяца; конец месяца — по календарю, в том числе февраль', () => {
+    expect(accrualPeriod('2026-09-01', ['salary'])).toEqual({ from: '01.09.2026 00:00:00', to: '30.09.2026 23:59:59' });
+    expect(accrualPeriod('2026-08-01', [null, 'tax'])).toEqual({ from: '01.08.2026 00:00:00', to: '31.08.2026 23:59:59' });
+    expect(accrualPeriod('2026-02-01', ['vat'])).toEqual({ from: '01.02.2026 00:00:00', to: '28.02.2026 23:59:59' });
+    expect(accrualPeriod('2028-02-01', ['salary'])).toEqual({ from: '01.02.2028 00:00:00', to: '29.02.2028 23:59:59' });
+    // не первое число, не та категория, нет даты — периода нет, дата уходит в «Дату начисления»
+    expect(accrualPeriod('2026-09-15', ['salary'])).toBeNull();
+    expect(accrualPeriod('2026-09-01', ['dividends', null])).toBeNull();
+    expect(accrualPeriod('2026-09-01', [])).toBeNull();
+    expect(accrualPeriod(null, ['salary'])).toBeNull();
+  });
+
+  it('файл: лист ExportRU, заголовки шаблона, тексты общими строками, закреплённая строка; имя файла по RFC 8187 (Review Focus 4)', async () => {
     w = await opsWorld();
+    await op({ paidAt: '2026-10-02T10:00:00Z', comment: 'первая' });
+    const res = await download();
+    expect(res.headers['content-type']).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    // «ТОО - Журнал - 06-10-2026 17-00.xlsx»: «сейчас» — 12:00 UTC, то есть 17:00 по Алматы
+    expect(res.headers['content-disposition']).toBe(
+      `attachment; filename="___ - ______ - 06-10-2026 17-00.xlsx"; filename*=UTF-8''${encodeURIComponent('ТОО - Журнал - 06-10-2026 17-00.xlsx')}`,
+    );
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['cache-control']).toBe('private, no-store');
+
+    const zip = new AdmZip(res.rawPayload);
+    expect(zip.getEntries().map((e) => e.entryName).sort()).toEqual(
+      ['[Content_Types].xml', '_rels/.rels', 'xl/_rels/workbook.xml.rels', 'xl/sharedStrings.xml', 'xl/styles.xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml'].sort(),
+    );
+    expect(zip.getEntry('xl/workbook.xml')!.getData().toString('utf8')).toContain('<sheet name="ExportRU" sheetId="1" r:id="rId1"/>');
+    const xml = sheetOf(res.rawPayload);
+    expect(xml).not.toContain('inlineStr'); // тексты — только общими строками
+    expect(xml).toContain('<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>');
+    expect(sheetRows(res.rawPayload)[0]).toEqual(HEADERS);
+    expect(new Set(HEADERS.map((h) => h.replace('*', ''))).size).toBe(16);
+  });
+
+  it('A–P: доход с разбиением, перевод между валютами, расход в USD; суммы положительные; тип — по «Со счета» и «На счет»', async () => {
+    w = await opsWorld();
+    // доход 1500,50 ₸ из двух строк: 1000,00 на «Клуб 1» и 500,50 на «Клуб 2»
     await op({
       type: 'income',
       paidAt: '2026-10-05T05:00:00Z',
@@ -37,112 +112,136 @@ describe('журнал: выгрузка в Excel (§7)', () => {
       accrualDate: '2026-09-30',
       counterpartyId: w.counterparty,
       tagIds: [w.tag],
-      comment: '<b>Тест & "кавычки"</b>\u0007 \u{1F389}',
+      comment: 'доход',
       lines: [
         { categoryId: w.income, projectId: w.project, amount: 100000 },
         { categoryId: w.income, projectId: w.project2, amount: 50050 },
       ],
     });
-    await op({ type: 'transfer', paidAt: '2026-10-04T10:00:00Z', amount: 47512, toAccountId: w.usd, toAmount: 100 });
-    await op({ paidAt: '2026-10-03T10:00:00Z', accountId: w.usd, amount: 100 });
+    await op({ type: 'transfer', paidAt: '2026-10-04T10:00:00Z', amount: 47512, toAccountId: w.usd, toAmount: 100, comment: 'перевод', lines: [{ categoryId: null, projectId: w.project, amount: 47512 }] });
+    await op({ paidAt: '2026-10-03T10:00:00Z', accountId: w.usd, amount: 100, comment: 'расход', lines: [{ categoryId: w.expense, projectId: null, amount: 100 }] });
 
-    const res = await w.h.req('GET', exportUrl());
-    expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers['content-type']).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    expect(res.headers['content-disposition']).toBe(
-      `attachment; filename="________ ___ 2026-10-06.xlsx"; filename*=UTF-8''${encodeURIComponent('Операции ТОО 2026-10-06.xlsx')}`,
-    );
-    expect(res.headers['x-content-type-options']).toBe('nosniff');
-    expect(res.headers['cache-control']).toBe('private, no-store');
-
-    const zip = new AdmZip(res.rawPayload);
-    expect(zip.getEntries().map((e) => e.entryName).sort()).toEqual(
-      ['[Content_Types].xml', '_rels/.rels', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml'].sort(),
-    );
-    expect(zip.getEntry('xl/workbook.xml')!.getData().toString('utf8')).toContain('<sheet name="Операции" sheetId="1" r:id="rId1"/>');
-    expect(zip.getEntry('[Content_Types].xml')!.getData().toString('utf8')).toContain('/xl/worksheets/sheet1.xml');
-
-    const xml = sheetOf(res.rawPayload);
-    expect(xml.match(/<row /g)).toHaveLength(4); // заголовок + 3 операции, новые сверху
-    expect(xml).toContain('<c r="A1" t="inlineStr" s="1"><is><t xml:space="preserve">Дата</t></is></c>');
-    expect(xml).toContain('<t xml:space="preserve">Сумма, KZT</t>');
-    expect(xml).toContain('<t xml:space="preserve">Остаток зачисления</t>');
-    // доход 1500,50 ₸: дата и время, суммы, остаток после (\u2212475,12 + 1500,50), категория без повтора, проекты и тег, дата сделки
-    expect(xml).toMatch(/<c r="A2" s="2"><v>46300\.41666/);
-    expect(xml).toContain('<c r="B2" t="inlineStr"><is><t xml:space="preserve">Доход</t></is></c>');
-    expect(xml).toContain('<c r="C2" s="5"><v>1500.50</v></c>');
-    expect(xml).toContain('<c r="E2" s="5"><v>1500.50</v></c>');
-    expect(xml).toContain('<c r="G2" s="5"><v>1025.38</v></c>');
-    expect(xml).toContain('<c r="K2" t="inlineStr"><is><t xml:space="preserve">ИП Клиент</t></is></c>');
-    expect(xml).toContain('<c r="L2" t="inlineStr"><is><t xml:space="preserve">Бар</t></is></c>');
-    expect(xml).toContain('<c r="M2" t="inlineStr"><is><t xml:space="preserve">Клуб 1; Клуб 2</t></is></c>');
-    expect(xml).toContain('<c r="N2" t="inlineStr"><is><t xml:space="preserve">Смена</t></is></c>');
-    expect(xml).toContain('<t xml:space="preserve">&lt;b&gt;Тест &amp; &quot;кавычки&quot;&lt;/b&gt; \u{1F389}</t>');
-    expect(xml).toContain('<c r="P2" s="3"><v>46295</v></c>');
-    expect(xml).not.toContain('\u0007');
-    // перевод: без знака, счёт и сумма зачисления, оба остатка
-    expect(xml).toContain('<c r="C3" s="5"><v>475.12</v></c>');
-    expect(xml).toContain('<c r="G3" s="5"><v>-475.12</v></c>');
-    expect(xml).toContain('<c r="H3" t="inlineStr"><is><t xml:space="preserve">Валютный</t></is></c>');
-    expect(xml).toContain('<c r="I3" s="5"><v>1.00</v></c>');
-    expect(xml).toContain('<c r="J3" s="5"><v>0.00</v></c>');
-    // расход в USD: минус в валюте счёта и в базовой
-    expect(xml).toContain('<c r="C4" s="5"><v>-1.00</v></c>');
-    expect(xml).toContain('<c r="D4" t="inlineStr"><is><t xml:space="preserve">USD</t></is></c>');
-    expect(xml).toContain('<c r="E4" s="5"><v>-475.12</v></c>');
-    expect(xml).not.toContain('<c r="H4"'); // пустые ячейки не пишутся
+    const rows = sheetRows((await download()).rawPayload);
+    expect(rows).toHaveLength(5); // заголовок + 2 строки разбитого дохода + перевод + расход
+    const [, inc1, inc2, transfer, expense] = rows as [string[], string[], string[], string[], string[]];
+    // доход: «На счет» — Касса, «Со счета» пусто; E и F — суммы строки; дата платежа — число с долей суток по часам Алматы
+    expect(Number(inc1[A])).toBeCloseTo(46300 + 10 / 24, 9);
+    expect([inc1[B], inc1[C], inc1[D]]).toEqual(['46295', '', '']); // 30.09.2026 — не первое число: «Дата начисления»
+    expect([inc1[E], inc1[F], inc1[G], inc1[H]]).toEqual(['1000.00', '1000.00', '', 'Касса']);
+    expect([inc1[I], inc1[J], inc1[K], inc1[M], inc1[O], inc1[P]]).toEqual(['Бар', '', 'ИП Клиент', 'Клуб 1', 'Смена', 'доход']);
+    // вторая строка разбиения: сумма и проект — свои, остальное повторяется
+    expect([inc2[A], inc2[B], inc2[E], inc2[F], inc2[H], inc2[I], inc2[K], inc2[M], inc2[O], inc2[P]]).toEqual([
+      inc1[A], '46295', '500.50', '500.50', 'Касса', 'Бар', 'ИП Клиент', 'Клуб 2', 'Смена', 'доход',
+    ]);
+    // перевод: сумма списания в валюте «Со счета», обе колонки счетов, проект строки, без категории, контрагента и даты начисления
+    expect([transfer[E], transfer[F], transfer[G], transfer[H], transfer[I], transfer[K], transfer[M], transfer[B]]).toEqual(['475.12', '475.12', 'Касса', 'Валютный', '', '', 'Клуб 1', '']);
+    // расход в USD: E — в валюте счёта, F — в валюте компании по курсу 475,12; знака нет, «На счет» пусто
+    expect([expense[E], expense[F], expense[G], expense[H], expense[I]]).toEqual(['1.00', '475.12', 'Валютный', '', 'Аренда']);
   });
 
-  it('текст, похожий на формулу (=, +, -, @, табуляция, CR в начале), — строка со стилем quotePrefix; формул в книге нет (Review Focus 5)', async () => {
+  it('зарплата, налоги и НДС с датой начисления 1-го числа уходят периодом, а не датой; подкатегория зарплаты — в «Подкатегории» (Review Focus 3)', async () => {
     w = await opsWorld();
+    const salary = await systemCategory('salary');
+    const tax = await systemCategory('tax');
+    const vat = await systemCategory('vat');
+    const staff = (await w.post(`/api/v1/companies/${w.cid}/categories`, { kind: 'expense', name: 'Администраторы', parentId: salary })).category.id as number;
+    const line = (categoryId: number) => [{ categoryId, projectId: null, amount: 1000 }];
+    await op({ paidAt: '2026-10-02T10:00:00Z', accrualDate: '2026-09-01', comment: 'зарплата', lines: line(staff) });
+    await op({ paidAt: '2026-10-02T11:00:00Z', accrualDate: '2026-08-01', comment: 'налог', lines: line(tax) });
+    await op({ paidAt: '2026-10-02T12:00:00Z', accrualDate: '2026-02-01', comment: 'ндс', lines: line(vat) });
+    await op({ paidAt: '2026-10-02T13:00:00Z', accrualDate: '2026-09-15', comment: 'зарплата, середина месяца', lines: line(salary) });
+    await op({ paidAt: '2026-10-02T14:00:00Z', accrualDate: '2026-09-01', comment: 'аренда', lines: line(w.expense) });
+    const rows = sheetRows((await download()).rawPayload).slice(1);
+    const by = (comment: string) => rows.find((r) => r[P] === comment)!;
+    expect([by('зарплата')[B], by('зарплата')[C], by('зарплата')[D], by('зарплата')[I], by('зарплата')[J]]).toEqual([
+      '', '01.09.2026 00:00:00', '30.09.2026 23:59:59', 'Зарплата', 'Администраторы',
+    ]);
+    expect([by('налог')[B], by('налог')[C], by('налог')[D], by('налог')[I]]).toEqual(['', '01.08.2026 00:00:00', '31.08.2026 23:59:59', 'Налоги']);
+    expect([by('ндс')[B], by('ндс')[C], by('ндс')[D]]).toEqual(['', '01.02.2026 00:00:00', '28.02.2026 23:59:59']);
+    expect([by('зарплата, середина месяца')[B], by('зарплата, середина месяца')[C]]).toEqual(['46280', '']);
+    expect([by('аренда')[B], by('аренда')[C], by('аренда')[D]]).toEqual(['46266', '', '']);
+  });
+
+  it('текст, похожий на формулу, — со стилем quotePrefix и в общих строках; комментарий длиннее 1 000 знаков пишется целиком (Review Focus 4)', async () => {
+    w = await opsWorld();
+    const long = `${'д'.repeat(1500)}\r\n вторая строка`;
     await op({ paidAt: '2026-10-02T10:00:00Z', comment: '=HYPERLINK("http://evil","x")' });
     await op({ paidAt: '2026-10-03T10:00:00Z', comment: '+7 777 123' });
     await op({ paidAt: '2026-10-04T10:00:00Z', comment: '@SUM(A1)' });
     await op({ paidAt: '2026-10-05T10:00:00Z', comment: '-скидка' });
     await op({ paidAt: '2026-10-05T11:00:00Z', comment: 'обычный' });
-    const zip = new AdmZip((await w.h.req('GET', exportUrl())).rawPayload);
-    const xml = zip.getEntry('xl/worksheets/sheet1.xml')!.getData().toString('utf8');
+    await op({ paidAt: '2026-10-05T12:00:00Z', comment: long });
+    const res = await download();
+    const xml = sheetOf(res.rawPayload);
     expect(xml).not.toContain('<f>');
-    expect(xml).toContain('<c r="O2" t="inlineStr"><is><t xml:space="preserve">обычный</t></is></c>');
-    expect(xml).toContain('<c r="O3" t="inlineStr" s="7"><is><t xml:space="preserve">-скидка</t></is></c>');
-    expect(xml).toContain('<c r="O4" t="inlineStr" s="7"><is><t xml:space="preserve">@SUM(A1)</t></is></c>');
-    expect(xml).toContain('<c r="O5" t="inlineStr" s="7"><is><t xml:space="preserve">+7 777 123</t></is></c>');
-    expect(xml).toContain('<c r="O6" t="inlineStr" s="7"><is><t xml:space="preserve">=HYPERLINK(&quot;http://evil&quot;,&quot;x&quot;)</t></is></c>');
+    // колонка P — комментарий; строки журнала — по убыванию даты
+    const styleOf = (ref: string) => new RegExp(`<c r="${ref}" t="s"( s="7")?>`).exec(xml)?.[1] ?? '';
+    expect(styleOf('P2')).toBe(''); // длинный и обычный — без стиля
+    expect(styleOf('P3')).toBe('');
+    expect(styleOf('P4')).toBe(' s="7"'); // -скидка
+    expect(styleOf('P5')).toBe(' s="7"'); // @SUM
+    expect(styleOf('P6')).toBe(' s="7"'); // +7
+    expect(styleOf('P7')).toBe(' s="7"'); // =HYPERLINK
+    expect(sheetRows(res.rawPayload)[1]![P]).toBe(long); // полностью, с CR LF
+    const zip = new AdmZip(res.rawPayload);
+    expect(zip.getEntry('xl/sharedStrings.xml')!.getData().toString('utf8')).toContain('=HYPERLINK(&quot;http://evil&quot;,&quot;x&quot;)');
     // стиль 7 — quotePrefix; книга с bookViews (без неё старые версии Excel ругаются на файл)
-    expect(zip.getEntry('xl/styles.xml')!.getData().toString('utf8')).toContain('<cellXfs count="8">');
-    expect(zip.getEntry('xl/styles.xml')!.getData().toString('utf8')).toContain('<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" quotePrefix="1"/></cellXfs>');
+    expect(zip.getEntry('xl/styles.xml')!.getData().toString('utf8')).toContain('quotePrefix="1"');
     expect(zip.getEntry('xl/workbook.xml')!.getData().toString('utf8')).toContain('<bookViews><workbookView/></bookViews><sheets>');
 
-    // табуляция и CR в начале (комментарий операции их обрезает — проверяем писатель напрямую)
-    const raw = buildXlsx({ name: 'Лист', columns: [{ header: 'A', width: 5 }], rows: [[{ kind: 'text', value: '\t=1' }], [{ kind: 'text', value: '\r=2' }], [{ kind: 'text', value: 'a=1' }]] });
+    // табуляция и CR в начале (комментарий операции их обрезает — проверяем писатель напрямую), в общих строках тоже
+    const raw = buildXlsx(
+      { name: 'Лист', columns: [{ header: 'A', width: 5 }], rows: [[{ kind: 'text', value: '\t=1' }], [{ kind: 'text', value: '\r=2' }], [{ kind: 'text', value: 'a=1' }]] },
+      { strings: 'shared' },
+    );
     const sheet = new AdmZip(raw).getEntry('xl/worksheets/sheet1.xml')!.getData().toString('utf8');
-    expect(sheet).toContain('<c r="A2" t="inlineStr" s="7">');
-    expect(sheet).toContain('<c r="A3" t="inlineStr" s="7">');
-    expect(sheet).toContain('<c r="A4" t="inlineStr"><is>');
+    expect(sheet).toContain('<c r="A2" t="s" s="7">');
+    expect(sheet).toContain('<c r="A3" t="s" s="7">');
+    expect(sheet).toContain('<c r="A4" t="s"><v>');
   });
 
-  it('тот же фильтр, что у журнала, и сортировка; чужая компания — 404; ошибка фильтра — 400', async () => {
+  it('тот же фильтр, что у журнала, и сортировка; format=finmap — то же, что без format; чужая компания — 404; ошибка фильтра и формата — 400', async () => {
     w = await opsWorld();
     await op({ paidAt: '2026-10-02T10:00:00Z', amount: 300 });
     await op({ type: 'income', paidAt: '2026-10-03T10:00:00Z', amount: 200 });
     await op({ paidAt: '2026-10-04T10:00:00Z', amount: 100 });
-    const xml = sheetOf((await w.h.req('GET', exportUrl('types=expense&sort=amount&order=asc'))).rawPayload);
-    expect(xml.match(/<row /g)).toHaveLength(3);
-    expect(xml).toContain('<c r="C2" s="5"><v>-1.00</v></c>');
-    expect(xml).toContain('<c r="C3" s="5"><v>-3.00</v></c>');
+    const rows = sheetRows((await download('types=expense&sort=amount&order=asc')).rawPayload);
+    expect(rows.slice(1).map((r) => [r[E], r[G]])).toEqual([['1.00', 'Касса'], ['3.00', 'Касса']]);
+    expect(sheetRows((await download('format=finmap')).rawPayload)).toEqual(sheetRows((await download()).rawPayload));
     expect((await w.h.req('GET', '/api/v1/companies/999999/operations/export.xlsx')).statusCode).toBe(404);
     expect((await w.h.req('GET', exportUrl('from=2026-10-05&to=2026-10-01'))).json().error.code).toBe('VALIDATION');
+    expect((await w.h.req('GET', exportUrl('format=csv'))).json().error.code).toBe('VALIDATION');
   });
 
-  it('больше предела выгрузки — 422 EXPORT_LIMIT, пустой фильтр — книга только с заголовком', async () => {
+  it('удалённая операция и операция другой компании в файл не попадают (R5)', async () => {
+    w = await opsWorld();
+    await op({ paidAt: '2026-10-02T10:00:00Z', comment: 'остаётся' });
+    const gone = await op({ paidAt: '2026-10-03T10:00:00Z', comment: 'удалённая' });
+    expect((await w.h.req('DELETE', `${w.ops}/${gone}`)).statusCode).toBe(200);
+    const other = await w.h.company('Другая');
+    const otherAccount = (await w.post(`/api/v1/companies/${other}/accounts`, { name: 'Чужая касса', currency: 'KZT', openedAt: '2026-10-01', startingBalance: 0 })).account.id as number;
+    await w.post(`/api/v1/companies/${other}/operations`, { type: 'expense', accountId: otherAccount, amount: 1000, paidAt: '2026-10-04T10:00:00Z', comment: 'чужая' });
+    const rows = sheetRows((await download('format=finmap')).rawPayload);
+    expect(rows.slice(1).map((r) => r[P])).toEqual(['остаётся']);
+  });
+
+  it('имя файла: символы, запрещённые в Windows, в названии компании — «_»', async () => {
+    w = await opsWorld();
+    expect((await w.h.req('PATCH', `/api/v1/companies/${w.cid}`, { name: 'Клуб "Север": ТОО/ИП?' })).statusCode).toBe(200);
+    const res = await download();
+    expect(res.headers['content-disposition']).toContain(`filename*=UTF-8''${encodeURIComponent('Клуб _Север__ ТОО_ИП_ - Журнал - 06-10-2026 17-00.xlsx')}`);
+  });
+
+  it('больше предела выгрузки — 422 EXPORT_LIMIT, пустой фильтр — книга только с заголовком (Review Focus 5)', async () => {
     w = await opsWorld();
     for (const day of ['02', '03', '04']) await op({ paidAt: `2026-10-${day}T10:00:00Z` });
     const db = w.h.t.db;
     const journal = createJournal({ db, balances: createLedgerBalances(db), timezone: 'Asia/Almaty', exportLimit: 2 });
-    const q = { sort: 'date', order: 'desc' } as const;
+    const q = { sort: 'date', order: 'desc', format: 'finmap' } as const;
     expect(() => journal.exportXlsx(w.cid, q)).toThrow('Больше 2 операций — сузьте период или фильтр');
-    expect(sheetOf(journal.exportXlsx(w.cid, { ...q, from: '2026-10-04' }).data).match(/<row /g)).toHaveLength(2);
-    expect(sheetOf(journal.exportXlsx(w.cid, { ...q, q: 'нет такого' }).data).match(/<row /g)).toHaveLength(1);
+    expect(sheetRows(journal.exportXlsx(w.cid, { ...q, from: '2026-10-04' }).data)).toHaveLength(2);
+    const empty = sheetRows(journal.exportXlsx(w.cid, { ...q, q: 'нет такого' }).data);
+    expect(empty).toEqual([HEADERS]);
   });
 });
 

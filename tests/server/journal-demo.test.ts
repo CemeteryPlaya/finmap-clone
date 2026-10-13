@@ -73,10 +73,19 @@ describe('журнал на демо-наборе (§10, §12)', () => {
     // последний остаток счёта = его баланс (§4.7)
     for (const b of createLedgerBalances(h.t.db).companyBalances(cid)) expect(b.balance).toBe(balance.get(b.accountId));
 
-    // выгрузка всей компании: заголовок + все операции
+    // выгрузка всей компании в формате Finmap: заголовок + строка на строку операции (у разбитой — несколько, у перевода — одна)
     const xlsx = await h.req('GET', `${ops}/export.xlsx`);
     expect(xlsx.statusCode).toBe(200);
     const sheet = new AdmZip(xlsx.rawPayload).getEntry('xl/worksheets/sheet1.xml')!.getData().toString('utf8');
-    expect(sheet.match(/<row /g)).toHaveLength(expected.length + 1);
+    const exportedRows = (
+      s
+        .prepare(
+          `SELECT SUM(CASE WHEN o.type = 'transfer' THEN 1 ELSE MAX(1, (SELECT COUNT(*) FROM operation_lines l WHERE l.operation_id = o.id)) END) n
+             FROM operations o WHERE o.company_id = ? AND o.deleted_at IS NULL`,
+        )
+        .get(cid) as { n: number }
+    ).n;
+    expect(exportedRows).toBeGreaterThan(expected.length); // в демо-наборе есть разбитые операции
+    expect(sheet.match(/<row /g)).toHaveLength(exportedRows + 1);
   });
 });

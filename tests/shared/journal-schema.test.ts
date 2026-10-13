@@ -53,8 +53,10 @@ describe('journalFilterSchema и journalExportSchema', () => {
     expect(JSON.parse(JSON.stringify(journalFilterSchema.parse({ withoutProject: false })))).toEqual({});
   });
 
-  it('выгрузка: фильтр и сортировка без курсора и страницы', () => {
-    expect(journalExportSchema.parse({ types: 'expense', limit: '10', cursor: 'x' })).toEqual({ types: ['expense'], sort: 'date', order: 'desc' });
+  it('выгрузка: фильтр и сортировка без курсора и страницы; format по умолчанию — finmap, пустой — как отсутствующий, чужой — ошибка', () => {
+    expect(journalExportSchema.parse({ types: 'expense', limit: '10', cursor: 'x' })).toEqual({ types: ['expense'], sort: 'date', order: 'desc', format: 'finmap' });
+    expect(journalExportSchema.parse({ format: '' }).format).toBe('finmap');
+    expect(journalExportSchema.safeParse({ format: 'csv' }).success).toBe(false);
   });
 });
 

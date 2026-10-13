@@ -113,8 +113,17 @@ export const journalQuerySchema = z
   })
   .superRefine(checkRanges);
 
-/** Строка запроса выгрузки `GET …/operations/export.xlsx`: фильтр и сортировка, без страниц. */
-export const journalExportSchema = z.object({ ...filterShape, ...sortShape }).superRefine(checkRanges);
+/**
+ * Строка запроса выгрузки `GET …/operations/export.xlsx` (§8 спецификации импорта): фильтр и сортировка, без страниц, и
+ * `format`: `finmap` — «Excel» в формате Finmap. Без `format` — как с `format=finmap`.
+ */
+export const journalExportSchema = z
+  .object({
+    ...filterShape,
+    ...sortShape,
+    format: z.preprocess(blank, z.enum(['finmap'], { message: 'Формат — finmap' }).default('finmap')),
+  })
+  .superRefine(checkRanges);
 
 export type JournalFilter = z.output<typeof journalFilterSchema>;
 export type JournalQuery = z.output<typeof journalQuerySchema>;
