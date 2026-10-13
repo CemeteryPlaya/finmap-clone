@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { journalExportSchema, journalFilterSchema, journalQuerySchema, type JournalFilter } from '../../src/shared/schemas/journal';
+import { EXPORT_COLUMN_IDS } from '../../src/shared/export-columns';
+import { journalExportPreviewSchema, journalExportSchema, journalFilterSchema, journalQuerySchema, type JournalFilter } from '../../src/shared/schemas/journal';
 
 const issues = (r: { success: boolean; error?: { issues: { path: PropertyKey[]; message: string }[] } }) =>
   Object.fromEntries((r.error?.issues ?? []).map((i) => [i.path.join('.'), i.message]));
@@ -70,5 +71,26 @@ describe('journalFilterSchema: даты и тексты из сохранённ�
   it('не строка в date и q — русское сообщение, а не английское по умолчанию zod', () => {
     expect(issues(journalFilterSchema.safeParse({ from: 20261001 }))).toEqual({ from: 'Неверная дата' });
     expect(issues(journalFilterSchema.safeParse({ q: 5 }))).toEqual({ q: 'Поиск — текст' });
+  });
+});
+
+describe('journalExportSchema: format=custom и columns (§8.3 спецификации импорта)', () => {
+  it('columns: порядок сохраняется (а не сортируется, как списки фильтра), одиночное значение — массив, пустые отбрасываются', () => {
+    expect(journalExportSchema.parse({ format: 'custom', columns: ['comment', 'amount', 'paidAt'] }).columns).toEqual(['comment', 'amount', 'paidAt']);
+    expect(journalExportSchema.parse({ format: 'custom', columns: 'amount' }).columns).toEqual(['amount']);
+    expect(journalExportSchema.parse({ format: 'custom', columns: ['', 'amount'] }).columns).toEqual(['amount']);
+    expect(journalExportSchema.parse({ columns: '' }).columns).toBeUndefined();
+  });
+
+  it('custom без колонок, неизвестная колонка и повтор — ошибки с полем; все 20 колонок — можно', () => {
+    const fields = (v: unknown) => {
+      const r = journalExportSchema.safeParse(v);
+      return r.success ? null : r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
+    };
+    expect(fields({ format: 'custom' })).toEqual(['columns: Выберите хотя бы одну колонку']);
+    expect(fields({ format: 'custom', columns: ['amount', 'nope'] })).toEqual(['columns.1: Неизвестная колонка']);
+    expect(fields({ format: 'custom', columns: ['amount', 'amount'] })).toEqual(['columns: Колонки не должны повторяться']);
+    expect(fields({ format: 'custom', columns: EXPORT_COLUMN_IDS })).toBeNull();
+    expect(journalExportPreviewSchema.parse({ types: 'expense', format: 'custom', columns: 'x' })).toEqual({ types: ['expense'], sort: 'date', order: 'desc' });
   });
 });

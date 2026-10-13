@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { journalExportSchema, journalQuerySchema } from '../../../shared/schemas/journal';
+import { journalExportPreviewSchema, journalExportSchema, journalQuerySchema } from '../../../shared/schemas/journal';
 import { operationBulkSchema, operationCreateSchema, operationUpdateSchema } from '../../../shared/schemas/operations';
 import { contentDisposition } from '../../http/content-disposition';
 import { parseId } from '../../http/params';
@@ -21,7 +21,7 @@ export function registerOperationsRoutes(
   // журнал: фильтр и курсор в строке запроса (§6)
   app.get<C>(BASE, async (req) => journal.list(parseId(req.params.cid), journalQuerySchema.parse(req.query)));
 
-  // выгрузка по тому же фильтру; статический сегмент export.xlsx важнее параметра :id
+  // выгрузка по тому же фильтру; статические сегменты export.xlsx и export-preview важнее параметра :id
   app.get<C>(`${BASE}/export.xlsx`, async (req, reply) => {
     const { fileName, data } = journal.exportXlsx(parseId(req.params.cid), journalExportSchema.parse(req.query));
     reply.header('Content-Type', XLSX_MIME);
@@ -30,6 +30,9 @@ export function registerOperationsRoutes(
     reply.header('Cache-Control', 'private, no-store');
     return reply.send(data);
   });
+
+  // превью окна «Собрать Excel» (§8.3): первые операции фильтра, текст колонок — как в файле
+  app.get<C>(`${BASE}/export-preview`, async (req) => journal.exportPreview(parseId(req.params.cid), journalExportPreviewSchema.parse(req.query)));
 
   app.post<C>(BASE, async (req, reply) => {
     const cid = parseId(req.params.cid);

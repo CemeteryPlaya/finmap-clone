@@ -1,6 +1,7 @@
 import { and, asc, count, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { addDays, formatDateTime, startOfDayUtc } from '../../../shared/dates';
-import type { JournalExportQuery, JournalFilter, JournalOrder, JournalQuery, JournalSort } from '../../../shared/schemas/journal';
+import type { ExportColumnId } from '../../../shared/export-columns';
+import type { JournalExportPreviewQuery, JournalExportQuery, JournalFilter, JournalOrder, JournalQuery, JournalSort } from '../../../shared/schemas/journal';
 import { foldCase } from '../../../shared/search';
 import { effectiveSystemKey, type SystemKey } from '../../../shared/system-categories';
 import type { Db } from '../../db/client';
@@ -9,7 +10,7 @@ import { AppError } from '../../errors';
 import { buildXlsx } from '../../http/xlsx';
 import type { LedgerBalances } from '../balances/service';
 import { requireCompany } from '../companies/guard';
-import { finmapSheet, type ExportLine, type ExportOperation } from './journal-export';
+import { customPreview, customSheet, finmapSheet, type ExportLine, type ExportOperation } from './journal-export';
 import type { OperationDto, OperationLineDto } from './service';
 
 export interface JournalItem extends OperationDto {
@@ -31,10 +32,37 @@ export interface JournalService {
   /** Страница журнала (§6): фильтр, сортировка, курсор. Удалённые операции не показываются. */
   list(companyId: number, query: JournalQuery): JournalPage;
   /**
-   * Выгрузка в Excel по тому же фильтру, без страниц (§7, §8 спецификации импорта): «Excel» — формат Finmap. Больше
-   * exportLimit операций — 422 EXPORT_LIMIT.
+   * Выгрузка в Excel по тому же фильтру, без страниц (§7, §8 спецификации импорта): `finmap` — «Excel» в формате Finmap,
+   * `custom` — «Собрать Excel» с колонками в заданном порядке. Больше exportLimit операций — 422 EXPORT_LIMIT.
    */
   exportXlsx(companyId: number, query: JournalExportQuery): { fileName: string; data: Buffer };
+  /** Превью окна «Собрать Excel» (§8.3): текст каждой колонки каталога у первых 3 операций фильтра, как в файле. */
+  exportPreview(companyId: number, query: JournalExportPreviewQuery): { rows: Record<ExportColumnId, string>[] };
+}
+
+/** Столько операций показывает превью окна «Собрать Excel» (§8.3). */
+export const EXPORT_PREVIEW_ROWS = 3;
+
+/** Остатки после операции — колонки группы «Остатки и валюты», которым нужен расчёт по истории счетов. */
+const BALANCE_COLUMNS: readonly ExportColumnId[] = ['balanceAfter', 'toBalanceAfter'];
+
+/** Операция выгрузки до подстановки строк, тегов и остатков. */
+interface ExportRow {
+  id: number;
+  type: ExportOperation['type'];
+  paidAt: string;
+  accrualDate: string | null;
+  amount: number;
+  baseAmount: number;
+  comment: string | null;
+  currency: string;
+  accountId: number;
+  accountName: string;
+  toAccountId: number | null;
+  toAccountName: string | null;
+  toCurrency: string | null;
+  toAmount: number | null;
+  counterpartyName: string | null;
 }
 
 /** Не больше операций в одной выгрузке: книга собирается в памяти. */
@@ -187,6 +215,103 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
     });
   }
 
+  /** Первые `limit` операций выгрузки в порядке журнала: счета, контрагент и суммы (без строк, тегов и остатков). */
+  function exportRows(companyId: number, q: JournalFilter & { sort: JournalSort; order: JournalOrder }, limit: number): ExportRow[] {
+    return db.all<ExportRow>(sql`
+      SELECT o.id AS id, o.type AS type, o.paid_at AS paidAt, o.accrual_date AS accrualDate, o.amount AS amount,
+             o.base_amount AS baseAmount, o.comment AS comment, o.account_id AS accountId, a.name AS accountName,
+             a.currency AS currency, o.to_account_id AS toAccountId, ta.name AS toAccountName, ta.currency AS toCurrency,
+             o.to_amount AS toAmount, cp.name AS counterpartyName
+        FROM operations o
+        JOIN accounts a ON a.id = o.account_id
+        LEFT JOIN accounts ta ON ta.id = o.to_account_id
+        LEFT JOIN counterparties cp ON cp.id = o.counterparty_id
+       WHERE ${journalWhere(companyId, q, timezone)}
+       ORDER BY ${journalOrder(q.sort, q.order)}
+       LIMIT ${limit}`);
+  }
+
+  /**
+   * Строки, теги и остатки операций выгрузки: по одному запросу на всю выгрузку (тот же фильтр подзапросом с тем же порядком
+   * и пределом, без длинных списков id). Остатки после операции — по полной истории счетов: 'all' — всей компании (выгрузка),
+   * 'rows' — только счетов этих операций (превью), 'none' — не нужны.
+   */
+  function completeExportRows(
+    companyId: number,
+    q: JournalFilter & { sort: JournalSort; order: JournalOrder },
+    rows: ExportRow[],
+    balancesFor: 'all' | 'rows' | 'none',
+  ): ExportOperation[] {
+    if (rows.length === 0) return [];
+    const ids = sql`SELECT o.id FROM operations o WHERE ${journalWhere(companyId, q, timezone)} ORDER BY ${journalOrder(q.sort, q.order)} LIMIT ${rows.length}`;
+    const lines = new Map<number, ExportLine[]>();
+    for (const l of db.all<{
+      operationId: number;
+      category: string | null;
+      parent: string | null;
+      own: SystemKey | null;
+      parentKey: SystemKey | null;
+      project: string | null;
+      amount: number;
+      baseAmount: number;
+    }>(sql`
+      SELECT l.operation_id AS operationId, c.name AS category, pc.name AS parent, c.system_key AS own,
+             pc.system_key AS parentKey, p.name AS project, l.amount AS amount, l.base_amount AS baseAmount
+        FROM operation_lines l
+        LEFT JOIN categories c ON c.id = l.category_id
+        LEFT JOIN categories pc ON pc.id = c.parent_id
+        LEFT JOIN projects p ON p.id = l.project_id
+       WHERE l.operation_id IN (${ids})
+       ORDER BY l.operation_id, l.position`)) {
+      const xs = lines.get(l.operationId) ?? [];
+      xs.push({
+        category: l.category,
+        parent: l.parent,
+        systemKey: effectiveSystemKey(l.own, l.parentKey),
+        project: l.project,
+        amount: l.amount,
+        baseAmount: l.baseAmount,
+      });
+      lines.set(l.operationId, xs);
+    }
+    const tagNames = new Map<number, string[]>();
+    for (const t of db.all<{ operationId: number; name: string }>(sql`
+      SELECT ot.operation_id AS operationId, t.name AS name
+        FROM operation_tags ot JOIN tags t ON t.id = ot.tag_id
+       WHERE ot.operation_id IN (${ids})
+       ORDER BY t.order_index, t.id`)) {
+      tagNames.set(t.operationId, [...(tagNames.get(t.operationId) ?? []), t.name]);
+    }
+    const after =
+      balancesFor === 'none'
+        ? new Map<string, number>()
+        : balancesFor === 'all'
+          ? balances.balancesAfter(companyId)
+          : balances.balancesAfter(companyId, {
+              operationIds: rows.map((r) => r.id),
+              accountIds: [...new Set(rows.flatMap((r) => (r.toAccountId === null ? [r.accountId] : [r.accountId, r.toAccountId])))],
+            });
+    return rows.map((r) => ({
+      id: r.id,
+      type: r.type,
+      paidAt: r.paidAt,
+      accrualDate: r.accrualDate,
+      amount: r.amount,
+      baseAmount: r.baseAmount,
+      currency: r.currency,
+      accountName: r.accountName,
+      balanceAfter: after.get(`${r.id}:${r.accountId}`) ?? null,
+      toAccountName: r.toAccountName,
+      toAmount: r.toAmount,
+      toCurrency: r.toCurrency,
+      toBalanceAfter: r.toAccountId === null ? null : (after.get(`${r.id}:${r.toAccountId}`) ?? null),
+      counterpartyName: r.counterpartyName,
+      lines: lines.get(r.id) ?? [],
+      tags: tagNames.get(r.id) ?? [],
+      comment: r.comment,
+    }));
+  }
+
   return {
     list(companyId, q) {
       requireCompany(db, companyId);
@@ -211,90 +336,27 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
 
     exportXlsx(companyId, q) {
       const company = requireCompany(db, companyId);
-      const where = journalWhere(companyId, q, timezone);
-      const rows = db.all<{
-        id: number;
-        type: ExportOperation['type'];
-        paidAt: string;
-        accrualDate: string | null;
-        amount: number;
-        baseAmount: number;
-        comment: string | null;
-        currency: string;
-        accountName: string;
-        toAccountName: string | null;
-        toCurrency: string | null;
-        toAmount: number | null;
-        counterpartyName: string | null;
-      }>(sql`
-        SELECT o.id AS id, o.type AS type, o.paid_at AS paidAt, o.accrual_date AS accrualDate, o.amount AS amount,
-               o.base_amount AS baseAmount, o.comment AS comment, a.name AS accountName, a.currency AS currency,
-               ta.name AS toAccountName, ta.currency AS toCurrency, o.to_amount AS toAmount, cp.name AS counterpartyName
-          FROM operations o
-          JOIN accounts a ON a.id = o.account_id
-          LEFT JOIN accounts ta ON ta.id = o.to_account_id
-          LEFT JOIN counterparties cp ON cp.id = o.counterparty_id
-         WHERE ${where}
-         ORDER BY ${journalOrder(q.sort, q.order)}
-         LIMIT ${exportLimit + 1}`);
+      const rows = exportRows(companyId, q, exportLimit + 1);
       if (rows.length > exportLimit) {
         throw new AppError(422, 'EXPORT_LIMIT', `Больше ${exportLimit.toLocaleString('ru-RU')} операций — сузьте период или фильтр`);
       }
-
-      // строки и теги — одним запросом на всю выгрузку (тот же фильтр подзапросом, без длинных списков id)
-      const lines = new Map<number, ExportLine[]>();
-      for (const l of db.all<{
-        operationId: number;
-        category: string | null;
-        parent: string | null;
-        own: SystemKey | null;
-        parentKey: SystemKey | null;
-        project: string | null;
-        amount: number;
-        baseAmount: number;
-      }>(sql`
-        SELECT l.operation_id AS operationId, c.name AS category, pc.name AS parent, c.system_key AS own,
-               pc.system_key AS parentKey, p.name AS project, l.amount AS amount, l.base_amount AS baseAmount
-          FROM operation_lines l
-          LEFT JOIN categories c ON c.id = l.category_id
-          LEFT JOIN categories pc ON pc.id = c.parent_id
-          LEFT JOIN projects p ON p.id = l.project_id
-         WHERE l.operation_id IN (SELECT o.id FROM operations o WHERE ${where})
-         ORDER BY l.operation_id, l.position`)) {
-        const xs = lines.get(l.operationId) ?? [];
-        xs.push({
-          category: l.category,
-          parent: l.parent,
-          systemKey: effectiveSystemKey(l.own, l.parentKey),
-          project: l.project,
-          amount: l.amount,
-          baseAmount: l.baseAmount,
-        });
-        lines.set(l.operationId, xs);
-      }
-      const tagNames = new Map<number, string[]>();
-      for (const t of db.all<{ operationId: number; name: string }>(sql`
-        SELECT ot.operation_id AS operationId, t.name AS name
-          FROM operation_tags ot JOIN tags t ON t.id = ot.tag_id
-         WHERE ot.operation_id IN (SELECT o.id FROM operations o WHERE ${where})
-         ORDER BY t.order_index, t.id`)) {
-        tagNames.set(t.operationId, [...(tagNames.get(t.operationId) ?? []), t.name]);
-      }
-
-      const ops: ExportOperation[] = rows.map((r) => ({
-        ...r,
-        balanceAfter: null,
-        toBalanceAfter: null,
-        lines: lines.get(r.id) ?? [],
-        tags: tagNames.get(r.id) ?? [],
-      }));
+      const columns = q.format === 'custom' ? (q.columns ?? []) : [];
+      const ops = completeExportRows(companyId, q, rows, columns.some((c) => BALANCE_COLUMNS.includes(c)) ? 'all' : 'none');
       // «{Компания} - Журнал - ДД-ММ-ГГГГ ЧЧ-ММ.xlsx» по часам APP_TIMEZONE; символы, запрещённые в Windows, — «_»
       const [date = '', time = ''] = formatDateTime(now().toISOString(), timezone).split(', ');
       const safeName = company.name.replace(/[\\/:*?"<>|\u0000-\u001F]/g, '_');
       return {
         fileName: `${safeName} - Журнал - ${date.replaceAll('.', '-')} ${time.replace(':', '-')}.xlsx`,
-        data: buildXlsx(finmapSheet(ops, company.baseCurrency, timezone), { strings: 'shared' }),
+        data: buildXlsx(q.format === 'custom' ? customSheet(ops, columns, company.baseCurrency, timezone) : finmapSheet(ops, company.baseCurrency, timezone), {
+          strings: 'shared',
+        }),
       };
+    },
+
+    exportPreview(companyId, q) {
+      const company = requireCompany(db, companyId);
+      const rows = exportRows(companyId, q, EXPORT_PREVIEW_ROWS);
+      return { rows: customPreview(completeExportRows(companyId, q, rows, 'rows'), company.baseCurrency, timezone) };
     },
   };
 }

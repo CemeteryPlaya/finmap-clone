@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isValidDate } from '../dates';
+import { EXPORT_COLUMN_IDS, EXPORT_COLUMNS_MAX } from '../export-columns';
 
 export const JOURNAL_LIMIT_DEFAULT = 50;
 export const JOURNAL_LIMIT_MAX = 200;
@@ -113,20 +114,46 @@ export const journalQuerySchema = z
   })
   .superRefine(checkRanges);
 
+/** Строка запроса превью окна «Собрать Excel» `GET …/operations/export-preview`: фильтр и сортировка, без страниц. */
+export const journalExportPreviewSchema = z.object({ ...filterShape, ...sortShape }).superRefine(checkRanges);
+
+/**
+ * Колонки «Собрать Excel»: повтор ключа `columns`, **порядок сохраняется** (в отличие от списков фильтра — они
+ * сортируются), без повторов, от 1 до 20 известных идентификаторов.
+ */
+const columnsField = z.preprocess(
+  (v) => {
+    if (v === undefined) return undefined;
+    const xs = (Array.isArray(v) ? v : [v]).filter((x) => x !== '');
+    return xs.length ? xs : undefined;
+  },
+  z
+    .array(z.enum(EXPORT_COLUMN_IDS, { message: 'Неизвестная колонка' }))
+    .max(EXPORT_COLUMNS_MAX, `Не больше ${EXPORT_COLUMNS_MAX} колонок`)
+    .refine((xs) => new Set(xs).size === xs.length, 'Колонки не должны повторяться')
+    .optional(),
+);
+
 /**
  * Строка запроса выгрузки `GET …/operations/export.xlsx` (§8 спецификации импорта): фильтр и сортировка, без страниц, и
- * `format`: `finmap` — «Excel» в формате Finmap. Без `format` — как с `format=finmap`.
+ * `format`: `finmap` — «Excel» в формате Finmap, `custom` — «Собрать Excel» с колонками `columns` в заданном порядке.
+ * Без `format` — как с `format=finmap`; у `finmap` `columns` не влияет на файл.
  */
 export const journalExportSchema = z
   .object({
     ...filterShape,
     ...sortShape,
-    format: z.preprocess(blank, z.enum(['finmap'], { message: 'Формат — finmap' }).default('finmap')),
+    format: z.preprocess(blank, z.enum(['finmap', 'custom'], { message: 'Формат — finmap или custom' }).default('finmap')),
+    columns: columnsField,
   })
-  .superRefine(checkRanges);
+  .superRefine((v, ctx) => {
+    checkRanges(v, ctx);
+    if (v.format === 'custom' && !v.columns) ctx.addIssue({ code: 'custom', path: ['columns'], message: 'Выберите хотя бы одну колонку' });
+  });
 
 export type JournalFilter = z.output<typeof journalFilterSchema>;
 export type JournalQuery = z.output<typeof journalQuerySchema>;
 export type JournalExportQuery = z.output<typeof journalExportSchema>;
+export type JournalExportPreviewQuery = z.output<typeof journalExportPreviewSchema>;
 export type JournalSort = JournalQuery['sort'];
 export type JournalOrder = JournalQuery['order'];

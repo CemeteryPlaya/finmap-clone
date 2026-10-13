@@ -5,10 +5,11 @@ import AdmZip from 'adm-zip';
  * - text — строка (inline или из таблицы общих строк — XlsxOptions.strings; формулой не считается);
  * - number — десятичная запись без экспоненты («-1500.50») и число знаков после запятой для формата;
  * - datetime / date — дата Excel: дни от 30.12.1899, у datetime — с долей суток.
+ * bold — полужирный шрифт (строка «Итого» в «Собрать Excel»).
  */
 export type XlsxCell =
-  | { kind: 'text'; value: string }
-  | { kind: 'number'; value: string; decimals: number }
+  | { kind: 'text'; value: string; bold?: boolean }
+  | { kind: 'number'; value: string; decimals: number; bold?: boolean }
   | { kind: 'datetime'; value: number }
   | { kind: 'date'; value: number }
   | null;
@@ -31,7 +32,7 @@ export interface XlsxOptions {
 }
 
 /** Индексы стилей в cellXfs (styles.xml ниже). */
-const STYLE = { header: 1, datetime: 2, date: 3, int: 4, dec2: 5, dec3: 6, quoted: 7 } as const;
+const STYLE = { header: 1, datetime: 2, date: 3, int: 4, dec2: 5, dec3: 6, quoted: 7, boldInt: 8, boldDec2: 9, boldDec3: 10 } as const;
 
 const HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 const NS_MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -60,8 +61,9 @@ function workbookRels(sheets: number, shared: boolean): string {
   return `<Relationships xmlns="${NS_PKG_REL}">${rels.join('')}</Relationships>`;
 }
 // 164 — дата и время, 165 — дата, 166 — три знака после запятой; 3 и 4 — встроенные «# ##0» и «# ##0,00»;
-// последний xf — quotePrefix: Excel показывает текст как есть и не превращает его в формулу при правке ячейки
-const STYLES = `<styleSheet xmlns="${NS_MAIN}"><numFmts count="3"><numFmt numFmtId="164" formatCode="dd.mm.yyyy hh:mm"/><numFmt numFmtId="165" formatCode="dd.mm.yyyy"/><numFmt numFmtId="166" formatCode="#,##0.000"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" quotePrefix="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+// xf 7 — quotePrefix: Excel показывает текст как есть и не превращает его в формулу при правке ячейки;
+// xf 8–10 — те же три числовых формата полужирным шрифтом (строка «Итого»)
+const STYLES = `<styleSheet xmlns="${NS_MAIN}"><numFmts count="3"><numFmt numFmtId="164" formatCode="dd.mm.yyyy hh:mm"/><numFmt numFmtId="165" formatCode="dd.mm.yyyy"/><numFmt numFmtId="166" formatCode="#,##0.000"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="11"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" quotePrefix="1"/><xf numFmtId="3" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/><xf numFmtId="4" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/><xf numFmtId="166" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
 
 /** Символы, недопустимые в XML 1.0: управляющие (кроме табуляции и переводов строки), одиночные суррогаты, U+FFFE и U+FFFF. */
 const INVALID_XML = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
@@ -89,10 +91,10 @@ export function columnName(index: number): string {
 /** Начало текста, которое Excel и LibreOffice при правке или импорте принимают за формулу. */
 const FORMULA_START = /^[=+\-@\t\r]/;
 
-function numberStyle(decimals: number): number {
-  if (decimals === 0) return STYLE.int;
-  if (decimals === 2) return STYLE.dec2;
-  if (decimals === 3) return STYLE.dec3;
+function numberStyle(decimals: number, bold = false): number {
+  if (decimals === 0) return bold ? STYLE.boldInt : STYLE.int;
+  if (decimals === 2) return bold ? STYLE.boldDec2 : STYLE.dec2;
+  if (decimals === 3) return bold ? STYLE.boldDec3 : STYLE.dec3;
   throw new Error(`Неподдерживаемое число знаков после запятой: ${decimals}`);
 }
 
@@ -124,13 +126,13 @@ function cellXml(ref: string, cell: XlsxCell, shared: SharedStrings | null, styl
   switch (cell.kind) {
     case 'text': {
       // формул в листе нет (<f> не пишется); текст, похожий на формулу, — со стилем quotePrefix (и в общих строках)
-      const s = style ?? (FORMULA_START.test(clean(cell.value)) ? STYLE.quoted : 0);
+      const s = style ?? (cell.bold ? STYLE.header : FORMULA_START.test(clean(cell.value)) ? STYLE.quoted : 0);
       const attr = s ? ` s="${s}"` : '';
       if (shared) return `<c r="${ref}" t="s"${attr}><v>${shared.ref(clean(cell.value))}</v></c>`;
       return `<c r="${ref}" t="inlineStr"${attr}><is><t xml:space="preserve">${xmlText(cell.value)}</t></is></c>`;
     }
     case 'number':
-      return `<c r="${ref}" s="${numberStyle(cell.decimals)}"><v>${cell.value}</v></c>`;
+      return `<c r="${ref}" s="${numberStyle(cell.decimals, cell.bold)}"><v>${cell.value}</v></c>`;
     case 'datetime':
       return `<c r="${ref}" s="${STYLE.datetime}"><v>${cell.value}</v></c>`;
     case 'date':

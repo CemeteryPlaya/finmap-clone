@@ -260,3 +260,161 @@ describe('выгрузка: граница дат (финальные правк
     expect(() => buildXlsx(sheet)).toThrow(/знаков/);
   });
 });
+
+describe('журнал: «Собрать Excel» — format=custom (§8.3 спецификации импорта)', () => {
+  /** Доход с разбиением, перевод KZT → USD по курсу 475,12 (зачисление 1,00 $), расход в USD и зарплата с подкатегорией и периодом. */
+  async function mixedWorld() {
+    w = await opsWorld();
+    const salary = await systemCategory('salary');
+    const staff = (await w.post(`/api/v1/companies/${w.cid}/categories`, { kind: 'expense', name: 'Администраторы', parentId: salary })).category.id as number;
+    await op({
+      type: 'income',
+      paidAt: '2026-10-05T05:00:00Z',
+      amount: 150050,
+      accrualDate: '2026-09-30',
+      counterpartyId: w.counterparty,
+      tagIds: [w.tag],
+      comment: 'доход',
+      lines: [
+        { categoryId: w.income, projectId: w.project, amount: 100000 },
+        { categoryId: w.income, projectId: w.project2, amount: 50050 },
+      ],
+    });
+    await op({ type: 'transfer', paidAt: '2026-10-04T10:00:00Z', amount: 47512, toAccountId: w.usd, toAmount: 100, comment: 'перевод', lines: [] });
+    await op({ paidAt: '2026-10-03T10:00:00Z', accountId: w.usd, amount: 100, comment: 'расход', lines: [{ categoryId: w.expense, projectId: null, amount: 100 }] });
+    await op({ paidAt: '2026-10-02T10:00:00Z', accrualDate: '2026-09-01', amount: 1000, comment: 'зарплата', lines: [{ categoryId: staff, projectId: null, amount: 1000 }] });
+  }
+  const custom = (columns: string[], qs = '') => download(`format=custom&${columns.map((c) => `columns=${c}`).join('&')}${qs ? `&${qs}` : ''}`);
+
+  it('колонки — в заданном порядке, заголовки Finmap без звёздочек, лист «Журнал»; одна строка на операцию; суммы со знаком; «; » у разбитой', async () => {
+    await mixedWorld();
+    const columns = ['amount', 'type', 'paidAt', 'category', 'subcategory', 'project', 'fromAccount', 'toAccount', 'baseAmount', 'periodFrom', 'accrualDate', 'comment'];
+    const res = await custom(columns);
+    expect(res.headers['content-disposition']).toContain(encodeURIComponent('ТОО - Журнал - 06-10-2026 17-00.xlsx'));
+    expect(new AdmZip(res.rawPayload).getEntry('xl/workbook.xml')!.getData().toString('utf8')).toContain('<sheet name="Журнал" sheetId="1" r:id="rId1"/>');
+    const rows = sheetRows(res.rawPayload);
+    expect(rows[0]).toEqual([
+      'Сумма в валюте счета', 'Тип', 'Дата платежа', 'Категория', 'Подкатегория', 'Проект', 'Со счета', 'На счет', 'Сумма в валюте компании',
+      'Период начисления (дата "с")', 'Дата начисления', 'Комментарий',
+    ]);
+    const [, income, transfer, expense, salary] = rows as [string[], string[], string[], string[], string[], string[]];
+    // доход: одна строка, проекты и категории строк — через «; » без повторов; знак «плюс» не пишется
+    expect([income[0], income[1], income[3], income[4], income[5], income[6], income[7], income[8], income[11]]).toEqual(['1500.50', 'Доход', 'Бар', '', 'Клуб 1; Клуб 2', '', 'Касса', '1500.50', 'доход']);
+    expect([income[9], income[10]]).toEqual(['', '46295']);
+    // перевод — без знака; расход — со знаком «минус» и в валюте счёта, и в валюте компании
+    expect([transfer[0], transfer[1], transfer[6], transfer[7], transfer[8]]).toEqual(['475.12', 'Перевод', 'Касса', 'Валютный', '475.12']);
+    expect([expense[0], expense[1], expense[6], expense[7], expense[8]]).toEqual(['-1.00', 'Расход', 'Валютный', '', '-475.12']);
+    // зарплата: категория и подкатегория; «Дата начисления» пишется всегда, период — по правилу §8.2 (у Finmap заполнены и дата, и период)
+    expect([salary[3], salary[4], salary[9], salary[10]]).toEqual(['Зарплата', 'Администраторы', '01.09.2026 00:00:00', '46266']);
+    expect(rows).toHaveLength(6); // заголовок + 4 операции + «Итого»
+  });
+
+  it('«Итого»: сумма в валюте компании со знаком; в валюте счёта — только при одной валюте; подпись — в первой колонке без суммы; значения — не формулы', async () => {
+    await mixedWorld();
+    // разные валюты счетов: сумма в валюте компании есть, в валюте счёта нет — подпись в колонке «Сумма в валюте счета»
+    const mixed = await custom(['amount', 'baseAmount']);
+    const mixedRows = sheetRows(mixed.rawPayload);
+    // 1500,50 + 475,12 (перевод без знака) - 475,12 - 10,00
+    expect(mixedRows.at(-1)).toEqual(['Итого', '1490.50']);
+    const xml = sheetOf(mixed.rawPayload);
+    expect(xml).not.toContain('<f>');
+    // полужирным: подпись — стиль заголовка 1, число с двумя знаками — полужирный формат 9
+    expect(xml).toMatch(/<c r="A6" t="s" s="1">/);
+    expect(xml).toMatch(/<c r="B6" s="9"><v>1490\.50<\/v><\/c>/);
+    // только KZT: итог есть у обеих сумм, подписи нет (все колонки заняты итогами)
+    const kzt = sheetRows((await custom(['amount', 'baseAmount'], `types=income&types=expense&accountIds=${w.kzt}`)).rawPayload);
+    expect(kzt.at(-1)).toEqual(['1490.50', '1490.50']);
+    // переводы: «Сумма зачисления» суммируется при одной валюте зачисления; подпись — в соседней колонке
+    const transfers = sheetRows((await custom(['toAmount', 'toCurrency'], 'types=transfer')).rawPayload);
+    expect(transfers).toEqual([['Сумма зачисления', 'Валюта зачисления'], ['1.00', 'USD'], ['1.00', 'Итого']]);
+    // без операций — только заголовок, строки «Итого» нет
+    expect(sheetRows((await custom(['amount'], 'q=нет такого')).rawPayload)).toEqual([['Сумма в валюте счета']]);
+  });
+
+  it('«Остатки и валюты»: валюта счёта, остаток после операции, сумма, валюта и остаток зачисления — по истории счетов', async () => {
+    await mixedWorld();
+    const rows = sheetRows((await custom(['balanceAfter', 'toBalanceAfter', 'currency', 'toAmount', 'toCurrency'])).rawPayload);
+    expect(rows.slice(1, 5)).toEqual([
+      ['1015.38', '', 'KZT', '', ''], // доход: -10,00 - 475,12 + 1500,50
+      ['-485.12', '0.00', 'KZT', '1.00', 'USD'], // перевод: остаток Кассы и остаток «Валютного» после зачисления
+      ['-1.00', '', 'USD', '', ''],
+      ['-10.00', '', 'KZT', '', ''],
+    ]);
+  });
+
+  it('ошибки запроса: нет колонок, неизвестная, повтор; id проверяется и у format=finmap, но колонки на его файл не влияют (Review Focus 5)', async () => {
+    w = await opsWorld();
+    const error = async (qs: string) => (await w.h.req('GET', exportUrl(qs))).json().error;
+    expect((await error('format=custom')).fields).toEqual({ columns: 'Выберите хотя бы одну колонку' });
+    expect((await error('format=custom&columns=')).fields).toEqual({ columns: 'Выберите хотя бы одну колонку' });
+    expect((await error('format=custom&columns=amount&columns=nope')).fields).toEqual({ 'columns.1': 'Неизвестная колонка' });
+    expect((await error('format=custom&columns=amount&columns=amount')).fields).toEqual({ columns: 'Колонки не должны повторяться' });
+    expect((await w.h.req('GET', exportUrl('format=finmap&columns=nope'))).statusCode).toBe(400);
+    const fine = await w.h.req('GET', exportUrl('format=finmap&columns=amount'));
+    expect(sheetRows(fine.rawPayload)[0]).toHaveLength(16);
+  });
+
+  it('превью: первые 3 операции фильтра, текст каждой колонки каталога — как в файле; фильтр применяется; чужая компания — 404', async () => {
+    await mixedWorld();
+    const res = await w.h.req('GET', `${w.ops}/export-preview`);
+    expect(res.statusCode, res.body).toBe(200);
+    const { rows } = res.json() as { rows: Record<string, string>[] };
+    expect(rows).toHaveLength(3); // операций четыре
+    expect(Object.keys(rows[0]!).sort()).toEqual(
+      [
+        'paidAt', 'accrualDate', 'periodFrom', 'periodTo', 'amount', 'baseAmount', 'type', 'fromAccount', 'toAccount', 'category', 'subcategory',
+        'counterparty', 'project', 'tags', 'comment', 'currency', 'balanceAfter', 'toAmount', 'toCurrency', 'toBalanceAfter',
+      ].sort(),
+    );
+    expect(rows[0]).toMatchObject({
+      paidAt: '05.10.2026 10:00',
+      accrualDate: '30.09.2026',
+      amount: '1\u202F500,50',
+      baseAmount: '1\u202F500,50',
+      type: 'Доход',
+      toAccount: 'Касса',
+      category: 'Бар',
+      project: 'Клуб 1; Клуб 2',
+      counterparty: 'ИП Клиент',
+      tags: 'Смена',
+      currency: 'KZT',
+      balanceAfter: '1\u202F015,38',
+    });
+    expect(rows[2]).toMatchObject({ amount: '\u22121,00', baseAmount: '\u2212475,12', currency: 'USD', balanceAfter: '\u22121,00' });
+    const expenses = ((await w.h.req('GET', `${w.ops}/export-preview?types=expense`)).json() as { rows: Record<string, string>[] }).rows;
+    expect(expenses.map((r) => r.comment)).toEqual(['расход', 'зарплата']);
+    expect(expenses[1]).toMatchObject({ periodFrom: '01.09.2026 00:00:00', periodTo: '30.09.2026 23:59:59', subcategory: 'Администраторы' });
+    expect((await w.h.req('GET', '/api/v1/companies/999999/operations/export-preview')).statusCode).toBe(404);
+    expect((await w.h.req('GET', `${w.ops}/export-preview?from=2026-10-05&to=2026-10-01`)).json().error.code).toBe('VALIDATION');
+  });
+
+  it('превью: операция, удалённая через DELETE, в строках не появляется (R5)', async () => {
+    await mixedWorld();
+    const before = ((await w.h.req('GET', `${w.ops}/export-preview?types=expense`)).json() as { rows: Record<string, string>[] }).rows;
+    expect(before.map((r) => r.comment)).toEqual(['расход', 'зарплата']);
+    const list = (await w.h.req('GET', `${w.ops}?types=expense`)).json() as { items: { id: number; comment: string | null }[] };
+    const doomed = list.items.find((i) => i.comment === 'расход')!;
+    expect((await w.h.req('DELETE', `${w.ops}/${doomed.id}`)).statusCode).toBeLessThan(300);
+    const after = ((await w.h.req('GET', `${w.ops}/export-preview?types=expense`)).json() as { rows: Record<string, string>[] }).rows;
+    expect(after.map((r) => r.comment)).toEqual(['зарплата']);
+  });
+
+  it('писатель: полужирные ячейки — подпись стилем заголовка, числа — полужирными форматами с 0, 2 и 3 знаками', () => {
+    const raw = buildXlsx({
+      name: 'Итог',
+      columns: [{ header: 'A', width: 5 }],
+      rows: [
+        [{ kind: 'text', value: 'Итого', bold: true }],
+        [{ kind: 'number', value: '1', decimals: 0, bold: true }],
+        [{ kind: 'number', value: '1.50', decimals: 2, bold: true }],
+        [{ kind: 'number', value: '1.500', decimals: 3, bold: true }],
+        [{ kind: 'number', value: '1.50', decimals: 2 }],
+      ],
+    });
+    const zip = new AdmZip(raw);
+    const xml = zip.getEntry('xl/worksheets/sheet1.xml')!.getData().toString('utf8');
+    expect(xml).toContain('<c r="A2" t="inlineStr" s="1">');
+    expect(['A3" s="8', 'A4" s="9', 'A5" s="10', 'A6" s="5'].every((x) => xml.includes(`<c r="${x}">`))).toBe(true);
+    expect(zip.getEntry('xl/styles.xml')!.getData().toString('utf8')).toContain('<cellXfs count="11">');
+  });
+});
