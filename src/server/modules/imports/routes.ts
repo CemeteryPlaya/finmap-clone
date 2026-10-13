@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { importCommitSchema, importRequestSchema } from '../../../shared/schemas/imports';
+import { importCommitSchema, importListQuerySchema, importRequestSchema } from '../../../shared/schemas/imports';
 import { AppError } from '../../errors';
 import { contentDisposition } from '../../http/content-disposition';
 import { headerFileName, parseId } from '../../http/params';
@@ -43,6 +43,9 @@ export function registerImportsRoutes(app: FastifyInstance, deps: { imports: Imp
     );
     return reply.status(201).send(result);
   });
+
+  // список «Импорты» (§7.2): новые сверху, «Показать ещё» — по beforeId
+  app.get<C>(BASE, async (req) => imports.list(parseId(req.params.cid), importListQuerySchema.parse(req.query)));
 
   app.get('/api/v1/imports/template.xlsx', async (_req, reply) => {
     const { fileName, data } = imports.template();

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { todayInTimezone } from '../../../shared/dates';
-import type { ImportCommitRequest, ImportCommitResult, ImportCounts, ImportPreview, ImportRequest } from '../../../shared/schemas/imports';
+import type { ImportCommitRequest, ImportCommitResult, ImportCounts, ImportListPage, ImportListQuery, ImportPreview, ImportRequest } from '../../../shared/schemas/imports';
 import { cleanName } from '../../../shared/text';
 import type { Db } from '../../db/client';
 import { AppError } from '../../errors';
@@ -10,12 +10,13 @@ import { requireCompany } from '../companies/guard';
 import type { RatesService } from '../rates/service';
 import { createImportCache, type ImportCache } from './cache';
 import { writeImport, type ImportWriterDeps } from './commit';
+import { listImports } from './history';
 import { parseSheet } from './parse-row';
 import { buildPreview } from './preview';
 import { IMPORT_MAX_BYTES, readImportFile } from './read-file';
 import { buildTemplate, TEMPLATE_FILE_NAME } from './template';
 
-/** Импорт: проверка файла и запись (§5.2, §6.2, §6.4 спецификации импорта). Отмена — план И-3. */
+/** Импорт: проверка файла, запись, список и отмена (§5.2, §6.2, §6.4, §7 спецификации импорта). */
 export interface ImportsService {
   /** Разбор файла, кэш и предпросмотр по сопоставлению счетов по умолчанию. */
   upload(companyId: number, userId: number, file: { name: string; data: Buffer }): ImportPreview;
@@ -28,6 +29,8 @@ export interface ImportsService {
   commit(companyId: number, userId: number, body: ImportCommitRequest): ImportCommitResult;
   /** Шаблон импорта (§5.2). */
   template(): { fileName: string; data: Buffer };
+  /** Список «Импорты» (§7.2): новые сверху, у неотменённых — pending; архивная компания — тоже (только чтение). */
+  list(companyId: number, q: ImportListQuery): ImportListPage;
 }
 
 export const importExpired = () => new AppError(410, 'IMPORT_EXPIRED', 'Проверка устарела — загрузите файл заново');
@@ -126,6 +129,11 @@ export function createImportsService(
 
     template() {
       return { fileName: TEMPLATE_FILE_NAME, data: buildTemplate() };
+    },
+
+    list(companyId, q) {
+      requireCompany(db, companyId);
+      return listImports(db, companyId, q);
     },
   };
 }

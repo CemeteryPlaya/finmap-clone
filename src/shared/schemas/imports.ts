@@ -138,3 +138,40 @@ export interface ImportCommitResult {
   import: ImportRecord;
   counts: ImportCounts;
 }
+
+/** Запрос списка импортов (§6.2, §7.2): GET …/imports?limit=20&beforeId=. */
+export const importListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1, 'От 1 до 100').max(100, 'От 1 до 100').default(20),
+  beforeId: z.coerce.number().int().positive().optional(),
+});
+export type ImportListQuery = z.infer<typeof importListQuerySchema>;
+
+/** Операции импорта, которые удалит отмена (§7.2): всего и изменённых после импорта. */
+export interface ImportPending {
+  /** Все операции импорта, в том числе мягко удалённые. */
+  operations: number;
+  /** Изменённые после импорта (§7.3): неудалённые, с version > 1 или с вложением. */
+  edited: number;
+}
+
+/** Запись списка «Импорты» (§7.2): новые сверху. */
+export interface ImportListItem {
+  id: number;
+  fileName: string;
+  fileSize: number;
+  status: 'done' | 'undone';
+  createdAt: string;
+  /** Кто импортировал; null — пользователь удалён. */
+  userName: string | null;
+  counts: ImportCounts;
+  undoneAt: string | null;
+  undoneByName: string | null;
+  /** Только у status = 'done'. */
+  pending: ImportPending | null;
+}
+
+/** Ответ GET …/imports: страница и id для «Показать ещё» (null — больше нет). */
+export interface ImportListPage {
+  items: ImportListItem[];
+  nextBeforeId: number | null;
+}
