@@ -41,7 +41,9 @@ export function Drawer(props: {
   const pressedOnBackdrop = useRef(false);
   const titleId = useId();
   const busy = useRef(false);
-  busy.current = props.busy === true;
+  useEffect(() => {
+    busy.current = props.busy === true;
+  });
   const close = () => {
     if (!busy.current) ref.current?.close();
   };

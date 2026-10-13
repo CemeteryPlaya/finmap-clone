@@ -196,9 +196,12 @@ function amountError(currency: string): string {
 export function mappingFromDraft(key: string, d: CardDraft, accountCurrency: string | null): { mapping: AccountMapping | null; error: string | null } {
   if (d.choice === null) return { mapping: null, error: null };
   if (d.choice !== NEW_ACCOUNT) {
-    const currency = accountCurrency ?? 'KZT';
-    const target = d.target.trim() === '' ? null : parseAmount(d.target, isKnownCurrency(currency) ? getCurrency(currency).minorUnits : 2);
-    if (target === null && d.target.trim() !== '') return { mapping: null, error: amountError(currency) };
+    const hasTarget = d.target.trim() !== '';
+    // валюта счёта неизвестна — сумму не разобрать: ошибка, а не молчаливое допущение KZT
+    if (hasTarget && accountCurrency === null) return { mapping: null, error: 'Не удалось определить валюту счёта' };
+    const currency = accountCurrency ?? '';
+    const target = hasTarget ? parseAmount(d.target, isKnownCurrency(currency) ? getCurrency(currency).minorUnits : 2) : null;
+    if (target === null && hasTarget) return { mapping: null, error: amountError(currency) };
     return { mapping: { key, kind: 'existing', accountId: d.choice, targetBalance: target }, error: null };
   }
   const amount = d.amount.trim() === '' ? null : parseAmount(d.amount, isKnownCurrency(d.currency) ? getCurrency(d.currency).minorUnits : 2);
@@ -217,11 +220,23 @@ export function requestMappings(p: ImportPreview, choices: ReadonlyMap<string, A
   });
 }
 
+/** Равенство сопоставлений по полям: не зависит от порядка ключей; null и отсутствующее поле равны. */
+export function sameMapping(a: AccountMapping, b: AccountMapping | null): boolean {
+  if (b === null || a.key !== b.key || a.kind !== b.kind) return false;
+  if (a.kind === 'existing' && b.kind === 'existing') return a.accountId === b.accountId && (a.targetBalance ?? null) === (b.targetBalance ?? null);
+  if (a.kind === 'new' && b.kind === 'new') {
+    const x = a.balance ?? null;
+    const y = b.balance ?? null;
+    return a.name === b.name && a.currency === b.currency && (x === null ? y === null : y !== null && x.mode === y.mode && x.amount === y.amount);
+  }
+  return false;
+}
+
 /** В новом файле есть счета, выбранные человеком раньше иначе, чем по умолчанию: нужен пересчёт с этим выбором. */
 export function needsRemembered(p: ImportPreview, choices: ReadonlyMap<string, AccountMapping>): boolean {
   return p.accounts.some((card) => {
     const m = choices.get(card.key);
-    return m !== undefined && JSON.stringify(m) !== JSON.stringify(card.mapping);
+    return m !== undefined && !sameMapping(m, card.mapping);
   });
 }
 
@@ -241,21 +256,35 @@ export function doneText(r: ImportCommitResult): string {
 
 /** Свежий предпросмотр в ответе 409 и 422 (details.preview). */
 export function isImportPreview(x: unknown): x is ImportPreview {
-  if (!x || typeof x !== 'object') return false;
-  const p = x as Partial<ImportPreview>;
-  const obj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+  const obj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+  const num = (v: unknown) => typeof v === 'number';
+  if (!obj(x)) return false;
+  const { file, counts, period, errors, create, duplicates } = x;
   return (
-    typeof p.token === 'string' &&
-    typeof p.revision === 'string' &&
-    typeof p.canImport === 'boolean' &&
-    Array.isArray(p.accounts) &&
-    obj(p.errors) &&
-    typeof p.errors.total === 'number' &&
-    Array.isArray(p.errors.byCode) &&
-    obj(p.counts) &&
-    typeof p.counts.add === 'number' &&
-    obj(p.create) &&
-    (['categories', 'counterparties', 'projects', 'tags'] as const).every((k) => obj(p.create![k]) && Array.isArray(p.create![k].items))
+    typeof x.token === 'string' &&
+    typeof x.revision === 'string' &&
+    typeof x.canImport === 'boolean' &&
+    obj(file) &&
+    num(file.rows) &&
+    obj(counts) &&
+    (['income', 'expense', 'transfer', 'add', 'duplicates'] as const).every((k) => num(counts[k])) &&
+    (period === null || (obj(period) && typeof period.from === 'string' && typeof period.to === 'string')) &&
+    Array.isArray(x.accounts) &&
+    x.accounts.every(
+      (a) => obj(a) && typeof a['key'] === 'string' && typeof a['fileName'] === 'string' && Array.isArray(a['errors']) && (a['mapping'] === null || obj(a['mapping'])),
+    ) &&
+    obj(errors) &&
+    num(errors.total) &&
+    Array.isArray(errors.byCode) &&
+    Array.isArray(x.warnings) &&
+    obj(duplicates) &&
+    num(duplicates.count) &&
+    Array.isArray(duplicates.rows) &&
+    obj(create) &&
+    (['categories', 'counterparties', 'projects', 'tags'] as const).every((k) => {
+      const g = create[k];
+      return obj(g) && num(g.total) && Array.isArray(g.items);
+    })
   );
 }
 

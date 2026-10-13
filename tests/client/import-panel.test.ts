@@ -186,6 +186,23 @@ describe('панель импорта: сопоставление счетов (
     expect(needsRemembered(p, new Map())).toBe(false);
   });
 
+  it('needsRemembered сравнивает по полям: порядок ключей и null/отсутствующее поле не важны', () => {
+    const p = preview({ accounts: [card({ mapping: { key: 'касса', kind: 'existing', accountId: 7, targetBalance: null } })] });
+    expect(needsRemembered(p, new Map([['касса', { key: 'касса', kind: 'existing', accountId: 7 }]]))).toBe(false);
+    expect(needsRemembered(p, new Map([['касса', { accountId: 7, kind: 'existing', key: 'касса', targetBalance: null }]]))).toBe(false);
+    expect(needsRemembered(p, new Map([['касса', { key: 'касса', kind: 'existing', accountId: 7, targetBalance: 5 }]]))).toBe(true);
+    const fresh = preview({ accounts: [card({ key: 'банк', mapping: { key: 'банк', kind: 'new', name: 'Банк', currency: 'KZT', balance: null } })] });
+    expect(needsRemembered(fresh, new Map([['банк', { balance: null, currency: 'KZT', name: 'Банк', kind: 'new', key: 'банк' }]]))).toBe(false);
+    expect(needsRemembered(fresh, new Map([['банк', { key: 'банк', kind: 'new', name: 'Банк', currency: 'USD', balance: null }]]))).toBe(true);
+    expect(needsRemembered(fresh, new Map([['банк', { key: 'банк', kind: 'existing', accountId: 1 }]]))).toBe(true);
+  });
+
+  it('сумма существующего счёта без известной валюты — ошибка, а не допущение KZT', () => {
+    const d = { choice: 7, name: 'Касса', currency: 'KZT', mode: 'current' as const, amount: '', target: '1 000' };
+    expect(mappingFromDraft('касса', d, null)).toEqual({ mapping: null, error: 'Не удалось определить валюту счёта' });
+    expect(mappingFromDraft('касса', { ...d, target: '' }, null).error).toBeNull();
+  });
+
   it('свежий предпросмотр в ответе 409/422 распознаётся', () => {
     expect(isImportPreview(preview())).toBe(true);
     expect(isImportPreview({ token: 'x' })).toBe(false);
@@ -193,6 +210,15 @@ describe('панель импорта: сопоставление счетов (
     // ошибки, счётчики и «Будет создано» — тоже по типу: панель показывает их без проверок
     expect(isImportPreview({ ...preview(), errors: { total: '1', byCode: [] } })).toBe(false);
     expect(isImportPreview({ ...preview(), counts: null })).toBe(false);
+    expect(isImportPreview({ ...preview(), accounts: [null] })).toBe(false);
+    expect(isImportPreview({ ...preview(), accounts: [{ ...card(), errors: undefined }] })).toBe(false);
+    expect(isImportPreview({ ...preview(), accounts: [{ ...card(), mapping: undefined }] })).toBe(false);
+    expect(isImportPreview({ ...preview(), file: { name: 'x' } })).toBe(false);
+    expect(isImportPreview({ ...preview(), counts: { add: 1 } })).toBe(false);
+    expect(isImportPreview({ ...preview(), warnings: {} })).toBe(false);
+    expect(isImportPreview({ ...preview(), duplicates: { count: 0 } })).toBe(false);
+    expect(isImportPreview({ ...preview(), period: { from: '2026-01-01' } })).toBe(false);
+    expect(isImportPreview({ ...preview(), period: null })).toBe(true);
     expect(isImportPreview({ ...preview(), create: { ...preview().create, tags: { total: 0 } } })).toBe(false);
   });
 });
