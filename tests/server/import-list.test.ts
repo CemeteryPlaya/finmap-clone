@@ -77,16 +77,32 @@ describe('GET …/imports — список «Импорты» (§6.2, §7.2 сп
     expect(p1.nextBeforeId).toBe(second.import.id);
     const p2 = await list(`?limit=1&beforeId=${p1.nextBeforeId}`);
     expect(p2.items.map((i) => i.id)).toEqual([first.import.id]);
-    expect(p2.nextBeforeId).toBe(first.import.id);
+    // полная последняя страница: дальше записей нет — nextBeforeId null, лишнего пустого запроса не будет
+    expect(p2.nextBeforeId).toBeNull();
+    expect(await list('?limit=2')).toEqual({ items: [expect.objectContaining({ id: second.import.id }), expect.objectContaining({ id: first.import.id })], nextBeforeId: null });
     expect(await list(`?limit=1&beforeId=${first.import.id}`)).toEqual({ items: [], nextBeforeId: null });
 
+    // чужая компания — в обе стороны: импорт другой компании не виден здесь, наши — не видны там
     expect((await list('', other)).items).toEqual([]);
-    expect((await w.h.req('POST', `/api/v1/companies/${other}/archive`, {})).statusCode).toBe(200);
-    expect((await list('', other)).items).toEqual([]);
+    const theirs = await importRows(w, FILE_B, { name: 'чужой.xlsx', cid: other });
+    expect((await list('', other)).items.map((i) => i.id)).toEqual([theirs.import.id]);
+    expect((await list()).items.map((i) => i.id)).toEqual([second.import.id, first.import.id]);
+    expect((await list(`?beforeId=${theirs.import.id + 1}`)).items.map((i) => i.id)).toEqual([second.import.id, first.import.id]);
+    const archived = await w.h.company('Архивная');
+    expect((await w.h.req('POST', `/api/v1/companies/${archived}/archive`, {})).statusCode).toBe(200);
+    expect(await list('', archived)).toEqual({ items: [], nextBeforeId: null });
 
     const bad = await w.h.req('GET', `${listUrl()}?limit=0`);
     expect(bad.statusCode).toBe(400);
     expect(bad.json().error.code).toBe('VALIDATION');
     expect((await w.h.req('GET', listUrl(99_999))).statusCode).toBe(404);
+  });
+
+  it('без входа — 401', async () => {
+    w = await opsWorld(NOW);
+    await importRows(w, FILE_A);
+    const res = await w.h.t.app.inject({ method: 'GET', url: listUrl() });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe('UNAUTHORIZED');
   });
 });

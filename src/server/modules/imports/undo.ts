@@ -62,7 +62,7 @@ export function undoImport(tx: Executor, input: UndoInput, record: (entry: Audit
       edited: sql<number>`${EDITED_SQL}`,
     })
     .from(operations)
-    .where(eq(operations.importId, importId))
+    .where(and(eq(operations.importId, importId), eq(operations.companyId, companyId)))
     .all();
   const editedCount = ops.filter((o) => o.edited === 1).length;
   // пока человек читал подтверждение, изменили ещё операции: с флажком они удалились бы без его ведома
@@ -100,6 +100,8 @@ export function undoImport(tx: Executor, input: UndoInput, record: (entry: Audit
   }
 
   const deleted = { operations: doomed.length, ...zero() };
+  /** Поля счетов, оставленные как есть, и обнулённые стартовые балансы оставленных созданных счетов. */
+  const keptAccounts: ImportKeptAccountField[] = [];
   const keptCreated = zero();
   const keptNames: ImportUndoResult['kept']['names'] = [];
   const keep = (entity: ImportCreatedEntity, name: string) => {
@@ -156,8 +158,17 @@ export function undoImport(tx: Executor, input: UndoInput, record: (entry: Audit
       .where(or(eq(operations.accountId, a.id), eq(operations.toAccountId, a.id)))
       .limit(1)
       .get();
-    if (exists(used)) keep('account', a.name);
-    else {
+    if (exists(used)) {
+      keep('account', a.name);
+      // стартовый баланс созданного счёта импорт рассчитал по операциям файла: без них он не имеет смысла — обнуляется
+      // (решение 16 плана И-3); счёт в архиве не меняется (у него нулевой баланс, операции на нём не удалялись)
+      const zeroed = a.archivedAt ? null : changedFields({ startingBalance: a.startingBalance }, { startingBalance: 0 });
+      if (zeroed) {
+        tx.update(accounts).set({ startingBalance: 0 }).where(eq(accounts.id, a.id)).run();
+        record({ companyId, userId, entity: 'account', entityId: a.id, action: 'update', diff: { ...zeroed, importId } });
+        keptAccounts.push({ accountId: a.id, name: a.name, field: 'startingBalance', reason: 'created' });
+      }
+    } else {
       tx.delete(accounts).where(eq(accounts.id, a.id)).run();
       remove('account', a.id, { name: a.name, currency: a.currency });
     }
@@ -177,7 +188,6 @@ export function undoImport(tx: Executor, input: UndoInput, record: (entry: Audit
 
   // существующие счета: поле возвращается к значению до импорта, если с импорта его не меняли; дата открытия — ещё и
   // если не осталось операций раньше прежней даты (инвариант 6); счёт в архиве не меняется (решение 3 плана И-3)
-  const keptAccounts: ImportKeptAccountField[] = [];
   for (const change of JSON.parse(row.accountChanges) as PlannedAccountChange[]) {
     const acc = tx.select().from(accounts).where(and(eq(accounts.id, change.accountId), eq(accounts.companyId, companyId))).get();
     if (!acc) continue;

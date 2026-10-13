@@ -189,12 +189,15 @@ export type ImportUndoRequest = z.infer<typeof importUndoSchema>;
 /** Справочник, который создал импорт. */
 export type ImportCreatedEntity = 'account' | 'category' | 'counterparty' | 'project' | 'tag';
 
-/** Поле существующего счёта, которое отмена не вернула: изменено после импорта, есть операции раньше прежней даты, счёт в архиве. */
+/**
+ * Поле счёта в итоге отмены: поле существующего счёта, которое отмена не вернула (изменено после импорта, есть операции
+ * раньше прежней даты, счёт в архиве), или стартовый баланс оставленного созданного импортом счёта — обнулён (`created`).
+ */
 export interface ImportKeptAccountField {
   accountId: number;
   name: string;
   field: 'startingBalance' | 'openedAt';
-  reason: 'changed' | 'operations' | 'archived';
+  reason: 'changed' | 'operations' | 'archived' | 'created';
 }
 
 /** Итог отмены (§7.3): imports.undo_result и ответ отмены. */
@@ -207,7 +210,7 @@ export interface ImportUndoResult {
     created: ImportCreatedCounts;
     /** Первые 20 названий оставленного созданного. */
     names: { entity: ImportCreatedEntity; name: string }[];
-    /** Поля существующих счетов, которые остались как есть. */
+    /** Поля существующих счетов, которые остались как есть, и обнулённые стартовые балансы оставленных созданных счетов. */
     accounts: ImportKeptAccountField[];
   };
 }

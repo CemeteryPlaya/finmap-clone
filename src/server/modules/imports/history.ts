@@ -76,13 +76,16 @@ function select(ex: Executor, conds: SQL[], limit: number): ImportListItem[] {
   return rows.map((r) => toItem(r.i, r.userName ?? null, r.undoneByName ?? null, pending.get(r.i.id) ?? null));
 }
 
-/** Список «Импорты» (§7.2): страница по beforeId; nextBeforeId — id последней записи полной страницы. */
+/**
+ * Список «Импорты» (§7.2): страница по beforeId; nextBeforeId — id последней записи страницы, если за ней есть ещё
+ * (читается limit + 1 запись: полная последняя страница не даёт лишнего пустого запроса).
+ */
 export function listImports(ex: Executor, companyId: number, q: ImportListQuery): ImportListPage {
   const conds: SQL[] = [eq(imports.companyId, companyId)];
   if (q.beforeId !== undefined) conds.push(lt(imports.id, q.beforeId));
-  const items = select(ex, conds, q.limit);
-  const last = items.at(-1);
-  return { items, nextBeforeId: items.length === q.limit && last ? last.id : null };
+  const rows = select(ex, conds, q.limit + 1);
+  const items = rows.slice(0, q.limit);
+  return { items, nextBeforeId: rows.length > q.limit ? items.at(-1)!.id : null };
 }
 
 /** Одна запись импорта компании; null — нет такой. */

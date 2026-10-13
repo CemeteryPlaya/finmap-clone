@@ -1,4 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { createAccountsService } from '../../src/server/modules/accounts/service';
+import { createAuditService, type AuditService } from '../../src/server/modules/audit/service';
+import { createCategoriesService } from '../../src/server/modules/categories/service';
+import { createCompaniesService } from '../../src/server/modules/companies/service';
+import { createCounterpartiesService } from '../../src/server/modules/counterparties/service';
+import { createImportsService } from '../../src/server/modules/imports/service';
+import { createOperationsWriter } from '../../src/server/modules/operations/writer';
+import { createProjectsService } from '../../src/server/modules/projects/service';
+import { createRatesService } from '../../src/server/modules/rates/service';
+import { createTagsService } from '../../src/server/modules/tags/service';
 import type { AccountMapping, ImportPreview, ImportUndoResponse } from '../../src/shared/schemas/imports';
 import { excelSerial as at, finmapLikeMany, finmapLikeRow as fr, finmapLikeXlsx } from '../helpers/finmap-like';
 import { importRows } from '../helpers/imports';
@@ -168,6 +178,7 @@ describe('POST …/imports/:id/undo — отмена (§7.3 спецификац
     expect((await w.h.req('PATCH', `${w.ops}/${internet}`, { version: 1, comment: 'проверено' })).statusCode).toBe(200);
     const salary = opId(r.import.id, 'expense', 850_000);
     expect((await w.h.req('DELETE', `${w.ops}/${salary}`)).statusCode).toBe(200);
+    const bank = one("SELECT id FROM accounts WHERE name = 'Банк-2'").id as number;
 
     const res = await undo(r.import.id, { includeEdited: false, edited: 1 });
     expect(res.statusCode, res.body).toBe(200);
@@ -183,7 +194,7 @@ describe('POST …/imports/:id/undo — отмена (§7.3 спецификац
         { entity: 'tag', name: 'Ночь' },
         { entity: 'account', name: 'Банк-2' },
       ],
-      accounts: [],
+      accounts: [{ accountId: bank, name: 'Банк-2', field: 'startingBalance', reason: 'created' }],
     });
     // осталась только изменённая; «Касса» без операций импорта — прежние стартовый баланс и дата открытия
     expect(all('SELECT id, comment, import_id FROM operations WHERE company_id = ?', w.cid)).toEqual([{ id: internet, comment: 'проверено', import_id: r.import.id }]);
@@ -239,6 +250,7 @@ describe('POST …/imports/:id/undo — отмена (§7.3 спецификац
     });
     const patch = await w.h.req('PATCH', `/api/v1/companies/${w.cid}/accounts/${w.kzt}`, { startingBalance: 777 });
     expect(patch.statusCode, patch.body).toBe(200);
+    const auditBefore = one('SELECT MAX(id) m FROM audit_log').m as number;
 
     const res = await undo(r.import.id);
     expect(res.statusCode, res.body).toBe(200);
@@ -250,7 +262,7 @@ describe('POST …/imports/:id/undo — отмена (§7.3 спецификац
     ]);
     expect(one('SELECT starting_balance, opened_at FROM accounts WHERE id = ?', w.kzt)).toEqual({ starting_balance: 777, opened_at: '2026-09-20' });
     // ни одной записи «account update» от отмены: оба поля оставлены
-    expect(one("SELECT COUNT(*) n FROM audit_log WHERE entity = 'account' AND action = 'update' AND diff LIKE '%importId%' AND id > (SELECT MAX(id) FROM audit_log WHERE entity = 'import' AND action = 'create')").n).toBe(0);
+    expect(one("SELECT COUNT(*) n FROM audit_log WHERE entity = 'account' AND action = 'update' AND id > ?", auditBefore).n).toBe(0);
   });
 
   it('архивный счёт удаляемой операции — 422, ничего не изменилось; из архива — отмена проходит', async () => {
@@ -274,6 +286,13 @@ describe('POST …/imports/:id/undo — отмена (§7.3 спецификац
     const r = await importRows(w, FILE, { accounts: mappings() });
     const other = await w.h.company('Другая');
     expect((await undo(r.import.id, undefined, other)).statusCode).toBe(404);
+    // и в обратную сторону: импорт другой компании по адресу нашей — 404, он не отменён
+    const theirs = await importRows(w, [fr({ paidAt: at('2026-10-02', '10:00:00'), amount: 7, to: 'Касса' })], { cid: other });
+    expect((await undo(theirs.import.id)).statusCode).toBe(404);
+    expect(one('SELECT status FROM imports WHERE id = ?', theirs.import.id).status).toBe('done');
+    // без входа — 401
+    const anon = await w.h.t.app.inject({ method: 'POST', url: undoUrl(r.import.id), headers: ORIGIN_HEADERS, payload: { includeEdited: false, edited: 0 } });
+    expect(anon.statusCode).toBe(401);
     expect((await undo(r.import.id, { includeEdited: true })).statusCode).toBe(400);
 
     // с флажком: человек видел 0 изменённых, а за это время одну операцию изменили — ничего не удалено
@@ -303,6 +322,190 @@ describe('POST …/imports/:id/undo — отмена (§7.3 спецификац
     const archived = await undo(r2.import.id, undefined, empty);
     expect(archived.statusCode).toBe(422);
     expect(archived.json().error.message).toBe('Компания в архиве — изменения недоступны');
+  });
+
+  it('созданный импортом счёт с оставшейся операцией остаётся: стартовый баланс, рассчитанный импортом, обнулён, остаток — сумма оставшихся операций (решение 16 плана И-3)', async () => {
+    w = await opsWorld(NOW);
+    const r = await importRows(w, FILE, { accounts: mappings() });
+    const bank = one("SELECT id FROM accounts WHERE name = 'Банк-2'").id as number;
+    const bankBefore = one('SELECT starting_balance, opened_at FROM accounts WHERE id = ?', bank);
+    // «Текущий остаток» 10 000 при движении файла +41 799,50: стартовый баланс импорта — минус 31 799,50
+    expect(bankBefore.starting_balance).toBe(1_000_000 - (5_000_000 - 820_050));
+    // операция «Банка-2», добавленная после импорта: из-за неё счёт остаётся
+    await w.post(w.ops, {
+      type: 'income',
+      paidAt: '2026-10-05T06:00:00.000Z',
+      accrualDate: null,
+      accountId: bank,
+      amount: 30_000,
+      toAccountId: null,
+      toAmount: null,
+      counterpartyId: null,
+      comment: null,
+      lines: [{ categoryId: w.income, projectId: null, amount: 30_000 }],
+      tagIds: [],
+    });
+    const auditBefore = one('SELECT MAX(id) m FROM audit_log').m as number;
+
+    const res = await undo(r.import.id);
+    expect(res.statusCode, res.body).toBe(200);
+    const { result } = res.json() as ImportUndoResponse;
+    expect(result.deleted).toEqual({ operations: 4, accounts: 0, categories: 3, counterparties: 2, projects: 1, tags: 1 });
+    expect(result.kept).toEqual({
+      operations: 0,
+      created: { accounts: 1, categories: 0, counterparties: 0, projects: 0, tags: 0 },
+      names: [{ entity: 'account', name: 'Банк-2' }],
+      accounts: [{ accountId: bank, name: 'Банк-2', field: 'startingBalance', reason: 'created' }],
+    });
+    // дата открытия — как есть: операций раньше неё нет
+    expect(one('SELECT starting_balance, opened_at FROM accounts WHERE id = ?', bank)).toEqual({ starting_balance: 0, opened_at: bankBefore.opened_at });
+    expect((await balances()).find((b) => b.accountId === bank)!.balance).toBe(30_000);
+    const zeroed = all("SELECT diff FROM audit_log WHERE entity = 'account' AND action = 'update' AND entity_id = ? AND id > ?", bank, auditBefore);
+    expect(zeroed.map((a) => JSON.parse(a.diff))).toEqual([
+      { before: { startingBalance: bankBefore.starting_balance }, after: { startingBalance: 0 }, importId: r.import.id },
+    ]);
+  });
+
+  it('существующий счёт в архиве: поля, изменённые импортом, остаются как есть — причина «счёт в архиве»', async () => {
+    w = await opsWorld(NOW);
+    // доход на «Кассу» раньше её даты открытия, остаток «Кассы» после импорта — 0: счёт можно перевести в архив
+    const r = await importRows(w, [fr({ paidAt: at('2026-09-20', '10:00:00'), amount: 100, to: 'Касса', category: 'Бар' })], {
+      accounts: [{ key: 'касса', kind: 'existing', accountId: w.kzt, targetBalance: 0 }],
+    });
+    const before = one('SELECT starting_balance, opened_at FROM accounts WHERE id = ?', w.kzt);
+    expect(before).toEqual({ starting_balance: -10_000, opened_at: '2026-09-20' });
+    // операция изменена — без флажка остаётся: с архивного счёта удалять нечего
+    const income = opId(r.import.id, 'income', 10_000);
+    expect((await w.h.req('PATCH', `${w.ops}/${income}`, { version: 1, comment: 'сверено' })).statusCode).toBe(200);
+    await w.post(`/api/v1/companies/${w.cid}/accounts/${w.kzt}/archive`, {});
+
+    const res = await undo(r.import.id, { includeEdited: false, edited: 1 });
+    expect(res.statusCode, res.body).toBe(200);
+    expect((res.json() as ImportUndoResponse).result.kept.accounts).toEqual([
+      { accountId: w.kzt, name: 'Касса', field: 'startingBalance', reason: 'archived' },
+      { accountId: w.kzt, name: 'Касса', field: 'openedAt', reason: 'archived' },
+    ]);
+    expect(one('SELECT starting_balance, opened_at FROM accounts WHERE id = ?', w.kzt)).toEqual(before);
+  });
+
+  it('созданная импортом категория с подкатегорией, добавленной после импорта, и проект, к которому привязали счёт, остаются', async () => {
+    w = await opsWorld(NOW);
+    const r = await importRows(w, FILE, { accounts: mappings() });
+    const svyaz = one("SELECT id FROM categories WHERE company_id = ? AND name = 'Связь'", w.cid).id as number;
+    await w.post(`/api/v1/companies/${w.cid}/categories`, { kind: 'expense', name: 'Мобильная', parentId: svyaz });
+    const club = one("SELECT id FROM projects WHERE company_id = ? AND name = 'Клуб 9'", w.cid).id as number;
+    const patch = await w.h.req('PATCH', `/api/v1/companies/${w.cid}/accounts/${w.kzt}`, { projectId: club });
+    expect(patch.statusCode, patch.body).toBe(200);
+
+    const res = await undo(r.import.id);
+    expect(res.statusCode, res.body).toBe(200);
+    const { result } = res.json() as ImportUndoResponse;
+    // «Интернет» (подкатегория «Связи» из импорта) свободна и удалена; «Связь» держит «Мобильная», «Клуб 9» — «Касса»
+    expect(result.deleted).toEqual({ operations: 4, accounts: 1, categories: 2, counterparties: 2, projects: 0, tags: 1 });
+    expect(result.kept.names).toEqual([
+      { entity: 'category', name: 'Связь' },
+      { entity: 'project', name: 'Клуб 9' },
+    ]);
+    expect(all("SELECT name FROM categories WHERE company_id = ? AND name IN ('Связь', 'Интернет', 'Мобильная') ORDER BY name", w.cid)).toEqual([
+      { name: 'Мобильная' },
+      { name: 'Связь' },
+    ]);
+    expect(one('SELECT project_id FROM accounts WHERE id = ?', w.kzt).project_id).toBe(club);
+  });
+
+  it('порядок ответов: изменённых больше, чем видел человек, — 409 IMPORT_CHANGED раньше 422 об архивном счёте', async () => {
+    w = await opsWorld(NOW);
+    const zeroBank: AccountMapping[] = [{ key: 'банк-2', kind: 'new', name: 'Банк-2', currency: 'KZT', balance: { mode: 'current', amount: 0 } }];
+    const r = await importRows(w, FILE, { accounts: zeroBank });
+    const bank = one("SELECT id FROM accounts WHERE name = 'Банк-2'").id as number;
+    await w.post(`/api/v1/companies/${w.cid}/accounts/${bank}/archive`, {});
+    const income = opId(r.import.id, 'income', 1_059_600);
+    expect((await w.h.req('PATCH', `${w.ops}/${income}`, { version: 1, comment: 'правка' })).statusCode).toBe(200);
+    const before = fullState();
+
+    const changed = await undo(r.import.id, { includeEdited: true, edited: 0 });
+    expect(changed.statusCode).toBe(409);
+    expect(changed.json().error).toMatchObject({ code: 'IMPORT_CHANGED', details: { pending: { operations: 4, edited: 1 } } });
+    expect(fullState()).toEqual(before);
+    // изменённую человек увидел — теперь 422 об архивном счёте
+    const archived = await undo(r.import.id, { includeEdited: true, edited: 1 });
+    expect(archived.statusCode).toBe(422);
+    expect(archived.json().error.code).toBe('ARCHIVED_REFERENCE');
+    expect(fullState()).toEqual(before);
+  });
+
+  it('«Удалить и изменённые» на 1 200 операциях: записи вложений удаляются в каждой части по 500 id', { timeout: 60_000 }, async () => {
+    w = await opsWorld(NOW);
+    const r = await importRows(w, finmapLikeMany(1_200));
+    const ids = all('SELECT id FROM operations WHERE import_id = ? ORDER BY id', r.import.id).map((o) => o.id as number);
+    expect(ids).toHaveLength(1_200);
+    // по вложению в первой, второй и третьей части
+    const withFiles = [ids[0]!, ids[700]!, ids[1_199]!];
+    const attach = w.h.t.sqlite.prepare(
+      "INSERT INTO attachments (company_id, operation_id, original_name, stored_name, mime, size, created_at) VALUES (?, ?, 'чек.png', ?, 'image/png', 1, ?)",
+    );
+    for (const id of withFiles) attach.run(w.cid, id, `x${id}.png`, NOW);
+
+    const res = await undo(r.import.id, { includeEdited: true, edited: 3 });
+    expect(res.statusCode, res.body.slice(0, 300)).toBe(200);
+    expect((res.json() as ImportUndoResponse).result.deleted.operations).toBe(1_200);
+    expect(one('SELECT COUNT(*) n FROM operations').n).toBe(0);
+    expect(one('SELECT COUNT(*) n FROM attachments').n).toBe(0);
+    expect(all("SELECT entity_id FROM audit_log WHERE entity = 'operation' AND action = 'delete' ORDER BY entity_id").map((a) => a.entity_id)).toEqual(withFiles);
+  });
+
+  it('сбой после начала удаления (на записи истории об отмене) — откатывается всё: данные, история и imports как до отмены', async () => {
+    w = await opsWorld(NOW);
+    const r = await importRows(w, FILE, { accounts: mappings() });
+    const internet = opId(r.import.id, 'expense', 820_050);
+    expect((await w.h.req('PATCH', `${w.ops}/${internet}`, { version: 1, comment: 'проверено' })).statusCode).toBe(200);
+    const db = w.h.t.db;
+    const real = createAuditService(db);
+    const written: string[] = [];
+    // запись «import delete» — последняя запись отмены: к ней удалены операции, справочники, счёт и возвращена «Касса»
+    const audit: AuditService = {
+      list: (q) => real.list(q),
+      record(entry, ex) {
+        if (entry.entity === 'import') throw new Error('сбой истории');
+        real.record(entry, ex);
+        written.push(`${entry.entity} ${entry.action}`);
+      },
+    };
+    const categories = createCategoriesService({ db, audit });
+    const accounts = createAccountsService({ db, audit, timezone: 'Asia/Almaty', now: () => new Date(NOW) });
+    const companies = createCompaniesService({ db, audit, categories, accounts });
+    const imports = createImportsService({
+      db,
+      audit,
+      rates: createRatesService({ db, audit }),
+      timezone: 'Asia/Almaty',
+      now: () => new Date(NOW),
+      accounts,
+      categories,
+      counterparties: createCounterpartiesService({ db, audit }),
+      projects: createProjectsService({ db, audit, companies, categories, accounts, timezone: 'Asia/Almaty' }),
+      tags: createTagsService({ db, audit }),
+      writer: createOperationsWriter(w.h.t.sqlite),
+    });
+    const before = fullState();
+
+    expect(() => imports.undo(w.cid, adminId(), r.import.id, { includeEdited: true, edited: 1 })).toThrow('сбой истории');
+    expect(written).toEqual([
+      'operation delete',
+      'category delete',
+      'category delete',
+      'category delete',
+      'counterparty delete',
+      'counterparty delete',
+      'tag delete',
+      'account delete',
+      'project delete',
+      'account update',
+    ]);
+    expect(fullState()).toEqual(before);
+    expect(one('SELECT status, undone_at, undo_result FROM imports WHERE id = ?', r.import.id)).toEqual({ status: 'done', undone_at: null, undo_result: null });
+    // после сбоя отмена проходит как обычно
+    expect((await undo(r.import.id, { includeEdited: true, edited: 1 })).statusCode).toBe(200);
   });
 
   it('16 000 строк: отмена укладывается в 20 с, операций импорта не осталось', { timeout: 120_000 }, async () => {
