@@ -93,6 +93,30 @@ const importFile = async (p: Page, rows: FinmapLikeValue[][], expect: 'Пров�
     .setInputFiles({ name: 'выгрузка.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: finmapLikeXlsx(rows) });
   await (expect === 'Проверка файла' ? importPanel(p).getByRole('heading', { level: 3, name: 'Проверка файла' }) : importPanel(p).getByText(/^Найдено ошибок: \d+\./)).waitFor();
 };
+/** Компания открытой страницы и заголовки защиты от CSRF — для запросов API из сценария. */
+const apiOf = (p: Page) => {
+  const url = new URL(p.url());
+  return { cid: Number(/\/c\/(\d+)\//.exec(url.pathname)![1]), headers: { origin: url.origin, 'x-requested-with': 'fetch' } };
+};
+/** Импорт синтетического файла через API (вкладка «Импорты», §7 спецификации импорта): загрузка и запись; id импорта. */
+const importViaApi = async (p: Page, name: string, rows: FinmapLikeValue[][]): Promise<number> => {
+  const { cid, headers } = apiOf(p);
+  const up = await p.request.post(`/api/v1/companies/${cid}/imports/upload`, {
+    headers: { ...headers, 'content-type': 'application/octet-stream', 'x-file-name': encodeURIComponent(name) },
+    data: finmapLikeXlsx(rows),
+  });
+  if (!up.ok()) throw new Error(`Загрузка: ${up.status()} ${await up.text()}`);
+  const preview = (await up.json()) as { token: string; revision: string };
+  const done = await p.request.post(`/api/v1/companies/${cid}/imports`, { headers, data: { token: preview.token, accounts: [], revision: preview.revision } });
+  if (!done.ok()) throw new Error(`Запись: ${done.status()} ${await done.text()}`);
+  return ((await done.json()) as { import: { id: number } }).import.id;
+};
+/** Отмена импорта через API (без изменённых операций). */
+const undoViaApi = async (p: Page, importId: number) => {
+  const { cid, headers } = apiOf(p);
+  const res = await p.request.post(`/api/v1/companies/${cid}/imports/${importId}/undo`, { headers, data: { includeEdited: false, edited: 0 } });
+  if (!res.ok()) throw new Error(`Отмена: ${res.status()} ${await res.text()}`);
+};
 /** Файл с ошибками строк: дата текстом, пустая сумма, строка без счёта. */
 const IMPORT_ERRORS = [
   ...finmapLikeSample(),
@@ -443,6 +467,24 @@ const SCENARIOS: Scenario[] = [
     act: async (p) => {
       await openImport(p, true);
       await importFile(p, finmapLikeSample(), 'Проверка файла');
+    },
+  },
+  {
+    // вкладка «Импорты» (§7 спецификации импорта) — пара к Finmap 24 «История действий» (там снимок c24-history):
+    // отменённый импорт и импорт с «Отменить». Сценарий последний: импорт меняет данные демо-компании
+    ours: 'c24-history-imports.png',
+    finmap: '24b-history-imports.png',
+    path: 'log',
+    act: async (p) => {
+      await undoViaApi(p, await importViaApi(p, 'выгрузка-сентябрь.xlsx', finmapLikeSample()));
+      await importViaApi(p, 'выгрузка-октябрь.xlsx', finmapLikeSample());
+      // импорт и отмена шли мимо интерфейса: журнал, счета и балансы — заново
+      await p.reload();
+      await table(p).locator('tbody tr').first().waitFor();
+      await banner(p).getByRole('button', { name: 'История действий' }).click();
+      const history = p.getByRole('dialog', { name: 'История действий' });
+      await history.getByRole('tab', { name: 'Импорты' }).click();
+      await history.getByRole('button', { name: /^Отменить импорт «выгрузка-октябрь\.xlsx»/ }).waitFor();
     },
   },
 ];
