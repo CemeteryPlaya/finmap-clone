@@ -211,6 +211,95 @@ test('«Собрать Excel»: превью, чипы, «Отмена» не м
   }
 });
 
+test('«Собрать Excel»: порядок колонок — Alt+←/→ с объявлением, «×», перетаскивание за ручку, Esc отменяет, прокрутка у края; порядок попадает в файл', async ({ page }) => {
+  await companyWithOperations(page);
+  const prefsResponse = () => page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/export.columns') && r.request().method() === 'PUT');
+  try {
+    const { group } = await openExportMenu(page);
+    await group.getByRole('button', { name: 'Собрать Excel', exact: true }).click();
+    await expect(headers(page)).toHaveText(DEFAULT_LABELS);
+    const handle = (label: string) => builder(page).getByRole('button', { name: `Переместить колонку ${label}`, exact: true });
+
+    // Alt+→ на ручке: колонка уходит вправо, итог объявлен, фокус остался на ручке
+    await handle('Сумма в валюте счета').focus();
+    await page.keyboard.press('Alt+ArrowRight');
+    const swapped = [...DEFAULT_LABELS];
+    [swapped[4], swapped[5]] = [swapped[5]!, swapped[4]!];
+    await expect(headers(page)).toHaveText(swapped);
+    await expect(builder(page).getByText('Сумма в валюте счета — колонка 6 из 14')).toBeAttached();
+    await expect(handle('Сумма в валюте счета')).toBeFocused();
+    // на краю Alt+← ничего не делает
+    await handle('Дата платежа').focus();
+    await page.keyboard.press('Alt+ArrowLeft');
+    await expect(headers(page)).toHaveText(swapped);
+
+    // «×» убирает колонку, чип выключается, итог объявлен, фокус — на ручке новой последней колонки
+    await builder(page).getByRole('button', { name: 'Убрать колонку Комментарий', exact: true }).click();
+    const trimmed = swapped.filter((l) => l !== 'Комментарий');
+    await expect(headers(page)).toHaveText(trimmed);
+    await expect(builder(page).getByText('Колонка «Комментарий» убрана. Осталось колонок: 13')).toBeAttached();
+    await expect(builder(page).getByRole('group', { name: 'Теги и комментарий' }).getByRole('button', { name: 'Комментарий', exact: true })).toHaveAttribute('aria-pressed', 'false');
+    await expect(handle('Теги')).toBeFocused();
+
+    // перетаскивание за ручку: «Дата начисления» — на первое место (фокус на ручке «Теги» прокрутил таблицу вправо — вернём)
+    const scroll = builder(page).locator('[data-preview-scroll]');
+    await scroll.evaluate((el) => (el.scrollLeft = 0));
+    const grip = (await handle('Дата начисления').boundingBox())!;
+    const first = (await builder(page).getByRole('columnheader').first().boundingBox())!;
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(first.x + 6, grip.y + grip.height / 2, { steps: 8 });
+    await page.mouse.up();
+    const dragged = ['Дата начисления', ...trimmed.filter((l) => l !== 'Дата начисления')];
+    await expect(headers(page)).toHaveText(dragged);
+    await expect(builder(page).getByText('Дата начисления — колонка 1 из 13')).toBeAttached();
+
+    // Esc отменяет перетаскивание и не закрывает окно
+    const grip2 = (await handle('Дата платежа').boundingBox())!;
+    await page.mouse.move(grip2.x + grip2.width / 2, grip2.y + grip2.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(first.x + 6, grip2.y + grip2.height / 2, { steps: 8 });
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await expect(builder(page)).toBeVisible();
+    await expect(headers(page)).toHaveText(dragged);
+
+    // у правого края таблица едет сама, пока колонку держат; колонка встаёт не на первое место
+    const box = (await scroll.boundingBox())!;
+    const grip3 = (await handle('Дата начисления').boundingBox())!;
+    await page.mouse.move(grip3.x + grip3.width / 2, grip3.y + grip3.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width - 8, grip3.y + grip3.height / 2, { steps: 8 });
+    await expect.poll(() => scroll.evaluate((el) => el.scrollLeft)).toBeGreaterThan(200);
+    await page.mouse.up();
+    await expect(headers(page).first()).not.toHaveText('Дата начисления');
+    const finalOrder = await headers(page).allTextContents();
+    expect(finalOrder).toHaveLength(13);
+    expect([...finalOrder].sort()).toEqual([...trimmed].sort());
+
+    // порядок попадает в файл и запоминается
+    const saved = prefsResponse();
+    const [download] = await Promise.all([page.waitForEvent('download'), builder(page).getByRole('link', { name: 'Собрать файл' }).click()]);
+    expect((await saved).ok()).toBe(true);
+    expect(sheetRows(fs.readFileSync(await download.path()))[0]).toEqual(finalOrder);
+    await expect(builder(page)).toBeHidden();
+    const reopened = await openExportMenu(page);
+    await reopened.group.getByRole('button', { name: 'Собрать Excel', exact: true }).click();
+    await expect(headers(page)).toHaveText(finalOrder);
+
+    // «×» до конца: колонок нет, фокус — на первом чипе, «Собрать файл» недоступна
+    const removers = builder(page).getByRole('button', { name: /^Убрать колонку / });
+    while ((await removers.count()) > 0) await removers.first().click();
+    await expect(headers(page)).toHaveCount(0);
+    await expect(builder(page).locator('button[aria-pressed]').first()).toBeFocused();
+    await expect(builder(page).getByRole('link', { name: 'Собрать файл' })).toHaveAttribute('aria-disabled', 'true');
+  } finally {
+    // настройка пользователя общая для всех тестов: возвращаем «по умолчанию»
+    const res = await page.request.put('/api/v1/preferences/export.columns', { data: { value: null }, headers: csrf(page) });
+    expect(res.ok()).toBe(true);
+  }
+});
+
 async function openBuilder(page: Page) {
   const { group } = await openExportMenu(page);
   await group.getByRole('button', { name: 'Собрать Excel', exact: true }).click();

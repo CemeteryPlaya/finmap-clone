@@ -1,8 +1,19 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { EXPORT_COLUMNS, EXPORT_GROUPS, exportColumnLabel, type ExportColumnId } from '../../../shared/export-columns';
-import { EXPORT_COLUMNS_PREF, savedExportColumns, toggleExportColumn } from '../../lib/export-columns';
+import {
+  columnPositionText,
+  columnRemovedText,
+  dropExportColumn,
+  EXPORT_COLUMNS_PREF,
+  focusIndexAfterRemove,
+  savedExportColumns,
+  shiftExportColumn,
+  toggleExportColumn,
+} from '../../lib/export-columns';
 import { journalApiParams, journalExportHref, type JournalUrlState } from '../../lib/journal-filter';
 import { useExportPreview, usePreferences, savePreference } from '../../lib/queries';
+import { dropIndexAt, edgeScrollStep } from '../../lib/settings-list';
+import { GripIcon } from '../icons';
 import { Modal } from '../Modal';
 import { btnPrimary, btnSecondary } from '../ui';
 
@@ -10,30 +21,256 @@ import { btnPrimary, btnSecondary } from '../ui';
 const chipClass = (on: boolean) =>
   `rounded-full px-3 py-1.5 text-sm font-medium hover:brightness-95 focus-visible:outline-2 focus-visible:outline-focus ${on ? 'bg-income-soft text-ink' : 'bg-field text-muted'}`;
 
+/** Кнопка в заголовке колонки: ручка и «×». */
+const headerButton =
+  'grid size-7 shrink-0 place-items-center rounded-md text-muted hover:bg-card hover:text-ink focus-visible:outline-2 focus-visible:outline-focus';
+
+/** Перетаскивание за ручку: кого тянем и место вставки среди остальных колонок. */
+interface Drag {
+  id: ExportColumnId;
+  index: number;
+}
+
+/** Кадр при 60 Гц, мс: на него рассчитан EDGE_SCROLL_MAX; предел длины кадра — после паузы вкладки прокрутка не прыгает. */
+const FRAME_MS = 1000 / 60;
+const MAX_FRAME_MS = 50;
+
+const markBefore = 'shadow-[inset_2px_0_0_0_var(--color-focus)]';
+const markAfter = 'shadow-[inset_-2px_0_0_0_var(--color-focus)]';
+
 /**
- * Превью: колонки в выбранном порядке и первые операции фильтра. Тексты ячеек присылает сервер — они совпадают с
- * файлом (период начисления, знак суммы, «; » у разбитой операции, остатки).
+ * Превью: заголовки колонок в выбранном порядке и первые операции фильтра. Тексты ячеек присылает сервер — они совпадают
+ * с файлом (период начисления, знак суммы, «; » у разбитой операции, остатки).
+ *
+ * Порядок меняется перетаскиванием за ручку ⠿ (события указателя с захватом, как в списках настроек: мышь и касание одним
+ * кодом; у края таблицы она едет сама) или Alt+← / Alt+→ на ручке; «×» убирает колонку. Итог перестановки и «×» объявляется
+ * в живой области. Esc отменяет перетаскивание.
  */
-function Preview(props: { columns: readonly ExportColumnId[]; params: string; companyId: number }) {
+function Preview(props: {
+  columns: readonly ExportColumnId[];
+  params: string;
+  companyId: number;
+  onReorder: (next: ExportColumnId[]) => void;
+  onRemove: (id: ExportColumnId) => void;
+  /** Убрали последнюю колонку: фокус некуда — страница переводит его на чипы. */
+  onEmptied: () => void;
+}) {
+  const { columns } = props;
   const preview = useExportPreview(props.companyId, props.params);
   const rows = preview.data?.rows ?? [];
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const [announce, setAnnounce] = useState('');
+  const hintId = useId();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const cells = useRef(new Map<ExportColumnId, HTMLTableCellElement>());
+  const handles = useRef(new Map<ExportColumnId, HTMLButtonElement>());
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
+  /** Ручка, на которой был фокус: после перестановки React мог переставить узел, и фокус упал на body. */
+  const lastHandle = useRef<ExportColumnId | null>(null);
+  /** После «×» — номер заголовка, куда перевести фокус. */
+  const focusIndex = useRef<number | null>(null);
+  /** Где сейчас указатель, пока колонку тянут: прокрутка у края идёт и без новых движений. */
+  const pointerX = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (focusIndex.current !== null) {
+      const id = columns[focusIndex.current];
+      focusIndex.current = null;
+      if (id) handles.current.get(id)?.focus({ preventScroll: false });
+      return;
+    }
+    if (lastHandle.current === null) return;
+    const active = document.activeElement;
+    // фокус потерян (body) — возвращаем на ручку; ушёл на другой элемент — не мешаем
+    if (active && active !== document.body) return;
+    handles.current.get(lastHandle.current)?.focus({ preventScroll: true });
+  });
+
+  // щелчок мимо ручек забывает ручку: иначе обновление списка вернуло бы на неё фокус
+  useEffect(() => {
+    const forget = (e: globalThis.PointerEvent) => {
+      if (!(e.target instanceof Element) || !e.target.closest('[data-grip]')) lastHandle.current = null;
+    };
+    window.addEventListener('pointerdown', forget);
+    return () => window.removeEventListener('pointerdown', forget);
+  }, []);
+
+  // Esc отменяет перетаскивание, где бы ни был фокус: в фазе перехвата и без стандартного действия — иначе Esc закрыл бы ещё и окно
+  const dragging = drag !== null;
+  useEffect(() => {
+    if (!dragging) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDrag(null);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [dragging]);
+
+  const midpoints = (ids: ExportColumnId[]) =>
+    ids.map((id) => {
+      const r = cells.current.get(id)?.getBoundingClientRect();
+      return r ? r.left + r.width / 2 : 0;
+    });
+
+  // у края таблицы она едет сама, пока колонку держат (палец может стоять на месте); место вставки — заново после шага
+  const dragId = drag?.id ?? null;
+  useEffect(() => {
+    if (dragId === null) return;
+    let frame = 0;
+    let last = 0;
+    let carry = 0;
+    const tick = (now: number) => {
+      // шаг рассчитан на 60 кадров/с: на 120 Гц кадр вдвое короче, и шаг вдвое меньше; долю пикселя переносим на следующий кадр
+      const dt = last ? Math.min(now - last, MAX_FRAME_MS) : FRAME_MS;
+      last = now;
+      const box = scrollRef.current;
+      const x = pointerX.current;
+      const rect = box?.getBoundingClientRect();
+      const step = box && rect && x !== null ? edgeScrollStep(x, rect.left, rect.right) : 0;
+      carry = step === 0 ? 0 : carry + (step * dt) / FRAME_MS;
+      const whole = Math.trunc(carry);
+      carry -= whole;
+      if (box && x !== null && whole !== 0) {
+        box.scrollBy(whole, 0);
+        setDrag((d) => {
+          if (!d) return d;
+          const index = dropIndexAt(midpoints(columnsRef.current.filter((c) => c !== d.id)), x);
+          return index === d.index ? d : { ...d, index };
+        });
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [dragId]);
+
+  const commit = (next: ExportColumnId[], id: ExportColumnId) => {
+    props.onReorder(next);
+    setAnnounce(columnPositionText(next, id));
+  };
+
+  const onHandleKey = (e: KeyboardEvent<HTMLButtonElement>, id: ExportColumnId) => {
+    if (!e.altKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+    // Alt+← в браузере — «назад»: без стандартного действия
+    e.preventDefault();
+    const next = shiftExportColumn(columns, id, e.key === 'ArrowLeft' ? -1 : 1);
+    if (next) commit(next, id);
+  };
+
+  const onPointerDown = (e: PointerEvent<HTMLButtonElement>, id: ExportColumnId) => {
+    if (e.button !== 0 || columns.length < 2) return;
+    // без выделения текста и «мышиных» событий; дальше указатель привязан к ручке, даже если ушёл с заголовка
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    // preventDefault выше отменил и фокус — ставим на ручку сами
+    e.currentTarget.focus({ preventScroll: true });
+    lastHandle.current = id;
+    pointerX.current = e.clientX;
+    setDrag({ id, index: columns.indexOf(id) });
+  };
+
+  const onPointerMove = (e: PointerEvent<HTMLButtonElement>) => {
+    if (!drag) return;
+    pointerX.current = e.clientX;
+    // середины заголовков — каждый раз заново: таблица могла прокрутиться
+    const index = dropIndexAt(midpoints(columns.filter((c) => c !== drag.id)), e.clientX);
+    if (index !== drag.index) setDrag({ ...drag, index });
+  };
+
+  const onPointerUp = () => {
+    if (!drag) return;
+    const next = dropExportColumn(columns, drag.id, drag.index);
+    const id = drag.id;
+    setDrag(null);
+    if (next) commit(next, id);
+  };
+
+  const remove = (id: ExportColumnId) => {
+    focusIndex.current = focusIndexAfterRemove(columns, id);
+    lastHandle.current = null;
+    props.onRemove(id);
+    setAnnounce(columnRemovedText(id, columns.length - 1));
+    if (focusIndex.current === null) props.onEmptied();
+  };
+
+  // где встанет колонка: черта слева от заголовка (или справа от последнего); на прежнем месте — без черты
+  let before: ExportColumnId | undefined;
+  let after: ExportColumnId | undefined;
+  if (drag && dropExportColumn(columns, drag.id, drag.index) !== null) {
+    const others = columns.filter((c) => c !== drag.id);
+    before = others[drag.index];
+    if (drag.index === others.length) after = others[others.length - 1];
+  }
+
   return (
     <div>
-      <div className="overflow-x-auto rounded-xl bg-field">
+      <p id={hintId} className="sr-only">
+        Alt и стрелка влево или вправо — переместить колонку; мышью или пальцем — перетащить за ручку.
+      </p>
+      <p aria-live="polite" className="sr-only">
+        {announce}
+      </p>
+      <div ref={scrollRef} data-preview-scroll="" className="overflow-x-auto rounded-xl bg-field">
         <table aria-label="Превью файла" className="w-full border-collapse text-left text-sm">
           <thead>
             <tr>
-              {props.columns.map((id) => (
-                <th key={id} scope="col" className="min-w-36 whitespace-nowrap px-3 py-2 font-semibold">
-                  <span data-column-label="">{exportColumnLabel(id)}</span>
-                </th>
-              ))}
+              {columns.map((id) => {
+                const label = exportColumnLabel(id);
+                return (
+                  <th
+                    key={id}
+                    scope="col"
+                    ref={(el) => {
+                      if (el) cells.current.set(id, el);
+                      else cells.current.delete(id);
+                    }}
+                    className={`min-w-44 px-2 py-2 font-semibold ${drag?.id === id ? 'opacity-50' : ''} ${before === id ? markBefore : ''} ${after === id ? markAfter : ''}`}
+                  >
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        ref={(el) => {
+                          if (el) handles.current.set(id, el);
+                          else handles.current.delete(id);
+                        }}
+                        aria-label={`Переместить колонку ${label}`}
+                        aria-describedby={hintId}
+                        title="Перетащите, чтобы изменить порядок"
+                        data-grip=""
+                        onPointerDown={(e) => onPointerDown(e, id)}
+                        onPointerMove={onPointerMove}
+                        onPointerUp={onPointerUp}
+                        onPointerCancel={() => setDrag(null)}
+                        onLostPointerCapture={() => setDrag(null)}
+                        onFocus={() => (lastHandle.current = id)}
+                        onBlur={(e) => {
+                          if (e.relatedTarget) lastHandle.current = null;
+                        }}
+                        onKeyDown={(e) => onHandleKey(e, id)}
+                        className={`${headerButton} cursor-grab touch-none select-none active:cursor-grabbing`}
+                      >
+                        <GripIcon />
+                      </button>
+                      <span data-column-label="" className="min-w-0 flex-1 whitespace-nowrap">
+                        {label}
+                      </span>
+                      <button type="button" aria-label={`Убрать колонку ${label}`} title="Убрать колонку" onClick={() => remove(id)} className={headerButton}>
+                        <span aria-hidden="true">×</span>
+                      </button>
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
             {rows.map((row, i) => (
               <tr key={i} className="border-t border-card">
-                {props.columns.map((id) => (
+                {columns.map((id) => (
                   <td key={id} className="max-w-64 truncate px-3 py-1.5" title={row[id]}>
                     {row[id]}
                   </td>
@@ -70,15 +307,23 @@ function BuilderBody(props: { companyId: number; state: JournalUrlState; today: 
   const params = journalApiParams(props.state, props.today).toString();
   const empty = columns.length === 0;
   const hintId = useId();
+  const chips = useRef<HTMLDivElement>(null);
   const downloaded = useRef(false);
 
   return (
     <div>
-      <p className="mb-3 text-sm text-muted">Выберите колонки, чтобы собрать свой файл. В превью — первые операции журнала.</p>
-      <Preview columns={columns} params={params} companyId={props.companyId} />
+      <p className="mb-3 text-sm text-muted">Перетащите заголовок колонки, чтобы изменить порядок. В превью — первые операции журнала.</p>
+      <Preview
+        columns={columns}
+        params={params}
+        companyId={props.companyId}
+        onReorder={setColumns}
+        onRemove={(id) => setColumns((cols) => toggleExportColumn(cols, id))}
+        onEmptied={() => chips.current?.querySelector('button')?.focus()}
+      />
 
       <h3 className="mt-6 mb-2 text-xs font-semibold tracking-wide text-label uppercase">Что выгрузить</h3>
-      <div className="flex flex-col gap-3">
+      <div ref={chips} className="flex flex-col gap-3">
         {EXPORT_GROUPS.map((group) => (
           <div key={group.id} role="group" aria-label={group.label} className="flex flex-wrap items-center gap-2">
             <span aria-hidden="true" className="w-full text-xs font-semibold tracking-wide text-label uppercase md:w-44">
@@ -131,8 +376,9 @@ function BuilderBody(props: { companyId: number; state: JournalUrlState; today: 
 }
 
 /**
- * «Собрать Excel» (§8.3 спецификации импорта): превью файла, чипы «Что выгрузить» по группам, «Отмена» и «Собрать файл».
- * Только компьютер. Набор колонок и порядок запоминаются в настройке `export.columns` при «Собрать файл».
+ * «Собрать Excel» (§8.3 спецификации импорта): превью файла с перестановкой и «×», чипы «Что выгрузить» по группам,
+ * «Отмена» и «Собрать файл». Только компьютер. Набор колонок и порядок запоминаются в настройке `export.columns` при
+ * «Собрать файл».
  */
 export function ExportBuilderDialog(props: { open: boolean; onClose: () => void; companyId: number; state: JournalUrlState; today: string }) {
   return (
