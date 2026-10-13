@@ -13,12 +13,14 @@ import { createUsersService } from '../src/server/modules/users/service';
 import type { ImportCommitResult, ImportPreview, ImportUndoResponse } from '../src/shared/schemas/imports';
 import { finmapLikeMany, finmapLikeXlsx } from '../tests/helpers/finmap-like';
 
-// Замер импорта (§10 спецификации импорта), три свежих процесса:
-// 1) «write» — синтетический файл «как у Finmap» на 16 000 строк: загрузка с проверкой, пересчёт предпросмотра, запись
-//    одной транзакцией и отмена (бюджеты 3 с, 1 с, 5 с, 3 с) и пик памяти процесса за всё это (бюджет 400 МБ);
-// 2) «commit50k» — 50 000 строк (предел §2.3): загрузка и запись — предпросмотр, план и вставка в одной транзакции;
+// Замер импорта (§10 спецификации импорта), четыре свежих процесса:
+// 1) «write» — синтетический файл «как у Finmap» на 16 000 строк: загрузка с проверкой, пересчёт предпросмотра и запись
+//    одной транзакцией (бюджеты 3 с, 1 с, 5 с) и пик памяти процесса за всё это (бюджет 400 МБ);
+// 2) «undo» — отмена этого импорта: отдельное действие человека позже, поэтому — в своём свежем процессе на базе замера
+//    «write» (бюджеты 3 с и 400 МБ: бюджет памяти 16 000 строк — на одно действие, решение 17 плана И-3);
+// 3) «commit50k» — 50 000 строк (предел §2.3): загрузка и запись — предпросмотр, план и вставка в одной транзакции;
 //    пик памяти процесса (принятый бюджет 500 МБ, решение 9 плана И-2);
-// 3) «cache» — худший случай кэша проверки, три файла по 50 000 строк в трёх компаниях: пик на первом файле
+// 4) «cache» — худший случай кэша проверки, три файла по 50 000 строк в трёх компаниях: пик на первом файле
 //    (бюджет 500 МБ), память кэша (куча после сборки мусора, оценка §10 — около 25 МБ на файл) и пик с тремя файлами.
 // Файлы — размера настоящих (§2.4): лист без сжатия, около 600 байт на строку (16 000 строк — около 9 МБ, 50 000 — около
 // 29 МБ при пределе загрузки 30 МБ). Код выхода 1 — нарушен бюджет («Итог: бюджет нарушен») или замер не удался
@@ -33,12 +35,14 @@ const LOGIN = 'bench';
 const PASSWORD = 'bench-password-1';
 const HEADERS = { origin: 'http://localhost:3000', 'x-requested-with': 'fetch' };
 const BUDGET_MS = { upload: 3000, preview: 1000, commit: 5000, undo: 3000 };
-/** Пик памяти процесса (§10): файл 16 000 строк — 400 МБ; 50 000 строк — принятые 500 МБ. */
+/** Пик памяти процесса (§10): файл 16 000 строк — 400 МБ на действие (запись, отмена); 50 000 строк — принятые 500 МБ. */
 const RSS_BUDGET_16K_MB = 400;
 const RSS_BUDGET_50K_MB = 500;
 const FILE_16K = '16k.xlsx';
 const FILE_50K = '50k.xlsx';
-const PHASES = ['write', 'commit50k', 'cache'] as const;
+const PHASES = ['write', 'undo', 'commit50k', 'cache'] as const;
+/** Что отменяет замер «undo»: компания и импорт, записанные замером «write» (его база остаётся в папке замера). */
+const UNDO_TARGET = 'undo-target.json';
 /** Код выхода дочернего процесса: бюджет нарушен — 1, замер не удался — 2. */
 const EXIT_OVER_BUDGET = 1;
 const EXIT_MEASURE_ERROR = 2;
@@ -96,12 +100,13 @@ async function measure(dir: string, phase: Phase): Promise<void> {
     gc?.();
     return mb(process.memoryUsage().heapUsed);
   };
-  const config = loadConfig({ SESSION_SECRET: 'b'.repeat(40), DATA_DIR: path.join(dir, `data-${phase}`), RATES_SOURCE: 'fixtures' });
+  // «undo» открывает базу «write» заново (как сервер после перезапуска): импорт и пользователь там уже есть
+  const config = loadConfig({ SESSION_SECRET: 'b'.repeat(40), DATA_DIR: path.join(dir, `data-${phase === 'undo' ? 'write' : phase}`), RATES_SOURCE: 'fixtures' });
   fs.mkdirSync(config.dataDir, { recursive: true });
   const { sqlite, db } = openDb(config.dbPath);
   runMigrations(db);
   seedCurrencies(db);
-  await createUsersService(db, createAuditService(db)).create({ login: LOGIN, name: 'Замер', password: PASSWORD }, null);
+  if (phase !== 'undo') await createUsersService(db, createAuditService(db)).create({ login: LOGIN, name: 'Замер', password: PASSWORD }, null);
   const app = await buildApp({ config, db, sqlite, logger: false, now: () => NOW });
   await app.ready();
 
@@ -164,13 +169,20 @@ async function measure(dir: string, phase: Phase): Promise<void> {
       report('Пересчёт предпросмотра (preview)', performance.now() - t, BUDGET_MS.preview);
       const written = await commit(cid, again.json() as ImportPreview, 16_000);
       report('Запись одной транзакцией (POST /imports)', written.ms, BUDGET_MS.commit);
+      reportPeak('Пик памяти процесса: загрузка, пересчёт и запись 16 000 строк', RSS_BUDGET_16K_MB);
+      fs.writeFileSync(path.join(dir, UNDO_TARGET), JSON.stringify({ cid, importId: written.importId }));
+    } else if (phase === 'undo') {
       // отмена (§7.3): жёсткое удаление 16 000 операций и созданных справочников одной транзакцией
-      const t2 = performance.now();
-      const undone = await app.inject({ method: 'POST', url: `/api/v1/companies/${cid}/imports/${written.importId}/undo`, headers, payload: { includeEdited: false, edited: 0 } });
+      const target = path.join(dir, UNDO_TARGET);
+      if (!fs.existsSync(target)) throw new Error('Нет импорта для отмены: замер «write» не записал 16 000 строк');
+      const { cid, importId } = JSON.parse(fs.readFileSync(target, 'utf8')) as { cid: number; importId: number };
+      lines.push(`Импорт 16 000 строк из замера «write», база открыта заново`);
+      const t = performance.now();
+      const undone = await app.inject({ method: 'POST', url: `/api/v1/companies/${cid}/imports/${importId}/undo`, headers, payload: { includeEdited: false, edited: 0 } });
       if (undone.statusCode !== 200) throw new Error(`Отмена: ${undone.statusCode} ${undone.body.slice(0, 300)}`);
       if ((undone.json() as ImportUndoResponse).result.deleted.operations !== 16_000) throw new Error('Отмена удалила не все 16 000 операций');
-      report('Отмена (POST /imports/:id/undo)', performance.now() - t2, BUDGET_MS.undo);
-      reportPeak('Пик памяти процесса: загрузка, пересчёт, запись и отмена 16 000 строк', RSS_BUDGET_16K_MB);
+      report('Отмена (POST /imports/:id/undo)', performance.now() - t, BUDGET_MS.undo);
+      reportPeak('Пик памяти процесса: отмена импорта 16 000 строк', RSS_BUDGET_16K_MB);
     } else if (phase === 'commit50k') {
       // предел файла: предпросмотр, план и вставка 50 000 строк — внутри одной транзакции записи
       const cid = await company('Замер записи 50 000');
@@ -202,7 +214,7 @@ async function measure(dir: string, phase: Phase): Promise<void> {
     sqlite.close();
   }
 
-  const titles: Record<Phase, string> = { write: 'Запись 16 000 строк', commit50k: 'Запись 50 000 строк', cache: 'Худший случай кэша' };
+  const titles: Record<Phase, string> = { write: 'Запись 16 000 строк', undo: 'Отмена 16 000 строк', commit50k: 'Запись 50 000 строк', cache: 'Худший случай кэша' };
   console.log(`\n${titles[phase]}:`);
   for (const l of lines) console.log(l);
   process.exitCode = failed ? EXIT_MEASURE_ERROR : over ? EXIT_OVER_BUDGET : 0;

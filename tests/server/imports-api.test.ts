@@ -216,15 +216,15 @@ describe('большой файл (Review Focus 5)', () => {
   it('16 000 строк «как у Finmap»: загрузка и пересчёт без квадратичных проходов; ответ меньше 200 КБ', { timeout: 60_000 }, async () => {
     w = await opsWorld();
     const rows = Array.from({ length: 16_000 }, (_, i) => {
-      const day = new Date(Date.UTC(2023, 2, 15) + Math.floor(i / 14) * 86_400_000).toISOString().slice(0, 10);
+      const day = new Date(Date.UTC(2023, 0, 9) + Math.floor(i / 14) * 86_400_000).toISOString().slice(0, 10);
       const income = i % 3 !== 0;
       return fr({
         paidAt: at(day, `${String(8 + (i % 12)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}:00`),
         amount: 1000 + (i % 977) + 0.5,
         baseAmount: 1000 + (i % 977) + 0.5,
         ...(income ? { to: i % 2 ? 'Касса-1' : 'Банк-2' } : { from: 'Касса-1' }),
-        category: income ? `Доход ${i % 15}` : i % 4 ? 'Зарплата' : `Расход ${i % 22}`,
-        counterparty: `Контрагент ${i % 86}`,
+        category: income ? `Доход ${i % 12}` : i % 4 ? 'Зарплата' : `Расход ${i % 18}`,
+        counterparty: `Контрагент ${i % 60}`,
         tags: i % 50 ? null : 'Смена',
         comment: i % 7 ? null : `Комментарий ${i}`,
       });
@@ -236,7 +236,7 @@ describe('большой файл (Review Focus 5)', () => {
     expect(res.statusCode, res.body.slice(0, 300)).toBe(200);
     const p = res.json() as ImportPreview;
     expect(p.counts).toMatchObject({ add: 16_000, duplicates: 0 });
-    expect(p.create.counterparties.total).toBe(86);
+    expect(p.create.counterparties.total).toBe(60);
     expect(res.rawPayload.length).toBeLessThan(200 * 1024);
     const again = await w.h.req('POST', previewUrl(), { token: p.token, accounts: [] });
     const t2 = performance.now();

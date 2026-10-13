@@ -91,7 +91,7 @@
    - Изменённые: «После импорта изменены 3 операции — они останутся.», с флажком — «… — они тоже будут удалены.».
    - Все операции изменены и флажок снят: «Операции из файла «…» не удаляются. Будут удалены созданные импортом…».
    - Флажок «Удалить и изменённые (3)» показывается только при `pending.edited > 0`.
-9. **Итог в панели** — например: «Импорт отменён: удалено 16 025 операций, 2 счёта, 37 категорий, 86 контрагентов, 1 тег. Оставлено: 3 изменённые операции, категория «Аренда» (используется), и ещё 4 (используются), стартовый баланс счёта «Касса» (изменён после импорта).» Итог объявляет живая область (`role="status"`, всегда в разметке), на экране — абзац над списком.
+9. **Итог в панели** — например: «Импорт отменён: удалено 1 227 операций, 2 счёта, 12 категорий, 25 контрагентов, 1 тег. Оставлено: 3 изменённые операции, категория «Аренда» (используется), и ещё 4 (используются), стартовый баланс счёта «Касса» (изменён после импорта).» Итог объявляет живая область (`role="status"`, всегда в разметке), на экране — абзац над списком.
 10. **Вкладки (уточнение §7.1).**
     - Стрелки ←/→ ходят по кругу, Home и End — на крайние вкладки.
     - На телефоне вкладки и «Отменить» — не ниже 44 px.
@@ -1453,7 +1453,7 @@ git commit -m "feat: импорт — отмена одной транзакци
 - Consumes: из задачи 1 — `ImportListItem`, `ImportListPage`, маршрут `GET …/imports`; `formatDateTime`, `formatDateTimeSec` (`shared/dates.ts`); `formatCount` (`lib/import-panel.ts`); `useMeta` (`lib/query.ts`); `Pending` (`components/QueryState.tsx`); `btnSecondary` (`components/ui.ts`).
 - Produces:
   - `ConfirmDialogProps.cancelLabel?: string` — подпись левой кнопки, по умолчанию «Отменить»;
-  - `lib/import-panel.ts`: `operationsText(n: number): string` («16 028 операций») — экспорт вместо внутренней `operations`;
+  - `lib/import-panel.ts`: `operationsText(n: number): string` («1 230 операций») — экспорт вместо внутренней `operations`;
   - `lib/import-history.ts`: `type HistoryTab = 'log' | 'imports'`, `HISTORY_TABS`, `tabAfterKey(current: HistoryTab, key: string): HistoryTab | null`, `importAddedText(item): string`, `importUndoneText(item, timeZone): string | null`, `importMetaText(item, timeZone): string`;
   - `lib/queries.ts`: `useImports(companyId: number)` — бесконечный запрос `['imports', companyId]`, страницы по 20, `refetchOnMount: 'always'`;
   - `components/import/ImportHistory.tsx`: `ImportHistory({ company })` — в задаче 4 получит `onFocusLost`;
@@ -1470,7 +1470,7 @@ import type { ImportListItem } from '../../src/shared/schemas/imports';
 
 const TZ = 'Asia/Almaty';
 
-/** Запись списка: импорт 12.10.2026 15:02:11 по Алматы, 16 028 операций. */
+/** Запись списка: импорт 12.10.2026 15:02:11 по Алматы, 1 230 операций. */
 function item(over: Partial<ImportListItem> = {}): ImportListItem {
   return {
     id: 7,
@@ -1478,11 +1478,11 @@ function item(over: Partial<ImportListItem> = {}): ImportListItem {
     fileSize: 1000,
     status: 'done',
     createdAt: '2026-10-12T10:02:11.000Z',
-    userName: 'Санжар',
-    counts: { rows: 16_028, income: 9812, expense: 6104, transfer: 112, added: 16_028, duplicates: 0, skippedFuture: 0 },
+    userName: 'Сотрудник А',
+    counts: { rows: 1_230, income: 700, expense: 496, transfer: 34, added: 1_230, duplicates: 0, skippedFuture: 0 },
     undoneAt: null,
     undoneByName: null,
-    pending: { operations: 16_028, edited: 0 },
+    pending: { operations: 1_230, edited: 0 },
     ...over,
   };
 }
@@ -1502,16 +1502,16 @@ describe('вкладки «Журнал | Импорты» (§7.1 специфи
 
 describe('запись списка «Импорты» (§7.2)', () => {
   it('добавлено и дубликаты; кто и когда — до секунд по часам компании', () => {
-    expect(importAddedText(item())).toBe('Добавлено 16\u202F028 операций · пропущено дубликатов 0');
+    expect(importAddedText(item())).toBe('Добавлено 1\u202F230 операций · пропущено дубликатов 0');
     expect(importAddedText(item({ counts: { ...item().counts, added: 1, duplicates: 3 } }))).toBe('Добавлено 1 операция · пропущено дубликатов 3');
-    expect(importMetaText(item(), TZ)).toBe('Санжар · 12.10.2026, 15:02:11');
+    expect(importMetaText(item(), TZ)).toBe('Сотрудник А · 12.10.2026, 15:02:11');
     expect(importMetaText(item({ userName: null }), TZ)).toBe('Пользователь удалён · 12.10.2026, 15:02:11');
   });
 
-  it('«Отменён 12.10.2026, 15:40 (Санжар)» — только у отменённого', () => {
+  it('«Отменён 12.10.2026, 15:40 (Сотрудник А)» — только у отменённого', () => {
     expect(importUndoneText(item(), TZ)).toBeNull();
-    expect(importUndoneText(item({ status: 'undone', undoneAt: '2026-10-12T10:40:00.000Z', undoneByName: 'Санжар', pending: null }), TZ)).toBe(
-      'Отменён 12.10.2026, 15:40 (Санжар)',
+    expect(importUndoneText(item({ status: 'undone', undoneAt: '2026-10-12T10:40:00.000Z', undoneByName: 'Сотрудник А', pending: null }), TZ)).toBe(
+      'Отменён 12.10.2026, 15:40 (Сотрудник А)',
     );
     expect(importUndoneText(item({ status: 'undone', undoneAt: '2026-10-12T10:40:00.000Z', undoneByName: null, pending: null }), TZ)).toBe('Отменён 12.10.2026, 15:40');
   });
@@ -1720,7 +1720,7 @@ const operations = (n: number) => `${formatCount(n)} ${pluralRu(n, 'операц
 на
 
 ```ts
-/** «16 028 операций», «1 операция». */
+/** «1 230 операций», «1 операция». */
 export const operationsText = (n: number) => `${formatCount(n)} ${pluralRu(n, 'операция', 'операции', 'операций')}`;
 ```
 
@@ -1788,18 +1788,18 @@ export function tabAfterKey(current: HistoryTab, key: string): HistoryTab | null
   }
 }
 
-/** Вторая строка записи (§7.2): «Добавлено 16 028 операций · пропущено дубликатов 0». */
+/** Вторая строка записи (§7.2): «Добавлено 1 230 операций · пропущено дубликатов 0». */
 export function importAddedText(item: ImportListItem): string {
   return `Добавлено ${operationsText(item.counts.added)} · пропущено дубликатов ${formatCount(item.counts.duplicates)}`;
 }
 
-/** У отменённого (§7.2): «Отменён 12.10.2026, 15:40 (Санжар)». */
+/** У отменённого (§7.2): «Отменён 12.10.2026, 15:40 (Сотрудник А)». */
 export function importUndoneText(item: ImportListItem, timeZone: string): string | null {
   if (item.status !== 'undone' || item.undoneAt === null) return null;
   return `Отменён ${formatDateTime(item.undoneAt, timeZone)}${item.undoneByName ? ` (${item.undoneByName})` : ''}`;
 }
 
-/** Третья строка (§7.2): «Санжар · 12.10.2026, 15:02:11». */
+/** Третья строка (§7.2): «Сотрудник А · 12.10.2026, 15:02:11». */
 export function importMetaText(item: ImportListItem, timeZone: string): string {
   return `${item.userName ?? 'Пользователь удалён'} · ${formatDateTimeSec(item.createdAt, timeZone)}`;
 }
@@ -2071,7 +2071,7 @@ git commit -m "feat: история действий — вкладки «Жур
 **Interfaces:**
 - Consumes: из задачи 2 — `ImportUndoRequest`, `ImportUndoResponse`, `ImportUndoResult`, `ImportCreatedEntity`, `ImportKeptAccountField`, маршрут `POST …/imports/:id/undo`; из задачи 3 — `operationsText`, `ImportHistory`, `HistoryTabs`, `ConfirmDialog.cancelLabel`, `useImports`; `invalidateAfterImport` (`lib/import-panel.ts`); `queryClient` (`lib/query.ts`); `ApiError` (`lib/api.ts`); `pluralRu` (`lib/journal-format.ts`); `alertClass`, `btnSmall` (`components/ui.ts`).
 - Produces:
-  - `lib/import-panel.ts`: `createdParts(c: ImportCreatedCounts): string[]` («2 счёта», «37 категорий»…), `doneText` — через неё;
+  - `lib/import-panel.ts`: `createdParts(c: ImportCreatedCounts): string[]` («2 счёта», «12 категорий»…), `doneText` — через неё;
   - `lib/import-history.ts`: `undoButtonLabel(item, timeZone)`, `undoCheckboxLabel(edited)`, `undoConfirmText(item, includeEdited)`, `undoResultText(result: ImportUndoResult): string`, `replaceImportItem(data, item)`, `undoImport(companyId, importId, body): Promise<ImportUndoResponse>`;
   - `ImportHistory({ company, onFocusLost })` — `onFocusLost` ставит фокус на вкладку «Импорты», когда кнопки «Отменить» уже нет.
 
@@ -2117,18 +2117,18 @@ describe('кнопка «Отменить» и подтверждение отм
 
   it('без изменённых: сколько операций удалится и что будет с созданным', () => {
     expect(undoConfirmText(item(), false)).toBe(
-      'Будут удалены 16\u202F028 операций из файла «выгрузка.xlsx», а также созданные импортом счета, категории, контрагенты, проекты и теги, если они больше нигде не используются.',
+      'Будут удалены 1\u202F230 операций из файла «выгрузка.xlsx», а также созданные импортом счета, категории, контрагенты, проекты и теги, если они больше нигде не используются.',
     );
     expect(undoConfirmText(item({ pending: { operations: 1, edited: 0 } }), false)).toMatch(/^Будет удалена 1 операция из файла/);
     expect(undoConfirmText(item({ pending: { operations: 22, edited: 0 } }), false)).toMatch(/^Будут удалены 22 операции из файла/);
   });
 
   it('с изменёнными: без флажка они останутся, с флажком — тоже удалятся; флажок называет их число', () => {
-    const p = item({ pending: { operations: 16_028, edited: 3 } });
+    const p = item({ pending: { operations: 1_230, edited: 3 } });
     expect(undoConfirmText(p, false)).toBe(
-      'Будут удалены 16\u202F025 операций из файла «выгрузка.xlsx», а также созданные импортом счета, категории, контрагенты, проекты и теги, если они больше нигде не используются. После импорта изменены 3 операции — они останутся.',
+      'Будут удалены 1\u202F227 операций из файла «выгрузка.xlsx», а также созданные импортом счета, категории, контрагенты, проекты и теги, если они больше нигде не используются. После импорта изменены 3 операции — они останутся.',
     );
-    expect(undoConfirmText(p, true)).toMatch(/^Будут удалены 16\u202F028 операций .* После импорта изменены 3 операции — они тоже будут удалены\.$/);
+    expect(undoConfirmText(p, true)).toMatch(/^Будут удалены 1\u202F230 операций .* После импорта изменены 3 операции — они тоже будут удалены\.$/);
     expect(undoConfirmText(item({ pending: { operations: 5, edited: 1 } }), false)).toMatch(/После импорта изменена 1 операция — она останется\.$/);
     expect(undoCheckboxLabel(3)).toBe('Удалить и изменённые (3)');
   });
@@ -2143,7 +2143,7 @@ describe('кнопка «Отменить» и подтверждение отм
 describe('итог отмены (§7.3)', () => {
   it('удалено и оставлено: изменённые операции, используемые справочники, поля счетов', () => {
     const r: ImportUndoResult = {
-      deleted: { operations: 16_025, accounts: 2, categories: 37, counterparties: 86, projects: 0, tags: 1 },
+      deleted: { operations: 1_227, accounts: 2, categories: 12, counterparties: 25, projects: 0, tags: 1 },
       kept: {
         operations: 3,
         created: { ...zero, categories: 1 },
@@ -2152,7 +2152,7 @@ describe('итог отмены (§7.3)', () => {
       },
     };
     expect(undoResultText(r)).toBe(
-      'Импорт отменён: удалено 16\u202F025 операций, 2 счёта, 37 категорий, 86 контрагентов, 1 тег. Оставлено: 3 изменённые операции, категория «Аренда» (используется).',
+      'Импорт отменён: удалено 1\u202F227 операций, 2 счёта, 12 категорий, 25 контрагентов, 1 тег. Оставлено: 3 изменённые операции, категория «Аренда» (используется).',
     );
   });
 
@@ -2376,7 +2376,7 @@ Expected: FAIL — `undoConfirmText` и другие функции отмены
 Замените
 
 ```ts
-/** Итог записи (§5.6): «Добавлено 16 028 операций. Создано: 2 счёта, 37 категорий, 86 контрагентов, 1 тег. Пропущено дубликатов: 0». */
+/** Итог записи (§5.6): «Добавлено 1 230 операций. Создано: 2 счёта, 12 категорий, 25 контрагентов, 1 тег. Пропущено дубликатов: 0». */
 export function doneText(r: ImportCommitResult): string {
   const c = r.import.created;
   const parts = [
@@ -2392,7 +2392,7 @@ export function doneText(r: ImportCommitResult): string {
 на
 
 ```ts
-/** Ненулевые виды созданного (или удалённого отменой): «2 счёта», «37 категорий», «86 контрагентов», «1 тег». */
+/** Ненулевые виды созданного (или удалённого отменой): «2 счёта», «12 категорий», «25 контрагентов», «1 тег». */
 export function createdParts(c: ImportCreatedCounts): string[] {
   return [
     c.accounts && `${formatCount(c.accounts)} ${pluralRu(c.accounts, 'счёт', 'счёта', 'счетов')}`,
@@ -2403,7 +2403,7 @@ export function createdParts(c: ImportCreatedCounts): string[] {
   ].filter((x): x is string => typeof x === 'string');
 }
 
-/** Итог записи (§5.6): «Добавлено 16 028 операций. Создано: 2 счёта, 37 категорий, 86 контрагентов, 1 тег. Пропущено дубликатов: 0». */
+/** Итог записи (§5.6): «Добавлено 1 230 операций. Создано: 2 счёта, 12 категорий, 25 контрагентов, 1 тег. Пропущено дубликатов: 0». */
 export function doneText(r: ImportCommitResult): string {
   const parts = createdParts(r.import.created);
   const created = parts.length > 0 ? ` Создано: ${parts.join(', ')}.` : '';
@@ -2494,8 +2494,8 @@ function keptAccountText(k: ImportKeptAccountField): string {
 }
 
 /**
- * Итог отмены (§7.3) — в живую область панели: «Импорт отменён: удалено 16 025 операций, 2 счёта, 37 категорий,
- * 86 контрагентов, 1 тег. Оставлено: 3 изменённые операции, категория «Аренда» (используется).»
+ * Итог отмены (§7.3) — в живую область панели: «Импорт отменён: удалено 1 227 операций, 2 счёта, 12 категорий,
+ * 25 контрагентов, 1 тег. Оставлено: 3 изменённые операции, категория «Аренда» (используется).»
  */
 export function undoResultText(r: ImportUndoResult): string {
   const deleted = [operationsText(r.deleted.operations), ...createdParts(r.deleted)];
@@ -2757,17 +2757,17 @@ import { auditSubject, COMPANY_ENTITIES, diffRows, ENTITY_LABELS, formatBytes, i
   it('импорт на странице «История действий»: имя файла рядом с «Импорт №…», в подробностях — числа (§6.5 спецификации импорта)', () => {
     const diff = {
       fileName: 'выгрузка.xlsx',
-      counts: { rows: 16_030, income: 9812, expense: 6104, transfer: 112, added: 16_028, duplicates: 0, skippedFuture: 2 },
-      created: { accounts: 2, categories: 37, counterparties: 86, projects: 0, tags: 1 },
+      counts: { rows: 1_232, income: 700, expense: 496, transfer: 34, added: 1_230, duplicates: 0, skippedFuture: 2 },
+      created: { accounts: 2, categories: 12, counterparties: 25, projects: 0, tags: 1 },
     };
     expect(auditSubject({ entity: 'import', diff })).toBe('выгрузка.xlsx');
     expect(auditSubject({ entity: 'tag', diff: { name: 'x', fileName: 'y' } })).toBeNull();
     expect(importDetails({ entity: 'import', action: 'create', diff })).toEqual([
-      { label: 'Строк в файле', value: '16\u202F030' },
-      { label: 'Добавлено', value: '16\u202F028 операций (доходов 9\u202F812, расходов 6\u202F104, переводов 112)' },
+      { label: 'Строк в файле', value: '1\u202F232' },
+      { label: 'Добавлено', value: '1\u202F230 операций (доходов 700, расходов 496, переводов 34)' },
       { label: 'Пропущено дубликатов', value: '0' },
       { label: 'Пропущено плановых', value: '2' },
-      { label: 'Создано', value: '2 счёта, 37 категорий, 86 контрагентов, 1 тег' },
+      { label: 'Создано', value: '2 счёта, 12 категорий, 25 контрагентов, 1 тег' },
     ]);
     expect(importDetails({ entity: 'import', action: 'create', diff: { ...diff, created: { accounts: 0, categories: 0, counterparties: 0, projects: 0, tags: 0 } } })!.at(-1)).toEqual({
       label: 'Создано',

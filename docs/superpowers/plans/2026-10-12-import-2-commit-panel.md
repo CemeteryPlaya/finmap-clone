@@ -1401,20 +1401,20 @@ const NS_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationsh
 
 /**
  * Много строк «как у Finmap» для замеров и проверки скорости (§10, §11.2): доходы на «Касса-1» и «Банк-2», расходы с
- * «Касса-1», 15 категорий доходов, «Зарплата» и 22 категории расходов, 86 контрагентов, редкие тег и комментарий.
- * Даты — с 15.03.2023, perDay строк в день (по умолчанию 14: 16 000 строк — до мая 2026), время 08:00–19:59.
+ * «Касса-1», 12 категорий доходов, «Зарплата» и 18 категорий расходов, 60 контрагентов, редкие тег и комментарий.
+ * Даты — с 09.01.2023, perDay строк в день (по умолчанию 14: 16 000 строк — до февраля 2026), время 08:00–19:59.
  */
 export function finmapLikeMany(count: number, opts: { perDay?: number } = {}): FinmapLikeValue[][] {
   const perDay = opts.perDay ?? 14;
   return Array.from({ length: count }, (_, i) => {
-    const day = new Date(Date.UTC(2023, 2, 15) + Math.floor(i / perDay) * 86_400_000).toISOString().slice(0, 10);
+    const day = new Date(Date.UTC(2023, 0, 9) + Math.floor(i / perDay) * 86_400_000).toISOString().slice(0, 10);
     const income = i % 3 !== 0;
     return finmapLikeRow({
       paidAt: excelSerial(day, `${String(8 + (i % 12)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}:00`),
       amount: 1000 + (i % 977) + 0.5,
       ...(income ? { to: i % 2 ? 'Касса-1' : 'Банк-2' } : { from: 'Касса-1' }),
-      category: income ? `Доход ${i % 15}` : i % 4 ? 'Зарплата' : `Расход ${i % 22}`,
-      counterparty: `Контрагент ${i % 86}`,
+      category: income ? `Доход ${i % 12}` : i % 4 ? 'Зарплата' : `Расход ${i % 18}`,
+      counterparty: `Контрагент ${i % 60}`,
       tags: i % 50 ? null : 'Смена',
       comment: i % 7 ? null : `Комментарий ${i}`,
     });
@@ -2447,9 +2447,9 @@ const card = (over: Partial<ImportPreviewAccount> = {}): ImportPreviewAccount =>
 
 const preview = (over: Partial<ImportPreview> = {}): ImportPreview => ({
   token: 'a'.repeat(32),
-  file: { name: 'выгрузка.xlsx', size: 1000, rows: 16_028 },
-  counts: { income: 9_812, expense: 6_104, transfer: 112, add: 16_028, duplicates: 0, skippedFuture: 0 },
-  period: { from: '2023-03-15', to: '2026-10-11' },
+  file: { name: 'выгрузка.xlsx', size: 1000, rows: 1_230 },
+  counts: { income: 700, expense: 496, transfer: 34, add: 1_230, duplicates: 0, skippedFuture: 0 },
+  period: { from: '2024-01-09', to: '2026-09-30' },
   accounts: [card()],
   create: {
     categories: { total: 0, items: [] },
@@ -2467,7 +2467,7 @@ const preview = (over: Partial<ImportPreview> = {}): ImportPreview => ({
 
 describe('панель импорта: тексты (§5.3, §5.6 спецификации импорта)', () => {
   it('итог проверки, номера строк, размер файла', () => {
-    expect(checkSummary(preview())).toBe('В файле 16\u202F028 операций: доходов 9\u202F812, расходов 6\u202F104, переводов 112. Период: 15.03.2023 – 11.10.2026');
+    expect(checkSummary(preview())).toBe('В файле 1\u202F230 операций: доходов 700, расходов 496, переводов 34. Период: 09.01.2024 – 30.09.2026');
     expect(checkSummary(preview({ file: { name: 'ф', size: 1, rows: 1 }, counts: { income: 1, expense: 0, transfer: 0, add: 0, duplicates: 1, skippedFuture: 0 }, period: null }))).toBe(
       'В файле 1 операция: доходов 1, расходов 0, переводов 0',
     );
@@ -2539,16 +2539,16 @@ describe('панель импорта: тексты (§5.3, §5.6 специфи
   });
 
   it('итог записи: созданное без нулей, склонения', () => {
-    const counts = { rows: 16_028, income: 1, expense: 1, transfer: 0, added: 16_028, duplicates: 0, skippedFuture: 0 };
+    const counts = { rows: 1_230, income: 1, expense: 1, transfer: 0, added: 1_230, duplicates: 0, skippedFuture: 0 };
     const result = (created: { accounts: number; categories: number; counterparties: number; projects: number; tags: number }) => ({
       import: { id: 1, fileName: 'ф', fileSize: 1, status: 'done' as const, createdAt: '2026-10-12T10:00:00.000Z', counts, created },
       counts,
     });
-    expect(doneText(result({ accounts: 2, categories: 37, counterparties: 86, projects: 0, tags: 1 }))).toBe(
-      'Добавлено 16\u202F028 операций. Создано: 2 счёта, 37 категорий, 86 контрагентов, 1 тег. Пропущено дубликатов: 0',
+    expect(doneText(result({ accounts: 2, categories: 12, counterparties: 25, projects: 0, tags: 1 }))).toBe(
+      'Добавлено 1\u202F230 операций. Создано: 2 счёта, 12 категорий, 25 контрагентов, 1 тег. Пропущено дубликатов: 0',
     );
-    expect(doneText(result({ accounts: 0, categories: 0, counterparties: 0, projects: 1, tags: 0 }))).toBe('Добавлено 16\u202F028 операций. Создано: 1 проект. Пропущено дубликатов: 0');
-    expect(doneText(result({ accounts: 0, categories: 0, counterparties: 0, projects: 0, tags: 0 }))).toBe('Добавлено 16\u202F028 операций. Пропущено дубликатов: 0');
+    expect(doneText(result({ accounts: 0, categories: 0, counterparties: 0, projects: 1, tags: 0 }))).toBe('Добавлено 1\u202F230 операций. Создано: 1 проект. Пропущено дубликатов: 0');
+    expect(doneText(result({ accounts: 0, categories: 0, counterparties: 0, projects: 0, tags: 0 }))).toBe('Добавлено 1\u202F230 операций. Пропущено дубликатов: 0');
   });
 });
 
@@ -2721,7 +2721,7 @@ export function importSizeError(size: number): string | null {
   return size > IMPORT_MAX_BYTES ? 'Файл больше 30 МБ' : null;
 }
 
-/** «16 028» — разряды узким неразрывным пробелом, как у сумм. */
+/** «1 230» — разряды узким неразрывным пробелом, как у сумм. */
 export const formatCount = (n: number) => formatAmount(n, 0);
 
 /** Номера строк группы: «строка 15», «строки 15, 230, 231 и ещё 4»; без номеров (W8) — пусто. */
@@ -2739,7 +2739,7 @@ export function issueText(g: ImportIssueGroup): string {
 
 const operations = (n: number) => `${formatCount(n)} ${pluralRu(n, 'операция', 'операции', 'операций')}`;
 
-/** Первая строка итога (§5.3): «В файле 16 028 операций: доходов 9 812, расходов 6 104, переводов 112. Период: 15.03.2023 – 11.10.2026». */
+/** Первая строка итога (§5.3): «В файле 1 230 операций: доходов 700, расходов 496, переводов 34. Период: 09.01.2024 – 30.09.2026». */
 export function checkSummary(p: ImportPreview): string {
   const c = p.counts;
   const period = p.period ? `. Период: ${formatDateRu(p.period.from)} – ${formatDateRu(p.period.to)}` : '';
@@ -2910,7 +2910,7 @@ export function needsRemembered(p: ImportPreview, choices: ReadonlyMap<string, A
   });
 }
 
-/** Итог записи (§5.6): «Добавлено 16 028 операций. Создано: 2 счёта, 37 категорий, 86 контрагентов, 1 тег. Пропущено дубликатов: 0». */
+/** Итог записи (§5.6): «Добавлено 1 230 операций. Создано: 2 счёта, 12 категорий, 25 контрагентов, 1 тег. Пропущено дубликатов: 0». */
 export function doneText(r: ImportCommitResult): string {
   const c = r.import.created;
   const parts = [

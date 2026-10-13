@@ -34,9 +34,9 @@ const card = (over: Partial<ImportPreviewAccount> = {}): ImportPreviewAccount =>
 
 const preview = (over: Partial<ImportPreview> = {}): ImportPreview => ({
   token: 'a'.repeat(32),
-  file: { name: 'выгрузка.xlsx', size: 1000, rows: 16_028 },
-  counts: { income: 9_812, expense: 6_104, transfer: 112, add: 16_028, duplicates: 0, skippedFuture: 0 },
-  period: { from: '2023-03-15', to: '2026-10-11' },
+  file: { name: 'выгрузка.xlsx', size: 1000, rows: 1_234 },
+  counts: { income: 700, expense: 500, transfer: 34, add: 1_234, duplicates: 0, skippedFuture: 0 },
+  period: { from: '2024-01-09', to: '2026-09-30' },
   accounts: [card()],
   create: {
     categories: { total: 0, items: [] },
@@ -54,7 +54,7 @@ const preview = (over: Partial<ImportPreview> = {}): ImportPreview => ({
 
 describe('панель импорта: тексты (§5.3, §5.6 спецификации импорта)', () => {
   it('итог проверки, номера строк, размер файла', () => {
-    expect(checkSummary(preview())).toBe('В файле 16\u202F028 операций: доходов 9\u202F812, расходов 6\u202F104, переводов 112. Период: 15.03.2023 – 11.10.2026');
+    expect(checkSummary(preview())).toBe('В файле 1\u202F234 операции: доходов 700, расходов 500, переводов 34. Период: 09.01.2024 – 30.09.2026');
     expect(checkSummary(preview({ file: { name: 'ф', size: 1, rows: 1 }, counts: { income: 1, expense: 0, transfer: 0, add: 0, duplicates: 1, skippedFuture: 0 }, period: null }))).toBe(
       'В файле 1 операция: доходов 1, расходов 0, переводов 0',
     );
@@ -143,16 +143,16 @@ describe('панель импорта: тексты (§5.3, §5.6 специфи
   });
 
   it('итог записи: созданное без нулей, склонения', () => {
-    const counts = { rows: 16_028, income: 1, expense: 1, transfer: 0, added: 16_028, duplicates: 0, skippedFuture: 0 };
+    const counts = { rows: 1_230, income: 1, expense: 1, transfer: 0, added: 1_230, duplicates: 0, skippedFuture: 0 };
     const result = (created: { accounts: number; categories: number; counterparties: number; projects: number; tags: number }) => ({
       import: { id: 1, fileName: 'ф', fileSize: 1, status: 'done' as const, createdAt: '2026-10-12T10:00:00.000Z', counts, created },
       counts,
     });
-    expect(doneText(result({ accounts: 2, categories: 37, counterparties: 86, projects: 0, tags: 1 }))).toBe(
-      'Добавлено 16\u202F028 операций. Создано: 2 счёта, 37 категорий, 86 контрагентов, 1 тег. Пропущено дубликатов: 0',
+    expect(doneText(result({ accounts: 2, categories: 12, counterparties: 25, projects: 0, tags: 1 }))).toBe(
+      'Добавлено 1\u202F230 операций. Создано: 2 счёта, 12 категорий, 25 контрагентов, 1 тег. Пропущено дубликатов: 0',
     );
-    expect(doneText(result({ accounts: 0, categories: 0, counterparties: 0, projects: 1, tags: 0 }))).toBe('Добавлено 16\u202F028 операций. Создано: 1 проект. Пропущено дубликатов: 0');
-    expect(doneText(result({ accounts: 0, categories: 0, counterparties: 0, projects: 0, tags: 0 }))).toBe('Добавлено 16\u202F028 операций. Пропущено дубликатов: 0');
+    expect(doneText(result({ accounts: 0, categories: 0, counterparties: 0, projects: 1, tags: 0 }))).toBe('Добавлено 1\u202F230 операций. Создано: 1 проект. Пропущено дубликатов: 0');
+    expect(doneText(result({ accounts: 0, categories: 0, counterparties: 0, projects: 0, tags: 0 }))).toBe('Добавлено 1\u202F230 операций. Пропущено дубликатов: 0');
   });
 });
 

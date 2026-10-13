@@ -1579,7 +1579,7 @@ describe('блок компании и панель «Компании» (§3.1�
   it('инициалы — первые буквы двух первых слов без формы собственности и кавычек', () => {
     expect(companyInitials('ТОО «Демо Клубы»')).toBe('ДК');
     expect(companyInitials('ИП Лютик 123')).toBe('Л1');
-    expect(companyInitials('Unity Cyber Club')).toBe('UC');
+    expect(companyInitials('Nova Game Club')).toBe('NG');
     expect(companyInitials('Demo Ltd')).toBe('D');
     expect(companyInitials('ТОО')).toBe('Т');
     expect(companyInitials('  ')).toBe('?');
