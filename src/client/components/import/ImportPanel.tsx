@@ -32,7 +32,9 @@ type Phase =
   | { kind: 'checking' }
   | { kind: 'fileError'; message: string }
   | { kind: 'preview'; preview: ImportPreview }
-  | { kind: 'done'; result: ImportCommitResult };
+  | { kind: 'done'; result: ImportCommitResult }
+  /** Запись не прошла, а компания в адресе уже другая (R1): только сообщение и «Закрыть». */
+  | { kind: 'abandoned'; message: string };
 
 /** 410 (кэш вытеснен, сервер перезапущен): файл проверяется заново сам (§5.6). */
 const EXPIRED_NOTICE = 'Проверка устарела — файл проверен заново. Проверьте итог и нажмите «Импортировать» ещё раз';
@@ -58,7 +60,9 @@ export function useOpenImport(): (() => void) | null {
  * плана И-2). Открывают её «Импортировать» в тулбаре журнала и «Импорт из Excel» в «Ещё» на телефоне.
  * Панель привязана к компании, в которой её открыли (R1 плана И-2): все запросы — к ней, её название — под заголовком.
  * Компания в адресе сменилась (история браузера), а записи нет — панель закрывается, файл, выбор счетов и проверка
- * сбрасываются; идёт запись — панель остаётся с прежней компанией до конца записи и закрывается по «Готово».
+ * сбрасываются; идёт запись — панель остаётся с прежней компанией до конца записи и закрывается по «Готово». Запись,
+ * законченная уже в другой компании, с ошибкой — только сообщение «Импорт в «…» не выполнен» и «Закрыть»: ни нового
+ * предпросмотра, ни повторной загрузки файла для прежней компании.
  */
 export function ImportPanelHost({ company, children }: { company: Company; children: ReactNode }) {
   /** Компания, в которой панель открыта; null — панель закрыта. */
@@ -72,11 +76,13 @@ export function ImportPanelHost({ company, children }: { company: Company; child
   const canImport = company.archivedAt === null;
   // та же компания — свежие данные из адреса (название после переименования); другая — та, где панель открыли
   const target = bound === null || bound.id === company.id ? company : bound;
+  // панель осталась с прежней компанией, пока шла запись: адрес уже другой
+  const detached = bound !== null && bound.id !== company.id;
   return (
     <OpenImportContext.Provider value={canImport ? show : null}>
       {children}
       {(canImport || bound !== null) && (
-        <ImportPanel company={target} open={bound !== null} onClose={() => setBound(null)} onBusy={(b) => (busy.current = b)} />
+        <ImportPanel company={target} open={bound !== null} detached={detached} onClose={() => setBound(null)} onBusy={(b) => (busy.current = b)} />
       )}
     </OpenImportContext.Provider>
   );
@@ -90,11 +96,14 @@ export function ImportPanelHost({ company, children }: { company: Company; child
 export function ImportPanel({
   company,
   open,
+  detached = false,
   onClose,
   onBusy,
 }: {
   company: Company;
   open: boolean;
+  /** Компания в адресе уже другая, панель осталась с этой до конца записи (R1). */
+  detached?: boolean;
   onClose: () => void;
   /** Идёт запись: ImportPanelHost не закрывает панель при смене компании (R1). */
   onBusy?: (busy: boolean) => void;
@@ -116,13 +125,24 @@ export function ImportPanel({
       busy={busy}
       footer={<div ref={setFooter} />}
     >
-      <ImportFlow company={company} footer={footer} onBusy={changeBusy} onDone={onClose} />
+      <ImportFlow company={company} detached={detached} footer={footer} onBusy={changeBusy} onDone={onClose} />
     </Drawer>
   );
 }
 
-function ImportFlow(props: { company: Company; footer: HTMLDivElement | null; onBusy: (busy: boolean) => void; onDone: () => void }) {
+function ImportFlow(props: {
+  company: Company;
+  detached: boolean;
+  footer: HTMLDivElement | null;
+  onBusy: (busy: boolean) => void;
+  onDone: () => void;
+}) {
   const cid = props.company.id;
+  /** Для ответа записи: компания в адресе сменилась, пока запись шла (R1). */
+  const detachedRef = useRef(props.detached);
+  useEffect(() => {
+    detachedRef.current = props.detached;
+  });
   const accounts = useAccounts(cid);
   const [file, setFile] = useState<File | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
@@ -139,10 +159,11 @@ function ImportFlow(props: { company: Company; footer: HTMLDivElement | null; on
   const inputRef = useRef<HTMLInputElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const doneRef = useRef<HTMLHeadingElement>(null);
+  const abandonedRef = useRef<HTMLParagraphElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** Номер последнего запроса предпросмотра: ответ устаревшего не показывается. */
   const seq = useRef(0);
-  const [focusTarget, setFocusTarget] = useState<{ n: number; to: 'heading' | 'done' } | null>(null);
+  const [focusTarget, setFocusTarget] = useState<{ n: number; to: 'heading' | 'done' | 'abandoned' } | null>(null);
   const reasonId = useId();
   const hintId = useId();
   const preview = phase.kind === 'preview' ? phase.preview : null;
@@ -157,7 +178,7 @@ function ImportFlow(props: { company: Company; footer: HTMLDivElement | null; on
   );
   useEffect(() => {
     if (!focusTarget) return;
-    (focusTarget.to === 'heading' ? headingRef : doneRef).current?.focus();
+    ({ heading: headingRef, done: doneRef, abandoned: abandonedRef })[focusTarget.to].current?.focus();
   }, [focusTarget]);
 
   const show = (p: ImportPreview, focus: boolean) => {
@@ -198,13 +219,13 @@ function ImportFlow(props: { company: Company; footer: HTMLDivElement | null; on
     if (!f) return;
     const tooBig = importSizeError(f.size);
     setNotice(null);
-    setInvalid(new Map());
     if (tooBig) {
       // файл не загружается: прежний выбор остаётся
       setSizeError(tooBig);
       setStatus(tooBig);
       return;
     }
+    setInvalid(new Map());
     setSizeError(null);
     setFile(f);
     void check(f);
@@ -252,6 +273,9 @@ function ImportFlow(props: { company: Company; footer: HTMLDivElement | null; on
 
   const commit = async () => {
     if (!preview || reason || committing) return;
+    // пересчёт, ещё не начатый или начатый, во время записи и после неё не показывается
+    clearTimeout(timer.current);
+    seq.current++;
     setCommitting(true);
     props.onBusy(true);
     setNotice(null);
@@ -263,6 +287,15 @@ function ImportFlow(props: { company: Company; footer: HTMLDivElement | null; on
       setFocusTarget((f) => ({ n: (f?.n ?? 0) + 1, to: 'done' }));
       void invalidateAfterImport(cid);
     } catch (e) {
+      if (detachedRef.current) {
+        // компания в адресе уже другая (R1): для прежней ни свежего предпросмотра, ни повторной загрузки при 410 —
+        // только сообщение и «Закрыть»
+        choices.current.clear();
+        setPhase({ kind: 'abandoned', message: `Импорт в «${props.company.name}» не выполнен: ${errorText(e)}` });
+        setStatus('Импорт не выполнен');
+        setFocusTarget((f) => ({ n: (f?.n ?? 0) + 1, to: 'abandoned' }));
+        return;
+      }
       const fresh = e instanceof ApiError ? e.details?.preview : undefined;
       if (e instanceof ApiError && (e.code === 'IMPORT_CHANGED' || e.code === 'IMPORT_INVALID') && isImportPreview(fresh)) {
         // за время проверки данные изменились (409) или импорт стал невозможен — ошибки или «Нечего импортировать» (422):
@@ -274,8 +307,9 @@ function ImportFlow(props: { company: Company; footer: HTMLDivElement | null; on
       } else if (expired(e) && file) {
         void check(file, EXPIRED_NOTICE);
       } else {
+        // текст — в role="alert" подвала; живая область не повторяет его
         setNotice(errorText(e));
-        setStatus(errorText(e));
+        setStatus('');
       }
     } finally {
       setCommitting(false);
@@ -304,6 +338,10 @@ function ImportFlow(props: { company: Company; footer: HTMLDivElement | null; on
     phase.kind === 'done' ? (
       <button type="button" onClick={props.onDone} className={`${btnPrimary} h-12 w-full`}>
         Готово
+      </button>
+    ) : phase.kind === 'abandoned' ? (
+      <button type="button" onClick={props.onDone} className={`${btnSecondary} h-12 w-full`}>
+        Закрыть
       </button>
     ) : (
       <div className="grid gap-2">
@@ -358,6 +396,10 @@ function ImportFlow(props: { company: Company; footer: HTMLDivElement | null; on
           </h3>
           <p>{doneText(phase.result)}</p>
         </section>
+      ) : phase.kind === 'abandoned' ? (
+        <p ref={abandonedRef} tabIndex={-1} role="alert" className={`${alertClass} mb-0 focus:outline-none`}>
+          {phase.message}
+        </p>
       ) : (
         <>
           {file === null ? (
@@ -418,13 +460,16 @@ function ImportFlow(props: { company: Company; footer: HTMLDivElement | null; on
             </p>
           )}
           {preview && (
-            <ImportPreviewView
-              preview={preview}
-              headingRef={headingRef}
-              accounts={accounts.data ?? []}
-              baseCurrency={props.company.baseCurrency}
-              onCardChange={onCardChange}
-            />
+            // во время записи предпросмотр неизменяем: правка карточки не начнёт пересчёт поверх записи
+            <fieldset disabled={committing} className="m-0 min-w-0 border-0 p-0">
+              <ImportPreviewView
+                preview={preview}
+                headingRef={headingRef}
+                accounts={accounts.data ?? []}
+                baseCurrency={props.company.baseCurrency}
+                onCardChange={onCardChange}
+              />
+            </fieldset>
           )}
         </>
       )}

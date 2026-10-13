@@ -327,16 +327,19 @@ test('«Создать новый счёт» недоступен, если в �
   await expect(cash).toHaveValue('Сейф');
   await expect(cash).toHaveAccessibleDescription('Счёт с таким названием уже есть — выберите его');
   await cash.click();
-  const create = page.getByRole('option', { name: 'Создать новый счёт' });
+  // причина — и в имени недоступного пункта (её слышно в списке)
+  const create = page.getByRole('option', { name: 'Создать новый счёт — счёт «Касса» уже есть' });
   await expect(create).toHaveAttribute('aria-disabled', 'true');
   await create.click({ force: true });
-  await expect(cash).toHaveValue('');
+  // пункт не выбрался: список открыт, пункт на месте; после Esc значение прежнее
+  await expect(create).toBeVisible();
   await page.keyboard.press('Escape');
+  await expect(create).toBeHidden();
   await expect(cash).toHaveValue('Сейф');
   await expect(p.getByLabel('Название')).toHaveCount(0);
   // свой счёт снова выбирается, подсказка уходит
   await cash.click();
-  await page.getByRole('option', { name: 'Касса' }).click();
+  await page.getByRole('option', { name: 'Касса', exact: true }).click();
   await expect(cash).toHaveValue('Касса');
   await expect(cash).toHaveAccessibleDescription('');
 });
@@ -398,6 +401,87 @@ test('запись идёт, а «Назад» уводит в другую ко
   await p.getByRole('button', { name: 'Готово' }).click();
   await expect(p).toBeHidden();
   expect(toB).toEqual([]);
+});
+
+test('запись в прежнюю компанию не прошла (409), когда адрес уже другой: только сообщение и «Закрыть», без предпросмотра и запросов', async ({ page }) => {
+  const { a, aName, b } = await twoCompanies(page, 'Импорт смена ошибка');
+  const imports: string[] = [];
+  page.on('request', (r) => {
+    if (/\/companies\/\d+\/imports/.test(r.url())) imports.push(r.url());
+  });
+  await page.getByRole('main').getByRole('button', { name: 'Импортировать' }).click();
+  const uploaded = page.waitForResponse((r) => r.url().endsWith('/imports/upload'));
+  await chooseFile(page, ROWS);
+  const preview: unknown = await (await uploaded).json();
+  const p = panel(page);
+  await expect(p.getByRole('heading', { level: 3, name: 'Проверка файла' })).toBeFocused();
+
+  // запись задержана и отвечает 409 со свежим предпросмотром — уже после «Назад» в компанию Б
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const changed = 'Данные компании изменились после проверки — посмотрите обновлённый итог и нажмите «Импортировать» ещё раз';
+  await page.route(/\/imports$/, async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    await gate;
+    await route.fulfill({ status: 409, json: { error: { code: 'IMPORT_CHANGED', message: changed, details: { preview } } } });
+  });
+  await p.getByRole('button', { name: 'Импортировать' }).click();
+  await expect(p.getByRole('button', { name: 'Импортируем…' })).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`/c/${b}/log$`));
+  await expect(p.getByText(aName)).toBeVisible();
+  const before = imports.length;
+  release();
+
+  const alert = p.getByRole('alert').filter({ hasText: 'не выполнен' });
+  await expect(alert).toHaveText(`Импорт в «${aName}» не выполнен: ${changed}`);
+  await expect(alert).toBeFocused();
+  await expect(p.getByRole('button', { name: /^Импорт/ })).toHaveCount(0);
+  await expect(p.getByRole('heading', { level: 3, name: 'Проверка файла' })).toHaveCount(0);
+  await expect(p.getByRole('button', { name: 'Выберите файл' })).toHaveCount(0);
+  // «Закрыть» в подвале (вторая — ✕ в заголовке)
+  await p.getByRole('button', { name: 'Закрыть' }).last().click();
+  await expect(p).toBeHidden();
+  // запись ушла в А; после ответа 409 — ни повторной загрузки, ни пересчёта: ни к А, ни к Б
+  expect(imports[before - 1]).toMatch(new RegExp(`/companies/${a}/imports$`));
+  expect(imports.slice(before)).toEqual([]);
+  expect(imports.filter((u) => u.includes(`/companies/${b}/`))).toEqual([]);
+});
+
+test('во время записи карточки счетов недоступны; после записи — «Импорт завершён», без пересчёта и новой загрузки', async ({ page }) => {
+  await companyWithCash(page, 'Импорт карточки');
+  await page.getByRole('main').getByRole('button', { name: 'Импортировать' }).click();
+  await chooseFile(page, ROWS);
+  const p = panel(page);
+  await expect(p.getByRole('heading', { level: 3, name: 'Проверка файла' })).toBeFocused();
+
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  await page.route(/\/imports$/, async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    await gate;
+    await route.fallback();
+  });
+  const later: string[] = [];
+  page.on('request', (r) => {
+    if (/\/imports\/(upload|preview)$/.test(r.url())) later.push(r.url());
+  });
+  await p.getByRole('button', { name: 'Импортировать' }).click();
+  await expect(p.getByRole('button', { name: 'Импортируем…' })).toBeVisible();
+  const bank = p.getByRole('article', { name: 'Банк-2' });
+  await expect(p.getByRole('combobox', { name: 'Счёт для «Касса»' })).toBeDisabled();
+  await expect(bank.getByRole('combobox', { name: 'Счёт для «Банк-2»' })).toBeDisabled();
+  await expect(bank.getByLabel('Название')).toBeDisabled();
+  await expect(bank.getByLabel('Текущий остаток, ₸')).toBeDisabled();
+  await expect(bank.getByRole('radio', { name: 'Стартовый баланс' })).toBeDisabled();
+
+  release();
+  const done = p.getByRole('heading', { level: 3, name: 'Импорт завершён' });
+  await expect(done).toBeFocused();
+  // дольше паузы пересчёта (300 мс): итог остаётся, запросов проверки нет
+  await page.waitForTimeout(700);
+  await expect(done).toBeVisible();
+  expect(later).toEqual([]);
 });
 
 test('архивная компания: кнопки «Импортировать» нет', async ({ page }) => {

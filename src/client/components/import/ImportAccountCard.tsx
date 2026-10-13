@@ -74,7 +74,8 @@ export function ImportAccountCard(props: {
   const pickError = card.errors.find((e) => e.code === 'A1' || e.code === 'A5')?.message;
   const otherErrors = card.errors.filter((e) => e.code !== 'A1' && e.code !== 'A5');
   // R4: активный счёт с таким же названием есть — новый не создать; подсказка, если выбран не он (текст гонки A1 — свой)
-  const createTaken = active.some((a) => nameKey(a.name) === card.key);
+  const taken = active.find((a) => nameKey(a.name) === card.key);
+  const createTaken = taken !== undefined;
   const ownChosen = chosen !== null && !chosen.archivedAt && nameKey(chosen.name) === card.key;
   const pickHint = createTaken && !pickError && !ownChosen ? CREATE_TAKEN_HINT : undefined;
 
@@ -93,7 +94,11 @@ export function ImportAccountCard(props: {
         label={`Счёт для «${card.fileName}»`}
         listLabel="Счета"
         value={draft.choice}
-        options={[{ id: NEW_ACCOUNT, label: 'Создать новый счёт', disabled: createTaken }, ...accountOptions(active, null)]}
+        // причина — и в имени недоступного пункта: её слышно в списке
+        options={[
+          { id: NEW_ACCOUNT, label: taken ? `Создать новый счёт — счёт «${taken.name}» уже есть` : 'Создать новый счёт', disabled: createTaken },
+          ...accountOptions(active, null),
+        ]}
         emptyLabel={null}
         error={pickError}
         hint={pickHint}
