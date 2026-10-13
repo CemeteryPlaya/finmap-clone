@@ -72,6 +72,8 @@ function Preview(props: {
   const focusIndex = useRef<number | null>(null);
   /** Где сейчас указатель, пока колонку тянут: прокрутка у края идёт и без новых движений. */
   const pointerX = useRef<number | null>(null);
+  /** Указатель, захваченный ручкой: его отпускаем явно при Esc, отпускании и отмене. */
+  const pointerId = useRef<number | null>(null);
 
   useLayoutEffect(() => {
     if (focusIndex.current !== null) {
@@ -98,26 +100,40 @@ function Preview(props: {
 
   // Esc отменяет перетаскивание, где бы ни был фокус: в фазе перехвата и без стандартного действия — иначе Esc закрыл бы ещё и окно
   const dragging = drag !== null;
+  const dragId = drag?.id ?? null;
   useEffect(() => {
     if (!dragging) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.preventDefault();
       e.stopPropagation();
+      release(dragId);
       setDrag(null);
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [dragging]);
+  }, [dragging, dragId]);
 
-  const midpoints = (ids: ExportColumnId[]) =>
-    ids.map((id) => {
-      const r = cells.current.get(id)?.getBoundingClientRect();
-      return r ? r.left + r.width / 2 : 0;
-    });
+  /** Отпустить захват указателя ручкой (если он ещё есть). */
+  function release(id: ExportColumnId | null) {
+    const el = id === null ? undefined : handles.current.get(id);
+    const pid = pointerId.current;
+    pointerId.current = null;
+    if (el && pid !== null && el.hasPointerCapture(pid)) el.releasePointerCapture(pid);
+  }
+
+  /** Место вставки колонки id среди остальных при указателе в точке x: середины заголовков читаются заново (таблица могла прокрутиться). */
+  function indexAt(x: number, id: ExportColumnId): number {
+    const mids = columnsRef.current
+      .filter((c) => c !== id)
+      .map((c) => {
+        const r = cells.current.get(c)?.getBoundingClientRect();
+        return r ? r.left + r.width / 2 : 0;
+      });
+    return dropIndexAt(mids, x);
+  }
 
   // у края таблицы она едет сама, пока колонку держат (палец может стоять на месте); место вставки — заново после шага
-  const dragId = drag?.id ?? null;
   useEffect(() => {
     if (dragId === null) return;
     let frame = 0;
@@ -136,11 +152,8 @@ function Preview(props: {
       carry -= whole;
       if (box && x !== null && whole !== 0) {
         box.scrollBy(whole, 0);
-        setDrag((d) => {
-          if (!d) return d;
-          const index = dropIndexAt(midpoints(columnsRef.current.filter((c) => c !== d.id)), x);
-          return index === d.index ? d : { ...d, index };
-        });
+        const index = indexAt(x, dragId);
+        setDrag((d) => (d && d.index !== index ? { ...d, index } : d));
       }
       frame = requestAnimationFrame(tick);
     };
@@ -154,7 +167,7 @@ function Preview(props: {
   };
 
   const onHandleKey = (e: KeyboardEvent<HTMLButtonElement>, id: ExportColumnId) => {
-    if (!e.altKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+    if (!e.altKey || e.ctrlKey || e.shiftKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
     // Alt+← в браузере — «назад»: без стандартного действия
     e.preventDefault();
     const next = shiftExportColumn(columns, id, e.key === 'ArrowLeft' ? -1 : 1);
@@ -166,6 +179,7 @@ function Preview(props: {
     // без выделения текста и «мышиных» событий; дальше указатель привязан к ручке, даже если ушёл с заголовка
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
+    pointerId.current = e.pointerId;
     // preventDefault выше отменил и фокус — ставим на ручку сами
     e.currentTarget.focus({ preventScroll: true });
     lastHandle.current = id;
@@ -176,8 +190,7 @@ function Preview(props: {
   const onPointerMove = (e: PointerEvent<HTMLButtonElement>) => {
     if (!drag) return;
     pointerX.current = e.clientX;
-    // середины заголовков — каждый раз заново: таблица могла прокрутиться
-    const index = dropIndexAt(midpoints(columns.filter((c) => c !== drag.id)), e.clientX);
+    const index = indexAt(e.clientX, drag.id);
     if (index !== drag.index) setDrag({ ...drag, index });
   };
 
@@ -185,8 +198,14 @@ function Preview(props: {
     if (!drag) return;
     const next = dropExportColumn(columns, drag.id, drag.index);
     const id = drag.id;
+    release(id);
     setDrag(null);
     if (next) commit(next, id);
+  };
+
+  const onPointerCancel = () => {
+    release(dragId);
+    setDrag(null);
   };
 
   const remove = (id: ExportColumnId) => {
@@ -196,6 +215,14 @@ function Preview(props: {
     setAnnounce(columnRemovedText(id, columns.length - 1));
     if (focusIndex.current === null) props.onEmptied();
   };
+
+  const status = preview.error
+    ? ''
+    : preview.data === undefined
+      ? 'Загрузка…'
+      : rows.length === 0
+        ? 'По фильтру журнала операций нет — в файле будут только заголовки.'
+        : '';
 
   // где встанет колонка: черта слева от заголовка (или справа от последнего); на прежнем месте — без черты
   let before: ExportColumnId | undefined;
@@ -244,7 +271,7 @@ function Preview(props: {
                         onPointerDown={(e) => onPointerDown(e, id)}
                         onPointerMove={onPointerMove}
                         onPointerUp={onPointerUp}
-                        onPointerCancel={() => setDrag(null)}
+                        onPointerCancel={onPointerCancel}
                         onLostPointerCapture={() => setDrag(null)}
                         onFocus={() => (lastHandle.current = id)}
                         onBlur={(e) => {
@@ -284,15 +311,11 @@ function Preview(props: {
         <p role="alert" className="mt-2 text-sm text-expense-strong">
           Не удалось загрузить превью: {preview.error.message}
         </p>
-      ) : preview.data === undefined ? (
-        <p role="status" className="mt-2 text-sm text-muted">
-          Загрузка…
-        </p>
-      ) : rows.length === 0 ? (
-        <p role="status" className="mt-2 text-sm text-muted">
-          По фильтру журнала операций нет — в файле будут только заголовки.
-        </p>
       ) : null}
+      {/* живая область смонтирована всегда и заполняется текстом: заранее заполненную при появлении читалки не объявляют */}
+      <p role="status" className={status ? 'mt-2 text-sm text-muted' : 'sr-only'}>
+        {status}
+      </p>
       <p className="mt-2 text-xs text-muted">В файле — все операции по фильтру журнала и строка «Итого».</p>
       <p className="mt-1 text-xs text-muted">Переводы входят в «Итого» без знака.</p>
     </div>
@@ -361,8 +384,9 @@ function BuilderBody(props: { companyId: number; state: JournalUrlState; today: 
               return;
             }
             downloaded.current = true;
-            // запомнить набор — удобство, а не условие скачивания: сбой записи файл не отменяет
-            void savePreference(EXPORT_COLUMNS_PREF, columns).catch(() => undefined);
+            // запомнить набор — удобство, а не условие скачивания: сбой записи файл не отменяет; пока настройки не загружены,
+            // окно начало с набора по умолчанию — им нельзя затирать сохранённый набор
+            if (prefs.data !== undefined) void savePreference(EXPORT_COLUMNS_PREF, columns).catch(() => undefined);
             // закрыть после того, как браузер начал скачивание: ссылка до этого должна остаться в странице
             setTimeout(props.onClose, 0);
           }}
