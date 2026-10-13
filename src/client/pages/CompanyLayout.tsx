@@ -4,6 +4,7 @@ import { AccountsDrawerButton, AccountsPanel } from '../components/AccountsPanel
 import { AppHeader } from '../components/AppHeader';
 import { CompanyBlockButton } from '../components/CompaniesDrawer';
 import { HistoryButton } from '../components/HistoryDrawer';
+import { ImportPanelHost } from '../components/import/ImportPanel';
 import { LoadError } from '../components/LoadError';
 import { MobileTabBar } from '../components/MobileTabBar';
 import { NewOperationButtons, OperationFormHost } from '../components/operation/OperationFormHost';
@@ -41,35 +42,37 @@ export function CompanyLayout() {
 
   return (
     <OperationFormHost company={company}>
-      <div className="min-h-dvh bg-chrome">
-        <AppHeader
-          // в зоне настроек панель счетов не нужна (§8.6)
-          menuButton={inSettings ? undefined : <AccountsDrawerButton company={company} />}
-          company={<CompanyBlockButton current={company} companies={companies.data} />}
-          // архивная компания — только чтение: кнопок новых операций нет ни на компьютере, ни на телефоне
-          actions={company.archivedAt ? undefined : <NewOperationButtons />}
-          tools={<HistoryButton company={company} />}
-          menu={{ companyId: company.id, companyName: company.name }}
-        />
-        <div className="flex items-start gap-4 md:mx-4">
-          {inSettings ? (
-            <Outlet context={{ company } satisfies CompanyOutletContext} />
-          ) : (
-            <>
-              <AccountsPanel company={company} />
-              <main className={mainCardClass}>
-                <nav className="mb-6 flex gap-2 max-md:hidden">
-                  <NavLink to={`/c/${company.id}/log`} className={tab}>
-                    Журнал
-                  </NavLink>
-                </nav>
-                <Outlet context={{ company } satisfies CompanyOutletContext} />
-              </main>
-            </>
-          )}
+      <ImportPanelHost company={company}>
+        <div className="min-h-dvh bg-chrome">
+          <AppHeader
+            // в зоне настроек панель счетов не нужна (§8.6)
+            menuButton={inSettings ? undefined : <AccountsDrawerButton company={company} />}
+            company={<CompanyBlockButton current={company} companies={companies.data} />}
+            // архивная компания — только чтение: кнопок новых операций нет ни на компьютере, ни на телефоне
+            actions={company.archivedAt ? undefined : <NewOperationButtons />}
+            tools={<HistoryButton company={company} />}
+            menu={{ companyId: company.id, companyName: company.name }}
+          />
+          <div className="flex items-start gap-4 md:mx-4">
+            {inSettings ? (
+              <Outlet context={{ company } satisfies CompanyOutletContext} />
+            ) : (
+              <>
+                <AccountsPanel company={company} />
+                <main className={mainCardClass}>
+                  <nav className="mb-6 flex gap-2 max-md:hidden">
+                    <NavLink to={`/c/${company.id}/log`} className={tab}>
+                      Журнал
+                    </NavLink>
+                  </nav>
+                  <Outlet context={{ company } satisfies CompanyOutletContext} />
+                </main>
+              </>
+            )}
+          </div>
+          <MobileTabBar company={company} />
         </div>
-        <MobileTabBar company={company} />
-      </div>
+      </ImportPanelHost>
     </OperationFormHost>
   );
 }

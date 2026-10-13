@@ -11,6 +11,7 @@ import { unavailableText } from '../components/journal/SavedFiltersMenu';
 import { UndoToast } from '../components/journal/UndoToast';
 import { JournalTable, type JournalLookups } from '../components/journal/JournalTable';
 import { JournalToolbar } from '../components/journal/JournalToolbar';
+import { useOpenImport } from '../components/import/ImportPanel';
 import { LoadMore } from '../components/journal/LoadMore';
 import { useOpenOperationForm } from '../components/operation/OperationFormHost';
 import { Pending, StaleNotice } from '../components/QueryState';
@@ -148,6 +149,8 @@ function JournalScreen(props: {
   const counterparties = useCounterparties(company.id);
   const tags = useTags(company.id);
   const [filterOpen, setFilterOpen] = useState(false);
+  // панель импорта живёт в раскладке компании (ImportPanelHost); null — архивная компания
+  const openImport = useOpenImport();
   const openForm = useOpenOperationForm();
   const savedFilters = useSavedFilters(company.id);
   const openOperation = (item: { id: number }) => openForm({ kind: 'edit', id: item.id, focusAfterDelete: () => document.getElementById(HEADING_ID) });
@@ -365,6 +368,8 @@ function JournalScreen(props: {
         onRefresh={() => refreshOperations(company.id)}
         // колонки и «Показывать полностью» не сохранились, а «Ещё» уже закрыт — ошибку видно на странице
         onPrefError={setActionError}
+        // в архивную компанию импорт запрещён (§1.2 спецификации импорта): кнопки нет
+        onImport={openImport ?? undefined}
       />
       <FilterDialog
         open={filterOpen}

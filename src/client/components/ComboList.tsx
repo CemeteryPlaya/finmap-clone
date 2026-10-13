@@ -110,6 +110,8 @@ export function useComboList(o: ComboListConfig): ComboList {
       }
       return;
     }
+    // недоступный пункт (aria-disabled) не выбирается: список остаётся открытым
+    if (it.option.disabled) return;
     close();
     o.onPick(it.option.id);
     // на телефоне после выбора клавиатура закрывается: иначе она остаётся поверх нижней части формы (на компьютере фокус остаётся в поле)

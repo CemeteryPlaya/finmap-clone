@@ -45,17 +45,19 @@ export function PickerListbox(props: {
 
   const optionItem = ({ it, i }: { it: PickerItem; i: number }) => {
     const selected = it.kind === 'option' && it.option.id === props.selectedId;
+    const disabled = it.kind === 'option' && it.option.disabled === true;
     return (
       <li
         key={pickerItemId(props.id, it)}
         id={pickerItemId(props.id, it)}
         role="option"
         aria-selected={selected}
+        aria-disabled={disabled || undefined}
         // фокус остаётся в поле ввода
         onMouseDown={(e) => e.preventDefault()}
         onMouseEnter={() => props.onHover(i)}
         onClick={() => props.onChoose(it)}
-        className={`flex cursor-pointer items-center gap-2 rounded-lg px-3 py-3 text-base ${it === current ? 'bg-field' : ''} ${selected ? 'font-semibold' : ''} ${it.kind === 'create' ? 'font-medium text-income-strong' : ''}`}
+        className={`flex items-center gap-2 rounded-lg px-3 py-3 text-base ${disabled ? 'cursor-not-allowed text-muted' : 'cursor-pointer'} ${it === current ? 'bg-field' : ''} ${selected ? 'font-semibold' : ''} ${it.kind === 'create' ? 'font-medium text-income-strong' : ''}`}
       >
         <span className="min-w-0 flex-1 truncate">{it.kind === 'option' ? it.option.label : createItemLabel(it.name, props.createNoun ?? '')}</span>
         {it.kind === 'option' && it.option.badge && (
@@ -110,7 +112,7 @@ export function PickerList(props: {
   const current = items.length > 0 ? items[Math.min(active, items.length - 1)] : undefined;
 
   const choose = (it: PickerItem) => {
-    if (it.kind === 'option') props.onPick(it.option.id);
+    if (it.kind === 'option' && !it.option.disabled) props.onPick(it.option.id);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {

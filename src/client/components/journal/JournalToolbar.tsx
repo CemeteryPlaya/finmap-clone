@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { getCurrency } from '../../../shared/currencies';
 import { clearFilter, isFiltered, journalExportHref, SEARCH_MAX, type JournalUrlState } from '../../lib/journal-filter';
-import { RefreshIcon, SearchIcon } from '../icons';
+import { RefreshIcon, SearchIcon, UploadIcon } from '../icons';
 import { inputClass } from '../ui';
 import { MoreMenu } from './MoreMenu';
 import { PeriodMenu } from './PeriodMenu';
@@ -111,7 +111,7 @@ function RefreshButton({ onRefresh }: { onRefresh: () => Promise<void> }) {
 /**
  * Тулбар журнала (§5.1 этапа 1.5) — одна строка без подписей над полями: пилюля периода, поиск,
  * «Фильтр · N | ▾» (её собирает страница: окно фильтра и сохранённые фильтры), ✕ «Сбросить фильтр», если что-то
- * задано, и «Ещё ▾» (сумма, ⟳, колонки, выгрузка).
+ * задано, «Ещё ▾» (сумма, ⟳, колонки, выгрузка) и ⤒ «Импортировать» (спецификация импорта, §5.1).
  * На телефоне (`mobile`, §8.5) — «Поиск», ⟳ и воронка «Фильтр · N | ▾»: период, сумма, сортировка и выгрузка — в окне
  * «Фильтры», оно открывается воронкой сразу.
  */
@@ -128,6 +128,8 @@ export function JournalToolbar(props: {
   /** Сбой сохранения колонок или «Показывать полностью» после закрытия «Ещё». */
   onPrefError?: (text: string) => void;
   mobile?: boolean;
+  /** ⤒ «Импортировать» — последняя кнопка тулбара (§5.1 спецификации импорта); нет — кнопки нет (архивная компания). */
+  onImport?: () => void;
 }) {
   const { state, onChange } = props;
   // сброс пересоздаёт поиск и суммы: набранный, но не применённый текст (запрос, неверная сумма) не переживёт сброс
@@ -175,6 +177,17 @@ export function JournalToolbar(props: {
         onRefresh={props.onRefresh}
         onPrefError={props.onPrefError}
       />
+      {props.onImport && (
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          onClick={props.onImport}
+          className="flex h-10 shrink-0 items-center gap-2 rounded-xl bg-field px-3 text-sm font-semibold text-ink hover:brightness-95 focus-visible:outline-2 focus-visible:outline-focus"
+        >
+          <UploadIcon />
+          Импортировать
+        </button>
+      )}
     </div>
   );
 }
