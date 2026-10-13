@@ -11,6 +11,9 @@ import { readImportFile } from '../../src/server/modules/imports/read-file';
  * Движение счетов и итоги по категориям считаются по файлу независимо от кода записи и сравниваются с агрегатами
  * по неудалённым фактическим операциям компании. Плановые строки (дата в будущем) пропускаются, как при импорте;
  * дубликаты, пропущенные импортом, уже есть в компании — сверка их видит в базе.
+ * Сверяется вся компания, а не только этот файл. Всё чтение базы — в одной транзакции чтения (единый снимок, даже если
+ * приложение пишет). Строки, которые сверить нельзя (ошибки разбора, неизвестный счёт, нет суммы в валюте компании),
+ * в итоги не входят и не дают «Совпадает» (unchecked).
  */
 
 export interface CheckLine {
@@ -34,7 +37,10 @@ export interface CheckReport {
   categories: CheckLine[];
   /** Что не сверялось и почему. */
   notes: string[];
+  /** Расхождения «файл ≠ база» среди сверенного. */
   mismatches: number;
+  /** Строки и суммы, которые не сверялись: ошибки разбора, строки с неизвестным счётом, суммы без значения в валюте компании. */
+  unchecked: number;
 }
 
 interface AccountRow {
@@ -52,7 +58,20 @@ function categoryKey(kind: 'income' | 'expense', leaf: string | null, systemKey:
   return systemKey ? `${kind}|sys:${systemKey}` : `${kind}|${nameKey(leaf)}`;
 }
 
-export function checkImport(input: { sqlite: Sqlite; companyId: number; data: Buffer; fileName: string; timezone: string; today: string }): CheckReport {
+export interface CheckInput {
+  sqlite: Sqlite;
+  companyId: number;
+  data: Buffer;
+  fileName: string;
+  timezone: string;
+  today: string;
+}
+
+export function checkImport(input: CheckInput): CheckReport {
+  return input.sqlite.transaction(() => checkImportIn(input))();
+}
+
+function checkImportIn(input: CheckInput): CheckReport {
   const { sqlite, companyId } = input;
   const company = sqlite.prepare('SELECT name, base_currency AS base FROM companies WHERE id = ?').get(companyId) as { name: string; base: string } | undefined;
   if (!company) throw new Error(`Компании с id ${companyId} нет`);
@@ -70,20 +89,24 @@ export function checkImport(input: { sqlite: Sqlite; companyId: number; data: Bu
   const fileCats = new Map<string, { kind: 'income' | 'expense'; titles: Set<string>; sum: number }>();
   let crossSkipped = 0;
   let baseSkipped = 0;
+  /** Строки, которые не сверялись, потому что счёта нет в компании (в числа файла не входят). */
+  let unmatchedRows = 0;
   const move = (id: number, delta: number) => fileMove.set(id, (fileMove.get(id) ?? 0) + delta);
   for (const r of parsed.rows) {
-    fileCounts[r.type]++;
     const acc = byKey.get(r.account.key);
-    if (!acc) {
-      missing.add(r.account.name);
+    const to = r.type === 'transfer' && r.toAccount ? byKey.get(r.toAccount.key) : undefined;
+    // нет счёта (списания или зачисления) — строка в компании не записана: не считается ни в числе операций, ни в движении
+    if (!acc || (r.type === 'transfer' && r.toAccount && !to)) {
+      if (!acc) missing.add(r.account.name);
+      if (r.type === 'transfer' && r.toAccount && !to) missing.add(r.toAccount.name);
+      unmatchedRows++;
       continue;
     }
+    fileCounts[r.type]++;
     const amount = decimalToMinor(r.amount, units(acc.currency))?.minor ?? 0;
     move(acc.id, r.type === 'income' ? amount : -amount);
-    if (r.type === 'transfer' && r.toAccount) {
-      const to = byKey.get(r.toAccount.key);
-      if (!to) missing.add(r.toAccount.name);
-      else if (to.currency === acc.currency) move(to.id, amount);
+    if (r.type === 'transfer' && to) {
+      if (to.currency === acc.currency) move(to.id, amount);
       else if (to.currency === company.base && r.baseAmount !== null) move(to.id, r.baseAmount);
       else crossSkipped++;
       continue;
@@ -103,7 +126,9 @@ export function checkImport(input: { sqlite: Sqlite; companyId: number; data: Bu
     c.sum += kind === 'income' ? base : -base;
     fileCats.set(key, c);
   }
+  const errorRows = new Set(parsed.issues.filter((i) => i.code.startsWith('R')).map((i) => i.row)).size;
   if (missing.size) notes.push(`Нет счёта в компании для: ${[...missing].join(', ')} — их строки не сверялись`);
+  if (errorRows) notes.push(`Строк с ошибками разбора: ${errorRows} — они не импортируются и не сверялись`);
   if (crossSkipped) notes.push(`Переводов между валютами без суммы в валюте компании: ${crossSkipped} — сумма зачисления не сверялась`);
   if (baseSkipped) notes.push(`Строк на счетах не в валюте компании без «Суммы в валюте компании»: ${baseSkipped} — в итогах по категориям не учтены`);
 
@@ -163,12 +188,13 @@ export function checkImport(input: { sqlite: Sqlite; companyId: number; data: Bu
     company: company.name,
     fileName: input.fileName,
     today: input.today,
-    rows: { total: parsed.total, future: parsed.future.length, errors: new Set(parsed.issues.filter((i) => i.code.startsWith('R')).map((i) => i.row)).size },
+    rows: { total: parsed.total, future: parsed.future.length, errors: errorRows },
     counts,
     accounts: accountLines,
     categories: catLines,
     notes,
     mismatches,
+    unchecked: unmatchedRows + errorRows + crossSkipped + baseSkipped,
   };
 }
 
@@ -195,6 +221,15 @@ export function formatReport(r: CheckReport): string[] {
     ...table('Итоги по категориям (доходы плюс, расходы минус), в валюте компании', r.categories),
     ...(r.notes.length ? ['', ...r.notes.map((n) => `Внимание: ${n}`)] : []),
     '',
-    r.mismatches === 0 ? 'Итог: Совпадает' : `Итог: Расхождений: ${r.mismatches}`,
+    verdict(r),
   ];
+}
+
+/** Только полное совпадение без несверенного даёт «Совпадает» и код выхода 0. */
+export const isMatch = (r: Pick<CheckReport, 'mismatches' | 'unchecked'>): boolean => r.mismatches === 0 && r.unchecked === 0;
+
+function verdict(r: CheckReport): string {
+  if (isMatch(r)) return 'Итог: Совпадает';
+  if (r.mismatches === 0) return `Итог: Не сверено: ${r.unchecked} — см. «Внимание»`;
+  return `Итог: Расхождений: ${r.mismatches}${r.unchecked ? `; не сверено: ${r.unchecked} — см. «Внимание»` : ''}`;
 }

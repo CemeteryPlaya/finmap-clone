@@ -55,10 +55,12 @@ export function createOperationsWriter(sqlite: Sqlite): OperationsWriter {
       b.rows.forEach((r, i) => {
         const bad = (why: string) => new Error(`insertImported: строка ${i + 1}: ${why}`);
         if (!Number.isSafeInteger(r.amount) || r.amount <= 0) throw bad('сумма — положительное целое');
+        if (!Number.isSafeInteger(r.baseAmount) || r.baseAmount < 0) throw bad('сумма в валюте компании — неотрицательное целое');
         if (r.type === 'transfer') {
           if (r.toAccountId === null || r.toAmount === null) throw bad('у перевода нужны счёт и сумма зачисления');
           if (!Number.isSafeInteger(r.toAmount) || r.toAmount <= 0) throw bad('сумма зачисления — положительное целое');
           if (r.categoryId !== null) throw bad('у перевода нет категории');
+          if (r.toAccountId === r.accountId) throw bad('перевод на тот же счёт');
         } else if (r.toAccountId !== null || r.toAmount !== null) throw bad('счёт и сумма зачисления — только у перевода');
       });
       const insertOp = sqlite.prepare(

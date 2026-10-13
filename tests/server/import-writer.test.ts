@@ -217,6 +217,25 @@ describe('OperationsWriter.insertImported (§6.4 п. 3.5)', () => {
     expect(one('SELECT COUNT(*) n FROM operations').n).toBe(0);
   });
 
+  it('защитные проверки: перевод без счёта зачисления, на тот же счёт; сумма в валюте компании — неотрицательное безопасное целое', async () => {
+    w = await opsWorld();
+    const writer = createOperationsWriter(w.h.t.sqlite);
+    const importId = importRow();
+    const transfer: ImportedOperation = { ...base, type: 'transfer', paidAt: '2026-10-02T04:00:00Z', accountId: w.kzt, amount: 100, toAccountId: w.usd, toAmount: 1, baseAmount: 100 };
+    const income: ImportedOperation = { ...base, type: 'income', paidAt: '2026-10-02T04:00:00Z', accountId: w.kzt, amount: 100, baseAmount: 100 };
+    const insert = (row: ImportedOperation) => () => w.h.t.db.transaction((tx) => writer.insertImported(tx, { companyId: w.cid, importId, userId: adminId(), at: NOW.toISOString(), rows: [row] }));
+    expect(insert({ ...transfer, toAccountId: null })).toThrow('у перевода нужны счёт и сумма зачисления');
+    expect(insert({ ...transfer, toAccountId: w.kzt, toAmount: 100 })).toThrow('перевод на тот же счёт');
+    expect(insert({ ...income, baseAmount: -1 })).toThrow('сумма в валюте компании — неотрицательное целое');
+    expect(insert({ ...income, baseAmount: 1.5 })).toThrow('сумма в валюте компании — неотрицательное целое');
+    expect(insert({ ...income, baseAmount: Number.MAX_SAFE_INTEGER + 2 })).toThrow('сумма в валюте компании — неотрицательное целое');
+    expect(insert({ ...income, baseAmount: Number.NaN })).toThrow('сумма в валюте компании — неотрицательное целое');
+    expect(one('SELECT COUNT(*) n FROM operations').n).toBe(0);
+    // ноль допустим: сумма в валюте компании от очень малой суммы по курсу округляется до нуля
+    expect(insert({ ...income, baseAmount: 0 })).not.toThrow();
+    expect(one('SELECT COUNT(*) n FROM operations').n).toBe(1);
+  });
+
   it('вне транзакции — ошибка, ничего не записано', async () => {
     w = await opsWorld();
     const writer = createOperationsWriter(w.h.t.sqlite);
