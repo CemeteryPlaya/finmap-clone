@@ -412,6 +412,7 @@ function ImportFlow(props: {
             Импорт завершён
           </h3>
           <p>{doneText(phase.result)}</p>
+          <p className="text-sm text-muted">Отменить импорт можно в «Истории действий» → «Импорты»</p>
         </section>
       ) : phase.kind === 'abandoned' ? (
         <p ref={abandonedRef} tabIndex={-1} role="alert" className={`${alertClass} mb-0 focus:outline-none`}>

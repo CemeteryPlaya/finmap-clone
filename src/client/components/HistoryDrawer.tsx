@@ -130,7 +130,7 @@ function HistoryTabs(props: { company: Company; onOpenOperation: (id: number) =>
       </div>
       {HISTORY_TABS.map((t) => (
         <div key={t.key} role="tabpanel" id={panelId(t.key)} aria-labelledby={tabId(t.key)} tabIndex={0} hidden={tab !== t.key}>
-          {t.key === 'log' ? <HistoryList company={props.company} onOpenOperation={props.onOpenOperation} /> : tab === 'imports' && <ImportHistory company={props.company} />}
+          {t.key === 'log' ? <HistoryList company={props.company} onOpenOperation={props.onOpenOperation} /> : tab === 'imports' && <ImportHistory company={props.company} onFocusLost={() => refs.current.get('imports')?.focus()} />}
         </div>
       ))}
     </div>

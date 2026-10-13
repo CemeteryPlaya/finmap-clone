@@ -5,6 +5,7 @@ import { formatAmount, formatMoney, MONEY_SCREEN, MONEY_SCREEN_BEFORE, parseAmou
 import type {
   AccountMapping,
   ImportCommitResult,
+  ImportCreatedCounts,
   ImportIssueGroup,
   ImportPreview,
   ImportPreviewAccount,
@@ -33,7 +34,7 @@ export function importSizeError(size: number): string | null {
   return size > IMPORT_MAX_BYTES ? 'Файл больше 30 МБ' : null;
 }
 
-/** «16 028» — разряды узким неразрывным пробелом, как у сумм. */
+/** «1 234» — разряды узким неразрывным пробелом, как у сумм. */
 export const formatCount = (n: number) => formatAmount(n, 0);
 
 /** Номера строк группы: «строка 15», «строки 15, 230, 231 и ещё 4»; без номеров (W8) — пусто. */
@@ -49,12 +50,12 @@ export function issueText(g: ImportIssueGroup): string {
   return rows ? `${g.message} — ${rows}` : g.message;
 }
 
-/** «16 028 операций», «1 операция». */
+/** «1 234 операции», «25 операций», «1 операция». */
 export const operationsText = (n: number) => `${formatCount(n)} ${pluralRu(n, 'операция', 'операции', 'операций')}`;
 const fileRows = (n: number) => `${formatCount(n)} ${pluralRu(n, 'строка', 'строки', 'строк')}`;
 
 /**
- * Первая строка итога (§5.3): «В файле 16 028 операций: доходов 9 812, расходов 6 104, переводов 112. Период: 15.03.2023 – 11.10.2026».
+ * Первая строка итога (§5.3): «В файле 1 234 операции: доходов 700, расходов 500, переводов 34. Период: 15.03.2023 – 11.10.2026».
  * Всего — все непустые строки данных; части складываются в него: строки с ошибками разбора и плановые (дата позже сегодня)
  * добавляются в конец («, с ошибками 3», «, плановых 2»), и тогда вместо «операций» — «строк» (R6).
  */
@@ -249,16 +250,20 @@ export function needsRemembered(p: ImportPreview, choices: ReadonlyMap<string, A
   });
 }
 
-/** Итог записи (§5.6): «Добавлено 16 028 операций. Создано: 2 счёта, 37 категорий, 86 контрагентов, 1 тег. Пропущено дубликатов: 0». */
-export function doneText(r: ImportCommitResult): string {
-  const c = r.import.created;
-  const parts = [
+/** Ненулевые виды созданного (или удалённого отменой): «2 счёта», «12 категорий», «25 контрагентов», «1 тег». */
+export function createdParts(c: ImportCreatedCounts): string[] {
+  return [
     c.accounts && `${formatCount(c.accounts)} ${pluralRu(c.accounts, 'счёт', 'счёта', 'счетов')}`,
     c.categories && `${formatCount(c.categories)} ${pluralRu(c.categories, 'категория', 'категории', 'категорий')}`,
     c.counterparties && `${formatCount(c.counterparties)} ${pluralRu(c.counterparties, 'контрагент', 'контрагента', 'контрагентов')}`,
     c.projects && `${formatCount(c.projects)} ${pluralRu(c.projects, 'проект', 'проекта', 'проектов')}`,
     c.tags && `${formatCount(c.tags)} ${pluralRu(c.tags, 'тег', 'тега', 'тегов')}`,
-  ].filter(Boolean);
+  ].filter((x): x is string => typeof x === 'string');
+}
+
+/** Итог записи (§5.6): «Добавлено 1 234 операции. Создано: 2 счёта, 12 категорий, 25 контрагентов, 1 тег. Пропущено дубликатов: 0». */
+export function doneText(r: ImportCommitResult): string {
+  const parts = createdParts(r.import.created);
   const created = parts.length > 0 ? ` Создано: ${parts.join(', ')}.` : '';
   return `Добавлено ${operationsText(r.counts.added)}.${created} Пропущено дубликатов: ${formatCount(r.counts.duplicates)}`;
 }
