@@ -28,7 +28,7 @@ const compactInput = inputClass.replace('py-3', 'py-2');
 const FIELD_CLASS: Record<FilterDimension, string> = { typesCategories: 'md:col-span-2', counterparties: '', projects: '', tags: '', accounts: '' };
 
 /**
- * «Ещё условия» окна «Фильтры» на телефоне (§8.5 этапа 1.5): сумма от и до, сортировка и «Выгрузить в Excel» — всё по
+ * «Ещё условия» окна «Фильтры» на телефоне (§8.5 этапа 1.5): сумма от и до, сортировка и «Экспортировать в Excel» — всё по
  * черновику окна (view — черновик поверх текущего фильтра). Сворачивается кнопкой с aria-expanded.
  */
 function PhoneMore(props: {
@@ -80,7 +80,7 @@ function PhoneMore(props: {
           </Field>
           {props.exportHref && (
             <a href={props.exportHref(props.view)} download className={`${btnSmall} self-start`}>
-              Выгрузить в Excel
+              Экспортировать в Excel
             </a>
           )}
         </div>
@@ -218,7 +218,7 @@ export function FilterDialog(props: {
   phone: boolean;
   today: string;
   baseCurrency: string;
-  /** Ссылка «Выгрузить в Excel» по фильтру (на телефоне — в «Ещё условия»). */
+  /** Ссылка «Экспортировать в Excel» по фильтру — формат Finmap (на телефоне — в «Ещё условия»). */
   exportHref?: (state: JournalUrlState) => string;
   /** Черновик окна: его накладывают на текущий фильтр (`applyFilterDraft`), а не на снимок при открытии. */
   onApply: (draft: FilterDraft) => void;

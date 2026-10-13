@@ -714,11 +714,12 @@ test('фильтр на телефоне в один шаг (§8.5): поиск,
   await dialog.getByLabel('Сумма от').fill('60');
   await dialog.getByLabel('Сумма от').press('Enter');
   await dialog.getByLabel('Сортировка').selectOption({ label: 'Сначала крупные' });
-  // выгрузка — по черновику окна
-  await expect(dialog.getByRole('link', { name: 'Выгрузить в Excel' })).toHaveAttribute(
+  // выгрузка в формате Finmap — по черновику окна; «Собрать Excel» на телефоне нет
+  await expect(dialog.getByRole('link', { name: 'Экспортировать в Excel' })).toHaveAttribute(
     'href',
-    /\?from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}&amountMin=6000&types=expense&sort=amount&order=desc$/,
+    /\?from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}&amountMin=6000&types=expense&sort=amount&order=desc&format=finmap$/,
   );
+  await expect(dialog.getByRole('button', { name: 'Собрать Excel' })).toHaveCount(0);
   await expect(list).toHaveCount(4);
   // низкий экран: содержимое окна не помещается, нижняя панель должна быть прижата к низу
   await page.setViewportSize({ width: PHONE.width, height: 480 });

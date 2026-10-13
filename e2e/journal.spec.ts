@@ -314,10 +314,12 @@ test('тулбар: поиск с паузой, период, сумма от/д
   await expect(moreMenu.getByLabel('Сумма до')).toHaveAccessibleDescription('Введите сумму');
   await expect(bodyRows(page)).toHaveCount(1);
 
-  // выгрузка — по текущему фильтру; ссылка отдаёт книгу Excel
-  const href = await moreMenu.getByRole('link', { name: 'Выгрузить в Excel' }).getAttribute('href');
+  // выгрузка — по текущему фильтру: «Экспорт» раскрывает «Экспортировать в» с пунктом «Excel» — ссылкой на книгу Finmap
+  await moreMenu.getByRole('button', { name: 'Экспорт', exact: true }).click();
+  const href = await moreMenu.getByRole('link', { name: 'Excel', exact: true }).getAttribute('href');
   expect(href).toContain(`/api/v1/companies/${cid}/operations/export.xlsx?`);
   expect(href).toContain('amountMin=100000&amountMax=120050');
+  expect(href).toContain('format=finmap');
   const xlsx = await page.request.get(href!);
   expect(xlsx.status()).toBe(200);
   expect(xlsx.headers()['content-type']).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

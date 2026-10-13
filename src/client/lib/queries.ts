@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery, type InfiniteData } from '@tanstack/react-query';
 import { api, type ApiError } from './api';
+import type { ExportColumnId } from '../../shared/export-columns';
 import type { ImportListPage } from '../../shared/schemas/imports';
 import type { CounterpartyType } from '../../shared/system-categories';
 import type { SavedJournalFilter } from './journal-filter';
@@ -404,6 +405,25 @@ export function useJournal(companyId: number, params: string | null) {
     getNextPageParam: (last) => last.nextCursor,
     // при смене фильтра старые строки остаются на экране до ответа; журнал другой компании не показывается
     placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === companyId ? prev : undefined),
+  });
+}
+
+/** Превью окна «Собрать Excel» (§8.3): у первых операций фильтра — текст каждой колонки каталога, как в файле. */
+export interface ExportPreviewData {
+  rows: Record<ExportColumnId, string>[];
+}
+
+/**
+ * Превью «Собрать Excel» по строке запроса фильтра (journalApiParams). Каждое открытие окна — свежее: правки журнала
+ * (другой пользователь, другая вкладка) не залипают в кэше.
+ */
+export function useExportPreview(companyId: number, params: string) {
+  return useQuery<ExportPreviewData, ApiError>({
+    queryKey: ['export-preview', companyId, params],
+    queryFn: () => api<ExportPreviewData>(`/companies/${companyId}/operations/export-preview?${params}`),
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
   });
 }
 

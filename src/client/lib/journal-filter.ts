@@ -251,9 +251,15 @@ export function journalApiParams(state: JournalUrlState, today: string): URLSear
   return p;
 }
 
-/** Ссылка «Выгрузить в Excel» по фильтру — те же параметры, что у журнала. */
-export function journalExportHref(companyId: number, state: JournalUrlState, today: string): string {
-  return `/api/v1/companies/${companyId}/operations/export.xlsx?${journalApiParams(state, today).toString()}`;
+/**
+ * Ссылка на выгрузку по фильтру (§8 спецификации импорта) — те же параметры, что у журнала, и `format`: «Excel» —
+ * `finmap`, «Собрать Excel» — `custom` с `columns` в выбранном порядке (повтором ключа).
+ */
+export function journalExportHref(companyId: number, state: JournalUrlState, today: string, format: 'finmap' | 'custom' = 'finmap', columns: readonly string[] = []): string {
+  const p = journalApiParams(state, today);
+  p.set('format', format);
+  if (format === 'custom') for (const c of columns) p.append('columns', c);
+  return `/api/v1/companies/${companyId}/operations/export.xlsx?${p.toString()}`;
 }
 
 /** Сколько условий выбрано в модалке «Фильтр»: тип, счета, категории, проекты, контрагенты, теги (по измерению). */

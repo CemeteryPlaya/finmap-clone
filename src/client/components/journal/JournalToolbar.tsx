@@ -173,6 +173,7 @@ export function JournalToolbar(props: {
         onChange={onChange}
         currencySymbol={currency.symbol}
         minorUnits={currency.minorUnits}
+        today={props.today}
         exportHref={journalExportHref(props.companyId, state, props.today)}
         onRefresh={props.onRefresh}
         onPrefError={props.onPrefError}

@@ -79,9 +79,13 @@ describe('черновик окна «Фильтры» (§5.6, §8.5 этапа 
     expect(phoneMoreSet(pickPhoneFilterFields(state({ order: 'asc' })))).toBe(true);
   });
 
-  it('выгрузка в Excel — по фильтру, параметрами API журнала', () => {
-    expect(journalExportHref(5, state({ period: 'today', types: ['expense'] }), '2026-10-12')).toBe(
-      '/api/v1/companies/5/operations/export.xlsx?from=2026-10-12&to=2026-10-12&types=expense&sort=date&order=desc',
+  it('выгрузка — по фильтру, параметрами API журнала и format: «Excel» — finmap, «Собрать Excel» — custom с колонками в порядке выбора', () => {
+    const s = state({ period: 'today', types: ['expense'] });
+    expect(journalExportHref(5, s, '2026-10-12')).toBe('/api/v1/companies/5/operations/export.xlsx?from=2026-10-12&to=2026-10-12&types=expense&sort=date&order=desc&format=finmap');
+    // колонки finmap не нужны; у custom — повтор ключа в порядке выбора, а не по алфавиту
+    expect(journalExportHref(5, s, '2026-10-12', 'finmap', ['amount'])).toBe(journalExportHref(5, s, '2026-10-12'));
+    expect(journalExportHref(5, s, '2026-10-12', 'custom', ['comment', 'amount', 'paidAt'])).toBe(
+      '/api/v1/companies/5/operations/export.xlsx?from=2026-10-12&to=2026-10-12&types=expense&sort=date&order=desc&format=custom&columns=comment&columns=amount&columns=paidAt',
     );
   });
 });
