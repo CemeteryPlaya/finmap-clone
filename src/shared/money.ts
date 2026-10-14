@@ -2,7 +2,7 @@ import { getCurrency } from './currencies';
 
 /**
  * Сумма из поля ввода → минимальные единицы валюты: «1 500,50», «1500.5», «-10», «,5».
- * Больше знаков после запятой, чем у валюты, — null (округление появится вместе с калькулятором суммы на шаге 6).
+ * Больше знаков после запятой, чем у валюты, — null.
  */
 export function parseAmount(text: string, minorUnits: number): number | null {
   const s = text.replace(/[\s\u00A0\u202F]/g, '').replace('\u2212', '-').replace(',', '.');
