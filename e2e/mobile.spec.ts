@@ -190,7 +190,7 @@ test('счета на телефоне выезжают слева: итог и 
 
 const cards = (page: Page) => page.getByRole('list', { name: 'Операции' });
 
-test('сценарий 4 §10, ширина 390 px: расход с выражением через кнопки-операторы, журнал карточками, правка операции', async ({ page }) => {
+test('сценарий 4 §10, ширина 390 px: расход с суммой цифрами (ряда операторов нет), журнал карточками, правка операции', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Телефон ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
@@ -222,34 +222,12 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   await category.click();
   await dialog.getByRole('option', { name: 'Аренда', exact: true }).click();
   await expect(category).toHaveValue('Аренда');
-  // выражение набирается цифрами, операторы — кнопками под полем; фокус остаётся в поле
+  // сумма набирается цифрами; ряда операторов и калькулятора нет
+  await expect(dialog.getByRole('group', { name: /^Операторы/ })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Калькулятор' })).toHaveCount(0);
   await amount.click();
-  await page.keyboard.type('1000');
-  await dialog.getByRole('button', { name: 'Оператор умножение' }).click();
-  // ряд операторов — цель касания не меньше 44 px (отложенное 6a №1); рядом — иконка калькулятора
-  expect((await dialog.getByRole('button', { name: 'Оператор умножение' }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  await expect(dialog.getByRole('button', { name: 'Калькулятор' })).toBeVisible();
-  await expect(amount).toBeFocused();
-  await page.keyboard.type('3');
-  await dialog.getByRole('button', { name: 'Оператор минус' }).click();
-  await page.keyboard.type('500');
-  await expect(amount).toHaveValue('1000×3\u2212500');
+  await page.keyboard.type('2500');
   await amount.blur();
-  await expect(amount).toHaveValue('2500');
-  // калькулятор на телефоне: панель открывается, показывает выражение, 44 px и целиком в видимой области; Esc закрывает
-  await dialog.getByRole('button', { name: 'Калькулятор' }).click();
-  const calcPanel = page.getByRole('dialog', { name: 'Калькулятор' });
-  await expect(calcPanel).toBeVisible();
-  await expect(calcPanel.locator('output')).toHaveText('2500');
-  const key = (await calcPanel.getByRole('button', { name: '7', exact: true }).boundingBox())!;
-  expect(key.width).toBeGreaterThanOrEqual(44);
-  expect(key.height).toBeGreaterThanOrEqual(44);
-  const pb = (await calcPanel.boundingBox())!;
-  expect(pb.y).toBeGreaterThanOrEqual(0);
-  expect(pb.y + pb.height).toBeLessThanOrEqual(page.viewportSize()!.height);
-  await page.keyboard.press('Escape');
-  await expect(calcPanel).toBeHidden();
-  await expect(dialog).toBeVisible();
   await expect(amount).toHaveValue('2500');
   await dialog.getByRole('button', { name: 'Добавить расход' }).click();
   await expect(dialog).toBeHidden();
@@ -263,17 +241,14 @@ test('сценарий 4 §10, ширина 390 px: расход с выраже
   await expect(card).toContainText('Касса');
   await expect(card).toContainText(shortDate(todayIso()));
 
-  // правка: карточка открывает операцию на весь экран; оператор дописывается в конец суммы
+  // правка: карточка открывает операцию на весь экран
   await card.getByRole('button').click();
   const edit = page.getByRole('dialog', { name: 'Расход', exact: true });
   const editAmount = edit.getByRole('textbox', { name: /^Сумма,/ });
   await expect(editAmount).toBeFocused();
   await expect(editAmount).toHaveValue('2500');
   expect((await edit.boundingBox())!.width).toBeGreaterThanOrEqual(PHONE.width - 1);
-  await editAmount.click();
-  await page.keyboard.press('End');
-  await edit.getByRole('button', { name: 'Оператор деление' }).click();
-  await page.keyboard.type('2');
+  await editAmount.fill('1250');
   await editAmount.blur();
   await expect(editAmount).toHaveValue('1250');
   await edit.getByRole('button', { name: 'Сохранить изменения' }).click();
@@ -953,8 +928,6 @@ test('архивная компания: форма операции тольк�
     await expect(view.getByRole('button', { name, exact: true })).toHaveCount(0);
   }
   await expect(view.getByLabel('Добавить файл')).toHaveCount(0);
-  // калькулятора в поле суммы нет (форма только для просмотра)
-  await expect(view.getByRole('button', { name: 'Калькулятор' })).toHaveCount(0);
   // R3: поле суммы недоступно — фокус сразу на «×», а не на самом окне; другой кнопки закрытия в форме нет
   await expect(view.getByRole('button', { name: 'Закрыть', exact: true })).toHaveCount(1);
   await expect(view.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
@@ -1080,7 +1053,7 @@ test('список поля следит за видимой областью (v
   await expect.poll(listeners).toBe(0);
 });
 
-test('формы на 390 px (§8.7): доход, расход, перевод — на весь экран без прокрутки вбок, ряд операторов и калькулятор, главная кнопка во всю ширину, «×» в липкой шапке; «Указать», выделения и колонок на телефоне нет', async ({ page }) => {
+test('формы на 390 px (§8.7): доход, расход, перевод — на весь экран без прокрутки вбок, без ряда операторов, главная кнопка во всю ширину, «×» в липкой шапке; «Указать», выделения и колонок на телефоне нет', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Формы 390 ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
@@ -1105,9 +1078,9 @@ test('формы на 390 px (§8.7): доход, расход, перевод �
     const box = (await form.boundingBox())!;
     expect(box.width, title).toBeGreaterThanOrEqual(PHONE.width - 1);
     expect(box.height, title).toBeGreaterThanOrEqual(PHONE.height - 1);
-    // ряд операторов под суммой — вместе с иконкой калькулятора (§8.7)
-    await expect(form.getByRole('group', { name: /^Операторы/ }).first()).toBeVisible();
-    await expect(form.getByRole('button', { name: 'Калькулятор' }).first()).toBeVisible();
+    // ряда операторов и калькулятора нет
+    await expect(form.getByRole('group', { name: /^Операторы/ })).toHaveCount(0);
+    await expect(form.getByRole('button', { name: 'Калькулятор' })).toHaveCount(0);
     await expectNoSideScroll(page, title);
     // главная кнопка — внизу формы во всю ширину; «×» в липкой шапке видна и после прокрутки
     const main = form.getByRole('button', { name: submit, exact: true });

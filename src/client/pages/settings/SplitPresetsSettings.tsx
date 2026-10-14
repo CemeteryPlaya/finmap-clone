@@ -10,6 +10,7 @@ import { Pending, StaleNotice } from '../../components/QueryState';
 import { SettingsList } from '../../components/SettingsList';
 import { alertClass, btnIcon, btnPrimary, btnSecondary, btnSmall, inputClass, noticeClass } from '../../components/ui';
 import { api, type ApiError } from '../../lib/api';
+import { AMOUNT_MAX_LENGTH, sanitizeAmountInput } from '../../lib/amount-input';
 import { mergeSubsetOrder } from '../../lib/order';
 import { queryClient } from '../../lib/query';
 import { useCategories, useProjects, useSplitPresets, type CategoryNode, type CategoryTree, type Project, type SplitLine, type SplitPreset } from '../../lib/queries';
@@ -184,8 +185,9 @@ function PresetForm(props: {
                   aria-invalid={l.percent !== '' && parsed[i] === null ? true : undefined}
                   aria-describedby={l.percent !== '' && parsed[i] === null ? `percent-error-${i}` : undefined}
                   inputMode="decimal"
+                  maxLength={AMOUNT_MAX_LENGTH}
                   value={l.percent}
-                  onChange={(e) => setLine(i, { percent: e.target.value })}
+                  onChange={(e) => setLine(i, { percent: sanitizeAmountInput(e.target.value) })}
                   className={inputClass}
                 />
                 {l.percent !== '' && parsed[i] === null && (

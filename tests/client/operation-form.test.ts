@@ -71,9 +71,9 @@ describe('paidAtFor — момент оплаты из даты формы', () 
 });
 
 describe('buildBody — черновик формы → тело POST /operations', () => {
-  it('расход: выражение в сумме, одна строка с категорией и проектом, комментарий без краевых пробелов', () => {
+  it('расход: сумма с запятой, одна строка с категорией и проектом, комментарий без краевых пробелов', () => {
     expect(
-      body(draft({ amount: '1 000 + 500,5', categoryId: 7, projectId: 8, counterpartyId: 9, tagIds: [3, 2], comment: '  аренда  ' })),
+      body(draft({ amount: '1 500,5', categoryId: 7, projectId: 8, counterpartyId: 9, tagIds: [3, 2], comment: '  аренда  ' })),
     ).toEqual({
       type: 'expense',
       paidAt: '2026-10-07T05:30:00.123Z',
@@ -95,9 +95,11 @@ describe('buildBody — черновик формы → тело POST /operation
     expect(body(draft({ amount: '100', accrualOn: false, accrualDate: '2026-09-30' })).accrualDate).toBeNull();
   });
 
-  it('сумма округляется до минимальных единиц валюты счёта (JPY — без дробной части)', () => {
-    expect(body(draft({ accountId: 4, amount: '10/4' })).amount).toBe(3);
-    expect(body(draft({ amount: '10/3' })).amount).toBe(333);
+  it('лишние знаки после запятой — ошибка у поля, а не округление (JPY — без дробной части)', () => {
+    expect(body(draft({ accountId: 4, amount: '10' })).amount).toBe(10);
+    expect(errors(draft({ accountId: 4, amount: '10,5' }))).toEqual({ amount: 'Введите сумму, например 1 500' });
+    expect(errors(draft({ amount: '10,333' }))).toEqual({ amount: 'Введите сумму, например 1 500,50' });
+    expect(body(draft({ amount: '10.5' })).amount).toBe(1050);
   });
 
   it('перевод в одной валюте: сумма зачисления не передаётся, строк нет; с проектом — одна строка без категории', () => {
@@ -120,8 +122,8 @@ describe('buildBody — черновик формы → тело POST /operation
     expect(errors(draft({ accountId: null, amount: '' }))).toEqual({ accountId: 'Выберите счёт' });
     expect(errors(draft({ amount: '' }))).toEqual({ amount: 'Введите сумму' });
     expect(errors(draft({ amount: '0' }))).toEqual({ amount: 'Сумма больше нуля' });
-    expect(errors(draft({ amount: '5-10' }))).toEqual({ amount: 'Сумма больше нуля' });
-    expect(errors(draft({ amount: '5/0' }))).toEqual({ amount: 'Деление на ноль' });
+    expect(errors(draft({ amount: '5-10' }))).toEqual({ amount: 'Введите сумму, например 1 500,50' });
+    expect(errors(draft({ amount: ',' }))).toEqual({ amount: 'Введите сумму, например 1 500,50' });
     expect(errors(draft({ type: 'transfer', amount: '1' }))).toEqual({ toAccountId: 'Выберите счёт зачисления' });
     expect(errors(draft({ type: 'transfer', amount: '1', toAccountId: 1 }))).toEqual({ toAccountId: 'Выберите другой счёт' });
     expect(errors(draft({ type: 'transfer', amount: '1', toAccountId: 3 }))).toEqual({ toAmount: 'Укажите сумму зачисления' });

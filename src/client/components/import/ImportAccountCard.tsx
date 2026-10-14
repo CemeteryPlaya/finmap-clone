@@ -16,6 +16,7 @@ import {
   type CardDraft,
 } from '../../lib/import-panel';
 import { accountOptions } from '../../lib/operation-options';
+import { AMOUNT_MAX_LENGTH, sanitizeAmountInput } from '../../lib/amount-input';
 import type { Account } from '../../lib/queries';
 import { Field } from '../Field';
 import { ComboSelect } from '../operation/ComboSelect';
@@ -140,10 +141,11 @@ export function ImportAccountCard(props: {
               <input
                 {...c}
                 inputMode="decimal"
+                maxLength={AMOUNT_MAX_LENGTH}
                 aria-describedby={[c['aria-describedby'], hintId].filter(Boolean).join(' ')}
                 value={draft.amount}
                 placeholder={minorUnits > 0 ? '0,00' : '0'}
-                onChange={(e) => update({ amount: e.target.value })}
+                onChange={(e) => update({ amount: sanitizeAmountInput(e.target.value, { negative: true }) })}
                 className={inputClass}
               />
             )}
@@ -162,9 +164,10 @@ export function ImportAccountCard(props: {
               <input
                 {...c}
                 inputMode="decimal"
+                maxLength={AMOUNT_MAX_LENGTH}
                 aria-describedby={[c['aria-describedby'], hintId].filter(Boolean).join(' ')}
                 value={draft.target}
-                onChange={(e) => update({ target: e.target.value })}
+                onChange={(e) => update({ target: sanitizeAmountInput(e.target.value, { negative: true }) })}
                 className={inputClass}
               />
             )}

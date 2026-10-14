@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { parseAmount } from '../../../shared/money';
 import type { JournalUrlState } from '../../lib/journal-filter';
+import { AMOUNT_MAX_LENGTH, sanitizeAmountInput } from '../../lib/amount-input';
 import { amountInputText } from '../../lib/journal-format';
 import { inputClass } from '../ui';
 
@@ -60,11 +61,12 @@ function AmountInput(props: { label: string; placeholder: string; value: number 
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
         inputMode="decimal"
+        maxLength={AMOUNT_MAX_LENGTH}
         placeholder={props.placeholder}
         value={text}
         onChange={(e) => {
           discarded.current = false;
-          setText(e.target.value);
+          setText(sanitizeAmountInput(e.target.value));
         }}
         onBlur={commit}
         onKeyDown={(e) => {

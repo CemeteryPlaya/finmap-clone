@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { CURRENCIES, getCurrency } from '../../shared/currencies';
 import { formatAmount, parseAmount } from '../../shared/money';
 import type { Account, Project } from '../lib/queries';
+import { AMOUNT_MAX_LENGTH, sanitizeAmountInput } from '../lib/amount-input';
 import { Field } from './Field';
 import { alertClass, btnPrimary, btnSecondary, inputClass } from './ui';
 
@@ -74,7 +75,14 @@ export function AccountForm(props: {
         {(c) => <input {...c} value={name} onChange={(e) => setName(e.target.value)} placeholder="Kaspi Gold" className={inputClass} />}
       </Field>
       <Field label="Стартовый баланс" hint="Остаток на дату открытия счёта" error={fields.startingBalance}>
-        {(c) => <input {...c} inputMode="decimal" value={balance} onChange={(e) => setBalance(e.target.value)} className={inputClass} />}
+        {(c) => <input
+            {...c}
+            inputMode="decimal"
+            maxLength={AMOUNT_MAX_LENGTH}
+            value={balance}
+            onChange={(e) => setBalance(sanitizeAmountInput(e.target.value, { negative: true }))}
+            className={inputClass}
+          />}
       </Field>
       <Field label="Проект" error={fields.projectId}>
         {(c) => (

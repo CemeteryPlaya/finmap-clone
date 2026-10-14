@@ -1,12 +1,12 @@
-import { evaluateAmount } from '../../shared/calc';
 import { allocate } from '../../shared/money';
 import { formatBp, parsePercentToBp } from '../../shared/percent';
 import { SPLIT_TOTAL_BP } from '../../shared/schemas/split-presets';
+import { parseAmountText } from './amount-input';
 import { pluralRu } from './journal-format';
 import type { CategoryTree } from './queries';
 
 /**
- * «Разделить» (§7): строки «категория, проект, сумма или %». Суммы строк — текст поля (выражение калькулятора),
+ * «Разделить» (§7): строки «категория, проект, сумма или %». Суммы строк — текст поля,
  * доли — проценты с двумя знаками; проценты переводятся в суммы методом наибольшего остатка (§4.1, `allocate`).
  */
 export type SplitMode = 'amount' | 'percent';
@@ -56,7 +56,7 @@ export interface SplitResult {
 /** Строки разбиения при общей сумме total (null — сумма не введена или с ошибкой). */
 export function splitResult(split: SplitDraft, total: number | null, minorUnits: number): SplitResult {
   if (split.mode === 'amount') {
-    const parsed = split.lines.map((l) => (l.value.trim() === '' ? null : evaluateAmount(l.value, minorUnits)));
+    const parsed = split.lines.map((l) => (l.value.trim() === '' ? null : parseAmountText(l.value, minorUnits)));
     const errors = parsed.map((r) => (r === null ? 'Введите сумму' : !r.ok ? r.error : r.minor <= 0 ? 'Сумма больше нуля' : null));
     const amounts = parsed.map((r, i) => (r?.ok && errors[i] === null ? r.minor : null));
     const sum = amounts.reduce<number>((s, a) => s + (a ?? 0), 0);

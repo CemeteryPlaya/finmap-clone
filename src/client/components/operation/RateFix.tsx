@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { formatDateRu } from '../../../shared/dates';
 import { api, ApiError } from '../../lib/api';
+import { AMOUNT_MAX_LENGTH, sanitizeAmountInput } from '../../lib/amount-input';
 import { queryClient } from '../../lib/query';
 import { Field } from '../Field';
 import { btnSmall, inputClass } from '../ui';
@@ -83,8 +84,9 @@ export function RateFix(props: { missing: MissingRate; companyId: number; pendin
                 {...c}
                 autoFocus
                 inputMode="decimal"
+                maxLength={AMOUNT_MAX_LENGTH}
                 value={rate}
-                onChange={(e) => setRate(e.target.value)}
+                onChange={(e) => setRate(sanitizeAmountInput(e.target.value))}
                 onKeyDown={(e) => {
                   // Enter здесь сохраняет курс, а не операцию
                   if (e.key === 'Enter') {

@@ -1,14 +1,13 @@
-import { evaluateAmount } from '../../shared/calc';
 import { getCurrency } from '../../shared/currencies';
 import { isValidDate, parseTimeInput, startOfDayUtc, zoneOffsetMs } from '../../shared/dates';
 import { DEC_ONE, divDec, roundSignificant } from '../../shared/decimal';
 import type { OperationType } from './journal-filter';
+import { parseAmountText } from './amount-input';
 import { dayOf } from './journal-format';
 import { similarSplit, splitLines, splitResult, type SplitDraft } from './split';
 
 /**
- * Черновик формы операции (§7 «Форма операции»): то, что видит пользователь. Суммы — текст поля (в нём может
- * быть выражение калькулятора), даты — календарные `YYYY-MM-DD` в APP_TIMEZONE.
+ * Черновик формы операции (§7 «Форма операции»): то, что видит пользователь. Суммы — текст поля, даты — календарные `YYYY-MM-DD` в APP_TIMEZONE.
  */
 export interface OperationDraft {
   type: OperationType;
@@ -164,7 +163,7 @@ export function paidAtFor(date: string, ref: Date, now: Date, timeZone: string, 
 
 /** Сумма поля → минимальные единицы (> 0) или текст ошибки. */
 export function positiveAmount(text: string, minorUnits: number): { ok: true; minor: number } | { ok: false; error: string } {
-  const r = evaluateAmount(text, minorUnits);
+  const r = parseAmountText(text, minorUnits);
   if (!r.ok) return r;
   if (r.minor <= 0) return { ok: false, error: 'Сумма больше нуля' };
   return r;

@@ -101,6 +101,28 @@ test('счета: «Добавление нового счёта» — валю�
   await expect(main.getByRole('listitem').filter({ hasText: 'Сейф' })).toHaveCount(0);
 });
 
+test('стартовый баланс счёта: принимает «-1500», буквы и второй разделитель отбрасываются', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Баланс ${Date.now()}`);
+  await page.goto(`/c/${cid}/settings/accounts`);
+  await page.getByRole('main').getByRole('button', { name: 'Добавить счёт' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Добавление нового счёта' });
+  const balance = dialog.getByLabel('Стартовый баланс');
+  await balance.fill('-1500');
+  await expect(balance).toHaveValue('-1500');
+  await balance.fill('abc');
+  await expect(balance).toHaveValue('');
+  await balance.fill('-12a3,4.5');
+  await expect(balance).toHaveValue('-123,45');
+  await balance.fill('5-3');
+  await expect(balance).toHaveValue('53');
+  await dialog.getByLabel('Название счёта').fill('Долговой');
+  await balance.fill('-1500');
+  await dialog.getByRole('button', { name: 'Создать счёт' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('main').getByRole('listitem').filter({ hasText: 'Долговой' })).toContainText(/\u2212₸\s1\s500/);
+});
+
 test('категории: подменю «Системные / Мои», «Добавить категорию», «+» подкатегория, окно «Категория» с «Перенести в…», поиск с родителем, порядок среди системных', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Категории ${Date.now()}`);

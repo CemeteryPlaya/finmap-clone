@@ -308,7 +308,10 @@ test('тулбар: поиск с паузой, период, сумма от/д
   await moreMenu.getByLabel('Сумма до').blur();
   await expect(bodyRows(page)).toHaveCount(1);
   await expect(page).toHaveURL(/min=100000&max=120050$/);
+  // буквы не вводятся вовсе; остаётся одинокий разделитель — не число
   await moreMenu.getByLabel('Сумма до').fill('abc');
+  await expect(moreMenu.getByLabel('Сумма до')).toHaveValue('');
+  await moreMenu.getByLabel('Сумма до').fill(',');
   await moreMenu.getByLabel('Сумма до').blur();
   await expect(moreMenu.getByLabel('Сумма до')).toHaveAttribute('aria-invalid', 'true');
   await expect(moreMenu.getByLabel('Сумма до')).toHaveAccessibleDescription('Введите сумму');

@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { formatBp } from '../../../shared/percent';
 import { formatMoney, MONEY_SCREEN } from '../../../shared/money';
 import { api, ApiError } from '../../lib/api';
+import { AMOUNT_MAX_LENGTH, sanitizeAmountInput } from '../../lib/amount-input';
 import { categoryOptions, projectOptions } from '../../lib/operation-options';
 import { createProps } from '../../lib/picker';
 import { queryClient } from '../../lib/query';
@@ -212,7 +213,7 @@ export function SplitEditor(props: {
               filled={line.value !== ''}
             >
               {(c) => (
-                <input {...c} inputMode="decimal" autoComplete="off" value={line.value} onChange={(e) => setLine(i, { value: e.target.value })} className={floatingControlClass} />
+                <input {...c} inputMode="decimal" autoComplete="off" maxLength={AMOUNT_MAX_LENGTH} value={line.value} onChange={(e) => setLine(i, { value: sanitizeAmountInput(e.target.value) })} className={floatingControlClass} />
               )}
             </Field>
           )}

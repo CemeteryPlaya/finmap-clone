@@ -248,17 +248,6 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    ours: 'c13-calculator.png',
-    finmap: '13c-calculator.png',
-    path: 'log',
-    act: async (p) => {
-      // калькулятор по иконке в поле суммы (§6.10)
-      await openForm('Расход')(p);
-      await newForm(p).getByRole('button', { name: 'Калькулятор' }).click();
-      await p.getByRole('dialog', { name: 'Калькулятор' }).waitFor();
-    },
-  },
-  {
     ours: 'c14-after-escape.png',
     finmap: '14-after-escape.png',
     path: 'log',

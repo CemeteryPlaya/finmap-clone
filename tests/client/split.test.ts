@@ -34,14 +34,15 @@ const node = (id: number, kind: 'income' | 'expense', archivedAt: string | null 
 });
 
 describe('splitResult — строки разбиения и нераспределённый остаток', () => {
-  it('суммами: выражения в строках, остаток и готовность', () => {
-    const r = splitResult(lines('amount', '600', '300+100'), 100000, 2);
+  it('суммами: числа в строках, остаток и готовность', () => {
+    const r = splitResult(lines('amount', '600', '400'), 100000, 2);
     expect(r).toEqual({ amounts: [60000, 40000], errors: [null, null], left: 0, ok: true });
     expect(splitResult(lines('amount', '600', '300'), 100000, 2)).toMatchObject({ left: 10000, ok: false });
     expect(splitResult(lines('amount', '600', '500'), 100000, 2)).toMatchObject({ left: -10000, ok: false });
     expect(splitResult(lines('amount', '600', ''), 100000, 2)).toMatchObject({ errors: [null, 'Введите сумму'], left: 40000, ok: false });
     expect(splitResult(lines('amount', '1000', '0'), 100000, 2).errors[1]).toBe('Сумма больше нуля');
-    expect(splitResult(lines('amount', '1000', '1/0'), 100000, 2).errors[1]).toBe('Деление на ноль');
+    expect(splitResult(lines('amount', '1000', '1+2'), 100000, 2).errors[1]).toBe('Введите сумму, например 1 500,50');
+    expect(splitResult(lines('amount', '1000', '1,555'), 100000, 2).errors[1]).toBe('Введите сумму, например 1 500,50');
     expect(splitResult(lines('amount', '600', '400'), null, 2)).toMatchObject({ left: null, ok: false });
   });
 

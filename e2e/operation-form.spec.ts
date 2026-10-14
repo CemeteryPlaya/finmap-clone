@@ -80,7 +80,7 @@ async function pick(page: Page, label: string, option: string, scope: Locator = 
   await expect(field(scope, label)).toHaveValue(option);
 }
 
-test('доход, расход и перевод KZT → USD через форму: выражение в сумме, курс перевода, балансы и журнал', async ({ page }) => {
+test('доход, расход и перевод KZT → USD через форму: сумма цифрами, курс перевода, балансы и журнал', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Форма ${Date.now()}`);
   const base = `/api/v1/companies/${cid}`;
@@ -92,7 +92,7 @@ test('доход, расход и перевод KZT → USD через форм
   await apiPost(page, `${base}/fixed-rates`, { currency: 'USD', rate: '500', validFrom: '2020-01-01' });
   await page.reload();
 
-  // доход: выражение вычисляется при уходе из поля, Enter в поле суммы сохраняет
+  // доход: число приводится к виду поля при уходе из него, Enter в поле суммы сохраняет
   let dialog = await openForm(page, 'Доход');
   // отдельное окно на тип: вкладок нет, окно не шире 480 px, кнопка — «Добавить доход» (§6.1, §6.9)
   await expect(dialog.getByRole('radio')).toHaveCount(0);
@@ -120,7 +120,7 @@ test('доход, расход и перевод KZT → USD через форм
   await expect(dialog.getByRole('button', { name: /^Дата сделки:/ })).toBeFocused();
   await dialog.getByRole('button', { name: 'Убрать дату сделки' }).click();
   await expect(accrualRow).toBeFocused();
-  await amount.fill('1 500 + 500');
+  await amount.fill('2000,0');
   await amount.blur();
   await expect(amount).toHaveValue('2000');
   await amount.press('Enter');
@@ -128,14 +128,14 @@ test('доход, расход и перевод KZT → USD через форм
   await expect(table(page).locator('tbody tr').filter({ hasText: 'Выручка' })).toContainText(/\+2\s000\s₸/);
   await expect(panel(page).getByRole('link', { name: /^Касса/ })).toContainText(/₸\s3\s000$/);
 
-  // расход с комментарием из свёрнутого блока; сумма — невычисленное выражение, «Сохранить» нажимают сразу
+  // расход с комментарием из свёрнутого блока; «Сохранить» нажимают сразу
   dialog = await openForm(page, 'Расход');
   await pick(page, 'Со счёта', 'Касса');
   await pick(page, 'Категория', 'Аренда');
-  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('100+200');
+  await dialog.getByRole('textbox', { name: /^Сумма,/ }).fill('300');
   await dialog.getByRole('button', { name: 'Добавить проект, тег, комментарий, файл' }).click();
   await dialog.getByLabel('Комментарий').fill('за октябрь');
-  // click без ухода фокуса из поля (dispatchEvent): сумма уходит на сервер уже вычисленной
+  // click без ухода фокуса из поля (dispatchEvent): сумма уходит на сервер как набрана
   const rentRequest = nextCreate(page);
   await submit(dialog).dispatchEvent('click');
   expect((await rentRequest).postDataJSON().amount).toBe(30000);
@@ -175,16 +175,16 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   await apiPost(page, `${base}/counterparties`, { type: 'employee', name: 'Айгерим' });
   await page.reload();
 
-  // пустая сумма и деление на ноль — ошибки у поля, окно остаётся открытым
+  // пустая сумма и сумма с лишними знаками — ошибки у поля, окно остаётся открытым
   const dialog = await openForm(page, 'Расход');
   await pick(page, 'Со счёта', 'Касса');
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
   await submit(dialog).click();
   await expect(amount).toHaveAttribute('aria-invalid', 'true');
   await expect(dialog).toContainText('Введите сумму');
-  await amount.fill('5/0');
+  await amount.fill('5,555');
   await amount.blur();
-  await expect(dialog).toContainText('Деление на ноль');
+  await expect(dialog).toContainText('Введите сумму, например 1 500,50');
 
   // Esc при несохранённых изменениях — окно «Ваши данные не сохранятся» поверх формы; Esc закрывает только его
   await amount.fill('10');
@@ -286,8 +286,8 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   await expect(dialog.getByLabel('Комментарий')).toHaveValue('');
   await expect(category).toHaveValue('Аренда');
   await expect(field(dialog, 'Мой контрагент')).toHaveValue('ТОО Ромашка');
-  // Enter в поле суммы с невычисленным выражением: сохраняется результат, а не текст
-  await amount.fill('150+50');
+  // Enter в поле суммы сохраняет форму
+  await amount.fill('200');
   const similarRequest = nextCreate(page);
   await amount.press('Enter');
   expect((await similarRequest).postDataJSON().amount).toBe(20000);
@@ -821,136 +821,6 @@ test('«Зарплата за {месяц}»: месяц оплаты серым
   await expect(dialog).toBeHidden();
 });
 
-test('калькулятор по иконке в поле суммы: кнопки пишут в выражение, «=» вычисляет и закрывает; ошибка — у поля; кнопки не меньше 44 px', async ({ page }) => {
-  await login(page);
-  const cid = await createCompany(page, `ТОО Калькулятор ${Date.now()}`);
-  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
-  await page.reload();
-
-  const dialog = await openForm(page, 'Расход');
-  await pick(page, 'Со счёта', 'Касса');
-  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
-  await expect(amount).toHaveAccessibleDescription('Можно писать выражения: 1500+250*2');
-  const calc = dialog.getByRole('button', { name: 'Калькулятор' });
-  await calc.click();
-  const panel = page.getByRole('dialog', { name: 'Калькулятор' });
-  for (const key of ['1', '5', '0', '0', 'Плюс', '2', '5', '0', 'Умножение', '2']) await panel.getByRole('button', { name: key, exact: true }).click();
-  await expect(amount).toHaveValue('1500+250×2');
-  await expect(panel.locator('output')).toHaveText('1500+250×2');
-  const box = (await panel.getByRole('button', { name: '7', exact: true }).boundingBox())!;
-  expect(box.width).toBeGreaterThanOrEqual(44);
-  expect(box.height).toBeGreaterThanOrEqual(44);
-  await panel.getByRole('button', { name: 'Вычислить' }).click();
-  await expect(panel).toBeHidden();
-  await expect(amount).toHaveValue('2000');
-  await expect(calc).toBeFocused();
-
-  // деление на ноль: «=» закрывает панель, ошибка — у поля, выражение остаётся для правки (Review Focus 5)
-  await calc.click();
-  await panel.getByRole('button', { name: 'Деление' }).click();
-  await panel.getByRole('button', { name: '0', exact: true }).click();
-  await panel.getByRole('button', { name: 'Вычислить' }).click();
-  await expect(panel).toBeHidden();
-  await expect(amount).toHaveAttribute('aria-invalid', 'true');
-  await expect(dialog).toContainText('Деление на ноль');
-  await expect(amount).toHaveValue('2000÷0');
-  // ошибка объявляется в поле: фокус после «=» — в нём, а не на иконке
-  await expect(amount).toBeFocused();
-  // «C» очищает; Esc закрывает только панель — окно открыто
-  await calc.click();
-  await panel.getByRole('button', { name: 'Очистить' }).click();
-  await expect(amount).toHaveValue('');
-  await page.keyboard.press('Escape');
-  await expect(panel).toBeHidden();
-  await expect(dialog).toBeVisible();
-  await expect(calc).toBeFocused();
-});
-
-test('калькулятор не вычисляет недописанное выражение при открытии; Esc без «=» — вычисляет, ошибка у поля', async ({ page }) => {
-  await login(page);
-  const cid = await createCompany(page, `ТОО Калькулятор2 ${Date.now()}`);
-  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
-  await page.reload();
-
-  const dialog = await openForm(page, 'Расход');
-  await pick(page, 'Со счёта', 'Касса');
-  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
-  const calc = dialog.getByRole('button', { name: 'Калькулятор' });
-  const panel = page.getByRole('dialog', { name: 'Калькулятор' });
-
-  // «5+» не вычисляется при переходе в калькулятор, панель показывает набранное; дописали «2» и «=» — 7
-  await amount.click();
-  await page.keyboard.type('5+');
-  await calc.click();
-  await expect(panel).toBeVisible();
-  await expect(amount).not.toHaveAttribute('aria-invalid', 'true');
-  await expect(amount).toHaveValue('5+');
-  await expect(panel.locator('output')).toHaveText('5+');
-  await panel.getByRole('button', { name: '2', exact: true }).click();
-  await panel.getByRole('button', { name: 'Вычислить' }).click();
-  await expect(panel).toBeHidden();
-  await expect(amount).toHaveValue('7');
-  await expect(amount).not.toHaveAttribute('aria-invalid', 'true');
-
-  // верное «2+3» тоже не сворачивается до открытия; Esc без «=» вычисляет его
-  await amount.fill('2+3');
-  await calc.click();
-  await expect(amount).toHaveValue('2+3');
-  await page.keyboard.press('Escape');
-  await expect(panel).toBeHidden();
-  await expect(amount).toHaveValue('5');
-
-  // Esc с недописанным выражением — ошибка у поля
-  await amount.fill('5+');
-  await calc.click();
-  await expect(panel).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(panel).toBeHidden();
-  await expect(amount).toHaveAttribute('aria-invalid', 'true');
-  await expect(amount).toHaveValue('5+');
-  await expect(dialog).toBeVisible();
-});
-
-test('Tab через иконку калькулятора без открытия: поле вычисляется (8) или показывает ошибку; щелчок в поле при открытой панели не трогает значение', async ({ page }) => {
-  await login(page);
-  const cid = await createCompany(page, `ТОО Калькулятор3 ${Date.now()}`);
-  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
-  await page.reload();
-
-  const dialog = await openForm(page, 'Расход');
-  await pick(page, 'Со счёта', 'Касса');
-  const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
-  const calc = dialog.getByRole('button', { name: 'Калькулятор' });
-  const panel = page.getByRole('dialog', { name: 'Калькулятор' });
-
-  await amount.click();
-  await page.keyboard.type('5+3');
-  await page.keyboard.press('Tab');
-  await expect(calc).toBeFocused();
-  await expect(amount).toHaveValue('5+3');
-  await page.keyboard.press('Tab');
-  await expect(panel).toBeHidden();
-  await expect(amount).toHaveValue('8');
-
-  await amount.fill('5+');
-  await amount.focus();
-  await page.keyboard.press('Tab');
-  await page.keyboard.press('Tab');
-  await expect(amount).toHaveAttribute('aria-invalid', 'true');
-  await expect(amount).toHaveValue('5+');
-
-  // щелчок в поле при открытой панели: панель закрывается, значение не переписывается под курсором
-  await amount.fill('2+3');
-  await calc.click();
-  await expect(panel).toBeVisible();
-  await amount.click();
-  await expect(panel).toBeHidden();
-  await expect(amount).toHaveValue('2+3');
-  await expect(amount).toBeFocused();
-  await amount.blur();
-  await expect(amount).toHaveValue('5');
-});
-
 test('форма, открытая до полуночи (R5): нетронутая дата переходит на новый день, «сейчас» в поле тикает, операция сохраняется на настоящий день', async ({ page }) => {
   const today = almatyToday();
   const eve = shiftDay(today, -1);
@@ -1017,24 +887,29 @@ test('новая операция (R7): время, набранное в пан
   await expect(dialog).toBeHidden();
 });
 
-test('калькулятор у суммы перевода: «=» вычисляет выражение', async ({ page }) => {
+test('поле суммы: только цифры и один разделитель; калькулятора и ряда операторов нет; операция сохраняется на 123,45', async ({ page }) => {
   await login(page);
-  const cid = await createCompany(page, `ТОО Калькулятор перевод ${Date.now()}`);
-  const base = `/api/v1/companies/${cid}`;
-  await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
-  await apiPost(page, `${base}/accounts`, { name: 'Каспи', currency: 'KZT', openedAt: '2020-01-01' });
+  const cid = await createCompany(page, `ТОО Цифры ${Date.now()}`);
+  await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
   await page.reload();
 
-  const dialog = await openForm(page, 'Перевод');
+  const dialog = await openForm(page, 'Расход');
   await pick(page, 'Со счёта', 'Касса');
-  await pick(page, 'На счёт', 'Каспи');
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
-  await amount.fill('2+3');
-  await dialog.getByRole('button', { name: 'Калькулятор' }).click();
-  const panel = page.getByRole('dialog', { name: 'Калькулятор' });
-  await panel.getByRole('button', { name: 'Умножение' }).click();
-  await panel.getByRole('button', { name: '4', exact: true }).click();
-  await panel.getByRole('button', { name: 'Вычислить' }).click();
-  await expect(panel).toBeHidden();
-  await expect(amount).toHaveValue('14');
+  // набор и вставка: буквы, второй разделитель, пробелы и знаки действий отбрасываются
+  await amount.fill('1500+250*2');
+  await expect(amount).toHaveValue('15002502');
+  await amount.fill('');
+  await page.keyboard.type('1 2-3');
+  await expect(amount).toHaveValue('123');
+  await amount.fill('12a3,4.5\u0431');
+  await expect(amount).toHaveValue('123,45');
+  // калькулятора и ряда операторов нет, подсказки про выражения тоже
+  await expect(dialog.getByRole('button', { name: 'Калькулятор' })).toHaveCount(0);
+  await expect(dialog.getByRole('group', { name: /^Операторы/ })).toHaveCount(0);
+  await expect(amount).not.toHaveAccessibleDescription(/выражени/);
+  const request = nextCreate(page);
+  await submit(dialog).click();
+  expect((await request).postDataJSON().amount).toBe(12345);
+  await expect(dialog).toBeHidden();
 });

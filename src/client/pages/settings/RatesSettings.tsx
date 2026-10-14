@@ -10,6 +10,7 @@ import { Modal } from '../../components/Modal';
 import { Pending, StaleNotice } from '../../components/QueryState';
 import { alertClass, btnPrimary, btnSecondary, inputClass, noticeClass, rowIconClass, settingsRowClass } from '../../components/ui';
 import { api, type ApiError } from '../../lib/api';
+import { AMOUNT_MAX_LENGTH, sanitizeAmountInput } from '../../lib/amount-input';
 import { queryClient } from '../../lib/query';
 import { useFixedRates, useManualRates, type FixedRate, type ManualRate } from '../../lib/queries';
 import { SHARED_NOTE } from '../../lib/settings-sections';
@@ -149,7 +150,7 @@ function FixedRateEditor(props: { companyId: number; baseCurrency: string; rate:
           </Field>
         )}
         <Field label={rate ? `Курс 1 ${rate.currency}` : `Курс к ${props.baseCurrency}`} error={fields.rate}>
-          {(c) => <input {...c} inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} className={inputClass} />}
+          {(c) => <input {...c} inputMode="decimal" maxLength={AMOUNT_MAX_LENGTH} value={value} onChange={(e) => setValue(sanitizeAmountInput(e.target.value))} className={inputClass} />}
         </Field>
         <Field label="Действует с" error={fields.validFrom}>
           {(c) => <input {...c} type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} className={inputClass} />}
@@ -317,7 +318,7 @@ function ManualRateEditor({ rate: fresh, gone, onDone }: { rate: ManualRate | nu
           </>
         )}
         <Field label="Курс к тенге" error={fields.rate}>
-          {(c) => <input {...c} inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} className={inputClass} />}
+          {(c) => <input {...c} inputMode="decimal" maxLength={AMOUNT_MAX_LENGTH} value={value} onChange={(e) => setValue(sanitizeAmountInput(e.target.value))} className={inputClass} />}
         </Field>
         {save.error && !save.error.fields && (
           <p role="alert" className={`${alertClass} mb-0`}>

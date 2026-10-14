@@ -90,7 +90,7 @@ test('правка из журнала: клик по строке и с кла�
   dialog = editForm(page);
   const amount = dialog.getByRole('textbox', { name: /^Сумма,/ });
   await expect(amount).toBeFocused();
-  await amount.fill('300+50');
+  await amount.fill('350');
   await amount.press('Enter');
   await expect(dialog).toBeHidden();
   await expect(rows(page).first()).toContainText(/350\s₸/);
