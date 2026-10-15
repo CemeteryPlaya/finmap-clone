@@ -1,5 +1,9 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import {
+  stockDocCreateSchema,
+  stockDocListSchema,
+  stockDocUpdateSchema,
   stockGroupSchema,
   stockItemCreateSchema,
   stockItemUpdateSchema,
@@ -9,14 +13,15 @@ import {
 } from '../../../shared/schemas/stock';
 import { parseId } from '../../http/params';
 import type { StockCatalogService } from './catalog';
+import type { StockDocsService } from './docs';
 import type { StockWarehousesService } from './warehouses';
 
 type C = { Params: { cid: string } };
 type P = { Params: { cid: string; id: string } };
 const BASE = '/api/v1/companies/:cid/stock';
 
-export function registerStockRoutes(app: FastifyInstance, deps: { catalog: StockCatalogService; warehouses: StockWarehousesService }): void {
-  const { catalog, warehouses } = deps;
+export function registerStockRoutes(app: FastifyInstance, deps: { catalog: StockCatalogService; warehouses: StockWarehousesService; docs: StockDocsService }): void {
+  const { catalog, warehouses, docs } = deps;
 
   // ---- группы товаров
   app.get<C>(`${BASE}/groups`, async (req) => ({ groups: catalog.groups(parseId(req.params.cid)) }));
@@ -92,4 +97,26 @@ export function registerStockRoutes(app: FastifyInstance, deps: { catalog: Stock
   app.post<P>(`${BASE}/warehouses/:id/unarchive`, async (req) => ({
     warehouse: warehouses.unarchive(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
   }));
+
+  // ---- документы
+  app.get<C>(`${BASE}/docs`, async (req) => docs.list(parseId(req.params.cid), stockDocListSchema.parse(req.query)));
+
+  app.get<P>(`${BASE}/docs/:id`, async (req) => ({ doc: docs.get(parseId(req.params.cid), parseId(req.params.id)) }));
+
+  app.post<C>(`${BASE}/docs`, async (req, reply) => {
+    const body = stockDocCreateSchema.parse(req.body);
+    const out = docs.create(parseId(req.params.cid), body, req.user!.id);
+    return reply.status(body.dryRun ? 200 : 201).send(out);
+  });
+
+  app.patch<P>(`${BASE}/docs/:id`, async (req) => {
+    const body = stockDocUpdateSchema.parse(req.body);
+    return docs.update(parseId(req.params.cid), parseId(req.params.id), body, req.user!.id);
+  });
+
+  // ?dryRun=1 — только последствия, документ остаётся
+  app.delete<P>(`${BASE}/docs/:id`, async (req) => {
+    const { dryRun } = z.object({ dryRun: z.enum(['1', '0']).optional() }).parse(req.query);
+    return docs.remove(parseId(req.params.cid), parseId(req.params.id), req.user!.id, { dryRun: dryRun === '1' });
+  });
 }

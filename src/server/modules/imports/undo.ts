@@ -2,7 +2,7 @@ import { and, eq, inArray, isNotNull, isNull, min, or, sql } from 'drizzle-orm';
 import { todayInTimezone } from '../../../shared/dates';
 import type { ImportCreatedCounts, ImportCreatedEntity, ImportKeptAccountField, ImportUndoResult } from '../../../shared/schemas/imports';
 import type { Executor } from '../../db/client';
-import { accounts, attachments, categories, counterparties, imports, operationLines, operations, operationTags, projects, tags } from '../../db/schema';
+import { accounts, attachments, categories, counterparties, imports, operationLines, operations, operationTags, projects, stockDocs, stockWarehouses, tags } from '../../db/schema';
 import { AppError } from '../../errors';
 import { changedFields } from '../audit/mutate';
 import type { AuditEntry } from '../audit/service';
@@ -134,7 +134,11 @@ export function undoImport(tx: Executor, input: UndoInput, record: (entry: Audit
     tx.select().from(counterparties).where(and(eq(counterparties.companyId, companyId), inArray(counterparties.id, part))).all(),
   );
   for (const c of cps) {
-    if (exists(tx.select({ id: operations.id }).from(operations).where(eq(operations.counterpartyId, c.id)).limit(1).get())) keep('counterparty', c.name);
+    // документы склада (поставщик, покупатель) ссылаются на контрагента так же, как операции
+    const used =
+      exists(tx.select({ id: operations.id }).from(operations).where(eq(operations.counterpartyId, c.id)).limit(1).get()) ||
+      exists(tx.select({ id: stockDocs.id }).from(stockDocs).where(eq(stockDocs.counterpartyId, c.id)).limit(1).get());
+    if (used) keep('counterparty', c.name);
     else {
       tx.delete(counterparties).where(eq(counterparties.id, c.id)).run();
       remove('counterparty', c.id, { type: c.type, name: c.name });
@@ -191,7 +195,8 @@ export function undoImport(tx: Executor, input: UndoInput, record: (entry: Audit
   for (const p of prjs) {
     const used =
       exists(tx.select({ id: operationLines.id }).from(operationLines).where(eq(operationLines.projectId, p.id)).limit(1).get()) ||
-      exists(tx.select({ id: accounts.id }).from(accounts).where(eq(accounts.projectId, p.id)).limit(1).get());
+      exists(tx.select({ id: accounts.id }).from(accounts).where(eq(accounts.projectId, p.id)).limit(1).get()) ||
+      exists(tx.select({ id: stockWarehouses.id }).from(stockWarehouses).where(eq(stockWarehouses.projectId, p.id)).limit(1).get());
     if (used) keep('project', p.name);
     else {
       tx.delete(projects).where(eq(projects.id, p.id)).run();
