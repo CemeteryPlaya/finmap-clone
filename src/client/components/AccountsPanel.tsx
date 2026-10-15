@@ -6,6 +6,8 @@ import { focusHeadingSoon, isPlainLeftClick, pathOf } from '../lib/focus-heading
 import { refreshOperations } from '../lib/journal-mutations';
 import { useIsMobile } from '../lib/media';
 import { useAccounts, useBalances, useProjects, type Company } from '../lib/queries';
+import { useStockValue } from '../lib/stock';
+import { stockPanel } from '../lib/stock-panel';
 import { useSidebarCollapsed } from '../lib/sidebar';
 import { AccountEditor } from './AccountEditor';
 import { AccountsQuickEdit } from './AccountsQuickEdit';
@@ -21,13 +23,15 @@ const headIcon =
 /**
  * Содержимое левой панели (§7, §7.6 этапа 1.5): «Всего на счетах» крупно; строка «Мои счета» с «+» (окно
  * «Добавление нового счёта» прямо над журналом), ✎ (окно «Счета») и ⟳ (§2.5); счета по клубам с балансами —
- * заголовки групп `h3`, только если групп больше одной. Без ролей listitem, status, alert, region: их ищут e2e
+ * заголовки групп `h3`, только если групп больше одной; под счетами — группа «Склад» со стоимостью складов (§4.4 спецификации «Склад»).
+ * Без ролей listitem, status, alert, region: их ищут e2e
  * экранов настроек. onNavigate — переход по ссылке счёта (выезжающая панель на телефоне при этом закрывается).
  */
 function AccountsSummary({ company, onNavigate }: { company: Company; onNavigate?: (target: string) => void }) {
   const accounts = useAccounts(company.id);
   const projects = useProjects(company.id);
   const balances = useBalances(company.id);
+  const stock = stockPanel(useStockValue(company.id).data, company.id, company.baseCurrency);
   const [dialog, setDialog] = useState<'add' | 'edit' | null>(null);
   const [refresh, setRefresh] = useState({ pending: false, failed: false, text: '' });
   const balanceOf = new Map((balances.data?.accounts ?? []).map((b) => [b.accountId, b.balance]));
@@ -121,6 +125,27 @@ function AccountsSummary({ company, onNavigate }: { company: Company; onNavigate
         </div>
       ))}
       {accounts.data && groups.length === 0 && <p className="mb-3 px-2 text-sm text-muted">Счетов пока нет.</p>}
+      {/* склад — «счёт» только для показа (§4.4 спецификации «Склад»): в «Всего на счетах» не входит, в форме операции его нет */}
+      {stock && (
+        <div role="group" aria-label="Склад" className="mb-3 border-t border-field pt-3">
+          <h3 className="mb-1 truncate px-2 text-xs font-semibold text-muted">Склад</h3>
+          {stock.rows.map((r) => (
+            <Link key={r.warehouseId} to={r.href} onClick={click(r.href)} className="flex items-baseline justify-between gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-field">
+              <span className="truncate">{r.name}</span>
+              <span className="shrink-0 tabular-nums">
+                {r.hasDeficit && (
+                  <span title="В стоимости есть продажи без партии" className="mr-1 text-expense-strong">
+                    <span aria-hidden="true">{'⚠'}</span>
+                    <span className="sr-only">В стоимости есть продажи без партии</span>
+                  </span>
+                )}
+                {r.money}
+              </span>
+            </Link>
+          ))}
+          <p className="px-2 pt-1 text-sm font-semibold tabular-nums">{stock.total}</p>
+        </div>
+      )}
       {/* окна — вложенные <dialog>: на телефоне поверх выезжающей панели, её Esc и close они не трогают */}
       <Modal open={dialog === 'add'} title="Добавление нового счёта" onClose={close} className="max-w-lg">
         <AccountEditor company={company} account={null} onDone={close} />

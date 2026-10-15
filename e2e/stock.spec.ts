@@ -277,6 +277,52 @@ test('документы: поступление → продажа → оста
   await expect(balance.getByRole('row').filter({ hasText: 'Кола 0,5' }).first()).toContainText('8 шт'); // 10 \u2212 2 списанных
 });
 
+test('левая панель: группа «Склад» со стоимостью складов не входит в «Всего на счетах»; строка ведёт в «Остатки» склада; на телефоне — в выезжающей панели', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Панель ${Date.now()}`);
+  const cash = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
+  await apiPost(page, `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: new Date(Date.now() - 60_000).toISOString(), accountId: cash, amount: 10_000 });
+  const s = await stockSetup(page, cid);
+  await apiPost(page, `${s.base}/stock/docs`, { type: 'receipt', at: hoursAgo(5), warehouseId: s.warehouse, lines: [{ itemId: s.cola, qty: 10_000, amount: 100_000 }] });
+  await apiPost(page, `${s.base}/stock/docs`, { type: 'receipt', at: hoursAgo(5), warehouseId: s.warehouse2, lines: [{ itemId: s.chips, qty: 3000, amount: 21_000 }] });
+
+  await page.goto(`/c/${cid}/log`);
+  const panel = page.getByRole('navigation', { name: 'Счета' });
+  // «Всего на счетах» — только деньги на счетах: 100 ₸; склад (1 210 ₸) в него не входит
+  await expect(panel).toContainText(/Всего на счетах\s*₸\s*100(?!\s*\d)/);
+  const group = panel.getByRole('group', { name: 'Склад' });
+  await expect(group.getByRole('link', { name: /Бар Клуб 1/ })).toContainText(/₸\s*1\s*000/);
+  await expect(group.getByRole('link', { name: /Бар Клуб 2/ })).toContainText(/₸\s*210/);
+  await expect(group).toContainText(/Склад:\s*₸\s*1\s*210/);
+
+  // продажа уменьшает стоимость склада: панель обновляется после перезагрузки данных
+  await apiPost(page, `${s.base}/stock/docs`, { type: 'sale', at: hoursAgo(1), warehouseId: s.warehouse, lines: [{ itemId: s.cola, qty: 4000, amount: 200_000 }] });
+  await page.reload();
+  await expect(panel.getByRole('group', { name: 'Склад' })).toContainText(/Склад:\s*₸\s*810/);
+  await expect(panel).toContainText(/Всего на счетах\s*₸\s*100(?!\s*\d)/);
+
+  // склад нельзя выбрать в форме операции: среди счетов его нет
+  await page.getByRole('banner').getByRole('button', { name: 'Расход', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Новый расход' }).getByRole('combobox', { name: 'Со счёта', exact: true }).click();
+  await expect(page.getByRole('option', { name: /Бар Клуб/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+
+  // строка склада открывает «Остатки» этого склада
+  await panel.getByRole('group', { name: 'Склад' }).getByRole('link', { name: /Бар Клуб 2/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/stock/balance\\?warehouse=${s.warehouse2}$`));
+  await expect(main(page).getByLabel('Склад', { exact: true })).toHaveValue(String(s.warehouse2));
+
+  // телефон: та же группа в выезжающей панели «Счета»; переход закрывает панель
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('banner').getByRole('button', { name: 'Счета', exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: 'Счета' });
+  await expect(drawer.getByRole('group', { name: 'Склад' }).getByRole('link', { name: /Бар Клуб 1/ })).toBeVisible();
+  await drawer.getByRole('group', { name: 'Склад' }).getByRole('link', { name: /Бар Клуб 1/ }).click();
+  await expect(drawer).toBeHidden();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/stock/balance\\?warehouse=${s.warehouse}$`));
+});
+
 test('форма документа: подсказка про единицу товара; фокус при добавлении и удалении строки', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Строки ${Date.now()}`);
