@@ -26,6 +26,7 @@ import {
   setLineAmount,
   setLineItem,
   setLinePrice,
+  mapServerLineErrors,
   setLineQty,
   DOC_COMMENT_MAX,
   type DocBody,
@@ -130,6 +131,8 @@ function DocEditor(p: {
   const [draft, setDraft] = useState(initial);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  /** Счётчик ошибок проверки: после каждой фокус уходит на первое неверное поле (R18). */
+  const [errorFocus, setErrorFocus] = useState(0);
   const [pending, setPending] = useState(false);
   const [conflict, setConflict] = useState(false);
   /** Вопрос о последствиях правки (§5.4): текст и действие «Сохранить» / «Удалить». */
@@ -149,6 +152,12 @@ function DocEditor(p: {
     if (target === 'add') addRef.current?.focus();
     else formRef.current?.querySelector<HTMLElement>(`[data-line-key="${target.line}"] [role="combobox"]`)?.focus();
   });
+  useEffect(() => {
+    if (!errorFocus) return;
+    const form = formRef.current;
+    const target = form?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? addRef.current;
+    target?.focus();
+  }, [errorFocus]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
   const type = p.type;
   const base = `/companies/${p.company.id}/stock/docs`;
@@ -187,6 +196,7 @@ function DocEditor(p: {
     if (!r.ok) {
       setErrors(r.errors);
       setFormError('Проверьте заполнение полей');
+      setErrorFocus((n) => n + 1);
       return null;
     }
     return r.body;
@@ -197,8 +207,9 @@ function DocEditor(p: {
       setConflict(true);
       return;
     }
-    setErrors(e instanceof ApiError ? (e.fields ?? {}) : {});
+    setErrors(e instanceof ApiError ? mapServerLineErrors(e.fields ?? {}, draft.lines) : {});
     setFormError(errorText(e));
+    setErrorFocus((n) => n + 1);
   };
 
   /** Запись документа: создание или правка (в правке уходят все поля — сервер сам отбросит неизменённое). */
@@ -356,6 +367,8 @@ function DocEditor(p: {
   const total = draftTotal(draft, p.company.baseCurrency);
   const money = (minor: number) => formatMoney(minor, p.company.baseCurrency, MONEY_SCREEN);
   const hasAmounts = type !== 'writeoff';
+  /** Подсказку про единицу показываем только у первой строки без товара, чтобы она не повторялась (R16). */
+  const firstEmptyKey = draft.lines.find((l) => l.itemId === null)?.key;
   const usedItems = new Set(doc?.lines.map((l) => l.itemId) ?? []);
   const itemOptions = (selected: number | null) =>
     p.items.filter((i) => !i.archivedAt || i.id === selected || usedItems.has(i.id)).map((i) => ({ id: i.id, label: i.name, suffix: UNIT_LABELS[i.unit] }));
@@ -442,7 +455,7 @@ function DocEditor(p: {
               const unit = item?.unit ?? 'pcs';
               const key = (field: string) => errors[`lines.${index}.${field}`];
               return (
-                <div key={l.key} data-line-key={l.key} role="group" aria-label={`Строка ${index + 1}`} className={`grid items-start gap-3 rounded-xl border border-field p-3 ${hasAmounts ? 'md:grid-cols-[minmax(0,2fr)_repeat(3,minmax(7rem,1fr))_auto]' : 'md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto]'}`}>
+                <div key={l.key} data-line-key={l.key} role="group" aria-label={`Строка ${index + 1}`} className={`grid items-start gap-3 rounded-xl border border-field p-3 ${hasAmounts ? 'md:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_repeat(2,minmax(7rem,1fr))_auto]' : 'md:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_auto]'}`}>
                   <ComboSelect
                     label="Товар"
                     listLabel="Товары"
@@ -452,11 +465,11 @@ function DocEditor(p: {
                     onChange={(id) => setLine(l.key, (x) => setLineItem(x, id, id === null ? undefined : itemInfo.get(id), type, docDay, p.company.baseCurrency), 'itemId')}
                     onCreate={(name) => createItem(name, l.key)}
                     createNoun="товар"
-                    hint={l.itemId === null ? 'Единица — шт; другие единицы задайте в «Товарах» заранее' : undefined}
+                    hint={l.itemId === null && l.key === firstEmptyKey ? 'Единица — шт; другие единицы задайте в «Товарах» заранее' : undefined}
                     error={key('itemId')}
                   />
-                  <Field label={`Количество, ${UNIT_LABELS[unit]}`} error={key('qty')} floating filled={l.qty !== ''}>
-                    {(c) => <NumberInput {...c} value={l.qty} onChange={(t) => setLine(l.key, (x) => setLineQty(x, t, unit, p.company.baseCurrency), 'qty')} className={floatingControlClass} />}
+                  <Field label={`Кол-во, ${UNIT_LABELS[unit]}`} error={key('qty')} floating filled={l.qty !== ''}>
+                    {(c) => <NumberInput {...c} aria-label={`Количество, ${UNIT_LABELS[unit]}`} value={l.qty} onChange={(t) => setLine(l.key, (x) => setLineQty(x, t, unit, p.company.baseCurrency), 'qty')} className={floatingControlClass} />}
                   </Field>
                   {hasAmounts && (
                     <>
@@ -543,21 +556,44 @@ function DocEditor(p: {
                 Оплатить
               </button>
             )}
-              {dirty && (
-                <p id="doc-pay-reason" className="text-muted">
-                  Сначала сохраните изменения документа
-                </p>
-              )}
+            {dirty && (
+              <p id="doc-pay-reason" className="text-muted">
+                Сначала сохраните изменения документа
+              </p>
+            )}
             {doc.counterpartyId === null && <p className="text-muted">Чтобы оплатить поступление, укажите поставщика.</p>}
           </section>
         )}
         {doc && !doc.deletedAt && type === 'sale' && (
           <section aria-label="Журнал" className="grid gap-2 rounded-xl bg-field px-4 py-3 text-sm">
             {doc.posting ? (
-              <p className="font-medium">
-                Проведена в журнал: доход {money(doc.posting.amount)}
-                {doc.posting.amount !== doc.total && <span className="text-muted"> (сумма документа {money(doc.total)} — операцию журнала правьте отдельно)</span>}
-              </p>
+              <>
+                <p className="font-medium">
+                  Проведена в журнал: доход {money(doc.posting.amount)}
+                  {doc.posting.amount !== doc.total && <span className="text-muted"> (сумма документа {money(doc.total)} — операцию журнала правьте отдельно)</span>}
+                </p>
+                <button
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-disabled={dirty || pending || undefined}
+                  aria-describedby={dirty ? 'doc-op-reason' : undefined}
+                  title={dirty ? 'Сначала сохраните изменения документа' : undefined}
+                  onClick={() => {
+                    if (dirty || pending || !doc.posting) return;
+                    const operationId = doc.posting.operationId;
+                    p.close();
+                    openOperation({ kind: 'edit', id: operationId });
+                  }}
+                  className={`${btnSmall} justify-self-start aria-disabled:opacity-50`}
+                >
+                  Открыть операцию
+                </button>
+                {dirty && (
+                  <p id="doc-op-reason" className="text-muted">
+                    Сначала сохраните изменения документа
+                  </p>
+                )}
+              </>
             ) : (
               !readOnly &&
               doc.total > 0 && (

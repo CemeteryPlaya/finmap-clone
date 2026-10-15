@@ -420,6 +420,12 @@ test('оплата закупки: из расхода журнала, «Опл�
   await expect(post).toBeHidden();
   await expect(sale.getByRole('region', { name: 'Журнал' })).toContainText(/Проведена в журнал: доход 1\s*000\s*₸/);
   await expect(sale.getByRole('button', { name: 'Провести в журнал' })).toHaveCount(0);
+  // ссылка на операцию журнала: открывает её форму правки
+  await sale.getByRole('button', { name: 'Открыть операцию' }).click();
+  await expect(page.getByRole('dialog', { name: 'Доход', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await table.getByRole('button', { name: 'Открыть продажа Р-0001' }).click();
   await page.keyboard.press('Escape');
   await expect(table.getByRole('row').filter({ hasText: 'Р-0001' })).toContainText('В журнале');
   const income = (await (await page.request.get(`${base}/operations`)).json()) as { items: { type: string; comment: string | null; amount: number }[] };
@@ -516,6 +522,8 @@ test('форма документа: подсказка про единицу т
 
   await form.getByRole('button', { name: '+ Добавить строку' }).click();
   await expect(form.getByRole('group', { name: 'Строка 2' }).getByRole('combobox', { name: 'Товар', exact: true })).toBeFocused();
+  // подсказка про единицу — только у первой строки без товара (R16)
+  await expect(form.getByText('Единица — шт; другие единицы задайте в «Товарах» заранее')).toHaveCount(1);
   await form.getByRole('button', { name: '+ Добавить строку' }).click();
   // убрать строку 2: фокус на «Товар» следующей строки (теперь она вторая)
   await form.getByRole('button', { name: 'Убрать строку 2' }).click();
@@ -523,4 +531,51 @@ test('форма документа: подсказка про единицу т
   // убрать последнюю: фокус на «+ Добавить строку»
   await form.getByRole('button', { name: 'Убрать строку 2' }).click();
   await expect(form.getByRole('button', { name: '+ Добавить строку' })).toBeFocused();
+
+  // ошибка проверки: фокус — на первое неверное поле (R18)
+  await form.getByRole('textbox', { name: /^Количество/ }).fill('3');
+  await form.getByRole('button', { name: 'Добавить поступление' }).click();
+  await expect(form.getByRole('group', { name: 'Строка 1' }).getByRole('combobox', { name: 'Товар', exact: true })).toBeFocused();
+});
+
+test('левая панель: продажа без партии — у стоимости склада знак с текстом «В стоимости есть продажи без партии»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Дефицит ${Date.now()}`);
+  const s = await stockSetup(page, cid);
+  await apiPost(page, `${s.base}/stock/docs`, { type: 'sale', at: hoursAgo(1), warehouseId: s.warehouse, lines: [{ itemId: s.cola, qty: 2000, amount: 100_000 }] });
+  await page.goto(`/c/${cid}/log`);
+  const group = page.getByRole('navigation', { name: 'Счета' }).getByRole('group', { name: 'Склад' });
+  const mark = group.getByRole('link', { name: /Бар Клуб 1/ }).getByTitle('В стоимости есть продажи без партии');
+  await expect(mark).toBeVisible();
+  await expect(mark).toContainText('В стоимости есть продажи без партии');
+  // у склада без дефицита знака нет
+  await expect(group.getByRole('link', { name: /Бар Клуб 2/ }).getByTitle('В стоимости есть продажи без партии')).toHaveCount(0);
+});
+
+test('«Оплатить» при запомненном счёте в чужой валюте берёт счёт в валюте компании; смена на чужую валюту — «Оплата закупки снимется»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Валюта ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  const usd = (await apiPost(page, `${base}/accounts`, { name: 'Доллары', currency: 'USD', openedAt: '2020-01-01' })).account.id as number;
+  const s = await stockSetup(page, cid);
+  await apiPost(page, `${s.base}/stock/docs`, { type: 'receipt', at: hoursAgo(5), warehouseId: s.warehouse, counterpartyId: s.supplier, lines: [{ itemId: s.cola, qty: 10_000, amount: 100_000 }] });
+
+  // запомненный счёт расхода — долларовый (как после прошлого расхода с него)
+  const me = (await (await page.request.get('/api/v1/auth/me')).json()) as { user: { id: number } };
+  await page.goto(`/c/${cid}/log`);
+  await page.evaluate(([key, id]) => localStorage.setItem(key as string, JSON.stringify({ expense: id })), [`fc.lastAccount.${me.user.id}.${cid}`, usd]);
+
+  await page.goto(`/c/${cid}/stock/docs`);
+  await main(page).getByRole('table', { name: 'Документы' }).getByRole('button', { name: 'Открыть поступление П-0001' }).click();
+  await page.getByRole('dialog', { name: 'Поступление П-0001' }).getByRole('button', { name: 'Оплатить' }).click();
+  const expense = page.getByRole('dialog', { name: 'Новый расход' });
+  await expect(expense.getByRole('combobox', { name: 'Со счёта', exact: true })).toHaveValue('Касса');
+  await expect(expense.getByRole('group', { name: 'Оплата закупки' })).toBeVisible();
+  await expect(expense.getByText('Оплата закупки снимется')).toHaveCount(0);
+
+  // выбрали счёт в другой валюте: оплата снимется — это сказано
+  await expense.getByRole('combobox', { name: 'Со счёта', exact: true }).click();
+  await page.getByRole('option', { name: /Доллары/ }).click();
+  await expect(expense.getByText('Оплата закупки снимется')).toBeVisible();
 });

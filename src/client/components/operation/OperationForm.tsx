@@ -33,10 +33,12 @@ import {
   FIELD_LABELS,
   operationTitle,
   paidDateOf,
+  payAccountId,
   positiveAmount,
   salaryRowText,
   shownPaidTime,
   similarDraft,
+  stockPaymentsLost,
   submitLabel,
   transferRateText,
   type OperationDraft,
@@ -241,7 +243,18 @@ function OperationEditor(p: {
   const [remembered] = useState(() => defaultAccounts(p.type, userId === null ? {} : readLastAccounts(userId, p.company.id), p.data.accounts));
   const [op, setOp] = useState(p.operation);
   const [initial, setInitial] = useState(() =>
-    op ? draftFromOperation(op, accounts, p.timeZone) : { ...emptyDraft(p.type, today, remembered.accountId, remembered.toAccountId), ...p.prefill },
+    op
+      ? draftFromOperation(op, accounts, p.timeZone)
+      : {
+          // «Оплатить» с запомненным счётом в чужой валюте: оплата закупки возможна только с базовой — берём счёт в ней (R12)
+          ...emptyDraft(
+            p.type,
+            today,
+            p.prefill?.stockPayments?.length ? payAccountId(remembered.accountId, p.data.accounts, p.company.baseCurrency) : remembered.accountId,
+            remembered.toAccountId,
+          ),
+          ...p.prefill,
+        },
   );
   const [draft, setDraft] = useState(initial);
   /** Фокус при открытии — первое пустое обязательное поле (§6.2): счёт, иначе сумма; при правке — сумма. */
@@ -374,7 +387,7 @@ function OperationEditor(p: {
   const transfer = draft.type === 'transfer';
   // поле «Оплата закупки» видно у расхода с поставщиком со счёта в валюте компании; если у правимой операции были оплаты, а поля больше нет — они снимутся
   const stockPaymentsField = draft.type === 'expense' && draft.counterpartyId !== null && account?.currency === p.company.baseCurrency;
-  const stockPaymentsDropped = op !== null && (op.stockPayments?.length ?? 0) > 0 && !stockPaymentsField;
+  const stockPaymentsDropped = stockPaymentsLost(op, draft, stockPaymentsField);
   const labels = FIELD_LABELS[draft.type];
   const crossCurrency = transfer && toCurrency !== null && toCurrency.code !== currency.code;
   const kind = draft.type === 'income' ? 'income' : 'expense';
@@ -476,6 +489,7 @@ function OperationEditor(p: {
         if (failed.length > 0) {
           // операция уже есть: форма переходит к её правке, чтобы файл можно было выбрать заново
           void invalidateOperations(p.company.id);
+          void invalidateStock(p.company.id);
           const saved = draftFromOperation(created, accounts, p.timeZone);
           setOp(created);
           p.onEditingChange(true);

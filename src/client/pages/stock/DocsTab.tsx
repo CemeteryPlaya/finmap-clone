@@ -36,7 +36,16 @@ export function DocsTab() {
   const docs = useStockDocs(company.id, { type, warehouse, limit });
   const readOnly = company.archivedAt !== null;
 
-  if (!docs.data || !meta.data) return <Pending queries={[docs]} />;
+  // открытая форма не размонтируется, если список ещё грузится или его обновление не удалось (R13): она вне ветки «загрузка»
+  const formNode = form && <DocForm key={form.key} company={company} request={form.request} onClose={() => setForm(null)} />;
+  if (!docs.data || !meta.data) {
+    return (
+      <div>
+        <Pending queries={[docs]} />
+        {formNode}
+      </div>
+    );
+  }
   const warehouseName = new Map(warehouses.map((w) => [w.id, w.name]));
   const counterpartyName = new Map((counterparties.data ?? []).map((c) => [c.id, c.name]));
   const money = (minor: number) => formatMoney(minor, company.baseCurrency, MONEY_SCREEN);
@@ -61,7 +70,7 @@ export function DocsTab() {
             setType(e.target.value === '' ? null : (e.target.value as StockDocType));
             setLimit(PAGE);
           }}
-          className={`${inputClass} ml-auto w-auto py-2`}
+          className={`${inputClass} ml-auto w-auto! py-2`}
         >
           <option value="">Все документы</option>
           {STOCK_DOC_TYPES.map((t) => (
@@ -136,7 +145,7 @@ export function DocsTab() {
           Показать ещё
         </button>
       )}
-      {form && <DocForm key={form.key} company={company} request={form.request} onClose={() => setForm(null)} />}
+      {formNode}
     </div>
   );
 }

@@ -9,9 +9,11 @@ import {
   operationTitle,
   paidAtFor,
   paidDateOf,
+  payAccountId,
   salaryRowText,
   shownPaidTime,
   similarDraft,
+  stockPaymentsLost,
   submitLabel,
   transferRateText,
   type DraftContext,
@@ -356,5 +358,33 @@ describe('«Зарплата за {месяц}» (§6.7 строка 1а эта�
     expect(salaryRowText('Зарплата', '2025-12-01', '2026-01-05')).toEqual({ text: 'Зарплата за декабрь 2025', muted: false });
     expect(firstOfMonth(2025, 12)).toBe('2025-12-01');
     expect(firstOfMonth(2026, 1)).toBe('2026-01-01');
+  });
+});
+
+describe('оплата закупки: снимется ли и какой счёт брать (R12)', () => {
+  const pay = [{ docId: 4, amount: '100' }];
+  it('stockPaymentsLost: оплаты в черновике без поля (новый расход, чужая валюта)', () => {
+    expect(stockPaymentsLost(null, { stockPayments: pay }, false)).toBe(true);
+    expect(stockPaymentsLost(null, { stockPayments: pay }, true)).toBe(false);
+    expect(stockPaymentsLost(null, { stockPayments: [] }, false)).toBe(false);
+  });
+
+  it('stockPaymentsLost: у правимой операции были оплаты, а в черновике не осталось (смена поставщика, сняли все)', () => {
+    expect(stockPaymentsLost({ stockPayments: [{}] }, { stockPayments: [] }, true)).toBe(true);
+    expect(stockPaymentsLost({ stockPayments: [{}] }, { stockPayments: pay }, true)).toBe(false);
+    expect(stockPaymentsLost({ stockPayments: [] }, { stockPayments: [] }, true)).toBe(false);
+  });
+
+  it('payAccountId: запомненный счёт в базовой валюте остаётся; в чужой — первый действующий базовый', () => {
+    const accounts = [
+      { id: 3, currency: 'USD', archivedAt: null },
+      { id: 4, currency: 'KZT', archivedAt: '2026-01-01T00:00:00.000Z' },
+      { id: 5, currency: 'KZT', archivedAt: null },
+      { id: 6, currency: 'KZT', archivedAt: null },
+    ];
+    expect(payAccountId(6, accounts, 'KZT')).toBe(6);
+    expect(payAccountId(3, accounts, 'KZT')).toBe(5);
+    expect(payAccountId(null, accounts, 'KZT')).toBe(5);
+    expect(payAccountId(3, [accounts[0]!], 'KZT')).toBe(3);
   });
 });

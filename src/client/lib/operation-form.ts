@@ -128,6 +128,30 @@ export function changeType(draft: OperationDraft, type: OperationType): Operatio
   };
 }
 
+/**
+ * Снимутся ли оплаты закупки при сохранении (R12): в черновике есть оплаты, а поля «Оплата закупки» нет (новый расход
+ * или счёт в другой валюте); либо у правимой операции были оплаты, а в черновике их не осталось (смена поставщика,
+ * все сняты).
+ */
+export function stockPaymentsLost(op: { stockPayments?: readonly unknown[] } | null, draft: Pick<OperationDraft, 'stockPayments'>, fieldShown: boolean): boolean {
+  if (draft.stockPayments.length > 0 && !fieldShown) return true;
+  return (op?.stockPayments?.length ?? 0) > 0 && draft.stockPayments.length === 0;
+}
+
+/**
+ * Счёт для «Оплатить» (R12): оплата закупки возможна только со счёта в валюте компании, поэтому запомненный счёт в
+ * другой валюте заменяется первым действующим счётом в базовой валюте (если такого нет — остаётся как есть).
+ */
+export function payAccountId(
+  rememberedId: number | null,
+  accounts: readonly { id: number; currency: string; archivedAt: string | null }[],
+  baseCurrency: string,
+): number | null {
+  const current = accounts.find((a) => a.id === rememberedId);
+  if (current && !current.archivedAt && current.currency === baseCurrency) return current.id;
+  return accounts.find((a) => !a.archivedAt && a.currency === baseCurrency)?.id ?? rememberedId;
+}
+
 /** Дата оплаты черновика: выбранная руками (или дата существующей операции), иначе — «сегодня» (R5 плана 1.5-3c). */
 export function paidDateOf(draft: Pick<OperationDraft, 'paidDate' | 'paidDateSet'>, today: string): string {
   return draft.paidDateSet ? draft.paidDate : today;

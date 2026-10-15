@@ -75,7 +75,7 @@ const samePayments = (a: NonNullable<OperationRecord['stockPayments']>, b: Opera
   const key = (l: readonly { docId: number; amount: number }[]) => JSON.stringify([...l].sort((x, y) => x.docId - y.docId).map((p) => [p.docId, p.amount]));
   return key(a) === key(b);
 };
-const sameIds =(a: readonly number[], b: readonly number[]) => JSON.stringify([...a].sort((x, y) => x - y)) === JSON.stringify([...b].sort((x, y) => x - y));
+const sameIds = (a: readonly number[], b: readonly number[]) => JSON.stringify([...a].sort((x, y) => x - y)) === JSON.stringify([...b].sort((x, y) => x - y));
 
 /**
  * Изменённые поля для PATCH (итоги плана 4a, п. 1): `null` в `toAccountId`/`toAmount` схема правки не принимает,

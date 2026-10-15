@@ -61,9 +61,9 @@ export function StockPage() {
           ))}
         </nav>
         {list.length > 0 && (
-          <label className="ml-auto flex items-center gap-2 text-sm text-muted">
+          <label className="ml-auto flex items-center gap-2 whitespace-nowrap text-sm text-muted">
             Склад
-            <select aria-label="Склад" value={warehouse ?? ''} onChange={(e) => pick(e.target.value)} className={`${inputClass} w-auto py-2`}>
+            <select aria-label="Склад" value={warehouse ?? ''} onChange={(e) => pick(e.target.value)} className={`${inputClass} w-auto! py-2`}>
               {list.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.name}

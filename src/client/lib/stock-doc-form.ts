@@ -83,7 +83,8 @@ const minorOf = (currency: string) => getCurrency(currency).minorUnits;
 export function setLineQty(line: DocLineDraft, text: string, unit: StockUnit, currency: string): DocLineDraft {
   const next = { ...line, qty: text };
   const q = parseQty(text, unit);
-  if (!q.ok) return next;
+  // количество не разобрано («1,5» для «шт»): зависимое поле очищается, чтобы «Итого» не показывало устаревшее (R15)
+  if (!q.ok) return line.driver === 'amount' ? { ...next, price: '' } : { ...next, amount: '' };
   const mu = minorOf(currency);
   if (line.driver === 'amount') {
     const a = parseAmountText(line.amount, mu);
@@ -118,7 +119,8 @@ export function setLineItem(line: DocLineDraft, itemId: number | null, item: Ite
   const next: DocLineDraft = { ...line, itemId };
   if (!item || type !== 'sale') return next;
   const price = priceAt(item.prices, day);
-  if (price <= 0) return next;
+  // у нового товара нет цены на эту дату: прежняя цена и сумма от другого товара не остаются (R14)
+  if (price <= 0) return line.edited ? next : { ...next, price: '', amount: '', driver: 'price' };
   return { ...setLinePrice({ ...next, qty: line.qty }, amountInputText(price, minorOf(currency)), item.unit, currency), edited: false };
 }
 
@@ -139,6 +141,21 @@ export function repriceSaleLines(lines: readonly DocLineDraft[], items: Readonly
 /** Строка пустая: товар не выбран и поля не тронуты — при сохранении пропускается. */
 export function isBlankLine(l: DocLineDraft): boolean {
   return l.itemId === null && l.qty.trim() === '' && l.price.trim() === '' && l.amount.trim() === '';
+}
+
+/**
+ * Ошибки сервера `lines.N.*` нумеруют строки без пустых (пустые в запрос не идут); в форме строки нумеруются все —
+ * переводим номер сервера в номер строки формы (R18).
+ */
+export function mapServerLineErrors(fields: Record<string, string>, lines: readonly DocLineDraft[]): Record<string, string> {
+  const sent = lines.map((l, index) => ({ l, index })).filter(({ l }) => !isBlankLine(l));
+  return Object.fromEntries(
+    Object.entries(fields).map(([k, v]) => {
+      const m = /^lines\.(\d+)\.(.+)$/.exec(k);
+      const at = m ? sent[Number(m[1])] : undefined;
+      return [m && at ? `lines.${at.index}.${m[2]}` : k, v];
+    }),
+  );
 }
 
 /** Итог по строкам (поступление, продажа): сумма разобранных сумм; неразобранные не считаются. */

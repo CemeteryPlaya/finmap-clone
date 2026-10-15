@@ -9,6 +9,7 @@ import {
   emptyDocDraft,
   impactText,
   isBlankLine,
+  mapServerLineErrors,
   newDocLine,
   paymentLabel,
   paymentState,
@@ -223,5 +224,36 @@ describe('тексты', () => {
     expect(paymentSummary(100_000, 40_000, 'KZT')).toBe('Оплачено ' + k('400') + ' из ' + k('1 000') + '. Долг ' + k('600'));
     expect(paymentSummary(100_000, 100_000, 'KZT')).toBe('Оплачено ' + k('1 000') + ' из ' + k('1 000'));
     expect(paymentSummary(100_000, 130_000, 'KZT')).toBe('Оплачено ' + k('1 300') + ' из ' + k('1 000') + '. Переплата ' + k('300'));
+  });
+});
+
+describe('правки финальной волны (R14, R15, R18)', () => {
+  it('R14: товар без цены на дату очищает прежние цену и сумму, если их не правили руками', () => {
+    const picked = setLineItem(line({ qty: '2' }), 1, cola, 'sale', '2026-10-06', 'KZT');
+    expect(picked).toMatchObject({ price: '550', amount: '1100' });
+    const noPrice = setLineItem(picked, 2, { ...syrup, unit: 'pcs' }, 'sale', '2026-10-06', 'KZT');
+    expect(noPrice).toMatchObject({ itemId: 2, price: '', amount: '', driver: 'price', edited: false });
+  });
+
+  it('R14: правленную руками цену товар без цены не трогает', () => {
+    const typed = setLinePrice(line({ qty: '2' }), '700', 'pcs', 'KZT');
+    expect(setLineItem(typed, 2, { ...syrup, unit: 'pcs' }, 'sale', '2026-10-06', 'KZT')).toMatchObject({ itemId: 2, price: '700', amount: '1400' });
+  });
+
+  it('R15: неразобранное количество очищает зависимую сумму (или цену, если последней правили сумму)', () => {
+    const byPrice = setLinePrice(line({ qty: '2' }), '10', 'pcs', 'KZT');
+    expect(setLineQty(byPrice, '1,5', 'pcs', 'KZT')).toMatchObject({ qty: '1,5', price: '10', amount: '' });
+    const byAmount = setLineAmount(line({ qty: '2' }), '100', 'pcs', 'KZT');
+    expect(setLineQty(byAmount, '1,5', 'pcs', 'KZT')).toMatchObject({ qty: '1,5', price: '', amount: '100' });
+  });
+
+  it('R18: ошибки сервера lines.N.* переводятся из номеров без пустых строк в номера строк формы', () => {
+    const lines = [line(), line({ itemId: 1, qty: '1' }), line(), line({ itemId: 2, qty: '2' })];
+    expect(mapServerLineErrors({ 'lines.0.qty': 'a', 'lines.1.amount': 'b', warehouseId: 'c', 'lines.5.qty': 'd' }, lines)).toEqual({
+      'lines.1.qty': 'a',
+      'lines.3.amount': 'b',
+      warehouseId: 'c',
+      'lines.5.qty': 'd',
+    });
   });
 });
