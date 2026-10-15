@@ -19,7 +19,7 @@ const itemClass =
   'flex min-h-12 w-full items-center rounded-xl px-3 text-left text-base font-medium text-ink hover:bg-field focus-visible:outline-2 focus-visible:outline-focus';
 
 /**
- * Нижняя панель вкладок на телефоне (§8.3 этапа 1.5): «Журнал» и «Ещё» — меню вверх с «Пользователи», «Настройки»
+ * Нижняя панель вкладок на телефоне (§8.3 этапа 1.5): «Журнал» и «Ещё» — меню вверх с «Склад», «Пользователи», «Настройки»
  * (экран списка разделов, §8.6), «История действий» (панель §3.4) и «Импорт из Excel» (панель импорта на весь экран,
  * §5.1 спецификации импорта; в архивной компании пункта нет). «Аналитика» появится на этапе 2 между ними.
  * «Журнал» в самом журнале — текущий адрес; из настроек — последний адрес журнала с фильтром. Переход по ссылке ставит
@@ -37,8 +37,10 @@ export function MobileTabBar({ company }: { company: Company }) {
   const location = useLocation();
   const onJournal = useMatch('/c/:companyId/log') !== null;
   const inSettings = useMatch('/c/:companyId/settings/*') !== null;
+  const inStock = useMatch('/c/:companyId/stock/*') !== null;
   // запомненный адрес журнала обновляется после отрисовки страницы — в самом журнале берём текущий
   const journal = onJournal ? `${location.pathname}${location.search}` : journalBackHref(company.id, readLastJournal(company.id));
+  const stock = `/c/${company.id}/stock`;
   const users = `/c/${company.id}/settings/users`;
   const settings = `/c/${company.id}/settings`;
   // обычное нажатие: фокус на <h1> новой страницы, меню закрывается без возврата фокуса на «Ещё»
@@ -58,9 +60,14 @@ export function MobileTabBar({ company }: { company: Company }) {
         <NavLink to={journal} onClick={go(journal)} className={tabClass}>
           Журнал
         </NavLink>
-        <Popover key={mobile ? 'phone' : 'wide'} label="Ещё" align="right" buttonClassName={inSettings ? `${tabBase} ${currentClass}` : tabClass} panelClassName="w-60">
+        <Popover key={mobile ? 'phone' : 'wide'} label="Ещё" align="right" buttonClassName={inSettings || inStock ? `${tabBase} ${currentClass}` : tabClass} panelClassName="w-60">
           {(close) => (
             <ul className="flex flex-col">
+              <li>
+                <Link to={stock} onClick={go(stock, close)} className={itemClass}>
+                  Склад
+                </Link>
+              </li>
               <li>
                 <Link to={users} onClick={go(users, close)} className={itemClass}>
                   Пользователи

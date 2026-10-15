@@ -64,6 +64,9 @@ export function CompanyLayout() {
                     <NavLink to={`/c/${company.id}/log`} className={tab}>
                       Журнал
                     </NavLink>
+                    <NavLink to={`/c/${company.id}/stock`} className={tab}>
+                      Склад
+                    </NavLink>
                   </nav>
                   <Outlet context={{ company } satisfies CompanyOutletContext} />
                 </main>

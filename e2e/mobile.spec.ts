@@ -374,6 +374,7 @@ test('настройки на телефоне (§8.6): «Настройки» �
     /^Категории/,
     /^Проекты/,
     /^Теги/,
+    /^Склады/,
     /^Пользователи/,
     /^Фиксированные курсы валют/,
     /^Резервное копирование/,
@@ -463,7 +464,7 @@ const todayAgo = (n: number) => {
 /** Вчера в полдень по Алматы. */
 const yesterdayNoon = () => new Date(startOfTodayAlmaty() - 12 * 3600_000).toISOString();
 
-test('нижняя панель «Разделы» (§8.3): «Журнал» и «Ещё» — «Пользователи», «Настройки», «История действий»; пилюли и значок истории на телефоне скрыты; на компьютере панели нет', async ({ page }) => {
+test('нижняя панель «Разделы» (§8.3): «Журнал» и «Ещё» — «Склад», «Пользователи», «Настройки», «История действий»; пилюли и значок истории на телефоне скрыты; на компьютере панели нет', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Вкладки ${Date.now()}`);
   const cash = (await apiPost(page, `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' })).account.id;
@@ -493,7 +494,7 @@ test('нижняя панель «Разделы» (§8.3): «Журнал» и 
   // «Ещё» — меню над панелью, внутри экрана; Esc закрывает, фокус — на «Ещё»
   const menu = page.getByRole('dialog', { name: 'Ещё', exact: true });
   await more.click();
-  await expect(menu.getByRole('link')).toHaveText(['Пользователи', 'Настройки']);
+  await expect(menu.getByRole('link')).toHaveText(['Склад', 'Пользователи', 'Настройки']);
   await expect(menu.getByRole('button', { name: 'История действий' })).toBeVisible();
   const m = (await menu.boundingBox())!;
   expect(m.y + m.height).toBeLessThanOrEqual(box.y);
@@ -578,6 +579,8 @@ test('меню «Ещё»: закрывается при расширении о
 
   // Tab за последним пунктом закрывает меню, фокус — на «Ещё»
   await more.click();
+  await expect(menu.getByRole('link', { name: 'Склад' })).toBeFocused();
+  await page.keyboard.press('Tab');
   await expect(menu.getByRole('link', { name: 'Пользователи' })).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(menu.getByRole('link', { name: 'Настройки' })).toBeFocused();
