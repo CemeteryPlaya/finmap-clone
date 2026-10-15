@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  stockBalanceSchema,
   stockDocCreateSchema,
   stockDocListSchema,
   stockDocUpdateSchema,
@@ -12,6 +13,7 @@ import {
   stockWarehouseUpdateSchema,
 } from '../../../shared/schemas/stock';
 import { parseId } from '../../http/params';
+import type { StockBalanceService } from './balance';
 import type { StockCatalogService } from './catalog';
 import type { StockDocsService } from './docs';
 import type { StockWarehousesService } from './warehouses';
@@ -20,8 +22,8 @@ type C = { Params: { cid: string } };
 type P = { Params: { cid: string; id: string } };
 const BASE = '/api/v1/companies/:cid/stock';
 
-export function registerStockRoutes(app: FastifyInstance, deps: { catalog: StockCatalogService; warehouses: StockWarehousesService; docs: StockDocsService }): void {
-  const { catalog, warehouses, docs } = deps;
+export function registerStockRoutes(app: FastifyInstance, deps: { catalog: StockCatalogService; warehouses: StockWarehousesService; docs: StockDocsService; balance: StockBalanceService }): void {
+  const { catalog, warehouses, docs, balance } = deps;
 
   // ---- группы товаров
   app.get<C>(`${BASE}/groups`, async (req) => ({ groups: catalog.groups(parseId(req.params.cid)) }));
@@ -119,4 +121,9 @@ export function registerStockRoutes(app: FastifyInstance, deps: { catalog: Stock
     const { dryRun } = z.object({ dryRun: z.enum(['1', '0']).optional() }).parse(req.query);
     return docs.remove(parseId(req.params.cid), parseId(req.params.id), req.user!.id, { dryRun: dryRun === '1' });
   });
+
+  // ---- остатки и стоимость
+  app.get<C>(`${BASE}/balance`, async (req) => balance.balance(parseId(req.params.cid), stockBalanceSchema.parse(req.query)));
+
+  app.get<C>(`${BASE}/value`, async (req) => balance.value(parseId(req.params.cid)));
 }
