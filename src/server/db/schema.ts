@@ -504,7 +504,7 @@ export const stockDocs = sqliteTable(
   },
   (t) => [
     uniqueIndex('stock_docs_number_uq').on(t.companyId, t.number),
-    uniqueIndex('stock_docs_source_uq').on(t.source, t.sourceRef),
+    uniqueIndex('stock_docs_source_uq').on(t.companyId, t.source, t.sourceRef),
     index('stock_docs_warehouse_idx').on(t.warehouseId, t.at),
     index('stock_docs_company_idx').on(t.companyId, t.type, t.at),
     index('stock_docs_counterparty_idx').on(t.counterpartyId),
@@ -552,7 +552,7 @@ export const stockBatches = sqliteTable(
     qtyLeft: integer('qty_left').notNull(),
     costLeft: integer('cost_left').notNull(),
   },
-  (t) => [index('stock_batches_pair_idx').on(t.warehouseId, t.itemId, t.at), index('stock_batches_origin_idx').on(t.originLineId)],
+  (t) => [index('stock_batches_pair_idx').on(t.warehouseId, t.itemId, t.at), index('stock_batches_origin_idx').on(t.originLineId), index('stock_batches_source_idx').on(t.sourceBatchId)],
 );
 
 /** Откуда списана строка продажи или списания; пустая партия — не хватило остатка (§5.3). */

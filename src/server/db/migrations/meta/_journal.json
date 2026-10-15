@@ -57,6 +57,13 @@
       "when": 1792056163388,
       "tag": "0007_eager_overlord",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792073486780,
+      "tag": "0008_exotic_amphibian",
+      "breakpoints": true
     }
   ]
 }
