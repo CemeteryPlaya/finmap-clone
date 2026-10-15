@@ -44,6 +44,9 @@ import { createRatesService } from './modules/rates/service';
 import { registerSavedFiltersRoutes } from './modules/saved-filters/routes';
 import { createSavedFiltersService } from './modules/saved-filters/service';
 import { registerSplitPresetsRoutes } from './modules/split-presets/routes';
+import { createStockCatalogService } from './modules/stock/catalog';
+import { registerStockRoutes } from './modules/stock/routes';
+import { createStockWarehousesService } from './modules/stock/warehouses';
 import { createSplitPresetsService } from './modules/split-presets/service';
 import { registerCompaniesRoutes } from './modules/companies/routes';
 import { createCompaniesService } from './modules/companies/service';
@@ -139,6 +142,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     operations,
     journal: createJournal({ db, balances, timezone: config.timezone, now }),
     bulk: createBulkService({ db, operations }),
+  });
+  registerStockRoutes(app, {
+    catalog: createStockCatalogService({ db, audit, timezone: config.timezone, now }),
+    warehouses: createStockWarehousesService({ db, audit, now }),
   });
   registerSavedFiltersRoutes(app, { savedFilters: createSavedFiltersService({ db, now }) });
   registerAttachmentsRoutes(app, { attachments: createAttachmentsService({ db, audit, uploadsDir: config.uploadsDir, now }) });

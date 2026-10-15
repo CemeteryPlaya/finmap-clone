@@ -372,3 +372,230 @@ export const savedFilters = sqliteTable(
   },
   (t) => [index('saved_filters_owner_idx').on(t.userId, t.companyId)],
 );
+
+/* ---------- «Склад» (спецификация «Склад», §3) ---------- */
+
+/** Группа товаров: «Напитки», «Еда». */
+export const stockItemGroups = sqliteTable(
+  'stock_item_groups',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id),
+    name: text('name').notNull(),
+    /** foldCase(cleanName(name)): уникальность без учёта регистра, «ё» и невидимых символов. */
+    nameKey: text('name_key').notNull(),
+    orderIndex: integer('order_index').notNull(),
+    createdAt: text('created_at').notNull(),
+    archivedAt: text('archived_at'),
+  },
+  (t) => [uniqueIndex('stock_item_groups_name_key_uq').on(t.companyId, t.nameKey)],
+);
+
+/** Товар каталога компании. Количества — тысячные доли единицы, деньги — минимальные единицы базовой валюты. */
+export const stockItems = sqliteTable(
+  'stock_items',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id),
+    name: text('name').notNull(),
+    nameKey: text('name_key').notNull(),
+    groupId: integer('group_id').references(() => stockItemGroups.id),
+    unit: text('unit', { enum: ['pcs', 'l', 'kg', 'pack'] }).notNull(),
+    barcode: text('barcode'),
+    isCombo: integer('is_combo', { mode: 'boolean' }).notNull().default(false),
+    /** Текущая цена продажи за единицу: цена из stock_item_prices на сегодня. */
+    salePrice: integer('sale_price').notNull().default(0),
+    /** Минимальный остаток для предупреждения «Мало». */
+    minQty: integer('min_qty'),
+    createdAt: text('created_at').notNull(),
+    archivedAt: text('archived_at'),
+  },
+  (t) => [uniqueIndex('stock_items_name_key_uq').on(t.companyId, t.nameKey), index('stock_items_group_idx').on(t.groupId)],
+);
+
+/** История цены продажи: цена на момент t — последняя строка с valid_from ≤ t. */
+export const stockItemPrices = sqliteTable(
+  'stock_item_prices',
+  {
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => stockItems.id),
+    price: integer('price').notNull(),
+    /** Календарная дата `YYYY-MM-DD`. */
+    validFrom: text('valid_from').notNull(),
+    createdBy: integer('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.itemId, t.validFrom] })],
+);
+
+/** Состав комплекта (план «Склад-2»). */
+export const stockComboParts = sqliteTable(
+  'stock_combo_parts',
+  {
+    comboId: integer('combo_id')
+      .notNull()
+      .references(() => stockItems.id),
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => stockItems.id),
+    qty: integer('qty').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.comboId, t.itemId] })],
+);
+
+/** Склад проекта: у проекта не больше одного. */
+export const stockWarehouses = sqliteTable(
+  'stock_warehouses',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => projects.id),
+    name: text('name').notNull(),
+    /** Откуда поступления (план «Склад-Senet»). */
+    receiptsSource: text('receipts_source', { enum: ['manual', 'senet'] }).notNull().default('manual'),
+    createdAt: text('created_at').notNull(),
+    archivedAt: text('archived_at'),
+  },
+  (t) => [uniqueIndex('stock_warehouses_project_uq').on(t.projectId), index('stock_warehouses_company_idx').on(t.companyId)],
+);
+
+/** Документ склада. Остатки меняются только документами; проведённые документы пересчитывают партии (§5.2). */
+export const stockDocs = sqliteTable(
+  'stock_docs',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id),
+    type: text('type', { enum: ['receipt', 'sale', 'writeoff', 'transfer', 'count'] }).notNull(),
+    /** «П-0001», «Р-0001», «С-0001»: по типу в компании. */
+    number: text('number').notNull(),
+    /** Момент документа, ISO UTC фиксированной ширины. */
+    at: text('at').notNull(),
+    warehouseId: integer('warehouse_id')
+      .notNull()
+      .references(() => stockWarehouses.id),
+    toWarehouseId: integer('to_warehouse_id').references(() => stockWarehouses.id),
+    /** Поставщик у поступления, покупатель у продажи. */
+    counterpartyId: integer('counterparty_id').references(() => counterparties.id),
+    reason: text('reason', { enum: ['defect', 'spoiled', 'own_use', 'other'] }),
+    status: text('status', { enum: ['draft', 'posted'] }).notNull().default('posted'),
+    source: text('source', { enum: ['manual', 'senet', 'import'] }).notNull().default('manual'),
+    sourceRef: text('source_ref'),
+    comment: text('comment'),
+    createdBy: integer('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    version: integer('version').notNull(),
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [
+    uniqueIndex('stock_docs_number_uq').on(t.companyId, t.number),
+    uniqueIndex('stock_docs_source_uq').on(t.source, t.sourceRef),
+    index('stock_docs_warehouse_idx').on(t.warehouseId, t.at),
+    index('stock_docs_company_idx').on(t.companyId, t.type, t.at),
+    index('stock_docs_counterparty_idx').on(t.counterpartyId),
+  ],
+);
+
+export const stockDocLines = sqliteTable(
+  'stock_doc_lines',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    docId: integer('doc_id')
+      .notNull()
+      .references(() => stockDocs.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => stockItems.id),
+    qty: integer('qty').notNull(),
+    /** У поступления сумма закупки по строке, у продажи сумма продажи; у списания пусто. */
+    amount: integer('amount'),
+    countedQty: integer('counted_qty'),
+    expectedQty: integer('expected_qty'),
+  },
+  (t) => [index('stock_doc_lines_doc_idx').on(t.docId, t.position), index('stock_doc_lines_item_idx').on(t.itemId)],
+);
+
+/** Партия: приход товара на склад одной строкой документа. Производные данные: пересобираются по документам. */
+export const stockBatches = sqliteTable(
+  'stock_batches',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    warehouseId: integer('warehouse_id')
+      .notNull()
+      .references(() => stockWarehouses.id),
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => stockItems.id),
+    originLineId: integer('origin_line_id')
+      .notNull()
+      .references(() => stockDocLines.id),
+    sourceBatchId: integer('source_batch_id').references((): AnySQLiteColumn => stockBatches.id),
+    at: text('at').notNull(),
+    qtyIn: integer('qty_in').notNull(),
+    costIn: integer('cost_in').notNull(),
+    qtyLeft: integer('qty_left').notNull(),
+    costLeft: integer('cost_left').notNull(),
+  },
+  (t) => [index('stock_batches_pair_idx').on(t.warehouseId, t.itemId, t.at), index('stock_batches_origin_idx').on(t.originLineId)],
+);
+
+/** Откуда списана строка продажи или списания; пустая партия — не хватило остатка (§5.3). */
+export const stockAllocations = sqliteTable(
+  'stock_allocations',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    lineId: integer('line_id')
+      .notNull()
+      .references(() => stockDocLines.id, { onDelete: 'cascade' }),
+    batchId: integer('batch_id').references(() => stockBatches.id),
+    qty: integer('qty').notNull(),
+    cost: integer('cost'),
+    componentItemId: integer('component_item_id').references(() => stockItems.id),
+  },
+  (t) => [index('stock_allocations_line_idx').on(t.lineId), index('stock_allocations_batch_idx').on(t.batchId)],
+);
+
+/** Оплата закупки: расход журнала погашает поступление. Сумма оплат документа может превышать сумму документа (переплата). */
+export const stockDocPayments = sqliteTable(
+  'stock_doc_payments',
+  {
+    docId: integer('doc_id')
+      .notNull()
+      .references(() => stockDocs.id),
+    operationId: integer('operation_id')
+      .notNull()
+      .references(() => operations.id, { onDelete: 'cascade' }),
+    amount: integer('amount').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.docId, t.operationId] }), index('stock_doc_payments_op_idx').on(t.operationId)],
+);
+
+/** Продажа, проведённая доходом в журнал. */
+export const stockDocPostings = sqliteTable(
+  'stock_doc_postings',
+  {
+    docId: integer('doc_id')
+      .primaryKey()
+      .references(() => stockDocs.id),
+    operationId: integer('operation_id')
+      .notNull()
+      .references(() => operations.id, { onDelete: 'cascade' }),
+  },
+  (t) => [index('stock_doc_postings_op_idx').on(t.operationId)],
+);
