@@ -1,12 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type FormEvent, type MutableRefObject } from 'react';
 import { getCurrency } from '../../../shared/currencies';
-import { todayInTimezone } from '../../../shared/dates';
+import { formatDateRu, todayInTimezone } from '../../../shared/dates';
 import { formatMoney, MONEY_SCREEN } from '../../../shared/money';
 import { WRITEOFF_REASON_LABELS, WRITEOFF_REASONS, type StockDocType, type WriteoffReason } from '../../../shared/schemas/stock';
 import { UNIT_LABELS } from '../../../shared/stock-qty';
 import { api, ApiError } from '../../lib/api';
-import { dayOf } from '../../lib/journal-format';
+import { amountInputText, dayOf } from '../../lib/journal-format';
 import { createFromForm } from '../../lib/operation-create';
 import { shownPaidTime } from '../../lib/operation-form';
 import { counterpartyOptions } from '../../lib/operation-options';
@@ -21,6 +21,7 @@ import {
   emptyDocDraft,
   impactText,
   newDocLine,
+  paymentSummary,
   repriceSaleLines,
   setLineAmount,
   setLineItem,
@@ -32,16 +33,18 @@ import {
   type DocLineDraft,
   type ItemInfo,
 } from '../../lib/stock-doc-form';
-import { invalidateStock, useStockItems, useStockWarehouses, type DocImpact, type StockDoc, type StockItem, type StockWarehouse } from '../../lib/stock';
+import { invalidateStock, useStockItems, useStockWarehouses, type DocImpact, type StockDoc, type StockItem, type StockWarehouse, type Unpaid } from '../../lib/stock';
 import { useNow } from '../../lib/use-now';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { Field } from '../Field';
 import { Modal } from '../Modal';
 import { ComboSelect } from '../operation/ComboSelect';
+import { useOpenOperationForm } from '../operation/OperationFormHost';
 import { DateTimeField } from '../operation/DateTimeField';
 import { Pending } from '../QueryState';
-import { alertClass, btnDanger, btnIcon, btnSecondary, floatingControlClass, floatingTextareaClass, noticeClass, phoneFullScreenModal } from '../ui';
+import { alertClass, btnDanger, btnIcon, btnSecondary, btnSmall, floatingControlClass, floatingTextareaClass, noticeClass, phoneFullScreenModal } from '../ui';
 import { NumberInput } from './NumberInput';
+import { PostToJournal } from './PostToJournal';
 
 /** Что открыть: новый документ типа или существующий по id. */
 export type DocFormRequest = { kind: 'create'; type: StockDocType; warehouse: number | null } | { kind: 'edit'; id: number };
@@ -132,6 +135,9 @@ function DocEditor(p: {
   /** Вопрос о последствиях правки (§5.4): текст и действие «Сохранить» / «Удалить». */
   const [ask, setAsk] = useState<{ title: string; text: string; confirm: string; danger: boolean; run: () => Promise<void> } | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
+  /** Окно «Провести в журнал» у продажи (§6.3). */
+  const [posting, setPosting] = useState(false);
+  const openOperation = useOpenOperationForm();
   const formRef = useRef<HTMLFormElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
   /** Куда перевести фокус после следующей отрисовки: «Товар» строки по её номеру-ключу или «+ Добавить строку» (R6). */
@@ -287,6 +293,37 @@ function DocEditor(p: {
       setFormError(null);
     } catch (e) {
       setFormError(errorText(e));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  /** Обновить документ с сервера, не трогая правки формы: изменились оплаты или проведение. */
+  const refreshDoc = async () => {
+    if (!doc) return;
+    try {
+      setDoc((await api<{ doc: StockDoc }>(`${base}/${doc.id}`)).doc);
+    } catch {
+      /* данные обновятся при следующем открытии */
+    }
+  };
+
+  /** «Оплатить» (§6.1): расход с поставщиком, суммой — долгом документа — и отмеченным документом; категория — прошлая для поставщика. */
+  const pay = async () => {
+    if (!doc || pending || doc.counterpartyId === null) return;
+    const debt = doc.total - doc.paid;
+    setPending(true);
+    try {
+      const unpaid = await api<Unpaid>(`/companies/${p.company.id}/stock/suppliers/${doc.counterpartyId}/unpaid`);
+      const amount = amountInputText(debt, currency.minorUnits);
+      p.close();
+      openOperation({
+        kind: 'create',
+        type: 'expense',
+        prefill: { counterpartyId: doc.counterpartyId, amount, categoryId: unpaid.lastCategoryId, stockPayments: [{ docId: doc.id, amount }] },
+      });
+    } catch (e) {
+      failed(e);
     } finally {
       setPending(false);
     }
@@ -480,6 +517,73 @@ function DocEditor(p: {
           </Field>
         </fieldset>
 
+        {doc && !doc.deletedAt && type === 'receipt' && (
+          <section aria-label="Оплата" className="grid gap-2 rounded-xl bg-field px-4 py-3 text-sm">
+            <p className="font-medium">{paymentSummary(doc.total, doc.paid, p.company.baseCurrency)}</p>
+            {doc.payments.length > 0 && (
+              <ul aria-label="Оплаты" className="text-muted">
+                {doc.payments.map((x) => (
+                  <li key={x.operationId}>
+                    {formatDateRu(todayInTimezone(p.timeZone, new Date(x.paidAt)))} — {money(x.amount)}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {!readOnly && doc.counterpartyId !== null && doc.total - doc.paid > 0 && (
+              <button
+                type="button"
+                aria-disabled={dirty || pending || undefined}
+                aria-describedby={dirty ? 'doc-pay-reason' : undefined}
+                title={dirty ? 'Сначала сохраните изменения документа' : undefined}
+                onClick={() => {
+                  if (!dirty) void pay();
+                }}
+                className={`${btnSmall} justify-self-start aria-disabled:opacity-50`}
+              >
+                Оплатить
+              </button>
+            )}
+              {dirty && (
+                <p id="doc-pay-reason" className="text-muted">
+                  Сначала сохраните изменения документа
+                </p>
+              )}
+            {doc.counterpartyId === null && <p className="text-muted">Чтобы оплатить поступление, укажите поставщика.</p>}
+          </section>
+        )}
+        {doc && !doc.deletedAt && type === 'sale' && (
+          <section aria-label="Журнал" className="grid gap-2 rounded-xl bg-field px-4 py-3 text-sm">
+            {doc.posting ? (
+              <p className="font-medium">
+                Проведена в журнал: доход {money(doc.posting.amount)}
+                {doc.posting.amount !== doc.total && <span className="text-muted"> (сумма документа {money(doc.total)} — операцию журнала правьте отдельно)</span>}
+              </p>
+            ) : (
+              !readOnly &&
+              doc.total > 0 && (
+                <>
+                  <button
+                    type="button"
+                    aria-disabled={dirty || pending || undefined}
+                    aria-describedby={dirty ? 'doc-post-reason' : undefined}
+                    title={dirty ? 'Сначала сохраните изменения документа' : undefined}
+                    onClick={() => {
+                      if (!dirty) setPosting(true);
+                    }}
+                    className={`${btnSmall} justify-self-start aria-disabled:opacity-50`}
+                  >
+                    Провести в журнал
+                  </button>
+                  {dirty && (
+                    <p id="doc-post-reason" className="text-muted">
+                      Сначала сохраните изменения документа
+                    </p>
+                  )}
+                </>
+              )
+            )}
+          </section>
+        )}
         {conflict && (
           <div role="alert" className={`${alertClass} mb-0 flex flex-wrap items-center justify-between gap-2`}>
             <span>Документ изменён другим пользователем</span>
@@ -506,6 +610,18 @@ function DocEditor(p: {
           </div>
         )}
       </form>
+      <Modal open={posting && doc !== null} title="Провести в журнал" onClose={() => setPosting(false)} className="max-w-md">
+        {posting && doc && (
+          <PostToJournal
+            company={p.company}
+            doc={doc}
+            onDone={(posted) => {
+              setPosting(false);
+              if (posted) void refreshDoc();
+            }}
+          />
+        )}
+      </Modal>
       <ConfirmDialog
         open={ask !== null}
         title={ask?.title ?? ''}

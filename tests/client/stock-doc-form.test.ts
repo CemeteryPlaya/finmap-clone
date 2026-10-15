@@ -10,7 +10,9 @@ import {
   impactText,
   isBlankLine,
   newDocLine,
+  paymentLabel,
   paymentState,
+  paymentSummary,
   repriceSaleLines,
   setLineAmount,
   setLineItem,
@@ -207,5 +209,19 @@ describe('тексты', () => {
     expect(paymentState(100, 40)).toEqual({ kind: 'partial', debt: 60 });
     expect(paymentState(100, 100)).toEqual({ kind: 'paid', debt: 0 });
     expect(paymentState(100, 130)).toEqual({ kind: 'over', debt: -30 });
+  });
+
+  it('подписи оплаты: в списке и в окне поступления', () => {
+    const nb = String.fromCharCode(0xa0);
+    const narrow = String.fromCharCode(0x202f);
+    const k = (n: string, tail = '') => n.replace(' ', narrow) + nb + '₸' + tail;
+    expect(paymentLabel(100_000, 0, 'KZT')).toBe('Долг ' + k('1 000'));
+    expect(paymentLabel(100_000, 40_000, 'KZT')).toBe('Оплачено ' + k('400') + ' из ' + k('1 000'));
+    expect(paymentLabel(100_000, 100_000, 'KZT')).toBe('Оплачено');
+    expect(paymentLabel(100_000, 130_000, 'KZT')).toBe('Переплата ' + k('300'));
+    expect(paymentSummary(100_000, 0, 'KZT')).toBe('Не оплачено. Долг ' + k('1 000'));
+    expect(paymentSummary(100_000, 40_000, 'KZT')).toBe('Оплачено ' + k('400') + ' из ' + k('1 000') + '. Долг ' + k('600'));
+    expect(paymentSummary(100_000, 100_000, 'KZT')).toBe('Оплачено ' + k('1 000') + ' из ' + k('1 000'));
+    expect(paymentSummary(100_000, 130_000, 'KZT')).toBe('Оплачено ' + k('1 300') + ' из ' + k('1 000') + '. Переплата ' + k('300'));
   });
 });

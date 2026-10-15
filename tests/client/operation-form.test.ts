@@ -86,6 +86,34 @@ describe('buildBody — черновик формы → тело POST /operation
       comment: 'аренда',
       lines: [{ categoryId: 7, projectId: 8, amount: 150050 }],
       tagIds: [3, 2],
+      stockPayments: [],
+    });
+  });
+
+  describe('оплата закупки (§6.1 спецификации «Склад»)', () => {
+    const paid = (over: Partial<OperationDraft> = {}) => draft({ amount: '1000', counterpartyId: 9, stockPayments: [{ docId: 4, amount: '600' }, { docId: 5, amount: '400,5' }], ...over });
+
+    it('расход со счёта в валюте компании несёт оплаты в минимальных единицах', () => {
+      const r = buildBody(paid({ amount: '1000,5' }), { ...ctx, baseCurrency: 'KZT' });
+      expect(r).toMatchObject({ ok: true, body: { stockPayments: [{ docId: 4, amount: 60000 }, { docId: 5, amount: 40050 }] } });
+    });
+
+    it('оплаты больше суммы расхода и пустая сумма оплаты — ошибка поля', () => {
+      expect(buildBody(paid({ amount: '900' }), { ...ctx, baseCurrency: 'KZT' })).toEqual({ ok: false, errors: { stockPayments: 'Оплаты закупок больше суммы расхода' } });
+      expect(buildBody(paid({ stockPayments: [{ docId: 4, amount: '' }] }), { ...ctx, baseCurrency: 'KZT' })).toEqual({
+        ok: false,
+        errors: { stockPayments: 'Укажите сумму оплаты по каждому документу' },
+      });
+    });
+
+    it('доход, перевод и счёт в другой валюте оплат не отправляют', () => {
+      expect(body(paid({ type: 'income' })).stockPayments).toEqual([]);
+      expect(buildBody(paid({ accountId: 3 }), { ...ctx, baseCurrency: 'KZT' })).toMatchObject({ ok: true, body: { stockPayments: [] } });
+    });
+
+    it('смена типа и «создать похожий» оплат не переносят', () => {
+      expect(changeType(paid(), 'income').stockPayments).toEqual([]);
+      expect(similarDraft(paid(), '2026-10-07').stockPayments).toEqual([]);
     });
   });
 

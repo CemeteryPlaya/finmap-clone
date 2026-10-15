@@ -1,11 +1,17 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
 import type { OperationType } from '../../lib/journal-filter';
+import type { OperationPrefill } from '../../lib/operation-form';
 import type { Company } from '../../lib/queries';
 import { OperationForm } from './OperationForm';
 
 /** Что открыть в форме операции: новую операцию заданного типа или существующую по id. */
 export type OperationFormRequest =
-  | { kind: 'create'; type: OperationType }
+  | {
+      kind: 'create';
+      type: OperationType;
+      /** «Оплатить» у поступления склада: расход с поставщиком, суммой и оплатой документа. */
+      prefill?: OperationPrefill;
+    }
   | {
       kind: 'edit';
       id: number;

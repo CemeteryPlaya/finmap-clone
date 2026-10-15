@@ -4,6 +4,7 @@ import { DEC_ONE, divDec, roundSignificant } from '../../shared/decimal';
 import type { OperationType } from './journal-filter';
 import { parseAmountText } from './amount-input';
 import { dayOf } from './journal-format';
+import { parsePayments, type PaymentDraft } from './stock-payments';
 import { similarSplit, splitLines, splitResult, type SplitDraft } from './split';
 
 /**
@@ -40,7 +41,12 @@ export interface OperationDraft {
   comment: string;
   /** «Разделить» (только доход и расход): строки вместо категории и проекта. null — без разбиения. */
   split: SplitDraft | null;
+  /** Оплата закупки (только расход со счёта в валюте компании, §6.1 спецификации «Склад»): поступления, которые гасит этот расход. */
+  stockPayments: PaymentDraft[];
 }
+
+/** Что подставить в новую операцию: «Оплатить» у поступления открывает расход с поставщиком, суммой и оплатой документа. */
+export type OperationPrefill = Partial<Pick<OperationDraft, 'counterpartyId' | 'amount' | 'categoryId' | 'stockPayments' | 'comment'>>;
 
 /** Тело POST /companies/:cid/operations (план 4a, `operationCreateSchema`). */
 export interface OperationBody {
@@ -55,6 +61,7 @@ export interface OperationBody {
   comment: string | null;
   lines: { categoryId: number | null; projectId: number | null; amount: number }[];
   tagIds: number[];
+  stockPayments: { docId: number; amount: number }[];
 }
 
 export interface AccountLike {
@@ -75,6 +82,8 @@ export interface DraftContext {
    * и без «не позже сейчас» (§2.3 этапа 1.5): сохранённое время может быть позже «сейчас» этого устройства.
    */
   originalPaidAt?: string;
+  /** Базовая валюта компании: оплата закупки возможна только со счёта в ней (иначе оплаты в запрос не идут). */
+  baseCurrency?: string;
 }
 
 export type BuildResult = { ok: true; body: OperationBody } | { ok: false; errors: Record<string, string> };
@@ -100,6 +109,7 @@ export function emptyDraft(type: OperationType, today: string, accountId: number
     tagIds: [],
     comment: '',
     split: null,
+    stockPayments: [],
   };
 }
 
@@ -114,6 +124,7 @@ export function changeType(draft: OperationDraft, type: OperationType): Operatio
     counterpartyId: type === 'transfer' ? null : draft.counterpartyId,
     toAccountId: type === 'transfer' ? draft.toAccountId : null,
     toAmount: type === 'transfer' ? draft.toAmount : '',
+    stockPayments: [],
   };
 }
 
@@ -138,6 +149,8 @@ export function similarDraft(draft: OperationDraft, today: string): OperationDra
     comment: '',
     split: draft.split && similarSplit(draft.split),
     paidTime: draft.paidTimeSet ? draft.paidTime : '',
+    // оплата закупки относится к одному расходу: у похожего её нет
+    stockPayments: [],
   };
 }
 
@@ -229,6 +242,15 @@ export function buildBody(draft: OperationDraft, ctx: DraftContext): BuildResult
   const comment = draft.comment.trim();
   if (comment.length > COMMENT_MAX) errors.comment = `Не длиннее ${COMMENT_MAX} символов`;
 
+  // оплата закупки: только расход со счёта в валюте компании; сумма оплат не больше суммы расхода (§6.1 спецификации «Склад»)
+  let stockPayments: OperationBody['stockPayments'] = [];
+  if (draft.type === 'expense' && account && (ctx.baseCurrency === undefined || account.currency === ctx.baseCurrency) && draft.stockPayments.length > 0) {
+    const r = parsePayments(draft.stockPayments, getCurrency(account.currency).minorUnits);
+    if (!r.ok) errors.stockPayments = r.error;
+    else if (amount > 0 && r.total > amount) errors.stockPayments = 'Оплаты закупок больше суммы расхода';
+    else stockPayments = r.list;
+  }
+
   // правка, дата та же, время не трогали — момент операции без изменений (секунды, без «не позже сейчас»)
   const original = !draft.paidTimeSet && dateUnchanged ? (ctx.originalPaidAt ?? null) : null;
   if (Object.keys(errors).length > 0) return { ok: false, errors };
@@ -254,6 +276,7 @@ export function buildBody(draft: OperationDraft, ctx: DraftContext): BuildResult
           ? splitLines(split, result)
           : [{ categoryId: draft.categoryId, projectId: draft.projectId, amount }],
       tagIds: [...draft.tagIds],
+      stockPayments,
     },
   };
 }

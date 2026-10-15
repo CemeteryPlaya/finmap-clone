@@ -65,7 +65,26 @@ describe('draftFromOperation', () => {
       tagIds: [2, 1],
       comment: 'аренда',
       split: null,
+      stockPayments: [],
     });
+  });
+
+  it('оплаты закупок расхода — в черновик текстом сумм; в PATCH уходят, только если изменились', () => {
+    const paid = op({ stockPayments: [{ docId: 4, number: 'П-0001', amount: 60000 }, { docId: 5, number: 'П-0002', amount: 40050 }] });
+    expect(draftFromOperation(paid, accounts, TZ).stockPayments).toEqual([{ docId: 4, amount: '600' }, { docId: 5, amount: '400,5' }]);
+    expect(patchFor(paid, (d) => d)).toBeNull();
+    expect(patchFor(paid, (d) => ({ ...d, comment: 'новый' }))).toEqual({ version: 3, comment: 'новый' });
+    expect(patchFor(paid, (d) => ({ ...d, stockPayments: [{ docId: 4, amount: '700' }] }))).toEqual({ version: 3, stockPayments: [{ docId: 4, amount: 70000 }] });
+    expect(patchFor(paid, (d) => ({ ...d, stockPayments: [] }))).toEqual({ version: 3, stockPayments: [] });
+    expect(patchFor(op(), (d) => ({ ...d, stockPayments: [{ docId: 4, amount: '100' }] }))).toEqual({ version: 3, stockPayments: [{ docId: 4, amount: 10000 }] });
+  });
+
+  it('«Дублировать» и «Изменить в перевод» оплаты закупки не переносят; перевод предупреждает, что оплата будет убрана', () => {
+    const d = { ...draftFromOperation(op(), accounts, TZ), stockPayments: [{ docId: 4, amount: '600' }] };
+    expect(duplicateDraft(d, { accounts: new Set([1]), categories: new Set([7]), projects: new Set([8]), counterparties: new Set([5]), tags: new Set([1, 2]) }, '2026-10-07').stockPayments).toEqual([]);
+    const r = convertToTransferDraft(d, { category: () => 'Закупки', counterparty: () => 'Поставщик А' });
+    expect(r.losses).toEqual(['категория «Закупки»', 'контрагент «Поставщик А»', 'оплата закупки']);
+    expect(r.draft.stockPayments).toEqual([]);
   });
 
   it('несколько строк — разбиение в суммах; перевод между валютами — сумма зачисления и проект строки', () => {
@@ -188,7 +207,7 @@ describe('«Изменить в перевод» (§6.8, §10.1 этапа 1.5)'
     expect(r.losses).toEqual(['категория «Зарплата»', 'контрагент «Алина»', 'дата сделки']);
     expect(convertQuestion(r.losses)).toBe('Будут убраны: категория «Зарплата», контрагент «Алина», дата сделки.');
     expect(r.carried).toBeNull();
-    expect(r.draft).toEqual({ ...d, type: 'transfer', accountId: 1, toAccountId: null, toAmount: '', categoryId: null, projectId: 8, counterpartyId: null, accrualOn: false, split: null });
+    expect(r.draft).toEqual({ ...d, type: 'transfer', accountId: 1, toAccountId: null, toAmount: '', categoryId: null, projectId: 8, counterpartyId: null, accrualOn: false, split: null, stockPayments: [] });
   });
 
   it('доход: прежний счёт — «На счёт», «Со счёта» пусто; прежняя сумма — и сумма, и «Сумма зачисления»; терять нечего — список пуст', () => {

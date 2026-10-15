@@ -323,6 +323,109 @@ test('левая панель: группа «Склад» со стоимост
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/stock/balance\\?warehouse=${s.warehouse}$`));
 });
 
+test('оплата закупки: из расхода журнала, «Оплатить» у поступления, лишняя сумма — ошибка, удаление расхода снимает оплату; продажа → доход журнала', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Оплата ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  await apiPost(page, `${base}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2020-01-01' });
+  await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Закупки' });
+  const s = await stockSetup(page, cid);
+  const docs = `${s.base}/stock/docs`;
+  await apiPost(page, docs, { type: 'receipt', at: hoursAgo(5), warehouseId: s.warehouse, counterpartyId: s.supplier, lines: [{ itemId: s.cola, qty: 10_000, amount: 100_000 }] });
+  await apiPost(page, docs, { type: 'receipt', at: hoursAgo(4), warehouseId: s.warehouse, counterpartyId: s.supplier, lines: [{ itemId: s.chips, qty: 2000, amount: 50_000 }] });
+
+  // расход поставщику: «Оплата закупки» появляется, когда у него есть долги
+  await page.goto(`/c/${cid}/log`);
+  const banner = page.getByRole('banner');
+  await banner.getByRole('button', { name: 'Расход', exact: true }).click();
+  const form = page.getByRole('dialog', { name: 'Новый расход' });
+  await form.getByRole('combobox', { name: 'Со счёта', exact: true }).click();
+  await page.getByRole('option', { name: /Касса/ }).click();
+  await expect(form.getByRole('group', { name: 'Оплата закупки' })).toHaveCount(0);
+  await form.getByRole('combobox', { name: /^(Мой контрагент|Поставщик)/ }).click();
+  await page.getByRole('option', { name: 'Поставщик А' }).click();
+  const payments = form.getByRole('group', { name: 'Оплата закупки' });
+  await expect(payments.getByRole('checkbox')).toHaveCount(2);
+  await payments.getByRole('checkbox', { name: /^П-0001/ }).check();
+  // сумма расхода была пуста — подставилась долгом документа
+  await expect(form.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('1000');
+  await expect(payments.getByLabel('Оплата по П-0001')).toHaveValue('1000');
+  await payments.getByLabel('Оплата по П-0001').fill('400');
+  await expect(payments).toContainText(/Распределено\s*400\s*₸ из 1\s*000\s*₸/);
+  await form.getByRole('button', { name: 'Добавить расход' }).click();
+  await expect(form).toBeHidden();
+
+  // документы: оплачено 400 из 1 000; в окне поступления — «Оплатить»
+  await page.goto(`/c/${cid}/stock/docs`);
+  const table = main(page).getByRole('table', { name: 'Документы' });
+  await expect(table.getByRole('row').filter({ hasText: 'П-0001' })).toContainText(/Оплачено\s*400\s*₸ из 1\s*000\s*₸/);
+  await expect(table.getByRole('row').filter({ hasText: 'П-0002' })).toContainText(/Долг\s*500\s*₸/);
+  await table.getByRole('button', { name: 'Открыть поступление П-0001' }).click();
+  const receipt = page.getByRole('dialog', { name: 'Поступление П-0001' });
+  await expect(receipt.getByRole('region', { name: 'Оплата' })).toContainText(/Оплачено\s*400\s*₸ из 1\s*000\s*₸\. Долг\s*600\s*₸/);
+  // несохранённые правки документа: «Оплатить» недоступна, причина видна и связана с кнопкой (R6)
+  await receipt.getByRole('textbox', { name: 'Комментарий' }).fill('правка');
+  await expect(receipt.getByRole('button', { name: 'Оплатить' })).toHaveAccessibleDescription('Сначала сохраните изменения документа');
+  await expect(receipt.getByText('Сначала сохраните изменения документа', { exact: true })).toBeVisible();
+  await receipt.getByRole('textbox', { name: 'Комментарий' }).fill('');
+  await receipt.getByRole('button', { name: 'Оплатить' }).click();
+  const expense = page.getByRole('dialog', { name: 'Новый расход' });
+  await expect(expense.getByRole('textbox', { name: /^Сумма,/ })).toHaveValue('600');
+  await expect(expense.getByRole('group', { name: 'Оплата закупки' }).getByLabel('Оплата по П-0001')).toHaveValue('600');
+  await expense.getByRole('combobox', { name: 'Со счёта', exact: true }).click();
+  await page.getByRole('option', { name: /Касса/ }).click();
+  await expense.getByRole('button', { name: 'Добавить расход' }).click();
+  await expect(expense).toBeHidden();
+  await page.goto(`/c/${cid}/stock/docs`);
+  await expect(table.getByRole('row').filter({ hasText: 'П-0001' })).toContainText('Оплачено');
+  await expect(table.getByRole('row').filter({ hasText: 'П-0001' })).not.toContainText('Долг');
+
+  // оплат больше суммы расхода: ошибка у поля, расход не создаётся
+  await banner.getByRole('button', { name: 'Расход', exact: true }).click();
+  const second = page.getByRole('dialog', { name: 'Новый расход' });
+  await second.getByRole('combobox', { name: 'Со счёта', exact: true }).click();
+  await page.getByRole('option', { name: /Касса/ }).click();
+  await second.getByRole('textbox', { name: /^Сумма,/ }).fill('100');
+  await second.getByRole('combobox', { name: /^(Мой контрагент|Поставщик)/ }).click();
+  await page.getByRole('option', { name: 'Поставщик А' }).click();
+  const pay2 = second.getByRole('group', { name: 'Оплата закупки' });
+  await expect(pay2.getByRole('checkbox')).toHaveCount(1); // П-0001 оплачено полностью
+  await pay2.getByRole('checkbox', { name: /^П-0002/ }).check();
+  await expect(pay2.getByLabel('Оплата по П-0002')).toHaveValue('100'); // не больше суммы расхода
+  await pay2.getByLabel('Оплата по П-0002').fill('200');
+  await second.getByRole('button', { name: 'Добавить расход' }).click();
+  await expect(pay2.getByRole('alert')).toHaveText('Оплаты закупок больше суммы расхода');
+  await page.keyboard.press('Escape');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Закрыть' }).click();
+
+  // удаление расхода снимает его оплату (каскад)
+  const ops = (await (await page.request.get(`${base}/operations`)).json()) as { items: { id: number; counterpartyId: number | null }[] };
+  for (const op of ops.items.filter((o) => o.counterpartyId === s.supplier)) {
+    const res = await page.request.delete(`${base}/operations/${op.id}`, { headers: csrf(page) });
+    expect(res.status()).toBe(200);
+  }
+  await page.goto(`/c/${cid}/stock/docs`);
+  await expect(table.getByRole('row').filter({ hasText: 'П-0001' })).toContainText(/Долг\s*1\s*000\s*₸/);
+
+  // продажа → доход журнала (магазин): категория «Продажа товаров» создаётся прямо в окне
+  await apiPost(page, docs, { type: 'sale', at: hoursAgo(1), warehouseId: s.warehouse, lines: [{ itemId: s.cola, qty: 2000, amount: 100_000 }] });
+  await page.reload();
+  await table.getByRole('button', { name: 'Открыть продажа Р-0001' }).click();
+  const sale = page.getByRole('dialog', { name: 'Продажа Р-0001' });
+  await sale.getByRole('button', { name: 'Провести в журнал' }).click();
+  const post = page.getByRole('dialog', { name: 'Провести в журнал' });
+  await post.getByRole('button', { name: 'Создать категорию «Продажа товаров»' }).click();
+  await expect(post.getByLabel('Категория дохода')).toHaveText(/Продажа товаров/);
+  await post.getByRole('button', { name: 'Провести' }).click();
+  await expect(post).toBeHidden();
+  await expect(sale.getByRole('region', { name: 'Журнал' })).toContainText(/Проведена в журнал: доход 1\s*000\s*₸/);
+  await expect(sale.getByRole('button', { name: 'Провести в журнал' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(table.getByRole('row').filter({ hasText: 'Р-0001' })).toContainText('В журнале');
+  const income = (await (await page.request.get(`${base}/operations`)).json()) as { items: { type: string; comment: string | null; amount: number }[] };
+  expect(income.items.filter((o) => o.type === 'income')).toMatchObject([{ comment: 'Продажа Р-0001', amount: 100_000 }]);
+});
+
 test('форма документа: подсказка про единицу товара; фокус при добавлении и удалении строки', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Строки ${Date.now()}`);

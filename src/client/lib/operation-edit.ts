@@ -20,6 +20,8 @@ export interface OperationRecord {
   deletedAt: string | null;
   lines: { categoryId: number | null; projectId: number | null; amount: number }[];
   tagIds: number[];
+  /** Оплаты закупок расхода с номерами поступлений (§6.1 спецификации «Склад»); у операций без оплат — пусто или нет. */
+  stockPayments?: { docId: number; number: string; amount: number }[];
 }
 
 type AccountLike = { id: number; currency: string; archivedAt: string | null };
@@ -60,6 +62,7 @@ export function draftFromOperation(op: OperationRecord, accounts: ReadonlyMap<nu
     split: split
       ? { mode: 'amount', lines: op.lines.map((l) => newLine({ categoryId: l.categoryId, projectId: l.projectId, value: amountInputText(l.amount, minor) })) }
       : null,
+    stockPayments: (op.stockPayments ?? []).map((p) => ({ docId: p.docId, amount: amountInputText(p.amount, minor) })),
   };
 }
 
@@ -68,7 +71,11 @@ export type OperationPatch = Partial<Omit<OperationBody, 'type'>> & { version: n
 
 const sameLines = (a: OperationRecord['lines'], b: OperationBody['lines']) =>
   a.length === b.length && a.every((l, i) => l.categoryId === b[i]!.categoryId && l.projectId === b[i]!.projectId && l.amount === b[i]!.amount);
-const sameIds = (a: readonly number[], b: readonly number[]) => JSON.stringify([...a].sort((x, y) => x - y)) === JSON.stringify([...b].sort((x, y) => x - y));
+const samePayments = (a: NonNullable<OperationRecord['stockPayments']>, b: OperationBody['stockPayments']) => {
+  const key = (l: readonly { docId: number; amount: number }[]) => JSON.stringify([...l].sort((x, y) => x.docId - y.docId).map((p) => [p.docId, p.amount]));
+  return key(a) === key(b);
+};
+const sameIds =(a: readonly number[], b: readonly number[]) => JSON.stringify([...a].sort((x, y) => x - y)) === JSON.stringify([...b].sort((x, y) => x - y));
 
 /**
  * Изменённые поля для PATCH (итоги плана 4a, п. 1): `null` в `toAccountId`/`toAmount` схема правки не принимает,
@@ -95,6 +102,7 @@ export function patchBody(op: OperationRecord, body: OperationBody, timeZone: st
   if (body.comment !== op.comment) patch.comment = body.comment;
   if (!sameLines(op.lines, body.lines)) patch.lines = body.lines;
   if (!sameIds(op.tagIds, body.tagIds)) patch.tagIds = body.tagIds;
+  if (!samePayments(op.stockPayments ?? [], body.stockPayments)) patch.stockPayments = body.stockPayments;
   return Object.keys(patch).length > 1 ? patch : null;
 }
 
@@ -130,7 +138,8 @@ export function withoutArchived(draft: OperationDraft, available: Available): Op
 
 /** «Дублировать платёж» (§7, §2.3 этапа 1.5): новая операция с теми же значениями, без архивных ссылок, «сегодня» и живое время. */
 export function duplicateDraft(draft: OperationDraft, available: Available, today: string): OperationDraft {
-  return { ...withoutArchived(draft, available), paidDate: today, paidDateSet: false, paidTime: '', paidTimeSet: false };
+  // оплата закупки остаётся у исходного расхода: копия никого не оплачивает
+  return { ...withoutArchived(draft, available), paidDate: today, paidDateSet: false, paidTime: '', paidTimeSet: false, stockPayments: [] };
 }
 
 /** Архивный счёт, который затрагивает операция: сумму, дату оплаты и счета менять нельзя, удалить нельзя (инвариант 7). */
@@ -172,6 +181,7 @@ export function convertToTransferDraft(draft: OperationDraft, names: ConvertName
     losses.push(`разбиение на ${n} ${pluralRu(n, 'строку', 'строки', 'строк')}`);
   }
   if (draft.accrualOn) losses.push('дата сделки');
+  if (draft.stockPayments.length > 0) losses.push('оплата закупки');
   const projects = draft.split ? [...new Set(draft.split.lines.map((l) => l.projectId))] : [draft.projectId];
   const income = draft.type === 'income';
   return {
@@ -186,6 +196,7 @@ export function convertToTransferDraft(draft: OperationDraft, names: ConvertName
       counterpartyId: null,
       accrualOn: false,
       split: null,
+      stockPayments: [],
     },
     losses,
     carried: income ? draft.amount : null,

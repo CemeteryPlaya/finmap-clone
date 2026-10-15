@@ -1,4 +1,5 @@
 import { getCurrency } from '../../shared/currencies';
+import { formatMoney, MONEY_SCREEN } from '../../shared/money';
 import { formatDateRu, isValidDate, parseTimeInput, timeOfDay, todayInTimezone } from '../../shared/dates';
 import type { StockDocType, WriteoffReason } from '../../shared/schemas/stock';
 import { lineAmount, parseQty, qtyInputText, unitPrice, type StockUnit } from '../../shared/stock-qty';
@@ -275,4 +276,25 @@ export function paymentState(total: number, paid: number): { kind: 'none' | 'par
   if (paid < total) return { kind: 'partial', debt: total - paid };
   if (paid === total) return { kind: 'paid', debt: 0 };
   return { kind: 'over', debt: total - paid };
+}
+
+/** Строка «Оплата» в списке документов: «Долг 1 000 ₸», «Оплачено 400 ₸ из 1 000 ₸», «Оплачено», «Переплата 50 ₸». */
+export function paymentLabel(total: number, paid: number, currency: string): string {
+  const money = (minor: number) => formatMoney(minor, currency, MONEY_SCREEN);
+  const state = paymentState(total, paid);
+  if (state.kind === 'none') return `Долг ${money(total)}`;
+  if (state.kind === 'partial') return `Оплачено ${money(paid)} из ${money(total)}`;
+  if (state.kind === 'paid') return 'Оплачено';
+  return `Переплата ${money(-state.debt)}`;
+}
+
+/** Итог оплаты в окне поступления (§6.1): «Оплачено X из Y. Долг Z» или «… Переплата Z». */
+export function paymentSummary(total: number, paid: number, currency: string): string {
+  const money = (minor: number) => formatMoney(minor, currency, MONEY_SCREEN);
+  const state = paymentState(total, paid);
+  if (state.kind === 'none') return `Не оплачено. Долг ${money(total)}`;
+  const head = `Оплачено ${money(paid)} из ${money(total)}`;
+  if (state.kind === 'partial') return `${head}. Долг ${money(state.debt)}`;
+  if (state.kind === 'over') return `${head}. Переплата ${money(-state.debt)}`;
+  return head;
 }

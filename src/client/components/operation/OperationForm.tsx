@@ -11,6 +11,7 @@ import { invalidateOperations } from '../../lib/journal-mutations';
 import { defaultAccounts, readLastAccounts, saveLastAccounts, withSaved } from '../../lib/last-account';
 import { useNow } from '../../lib/use-now';
 import { createFromForm, type CreatableKind } from '../../lib/operation-create';
+import { invalidateStock } from '../../lib/stock';
 import {
   archivedAccountOf,
   convertBlockedHint,
@@ -39,6 +40,7 @@ import {
   submitLabel,
   transferRateText,
   type OperationDraft,
+  type OperationPrefill,
 } from '../../lib/operation-form';
 import {
   accountOptions,
@@ -97,6 +99,7 @@ import { AttachmentsField } from './AttachmentsField';
 import { ComboSelect } from './ComboSelect';
 import { DateTimeField } from './DateTimeField';
 import type { OperationFormRequest } from './OperationFormHost';
+import { StockPaymentsField } from '../stock/StockPaymentsField';
 import { RateFix, type MissingRate } from './RateFix';
 import { SalaryRow } from './SalaryRow';
 import { SplitEditor } from './SplitEditor';
@@ -193,6 +196,7 @@ export function OperationForm(props: { company: Company; request: OperationFormR
           data={data}
           timeZone={meta.data.timezone}
           type={props.request.kind === 'create' ? props.request.type : operation.data!.type}
+          prefill={props.request.kind === 'create' ? props.request.prefill : undefined}
           operation={operation.data ?? null}
           onEditingChange={setEditing}
           onTypeChange={setDraftType}
@@ -212,6 +216,8 @@ function OperationEditor(p: {
   data: FormData;
   timeZone: string;
   type: OperationType;
+  /** Новая операция из «Оплатить» у поступления склада: что подставить в пустую форму. */
+  prefill?: OperationPrefill;
   /** Правка существующей операции; null — новая. */
   operation: OperationRecord | null;
   /** Форма перешла от правки к новой операции («Дублировать платёж»). */
@@ -235,7 +241,7 @@ function OperationEditor(p: {
   const [remembered] = useState(() => defaultAccounts(p.type, userId === null ? {} : readLastAccounts(userId, p.company.id), p.data.accounts));
   const [op, setOp] = useState(p.operation);
   const [initial, setInitial] = useState(() =>
-    op ? draftFromOperation(op, accounts, p.timeZone) : emptyDraft(p.type, today, remembered.accountId, remembered.toAccountId),
+    op ? draftFromOperation(op, accounts, p.timeZone) : { ...emptyDraft(p.type, today, remembered.accountId, remembered.toAccountId), ...p.prefill },
   );
   const [draft, setDraft] = useState(initial);
   /** Фокус при открытии — первое пустое обязательное поле (§6.2): счёт, иначе сумма; при правке — сумма. */
@@ -366,6 +372,9 @@ function OperationEditor(p: {
   const currency = getCurrency(account?.currency ?? p.company.baseCurrency);
   const toCurrency = toAccount ? getCurrency(toAccount.currency) : null;
   const transfer = draft.type === 'transfer';
+  // поле «Оплата закупки» видно у расхода с поставщиком со счёта в валюте компании; если у правимой операции были оплаты, а поля больше нет — они снимутся
+  const stockPaymentsField = draft.type === 'expense' && draft.counterpartyId !== null && account?.currency === p.company.baseCurrency;
+  const stockPaymentsDropped = op !== null && (op.stockPayments?.length ?? 0) > 0 && !stockPaymentsField;
   const labels = FIELD_LABELS[draft.type];
   const crossCurrency = transfer && toCurrency !== null && toCurrency.code !== currency.code;
   const kind = draft.type === 'income' ? 'income' : 'expense';
@@ -428,7 +437,15 @@ function OperationEditor(p: {
     // у существующей операции при смене дня сохраняется прежнее время суток
     const timeOfDayFrom = op ? new Date(op.paidAt) : now;
     // buildBody разбирает сумму сам: Enter или главная кнопка без ухода из поля сохраняют текущий текст
-    const r = buildBody(draft, { accounts, today: todayInTimezone(p.timeZone, now), timeZone: p.timeZone, now, timeOfDayFrom, originalPaidAt: op?.paidAt });
+    const r = buildBody(draft, {
+      accounts,
+      today: todayInTimezone(p.timeZone, now),
+      timeZone: p.timeZone,
+      now,
+      timeOfDayFrom,
+      originalPaidAt: op?.paidAt,
+      baseCurrency: p.company.baseCurrency,
+    });
     if (!r.ok) {
       setErrors(r.errors);
       setFormError('Проверьте заполнение полей');
@@ -471,6 +488,8 @@ function OperationEditor(p: {
         }
       }
       void invalidateOperations(p.company.id);
+      // оплаты закупок меняют «оплачено» у поступлений склада
+      void invalidateStock(p.company.id);
       if (then === 'close') {
         p.close();
         return;
@@ -558,6 +577,7 @@ function OperationEditor(p: {
     try {
       await api(`/companies/${p.company.id}/operations/${op.id}`, { method: 'DELETE' });
       void invalidateOperations(p.company.id);
+      void invalidateStock(p.company.id);
       setConfirmDelete(false);
       p.onDeleted();
       p.close();
@@ -906,11 +926,32 @@ function OperationEditor(p: {
               value={draft.counterpartyId}
               options={counterpartyOptions(p.data.counterparties, draft.counterpartyId, preferredCounterpartyType(p.data.categories, mainCategory))}
               emptyLabel="Без контрагента"
-              onChange={(counterpartyId) => set({ counterpartyId }, 'counterpartyId')}
-              onCreate={(name) => createItem('counterparty', name, (d, counterpartyId) => ({ ...d, counterpartyId }))}
+              // оплаты относились к поступлениям прежнего поставщика
+              onChange={(counterpartyId) => set({ counterpartyId, stockPayments: [] }, 'counterpartyId', 'stockPayments')}
+              onCreate={(name) => createItem('counterparty', name, (d, counterpartyId) => ({ ...d, counterpartyId, stockPayments: [] }))}
               createNoun="контрагента"
               error={errors.counterpartyId}
             />
+          )}
+          {stockPaymentsField && draft.counterpartyId !== null && (
+            <StockPaymentsField
+              key={draft.counterpartyId}
+              companyId={p.company.id}
+              supplierId={draft.counterpartyId}
+              operationId={op?.id ?? null}
+              currency={p.company.baseCurrency}
+              timeZone={p.timeZone}
+              payments={draft.stockPayments}
+              amount={amountMinor}
+              onAmount={(amount) => set({ amount }, 'amount')}
+              onChange={(stockPayments) => set({ stockPayments }, 'stockPayments')}
+              error={errors.stockPayments}
+            />
+          )}
+          {stockPaymentsDropped && (
+            <p role="status" className="text-sm text-muted">
+              Оплата закупки снимется
+            </p>
           )}
           {!transfer && paidDateField}
           {readOnly ? (

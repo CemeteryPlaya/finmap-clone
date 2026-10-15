@@ -4,6 +4,7 @@ import { formatDateTime } from '../../../shared/dates';
 import { formatMoney, MONEY_SCREEN } from '../../../shared/money';
 import { STOCK_DOC_TYPE_LABELS, STOCK_DOC_TYPES, WRITEOFF_REASON_LABELS, type StockDocType } from '../../../shared/schemas/stock';
 import { DocForm, type DocFormRequest } from '../../components/stock/DocForm';
+import { paymentLabel } from '../../lib/stock-doc-form';
 import { Pending, StaleNotice } from '../../components/QueryState';
 import { btnPrimary, btnSecondary, inputClass, noticeClass } from '../../components/ui';
 import { useCounterparties } from '../../lib/queries';
@@ -95,6 +96,9 @@ export function DocsTab() {
                 <th scope="col" className={`${thClass} text-right`}>
                   Сумма
                 </th>
+                <th scope="col" className={`${thClass} max-md:hidden`}>
+                  Оплата / журнал
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -118,6 +122,9 @@ export function DocsTab() {
                     {d.type === 'writeoff' ? (d.reason ? WRITEOFF_REASON_LABELS[d.reason] : '') : d.counterpartyId === null ? '—' : (counterpartyName.get(d.counterpartyId) ?? '…')}
                   </td>
                   <td className={`${tdClass} text-right tabular-nums`}>{d.type === 'writeoff' ? '—' : money(d.total)}</td>
+                  <td className={`${tdClass} max-md:hidden`}>
+                    {d.type === 'receipt' ? paymentLabel(d.total, d.paid, company.baseCurrency) : d.type === 'sale' && d.posted ? 'В журнале' : ''}
+                  </td>
                 </tr>
               ))}
             </tbody>
