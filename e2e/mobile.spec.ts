@@ -514,6 +514,12 @@ test('нижняя панель «Разделы» (§8.3): «Журнал» и 
   await expect(history).toBeHidden();
   await expect(more).toBeFocused();
 
+  // «Склад» — сразу «Остатки» (§13), фокус на заголовке
+  await more.click();
+  await menu.getByRole('link', { name: 'Склад' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/stock/balance$`));
+  await expect(page.getByRole('heading', { level: 1, name: 'Склад' })).toBeFocused();
+
   // «Пользователи» — раздел настроек, фокус на заголовке; панель вкладок — и в зоне настроек
   await more.click();
   await menu.getByRole('link', { name: 'Пользователи' }).click();

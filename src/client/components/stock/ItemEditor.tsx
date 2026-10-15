@@ -46,7 +46,7 @@ export function ItemEditor(props: {
       await refresh();
       props.onDone();
     },
-    onError: (e) => setErrors(e.fields ?? {}),
+    onError: (e) => setErrors(e.fields?.salePrice ? { ...e.fields, price: e.fields.salePrice } : (e.fields ?? {})),
   });
   const actions = useEntityActions(fresh ? `${base}/${fresh.id}` : base, refresh, props.onDone);
   const busy = actions.pending || save.isPending;

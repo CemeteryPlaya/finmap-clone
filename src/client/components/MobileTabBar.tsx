@@ -40,7 +40,7 @@ export function MobileTabBar({ company }: { company: Company }) {
   const inStock = useMatch('/c/:companyId/stock/*') !== null;
   // запомненный адрес журнала обновляется после отрисовки страницы — в самом журнале берём текущий
   const journal = onJournal ? `${location.pathname}${location.search}` : journalBackHref(company.id, readLastJournal(company.id));
-  const stock = `/c/${company.id}/stock`;
+  const stock = `/c/${company.id}/stock/balance`;
   const users = `/c/${company.id}/settings/users`;
   const settings = `/c/${company.id}/settings`;
   // обычное нажатие: фокус на <h1> новой страницы, меню закрывается без возврата фокуса на «Ещё»

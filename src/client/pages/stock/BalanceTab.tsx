@@ -23,7 +23,7 @@ const flagClass = 'ml-2 rounded px-1.5 py-0.5 text-[11px] font-medium';
  */
 export function BalanceTab() {
   const { company, warehouse } = useOutletContext<StockOutletContext>();
-  const balance = useStockBalance(company.id, warehouse);
+  const balance = useStockBalance(company.id, warehouse, warehouse !== null);
   const items = useStockItems(company.id);
   const groups = useStockGroups(company.id);
   const counterparties = useCounterparties(company.id);
@@ -32,7 +32,9 @@ export function BalanceTab() {
   const [showEmpty, setShowEmpty] = useState(false);
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
 
-  if (!balance.data || !items.data || !groups.data || !meta.data) return <Pending queries={[balance, items, groups]} />;
+  // складов нет — экран «Склад» уже подсказывает, где его создать
+  if (warehouse === null) return null;
+  if (!balance.data || !items.data || !groups.data || !meta.data) return <Pending queries={[balance, items, groups, meta]} />;
   const tz = meta.data.timezone;
   const unitOf = new Map(items.data.map((i) => [i.id, i.unit]));
   const supplier = new Map((counterparties.data ?? []).map((c) => [c.id, c.name]));
@@ -104,6 +106,7 @@ export function BalanceTab() {
                             <button
                               type="button"
                               aria-expanded={expanded}
+                              aria-controls={`batches-${item.id}`}
                               aria-label={`Партии: ${item.name}`}
                               onClick={() => toggle(item.id)}
                               className="rounded text-left font-medium hover:underline focus-visible:outline-2 focus-visible:outline-focus"
@@ -132,7 +135,7 @@ export function BalanceTab() {
                         <td className={`${tdClass} text-right max-md:hidden`}>{markupText(b.markupBp)}</td>
                       </tr>
                       {expanded && (
-                        <tr className="border-b border-field bg-field/30">
+                        <tr id={`batches-${item.id}`} className="border-b border-field bg-field/30">
                           <td colSpan={6} className="px-3 py-2">
                             <table aria-label={`Партии: ${item.name}`} className="w-full text-sm">
                               <thead>

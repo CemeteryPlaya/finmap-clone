@@ -2,7 +2,7 @@ import { Link, Navigate, NavLink, Outlet, useLocation, useOutletContext, useSear
 import { Pending } from '../components/QueryState';
 import { inputClass, noticeClass } from '../components/ui';
 import { useStockWarehouses, type StockWarehouse } from '../lib/stock';
-import { DEFAULT_STOCK_TAB, STOCK_TABS, stockHref, warehouseParam } from '../lib/stock-view';
+import { DEFAULT_STOCK_TAB, effectiveWarehouse, STOCK_TABS, stockHref, warehouseParam } from '../lib/stock-view';
 import type { Company } from '../lib/queries';
 import type { CompanyOutletContext } from './CompanyLayout';
 
@@ -42,7 +42,7 @@ export function StockPage() {
   }
   const list = warehouses.data;
   const fromUrl = warehouseParam(search, list);
-  const warehouse = fromUrl ?? (list.find((w) => !w.archivedAt) ?? list[0])?.id ?? null;
+  const warehouse = effectiveWarehouse(fromUrl, list);
   const pick = (value: string) => {
     const next = new URLSearchParams(search);
     next.set('warehouse', value);

@@ -3,6 +3,7 @@ import type { BalanceItem, StockGroup, StockItem } from '../../src/client/lib/st
 import {
   balanceSections,
   defaultWarehouseName,
+  effectiveWarehouse,
   filterItems,
   itemSections,
   markupText,
@@ -42,6 +43,17 @@ describe('warehouseParam и stockHref', () => {
   it('адрес подвкладки сохраняет склад', () => {
     expect(stockHref(2, 'balance', 3)).toBe('/c/2/stock/balance?warehouse=3');
     expect(stockHref(2, 'items', null)).toBe('/c/2/stock/items');
+  });
+});
+
+describe('effectiveWarehouse', () => {
+  const w = (id: number, archived = false) => ({ id, archivedAt: archived ? 'x' : null });
+  it('склад из адреса важнее; иначе первый неархивный; иначе первый; складов нет — null', () => {
+    expect(effectiveWarehouse(5, [w(3), w(5)])).toBe(5);
+    expect(effectiveWarehouse(null, [w(3), w(5)])).toBe(3);
+    expect(effectiveWarehouse(null, [w(3, true), w(5)])).toBe(5);
+    expect(effectiveWarehouse(null, [w(3, true), w(5, true)])).toBe(3);
+    expect(effectiveWarehouse(null, [])).toBeNull();
   });
 });
 

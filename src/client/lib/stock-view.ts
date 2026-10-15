@@ -21,6 +21,11 @@ export function warehouseParam(search: URLSearchParams, warehouses: readonly Pic
   return warehouses?.some((w) => w.id === id) ? id : null;
 }
 
+/** Склад экрана «Склад»: из адреса, иначе первый неархивный, иначе первый; null — складов нет. */
+export function effectiveWarehouse(fromUrl: number | null, warehouses: readonly Pick<StockWarehouse, 'id' | 'archivedAt'>[]): number | null {
+  return fromUrl ?? (warehouses.find((w) => !w.archivedAt) ?? warehouses[0])?.id ?? null;
+}
+
 /** Адрес подвкладки с отбором склада: `/c/1/stock/balance?warehouse=3`. */
 export function stockHref(companyId: number, tab: string, warehouse: number | null): string {
   return `/c/${companyId}/stock/${tab}${warehouse === null ? '' : `?warehouse=${warehouse}`}`;

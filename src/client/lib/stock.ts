@@ -182,10 +182,11 @@ export function useStockWarehouses(companyId: number) {
 }
 
 /** Остатки на сейчас; warehouse — склад или все. Ключ ['stock', cid, 'balance', …]: сброс ['stock', cid] обновляет и их. */
-export function useStockBalance(companyId: number, warehouse: number | null) {
+export function useStockBalance(companyId: number, warehouse: number | null, enabled = true) {
   return useQuery<StockBalance, ApiError>({
     queryKey: ['stock', companyId, 'balance', warehouse],
     queryFn: () => api<StockBalance>(`${base(companyId)}/balance${warehouse === null ? '' : `?warehouse=${warehouse}`}`),
+    enabled,
     ...REFRESH_ON_FOCUS,
   });
 }
