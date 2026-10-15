@@ -16,6 +16,7 @@ import { changedFields, mutate } from '../audit/mutate';
 import type { AuditEntry, AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import { docPayments, paidByDoc, type DocPayment } from './payments';
+import { lastPostOf, postedDocs, postingOf, type DocPosting, type LastPost } from './postings';
 import { buildPair, clearPair, storedSigs, uniquePairs, type LineSig, type Pair } from './recalc';
 
 export type StockDocRow = typeof stockDocs.$inferSelect;
@@ -41,12 +42,18 @@ export interface StockDocDto extends StockDocRow {
   paid: number;
   /** Расходы журнала, которые платят по поступлению. */
   payments: DocPayment[];
+  /** Продажа, проведённая в журнал; null — не проведена или операция удалена. */
+  posting: DocPosting | null;
+  /** У продажи: счёт и категория прошлого проведения этого склада — подсказка для окна «Провести в журнал». */
+  lastPost: LastPost | null;
 }
 
 export interface StockDocListItem extends StockDocRow {
   total: number;
   linesCount: number;
   paid: number;
+  /** Продажа проведена в журнал. */
+  posted: boolean;
 }
 
 /** Чем документ меняет чужие проведённые документы (§5.4): окно сохранения предупреждает «Изменится себестоимость {N} продаж после {даты}». */
@@ -126,7 +133,11 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
       };
     });
     const payments = row.type === 'receipt' ? docPayments(ex, row.id) : [];
-    return { ...row, lines: dtoLines, total: dtoLines.reduce((s, l) => s + (l.amount ?? 0), 0), paid: payments.reduce((s, p) => s + p.amount, 0), payments };
+    return { ...row, lines: dtoLines, total: dtoLines.reduce((s, l) => s + (l.amount ?? 0), 0), paid: payments.reduce((s, p) => s + p.amount, 0),
+      payments,
+      posting: row.type === 'sale' ? postingOf(ex, row.id) : null,
+      lastPost: row.type === 'sale' ? lastPostOf(ex, row.warehouseId) : null,
+    };
   }
 
   function draftOf(dto: StockDocDto): Draft {
@@ -295,8 +306,9 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
         for (const a of agg) totals.set(a.docId, { total: a.total, n: a.n });
       }
       const paid = paidByDoc(db, page.filter((r) => r.type === 'receipt').map((r) => r.id));
+      const posted = postedDocs(db, page.filter((r) => r.type === 'sale').map((r) => r.id));
       return {
-        docs: page.map((r) => ({ ...r, total: totals.get(r.id)?.total ?? 0, linesCount: totals.get(r.id)?.n ?? 0, paid: paid.get(r.id) ?? 0 })),
+        docs: page.map((r) => ({ ...r, total: totals.get(r.id)?.total ?? 0, linesCount: totals.get(r.id)?.n ?? 0, paid: paid.get(r.id) ?? 0, posted: posted.has(r.id) })),
         hasMore: rows.length > q.limit,
       };
     },

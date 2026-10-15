@@ -111,6 +111,9 @@ export const stockDocListSchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
+/** «Провести в журнал»: на какой счёт и в какой категории дохода. */
+export const stockJournalSchema = z.object({ accountId: id, categoryId: id });
+
 export const stockBalanceSchema = z.object({
   warehouse: z.coerce.number().int().positive().optional(),
   /** Остаток на конец календарного дня; без даты — сейчас. */

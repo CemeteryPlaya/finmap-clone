@@ -8,6 +8,7 @@ import {
   stockGroupSchema,
   stockItemCreateSchema,
   stockItemUpdateSchema,
+  stockJournalSchema,
   stockPriceSchema,
   stockWarehouseCreateSchema,
   stockWarehouseUpdateSchema,
@@ -18,14 +19,15 @@ import type { StockBalanceService } from './balance';
 import type { StockCatalogService } from './catalog';
 import type { StockDocsService } from './docs';
 import { unpaidDocs } from './payments';
+import type { StockPostingsService } from './postings';
 import type { StockWarehousesService } from './warehouses';
 
 type C = { Params: { cid: string } };
 type P = { Params: { cid: string; id: string } };
 const BASE = '/api/v1/companies/:cid/stock';
 
-export function registerStockRoutes(app: FastifyInstance, deps: { db: Db; catalog: StockCatalogService; warehouses: StockWarehousesService; docs: StockDocsService; balance: StockBalanceService }): void {
-  const { db, catalog, warehouses, docs, balance } = deps;
+export function registerStockRoutes(app: FastifyInstance, deps: { db: Db; catalog: StockCatalogService; warehouses: StockWarehousesService; docs: StockDocsService; balance: StockBalanceService; postings: StockPostingsService }): void {
+  const { db, catalog, warehouses, docs, balance, postings } = deps;
 
   // ---- группы товаров
   app.get<C>(`${BASE}/groups`, async (req) => ({ groups: catalog.groups(parseId(req.params.cid)) }));
@@ -122,6 +124,14 @@ export function registerStockRoutes(app: FastifyInstance, deps: { db: Db; catalo
   app.delete<P>(`${BASE}/docs/:id`, async (req) => {
     const { dryRun } = z.object({ dryRun: z.enum(['1', '0']).optional() }).parse(req.query);
     return docs.remove(parseId(req.params.cid), parseId(req.params.id), req.user!.id, { dryRun: dryRun === '1' });
+  });
+
+  // продажа → доход журнала (§6.3)
+  app.post<P>(`${BASE}/docs/:id/journal`, async (req, reply) => {
+    const cid = parseId(req.params.cid);
+    const id = parseId(req.params.id);
+    const { operationId } = postings.post(cid, id, stockJournalSchema.parse(req.body), req.user!.id);
+    return reply.status(201).send({ operationId, doc: docs.get(cid, id) });
   });
 
   // ---- оплата закупок: поступления поставщика с долгом (§6.1)

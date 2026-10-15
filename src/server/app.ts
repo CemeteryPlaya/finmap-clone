@@ -47,6 +47,7 @@ import { registerSplitPresetsRoutes } from './modules/split-presets/routes';
 import { createStockBalanceService } from './modules/stock/balance';
 import { createStockCatalogService } from './modules/stock/catalog';
 import { createStockDocsService } from './modules/stock/docs';
+import { createStockPostingsService } from './modules/stock/postings';
 import { registerStockRoutes } from './modules/stock/routes';
 import { createStockWarehousesService } from './modules/stock/warehouses';
 import { createSplitPresetsService } from './modules/split-presets/service';
@@ -151,6 +152,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     warehouses: createStockWarehousesService({ db, audit, now }),
     docs: createStockDocsService({ db, audit, timezone: config.timezone, now }),
     balance: createStockBalanceService({ db, timezone: config.timezone, now }),
+    postings: createStockPostingsService({ db, audit, operations }),
   });
   registerSavedFiltersRoutes(app, { savedFilters: createSavedFiltersService({ db, now }) });
   registerAttachmentsRoutes(app, { attachments: createAttachmentsService({ db, audit, uploadsDir: config.uploadsDir, now }) });
