@@ -185,3 +185,114 @@ test('«Остатки»: остаток, себестоимость, нацен
   await main(page).getByRole('link', { name: 'Товары' }).click();
   await expect(page).toHaveURL(new RegExp(`/stock/items\\?warehouse=${s.warehouse2}$`));
 });
+
+test('документы: поступление → продажа → остаток и себестоимость; правка закупки предупреждает; списание без остатка — ошибка; удаление продажи', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Документы ${Date.now()}`);
+  const s = await stockSetup(page, cid);
+  await page.goto(`/c/${cid}/stock/docs?warehouse=${s.warehouse}`);
+  await expect(main(page).getByText('Документов пока нет.')).toBeVisible();
+
+  const pick = async (scope: ReturnType<Page['locator']>, name: string, option: string) => {
+    await scope.getByRole('combobox', { name, exact: true }).click();
+    await page.getByRole('option', { name: option }).click();
+  };
+
+  // поступление: две строки, цена и сумма связаны
+  await main(page).getByRole('button', { name: '+ Поступление' }).click();
+  const receipt = page.getByRole('dialog', { name: 'Новое поступление' });
+  await expect(receipt.getByLabel('Склад', { exact: true })).toHaveValue(String(s.warehouse));
+  await pick(receipt, 'Поставщик', 'Поставщик А');
+  const line1 = receipt.getByRole('group', { name: 'Строка 1' });
+  await pick(line1, 'Товар', 'Кола 0,5');
+  await line1.getByLabel('Количество, шт').fill('10');
+  await line1.getByLabel('Сумма, ₸').fill('1000');
+  await expect(line1.getByLabel('Цена, ₸')).toHaveValue('100');
+  await receipt.getByRole('button', { name: '+ Добавить строку' }).click();
+  const line2 = receipt.getByRole('group', { name: 'Строка 2' });
+  await pick(line2, 'Товар', 'Чипсы');
+  await line2.getByLabel('Количество, шт').fill('3');
+  await line2.getByLabel('Цена, ₸').fill('70');
+  await expect(line2.getByLabel('Сумма, ₸')).toHaveValue('210');
+  await expect(receipt.locator('p', { hasText: 'Итого:' })).toContainText(/1\s*210\s*₸/);
+  await receipt.getByRole('button', { name: 'Добавить поступление' }).click();
+  await expect(receipt).toBeHidden();
+  const table = main(page).getByRole('table', { name: 'Документы' });
+  await expect(table.getByRole('row').filter({ hasText: 'П-0001' })).toContainText(/1\s*210\s*₸/);
+
+  // продажа: цена по умолчанию — цена продажи товара
+  await main(page).getByRole('button', { name: '+ Продажа' }).click();
+  const sale = page.getByRole('dialog', { name: 'Новая продажа' });
+  const saleLine = sale.getByRole('group', { name: 'Строка 1' });
+  await pick(saleLine, 'Товар', 'Кола 0,5');
+  await expect(saleLine.getByLabel('Цена, ₸')).toHaveValue('500');
+  await saleLine.getByLabel('Количество, шт').fill('4');
+  await expect(saleLine.getByLabel('Сумма, ₸')).toHaveValue('2000');
+  await sale.getByRole('button', { name: 'Добавить продажу' }).click();
+  await expect(sale).toBeHidden();
+  await expect(table.getByRole('row').filter({ hasText: 'Р-0001' })).toContainText(/2\s*000\s*₸/);
+
+  // «Остатки»: 6 по 100 ₸
+  await main(page).getByRole('link', { name: 'Остатки', exact: true }).click();
+  const balance = main(page).getByRole('table', { name: 'Остатки' });
+  await expect(balance.getByRole('row').filter({ hasText: 'Кола 0,5' }).first()).toContainText('6 шт');
+  await expect(balance.getByRole('row').filter({ hasText: 'Кола 0,5' }).first()).toContainText(/600\s*₸/);
+
+  // правка закупки пересчитывает проданное: окно предупреждает
+  await main(page).getByRole('link', { name: 'Документы', exact: true }).click();
+  await table.getByRole('button', { name: /^Открыть поступление/ }).click();
+  const edit = page.getByRole('dialog', { name: 'Поступление П-0001' });
+  await edit.getByRole('group', { name: 'Строка 1' }).getByLabel('Сумма, ₸').fill('2000');
+  await edit.getByRole('button', { name: 'Сохранить изменения' }).click();
+  const ask = page.getByRole('alertdialog', { name: 'Изменится себестоимость' });
+  await expect(ask).toContainText('Изменится себестоимость 1 продажи после');
+  await ask.getByRole('button', { name: 'Сохранить' }).click();
+  await expect(edit).toBeHidden();
+  await main(page).getByRole('link', { name: 'Остатки', exact: true }).click();
+  await expect(balance.getByRole('row').filter({ hasText: 'Кола 0,5' }).first()).toContainText(/1\s*200\s*₸/); // 6 по 200
+
+  // ручное списание больше остатка — ошибка с названием и остатком, документ не создаётся
+  await main(page).getByRole('link', { name: 'Документы', exact: true }).click();
+  await main(page).getByRole('button', { name: '+ Списание' }).click();
+  const writeoff = page.getByRole('dialog', { name: 'Новое списание' });
+  const woLine = writeoff.getByRole('group', { name: 'Строка 1' });
+  await pick(woLine, 'Товар', 'Кола 0,5');
+  await woLine.getByLabel('Количество, шт').fill('100');
+  await writeoff.getByRole('button', { name: 'Добавить списание' }).click();
+  await expect(writeoff.getByRole('alert')).toContainText('Не хватает «Кола 0,5»: на складе 6 шт на');
+  await woLine.getByLabel('Количество, шт').fill('2');
+  await writeoff.getByLabel('Причина списания').selectOption({ label: 'Испорчено' });
+  await writeoff.getByRole('button', { name: 'Добавить списание' }).click();
+  await expect(writeoff).toBeHidden();
+  await expect(table.getByRole('row').filter({ hasText: 'С-0001' })).toContainText('Испорчено');
+
+  // удаление продажи возвращает товар на склад
+  await table.getByRole('button', { name: /^Открыть продажа/ }).click();
+  const saleEdit = page.getByRole('dialog', { name: 'Продажа Р-0001' });
+  await saleEdit.getByRole('button', { name: 'Удалить документ' }).click();
+  await page.getByRole('alertdialog', { name: 'Удалить документ?' }).getByRole('button', { name: 'Удалить' }).click();
+  await expect(saleEdit).toBeHidden();
+  await expect(table.getByRole('row').filter({ hasText: 'Р-0001' })).toHaveCount(0);
+  await main(page).getByRole('link', { name: 'Остатки', exact: true }).click();
+  await expect(balance.getByRole('row').filter({ hasText: 'Кола 0,5' }).first()).toContainText('8 шт'); // 10 \u2212 2 списанных
+});
+
+test('форма документа: подсказка про единицу товара; фокус при добавлении и удалении строки', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Строки ${Date.now()}`);
+  const s = await stockSetup(page, cid);
+  await page.goto(`/c/${cid}/stock/docs?warehouse=${s.warehouse}`);
+  await main(page).getByRole('button', { name: '+ Поступление' }).click();
+  const form = page.getByRole('dialog', { name: 'Новое поступление' });
+  await expect(form.getByText('Единица — шт; другие единицы задайте в «Товарах» заранее')).toBeVisible();
+
+  await form.getByRole('button', { name: '+ Добавить строку' }).click();
+  await expect(form.getByRole('group', { name: 'Строка 2' }).getByRole('combobox', { name: 'Товар', exact: true })).toBeFocused();
+  await form.getByRole('button', { name: '+ Добавить строку' }).click();
+  // убрать строку 2: фокус на «Товар» следующей строки (теперь она вторая)
+  await form.getByRole('button', { name: 'Убрать строку 2' }).click();
+  await expect(form.getByRole('group', { name: 'Строка 2' }).getByRole('combobox', { name: 'Товар', exact: true })).toBeFocused();
+  // убрать последнюю: фокус на «+ Добавить строку»
+  await form.getByRole('button', { name: 'Убрать строку 2' }).click();
+  await expect(form.getByRole('button', { name: '+ Добавить строку' })).toBeFocused();
+});

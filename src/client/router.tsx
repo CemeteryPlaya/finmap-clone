@@ -7,6 +7,7 @@ import { NewCompanyPage } from './pages/NewCompanyPage';
 import { RequireAuth } from './pages/RequireAuth';
 import { StockIndex, StockPage } from './pages/StockPage';
 import { BalanceTab } from './pages/stock/BalanceTab';
+import { DocsTab } from './pages/stock/DocsTab';
 import { ItemsTab } from './pages/stock/ItemsTab';
 import { CompaniesSettings } from './pages/settings/CompaniesSettings';
 import { ProjectsSettings } from './pages/settings/ProjectsSettings';
@@ -44,6 +45,7 @@ export const router = createBrowserRouter([
             children: [
               { index: true, element: <StockIndex /> },
               { path: 'balance', element: <BalanceTab /> },
+              { path: 'docs', element: <DocsTab /> },
               { path: 'items', element: <ItemsTab /> },
               { path: '*', element: <StockIndex /> },
             ],
