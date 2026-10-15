@@ -442,7 +442,7 @@ function DocEditor(p: {
               const unit = item?.unit ?? 'pcs';
               const key = (field: string) => errors[`lines.${index}.${field}`];
               return (
-                <div key={l.key} data-line-key={l.key} role="group" aria-label={`Строка ${index + 1}`} className={`grid items-start gap-3 rounded-xl border border-field p-3 ${hasAmounts ? 'md:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))_auto]' : 'md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto]'}`}>
+                <div key={l.key} data-line-key={l.key} role="group" aria-label={`Строка ${index + 1}`} className={`grid items-start gap-3 rounded-xl border border-field p-3 ${hasAmounts ? 'md:grid-cols-[minmax(0,2fr)_repeat(3,minmax(7rem,1fr))_auto]' : 'md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto]'}`}>
                   <ComboSelect
                     label="Товар"
                     listLabel="Товары"

@@ -132,6 +132,42 @@ const IMPORT_ERRORS = [
   finmapLikeRow({ paidAt: excelSerial('2026-10-06', '13:00:00'), amount: 700 }),
 ];
 
+/**
+ * Склад для снимков «Склад» (план Склад-1): склад первого проекта, три синтетических товара, поступление и продажа.
+ * Повторный вызов ничего не создаёт — сценарии идут каждый в своём входе, данные общие.
+ */
+const seedStock = async (p: Page) => {
+  const { cid, headers } = apiOf(p);
+  const base = `/api/v1/companies/${cid}`;
+  const get = async (url: string) => (await (await p.request.get(url)).json()) as any;
+  const post = async (url: string, data: unknown) => {
+    const res = await p.request.post(url, { headers, data });
+    if (!res.ok()) throw new Error(`${url}: ${res.status()} ${await res.text()}`);
+    return (await res.json()) as any;
+  };
+  if ((await get(`${base}/stock/warehouses`)).warehouses.length > 0) return;
+  const project = (await get(`${base}/projects`)).projects.find((x: { archivedAt: string | null }) => !x.archivedAt);
+  const warehouse = (await post(`${base}/stock/warehouses`, { projectId: project.id, name: `Бар ${project.name}` })).warehouse.id as number;
+  const group = (await post(`${base}/stock/groups`, { name: 'Напитки' })).group.id as number;
+  const item = async (name: string, salePrice: number, extra: Record<string, unknown> = {}) =>
+    (await post(`${base}/stock/items`, { name, unit: 'pcs', salePrice, ...extra })).item.id as number;
+  const cola = await item('Кола 0,5', 50_000, { groupId: group });
+  const chips = await item('Чипсы', 70_000, { minQty: 5000 });
+  const supplier = (await post(`${base}/counterparties`, { type: 'supplier', name: 'Поставщик А' })).counterparty.id as number;
+  await post(`${base}/stock/docs`, {
+    type: 'receipt',
+    at: '2026-10-08T10:00:00.000Z',
+    warehouseId: warehouse,
+    counterpartyId: supplier,
+    lines: [
+      { itemId: cola, qty: 24_000, amount: 240_000 },
+      { itemId: chips, qty: 3000, amount: 21_000 },
+    ],
+  });
+  await post(`${base}/stock/docs`, { type: 'sale', at: '2026-10-09T10:00:00.000Z', warehouseId: warehouse, lines: [{ itemId: cola, qty: 6000, amount: 300_000 }] });
+};
+const stockTable = (p: Page) => p.getByRole('main').getByRole('table', { name: 'Остатки' });
+
 /** Экраны, которые уже есть. Следующие планы этапа 1.5 добавляют сюда свои. */
 const SCENARIOS: Scenario[] = [
   { ours: 'c01-log.png', finmap: '01-log.png', path: 'log' },
@@ -481,6 +517,52 @@ const SCENARIOS: Scenario[] = [
     act: async (p) => {
       await openImport(p, true);
       await importFile(p, finmapLikeSample(), 'Проверка файла');
+    },
+  },
+  // «Склад» (план Склад-1): остатки, документы, форма поступления; на телефоне — «Остатки» через «Ещё»
+  {
+    ours: 'c44-stock-balance.png',
+    finmap: '44-stock-balance.png',
+    path: 'stock/balance',
+    act: async (p) => {
+      await seedStock(p);
+      await p.reload();
+      await stockTable(p).getByRole('row').filter({ hasText: 'Кола 0,5' }).first().waitFor();
+      await stockTable(p).getByRole('button', { name: 'Партии: Кола 0,5' }).click();
+    },
+  },
+  {
+    ours: 'c45-stock-docs.png',
+    finmap: '45-stock-docs.png',
+    path: 'stock/docs',
+    act: async (p) => {
+      await seedStock(p);
+      await p.reload();
+      await p.getByRole('main').getByRole('table', { name: 'Документы' }).locator('tbody tr').first().waitFor();
+    },
+  },
+  {
+    ours: 'c46-stock-receipt-form.png',
+    finmap: '46-stock-receipt-form.png',
+    path: 'stock/docs',
+    act: async (p) => {
+      await seedStock(p);
+      await p.reload();
+      await p.getByRole('main').getByRole('button', { name: '+ Поступление' }).click();
+      await p.getByRole('dialog', { name: 'Новое поступление' }).getByRole('group', { name: 'Строка 1' }).waitFor();
+    },
+  },
+  {
+    ours: 'cm05-stock.png',
+    finmap: 'm05-stock.png',
+    phone: true,
+    path: 'log',
+    act: async (p) => {
+      await seedStock(p);
+      await p.reload();
+      await p.getByRole('navigation', { name: 'Разделы', exact: true }).getByRole('button', { name: 'Ещё', exact: true }).click();
+      await p.getByRole('dialog', { name: 'Ещё', exact: true }).getByRole('link', { name: 'Склад' }).click();
+      await stockTable(p).getByRole('row').filter({ hasText: 'Кола 0,5' }).first().waitFor();
     },
   },
   {

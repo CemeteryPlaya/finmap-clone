@@ -34,7 +34,7 @@ export function StockPage() {
   const [search, setSearch] = useSearchParams();
   if (!warehouses.data) {
     return (
-      <section>
+      <section key={company.id}>
         <h1 className="mb-4 text-2xl font-bold">Склад</h1>
         <Pending queries={[warehouses]} />
       </section>

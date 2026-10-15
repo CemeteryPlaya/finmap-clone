@@ -426,6 +426,85 @@ test('оплата закупки: из расхода журнала, «Опл�
   expect(income.items.filter((o) => o.type === 'income')).toMatchObject([{ comment: 'Продажа Р-0001', amount: 100_000 }]);
 });
 
+test('телефон: «Ещё» → «Склад», остатки без лишних колонок, поступление в окне на весь экран', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Телефон склад ${Date.now()}`);
+  const s = await stockSetup(page, cid);
+  await apiPost(page, `${s.base}/stock/docs`, { type: 'receipt', at: hoursAgo(5), warehouseId: s.warehouse, counterpartyId: s.supplier, lines: [{ itemId: s.cola, qty: 10_000, amount: 100_000 }] });
+
+  const phone = { width: 390, height: 844 };
+  await page.setViewportSize(phone);
+  await page.goto(`/c/${cid}/log`);
+  // вкладок-пилюль на телефоне нет: «Склад» — в меню «Ещё» нижней панели
+  await expect(page.getByRole('main').getByRole('link', { name: 'Склад', exact: true })).toBeHidden();
+  await page.getByRole('navigation', { name: 'Разделы', exact: true }).getByRole('button', { name: 'Ещё', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Ещё', exact: true }).getByRole('link', { name: 'Склад' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/stock/balance$`));
+  await expect(page.getByRole('heading', { level: 1, name: 'Склад' })).toBeFocused();
+
+  // остатки: на узком экране только товар, остаток и себестоимость; страница не прокручивается вбок
+  const balance = main(page).getByRole('table', { name: 'Остатки' });
+  await expect(balance.getByRole('row').filter({ hasText: 'Кола 0,5' }).first()).toContainText('10 шт');
+  await expect(balance.getByRole('columnheader', { name: 'Цена продажи' })).toBeHidden();
+  await expect(balance.getByRole('columnheader', { name: 'Себестоимость' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  // документы: форма поступления — окно на весь экран
+  await main(page).getByRole('link', { name: 'Документы', exact: true }).click();
+  await main(page).getByRole('button', { name: '+ Поступление' }).click();
+  const receipt = page.getByRole('dialog', { name: 'Новое поступление' });
+  const box = (await receipt.boundingBox())!;
+  expect([Math.round(box.width), Math.round(box.height)]).toEqual([phone.width, phone.height]);
+  await receipt.getByLabel('Склад', { exact: true }).selectOption({ label: 'Бар Клуб 1' });
+  const line = receipt.getByRole('group', { name: 'Строка 1' });
+  await line.getByRole('combobox', { name: 'Товар', exact: true }).click();
+  await page.getByRole('option', { name: 'Чипсы' }).click();
+  await line.getByLabel('Количество, шт').fill('5');
+  await line.getByLabel('Сумма, ₸').fill('250');
+  await expect(line.getByLabel('Цена, ₸')).toHaveValue('50');
+  expect(await receipt.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await receipt.getByRole('button', { name: 'Добавить поступление' }).click();
+  await expect(receipt).toBeHidden();
+  await expect(main(page).getByRole('table', { name: 'Документы' }).getByRole('row').filter({ hasText: 'П-0002' })).toContainText(/250\s*₸/);
+});
+
+test('одновременная правка документа: «Документ изменён другим пользователем» и «Загрузить актуальный»', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Конфликт ${Date.now()}`);
+  const s = await stockSetup(page, cid);
+  const created = await apiPost(page, `${s.base}/stock/docs`, { type: 'receipt', at: hoursAgo(5), warehouseId: s.warehouse, counterpartyId: s.supplier, lines: [{ itemId: s.cola, qty: 1000, amount: 10_000 }] });
+  await page.goto(`/c/${cid}/stock/docs`);
+  await main(page).getByRole('table', { name: 'Документы' }).getByRole('button', { name: 'Открыть поступление П-0001' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Поступление П-0001' });
+  await dialog.getByLabel('Комментарий').fill('моя правка');
+  // тем временем другой пользователь правит тот же документ
+  const res = await page.request.patch(`${s.base}/stock/docs/${created.doc.id}`, { data: { version: 1, comment: 'чужая правка' }, headers: csrf(page) });
+  expect(res.status()).toBe(200);
+  await dialog.getByRole('button', { name: 'Сохранить изменения' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Документ изменён другим пользователем');
+  await dialog.getByRole('button', { name: 'Загрузить актуальный' }).click();
+  await expect(dialog.getByLabel('Комментарий')).toHaveValue('чужая правка');
+});
+
+test('архивная компания: склад только для чтения — кнопок создания нет, документ открывается без кнопок сохранения', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Архив склад ${Date.now()}`);
+  const s = await stockSetup(page, cid);
+  await apiPost(page, `${s.base}/stock/docs`, { type: 'receipt', at: hoursAgo(5), warehouseId: s.warehouse, lines: [{ itemId: s.cola, qty: 1000, amount: 10_000 }] });
+  await apiPost(page, `/api/v1/companies/${cid}/archive`, {});
+
+  await page.goto(`/c/${cid}/stock/docs`);
+  await expect(main(page).getByText('Компания в архиве — изменения недоступны.')).toBeVisible();
+  await expect(main(page).getByRole('button', { name: '+ Поступление' })).toHaveCount(0);
+  await main(page).getByRole('table', { name: 'Документы' }).getByRole('button', { name: 'Открыть поступление П-0001' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Поступление П-0001' });
+  await expect(dialog.getByRole('button', { name: 'Сохранить изменения' })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Удалить документ' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await main(page).getByRole('link', { name: 'Товары', exact: true }).click();
+  await expect(main(page).getByRole('button', { name: '+ Товар' })).toHaveCount(0);
+});
+
 test('форма документа: подсказка про единицу товара; фокус при добавлении и удалении строки', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Строки ${Date.now()}`);
