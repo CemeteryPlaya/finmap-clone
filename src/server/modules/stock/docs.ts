@@ -10,7 +10,7 @@ import {
 } from '../../../shared/schemas/stock';
 import { formatQty, qtyError, UNIT_LABELS } from '../../../shared/stock-qty';
 import type { Db, Executor } from '../../db/client';
-import { counterparties, stockDocLines, stockDocPayments, stockDocs, stockItems, stockWarehouses } from '../../db/schema';
+import { counterparties, stockDocLines, stockDocs, stockItems, stockWarehouses } from '../../db/schema';
 import { AppError } from '../../errors';
 import { changedFields, mutate } from '../audit/mutate';
 import type { AuditEntry, AuditService } from '../audit/service';
@@ -384,8 +384,8 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
           ...(patch.lines !== undefined ? { lines: patch.lines } : {}),
         };
         const draft = check(tx, companyId, next, prev);
-        // поставщика поступления с оплатами менять нельзя: оплаты проведены расходами на прежнего контрагента
-        if (draft.counterpartyId !== prev.counterpartyId && tx.select({ docId: stockDocPayments.docId }).from(stockDocPayments).where(eq(stockDocPayments.docId, id)).limit(1).get()) {
+        // поставщика поступления с оплатами менять нельзя: оплаты проведены расходами на прежнего контрагента (удалённые расходы не считаются)
+        if (draft.counterpartyId !== prev.counterpartyId && docPayments(tx, id).length > 0) {
           throw new AppError(422, 'STOCK_DOC_HAS_PAYMENTS', 'У поступления есть оплаты — сначала снимите их в расходах');
         }
         const changes = changedFields(prev, draft);

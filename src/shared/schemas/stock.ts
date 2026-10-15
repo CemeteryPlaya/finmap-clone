@@ -29,6 +29,9 @@ export const WRITEOFF_REASON_LABELS: Record<WriteoffReason, string> = {
 
 const id = z.number().int().positive();
 const money = z.number().int('Сумма — целое число минимальных единиц').min(0, 'Сумма не меньше нуля').max(Number.MAX_SAFE_INTEGER, 'Слишком большая сумма');
+/** Сумма строки документа склада: не больше 10^13 минимальных единиц, чтобы суммы по документам оставались точными. */
+export const STOCK_LINE_AMOUNT_MAX = 10_000_000_000_000;
+const lineMoney = money.max(STOCK_LINE_AMOUNT_MAX, 'Сумма слишком большая');
 const nullableText = (max: number) =>
   z
     .string()
@@ -73,7 +76,7 @@ const docLine = z.object({
   itemId: id,
   qty: z.number().int('Количество — целое число тысячных долей').min(1, 'Количество больше нуля').max(QTY_MAX, 'Слишком большое количество'),
   /** У поступления — сумма закупки по строке, у продажи — сумма продажи; у списания не передаётся. */
-  amount: money.nullable().default(null),
+  amount: lineMoney.nullable().default(null),
 });
 const docLines = z.array(docLine).min(1, 'Добавьте хотя бы одну строку').max(STOCK_DOC_LINES_MAX, `Не больше ${STOCK_DOC_LINES_MAX} строк`);
 const docComment = nullableText(STOCK_COMMENT_MAX);

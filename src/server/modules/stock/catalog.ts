@@ -3,6 +3,7 @@ import { todayInTimezone } from '../../../shared/dates';
 import type { StockItemCreate, StockItemUpdate } from '../../../shared/schemas/stock';
 import { foldCase } from '../../../shared/search';
 import { priceAt, type PricePoint } from '../../../shared/stock-price';
+import { qtyError, type StockUnit } from '../../../shared/stock-qty';
 import { cleanName } from '../../../shared/text';
 import type { Db } from '../../db/client';
 import { stockDocLines, stockItemGroups, stockItemPrices, stockItems } from '../../db/schema';
@@ -84,6 +85,13 @@ export function createStockCatalogService(d: { db: Db; audit: AuditService; time
       throw new AppError(422, 'ARCHIVED_DUPLICATE', `Группа «${clash.name}» есть в архиве — верните её из архива`, { name: 'Такая группа есть в архиве' });
     }
     throw new AppError(400, 'VALIDATION', 'Проверьте заполнение полей', { name: 'Такая группа уже есть' });
+  }
+
+  /** Порог «Мало» — количество в тех же долях, что и строки документов: у «шт» и «уп» дробей нет. */
+  function assertMinQty(minQty: number | null, unit: StockUnit): void {
+    if (minQty === null) return;
+    const problem = qtyError(minQty, unit);
+    if (problem) throw new AppError(400, 'VALIDATION', 'Проверьте заполнение полей', { minQty: problem });
   }
 
   function assertItemNameFree(companyId: number, name: string, exceptId?: number): void {
@@ -203,6 +211,7 @@ export function createStockCatalogService(d: { db: Db; audit: AuditService; time
       const name = cleanName(input.name);
       assertItemNameFree(companyId, name);
       assertGroupChoice(companyId, input.groupId, null);
+      assertMinQty(input.minQty, input.unit);
       const id = mutate(
         db,
         audit,
@@ -256,6 +265,9 @@ export function createStockCatalogService(d: { db: Db; audit: AuditService; time
       );
       if (!changes) return dto(before);
       if (changes.after.name !== undefined) assertItemNameFree(companyId, changes.after.name, id);
+      if (changes.after.minQty !== undefined || changes.after.unit !== undefined) {
+        assertMinQty(changes.after.minQty !== undefined ? changes.after.minQty : before.minQty, changes.after.unit ?? before.unit);
+      }
       if (changes.after.groupId !== undefined) assertGroupChoice(companyId, changes.after.groupId, before.groupId);
       if (changes.after.unit !== undefined) {
         const used = db.select({ n: count() }).from(stockDocLines).where(eq(stockDocLines.itemId, id)).get()?.n ?? 0;

@@ -308,7 +308,9 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
           .get();
         writeLinesAndTags(tx, row.id, draft, baseAmount);
         if (draft.stockPayments?.length) replaceOperationPayments(tx, row.id, draft.stockPayments);
-        record({ companyId, userId, entity: 'operation', entityId: row.id, action: 'create', diff: { ...draft, rate, baseAmount } });
+        const { stockPayments, ...rest } = draft;
+        const auditDiff = { ...rest, ...(stockPayments?.length ? { stockPayments } : {}), rate, baseAmount };
+        record({ companyId, userId, entity: 'operation', entityId: row.id, action: 'create', diff: auditDiff });
         return row.id;
       });
       return load(companyId, id);

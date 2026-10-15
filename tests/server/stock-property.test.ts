@@ -103,6 +103,7 @@ function assertInvariants(world: StockWorld, label: string): void {
 
 describe('случайные последовательности документов (§13)', () => {
   it('после любой последовательности создания, правки и удаления инварианты FIFO сохраняются', async () => {
+    let insufficient = 0;
     for (const seed of [11, 22, 33, 44]) {
       const world = await stockWorld('2026-10-06T12:00:00.000Z');
       w = world;
@@ -174,7 +175,10 @@ describe('случайные последовательности докумен
         } else continue;
         expect([200, 201, 422], `${label}: ${res.body}`).toContain(res.statusCode);
         if (res.statusCode !== 422) saved++;
-        if (res.statusCode === 422) expect(res.json().error.code, label).toBe('INSUFFICIENT_STOCK');
+        if (res.statusCode === 422) {
+          expect(res.json().error.code, label).toBe('INSUFFICIENT_STOCK');
+          insufficient++;
+        }
         assertInvariants(world, label);
       }
       expect(saved, `seed ${seed}: последовательность не пустая`).toBeGreaterThan(20);
@@ -182,5 +186,6 @@ describe('случайные последовательности докумен
       await world.h.t.cleanup();
       w = null;
     }
+    expect(insufficient, 'INSUFFICIENT_STOCK сработал хотя бы раз за весь прогон').toBeGreaterThan(0);
   }, 120_000);
 });

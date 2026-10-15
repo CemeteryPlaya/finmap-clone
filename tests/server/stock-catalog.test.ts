@@ -166,3 +166,23 @@ describe('архивная компания', () => {
     }
   });
 });
+
+describe('порог «Мало» и единица (R14)', () => {
+  it('у «шт» и «уп» порог целый, у «л» дробный допустим; правка порога и единицы проверяется так же', async () => {
+    const { w, stock } = await setup();
+    const bad = await w.h.req('POST', `${stock}/items`, { name: 'Кола 0,5', unit: 'pcs', minQty: 1500 });
+    expect([bad.statusCode, bad.json().error.fields.minQty]).toEqual([400, 'Количество в штуках — целое']);
+    const pack = await w.h.req('POST', `${stock}/items`, { name: 'Чипсы', unit: 'pack', minQty: 2500 });
+    expect([pack.statusCode, pack.json().error.fields.minQty]).toEqual([400, 'Количество в штуках — целое']);
+    const syrup = await w.h.req('POST', `${stock}/items`, { name: 'Сироп', unit: 'l', minQty: 1500 });
+    expect([syrup.statusCode, syrup.json().item.minQty]).toEqual([201, 1500]);
+    const cola = (await w.post(`${stock}/items`, { name: 'Кола', unit: 'pcs', minQty: 2000 })).item;
+    const patchBad = await w.h.req('PATCH', `${stock}/items/${cola.id}`, { minQty: 2500 });
+    expect([patchBad.statusCode, patchBad.json().error.fields.minQty]).toEqual([400, 'Количество в штуках — целое']);
+    // смена единицы на «шт» при дробном пороге тоже отклоняется
+    const toPcs = await w.h.req('PATCH', `${stock}/items/${syrup.json().item.id}`, { unit: 'pcs' });
+    expect([toPcs.statusCode, toPcs.json().error.fields.minQty]).toEqual([400, 'Количество в штуках — целое']);
+    const fine = await w.h.req('PATCH', `${stock}/items/${cola.id}`, { minQty: 3000 });
+    expect([fine.statusCode, fine.json().item.minQty]).toEqual([200, 3000]);
+  });
+});

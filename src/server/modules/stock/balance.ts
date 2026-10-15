@@ -96,7 +96,7 @@ export function createStockBalanceService(d: { db: Db; timezone: string; now?: (
                d.warehouse_id AS warehouseId, d.counterparty_id AS counterpartyId, l.item_id AS itemId, l.qty AS qty, l.amount AS amount
           FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id
          WHERE d.company_id = ${companyId} AND d.deleted_at IS NULL AND d.status = 'posted' AND d.type IN ('receipt', 'sale', 'writeoff')
-           ${q.warehouse ? sql`AND d.warehouse_id = ${q.warehouse}` : sql.empty()}
+           ${q.warehouse ? sql`AND d.warehouse_id = ${q.warehouse}` : sql`AND d.warehouse_id IN (SELECT id FROM stock_warehouses WHERE company_id = ${companyId} AND archived_at IS NULL)`}
            ${bound ? sql`AND d.at < ${bound}` : sql.empty()}`);
 
       const pairs = new Map<string, Row[]>();

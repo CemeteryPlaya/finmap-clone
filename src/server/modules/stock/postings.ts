@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Db, Executor } from '../../db/client';
-import { accounts, counterparties, operations, stockDocPostings, stockDocs, stockWarehouses } from '../../db/schema';
+import { accounts, counterparties, operations, projects, stockDocPostings, stockDocs, stockWarehouses } from '../../db/schema';
 import { AppError } from '../../errors';
 import { mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
@@ -86,6 +86,9 @@ export function createStockPostingsService(d: { db: Db; audit: AuditService; ope
             throw new AppError(422, 'VALIDATION', message, { accountId: message });
           }
           const wh = tx.select().from(stockWarehouses).where(eq(stockWarehouses.id, doc.warehouseId)).get()!;
+          // проект склада в архиве: операция журнала его не примет, а выбрать другой проект при проведении нельзя
+          const project = tx.select({ archivedAt: projects.archivedAt }).from(projects).where(eq(projects.id, wh.projectId)).get();
+          if (project?.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Проект склада в архиве — верните проект из архива, чтобы провести продажу');
           // покупатель мог уйти в архив: операция журнала ссылку на архивного контрагента не примет
           const buyer = doc.counterpartyId === null ? null : tx.select().from(counterparties).where(eq(counterparties.id, doc.counterpartyId)).get();
           const counterpartyId = buyer && !buyer.archivedAt ? buyer.id : null;

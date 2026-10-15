@@ -34,7 +34,7 @@ describe('остатки', () => {
       cost: 120_000,
       avgCost: 15_000,
       salePrice: 50_000,
-      markupBp: 23_333, // (500 − 150) / 150 = 233,33 %
+      markupBp: 23_333, // (500 \u2212 150) / 150 = 233,33 %
       low: false,
     });
     expect(itemRow(b, w.cola).batches).toEqual([
@@ -157,5 +157,19 @@ describe('стоимость складов и левая панель (§4.4)',
     expect(after).toEqual(before);
     expect(after.total.amount).toBe(0);
     expect((await w.h.req('GET', `${w.stock}/value`)).json().total).toBe(80_000);
+  });
+});
+
+describe('итог остатков и архивные склады (R11)', () => {
+  it('без фильтра по складу итог не включает архивные склады и совпадает с «Стоимость складов»; по архивному складу явно — считается', async () => {
+    const w = await world();
+    await w.receipt(D1, [[w.cola, 10_000, 100_000]]);
+    await w.doc({ type: 'receipt', at: D1, warehouseId: w.wh2, counterpartyId: w.supplier, lines: [{ itemId: w.cola, qty: 5000, amount: 40_000 }] });
+    expect((await balance(w)).total).toBe(140_000);
+    await w.h.req('POST', `${w.stock}/warehouses/${w.wh2}/archive`);
+    const all = await balance(w);
+    expect([all.total, itemRow(all, w.cola).qty]).toEqual([100_000, 10_000]);
+    expect(all.total).toBe((await w.h.req('GET', `${w.stock}/value`)).json().total);
+    expect((await balance(w, `?warehouse=${w.wh2}`)).total).toBe(40_000);
   });
 });

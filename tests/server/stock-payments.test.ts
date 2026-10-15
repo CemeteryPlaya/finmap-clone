@@ -272,3 +272,33 @@ describe('R1/R3: отмена импорта и смена поставщика 
     expect([res.statusCode, res.json().error.code, res.json().error.message]).toEqual([422, 'STOCK_DOC_HAS_PAYMENTS', 'У поступления есть оплаты — сначала снимите их в расходах']);
   });
 });
+
+describe('смена поставщика и удалённые расходы (R12)', () => {
+  it('единственная оплата удалена вместе с расходом — поставщика поступления сменить можно; пока расход жив — нельзя', async () => {
+    const w = await world();
+    const other = (await w.post(`/api/v1/companies/${w.cid}/counterparties`, { type: 'supplier', name: 'Поставщик Б' })).counterparty.id as number;
+    const r = await w.receipt(D1, [[w.cola, 1000, 100_000]]);
+    const created = await expense(w, { stockPayments: [{ docId: r.id, amount: 100_000 }] });
+    expect(created.statusCode).toBe(201);
+    const opId = created.json().operation.id as number;
+    const blocked = await w.h.req('PATCH', `${w.stock}/docs/${r.id}`, { version: 1, counterpartyId: other });
+    expect([blocked.statusCode, blocked.json().error.code]).toEqual([422, 'STOCK_DOC_HAS_PAYMENTS']);
+    expect((await w.h.req('DELETE', `${w.ops}/${opId}`)).statusCode).toBe(200);
+    const res = await w.h.req('PATCH', `${w.stock}/docs/${r.id}`, { version: 1, counterpartyId: other });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().doc.counterpartyId).toBe(other);
+  });
+});
+
+describe('история создания расхода (R9)', () => {
+  it('создание расхода без оплат складских документов не пишет stockPayments в историю; с оплатами — пишет', async () => {
+    const w = await world();
+    const r = await w.receipt(D1, [[w.cola, 1000, 100_000]]);
+    const diffs = () =>
+      (w.h.t.sqlite.prepare("SELECT diff FROM audit_log WHERE entity = 'operation' AND action = 'create' ORDER BY id").all() as { diff: string }[]).map((x) => JSON.parse(x.diff) as Record<string, unknown>);
+    expect((await expense(w)).statusCode).toBe(201);
+    expect(diffs()[0]).not.toHaveProperty('stockPayments');
+    expect((await expense(w, { stockPayments: [{ docId: r.id, amount: 100_000 }] })).statusCode).toBe(201);
+    expect(diffs()[1]).toMatchObject({ stockPayments: [{ docId: r.id, amount: 100_000 }] });
+  });
+});

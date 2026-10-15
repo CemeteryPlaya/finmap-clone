@@ -171,3 +171,48 @@ describe('правила проведения и откат', () => {
     expect(w.h.auditCount('stock_doc', 'update')).toBe(1);
   });
 });
+
+describe('проект склада в архиве (R13)', () => {
+  it('проведение продажи склада с архивным проектом — понятный 422 до создания операции', async () => {
+    const w = await world();
+    const sale = await w.sale(D2, [[w.cola, 1000, 50_000]]);
+    w.h.t.sqlite.prepare("UPDATE projects SET archived_at = '2026-10-06T00:00:00.000Z' WHERE id = ?").run(w.project);
+    const res = await journal(w, sale.id);
+    expect([res.statusCode, res.json().error.code, res.json().error.message]).toEqual([
+      422,
+      'ARCHIVED_REFERENCE',
+      'Проект склада в архиве — верните проект из архива, чтобы провести продажу',
+    ]);
+    expect(opCount(w)).toBe(0);
+    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM stock_doc_postings').get()).toEqual({ n: 0 });
+  });
+});
+
+describe('защита проведения (R15)', () => {
+  it('второе проведение через другой путь — отказ; первичный ключ doc_id не даёт вставить вторую связь', async () => {
+    const w = await world();
+    const sale = await w.sale(D2, [[w.cola, 1000, 50_000]]);
+    const first = (await journal(w, sale.id)).json();
+    // «другой путь»: запрос с другим счётом и категорией после перечитывания документа
+    expect((await getDoc(w, sale.id)).posting).toEqual({ operationId: first.operationId, amount: 50_000 });
+    const again = await journal(w, sale.id, { accountId: w.kzt, categoryId: w.income });
+    expect([again.statusCode, again.json().error.code]).toEqual([422, 'ALREADY_POSTED']);
+    expect(opCount(w)).toBe(1);
+    // на уровне БД вторая связь с тем же документом невозможна
+    const spareOp = w.h.t.sqlite.prepare('SELECT id FROM operations LIMIT 1').get() as { id: number };
+    expect(() => w.h.t.sqlite.prepare('INSERT INTO stock_doc_postings (doc_id, operation_id) VALUES (?, ?)').run(sale.id, spareOp.id)).toThrow(/UNIQUE|PRIMARY KEY/);
+    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM stock_doc_postings').get()).toEqual({ n: 1 });
+  });
+
+  it('жёсткое удаление операции проведения убирает строку stock_doc_postings (каскад), продажу можно провести снова', async () => {
+    const w = await world();
+    const sale = await w.sale(D2, [[w.cola, 1000, 50_000]]);
+    const { operationId } = (await journal(w, sale.id)).json();
+    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM stock_doc_postings').get()).toEqual({ n: 1 });
+    w.h.t.sqlite.prepare('DELETE FROM operation_lines WHERE operation_id = ?').run(operationId);
+    w.h.t.sqlite.prepare('DELETE FROM operations WHERE id = ?').run(operationId);
+    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM stock_doc_postings').get()).toEqual({ n: 0 });
+    expect((await getDoc(w, sale.id)).posting).toBeNull();
+    expect((await journal(w, sale.id)).statusCode).toBe(201);
+  });
+});

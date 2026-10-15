@@ -380,3 +380,16 @@ describe('оплаты поступления и отмена импорта', (
     expect(sql("SELECT id FROM projects WHERE name = 'Клуб 9'").id).toBe(project);
   });
 });
+
+describe('предел суммы строки (R10)', () => {
+  it('сумма строки до 10^13 принимается, выше — 400 «Сумма слишком большая» по строке', async () => {
+    const w = await world();
+    const body = (amount: number) => ({ type: 'receipt', at: D1, warehouseId: w.wh, counterpartyId: w.supplier, lines: [{ itemId: w.cola, qty: 1000, amount }] });
+    const ok = await w.h.req('POST', `${w.stock}/docs`, body(10_000_000_000_000));
+    expect(ok.statusCode, ok.body).toBe(201);
+    const big = await w.h.req('POST', `${w.stock}/docs`, body(10_000_000_000_001));
+    expect([big.statusCode, big.json().error.code, big.json().error.fields['lines.0.amount']]).toEqual([400, 'VALIDATION', 'Сумма слишком большая']);
+    const patch = await w.h.req('PATCH', `${w.stock}/docs/${ok.json().doc.id}`, { version: 1, lines: [{ itemId: w.cola, qty: 1000, amount: 20_000_000_000_000 }] });
+    expect([patch.statusCode, patch.json().error.fields['lines.0.amount']]).toEqual([400, 'Сумма слишком большая']);
+  });
+});
