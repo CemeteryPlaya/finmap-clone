@@ -146,6 +146,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     bulk: createBulkService({ db, operations }),
   });
   registerStockRoutes(app, {
+    db,
     catalog: createStockCatalogService({ db, audit, timezone: config.timezone, now }),
     warehouses: createStockWarehousesService({ db, audit, now }),
     docs: createStockDocsService({ db, audit, timezone: config.timezone, now }),

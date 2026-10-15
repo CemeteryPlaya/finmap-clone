@@ -15,6 +15,7 @@ import { AppError } from '../../errors';
 import { changedFields, mutate } from '../audit/mutate';
 import type { AuditEntry, AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
+import { docPayments, paidByDoc, type DocPayment } from './payments';
 import { buildPair, clearPair, storedSigs, uniquePairs, type LineSig, type Pair } from './recalc';
 
 export type StockDocRow = typeof stockDocs.$inferSelect;
@@ -36,11 +37,16 @@ export interface StockDocDto extends StockDocRow {
   lines: StockDocLineDto[];
   /** Сумма строк (поступление, продажа); у списания 0. */
   total: number;
+  /** Оплачено расходами журнала (поступление); у остальных 0. Долг = total \u2212 paid, отрицательный — переплата. */
+  paid: number;
+  /** Расходы журнала, которые платят по поступлению. */
+  payments: DocPayment[];
 }
 
 export interface StockDocListItem extends StockDocRow {
   total: number;
   linesCount: number;
+  paid: number;
 }
 
 /** Чем документ меняет чужие проведённые документы (§5.4): окно сохранения предупреждает «Изменится себестоимость {N} продаж после {даты}». */
@@ -119,7 +125,8 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
         uncovered: out ? l.qty - (s?.covered ?? 0) : 0,
       };
     });
-    return { ...row, lines: dtoLines, total: dtoLines.reduce((s, l) => s + (l.amount ?? 0), 0) };
+    const payments = row.type === 'receipt' ? docPayments(ex, row.id) : [];
+    return { ...row, lines: dtoLines, total: dtoLines.reduce((s, l) => s + (l.amount ?? 0), 0), paid: payments.reduce((s, p) => s + p.amount, 0), payments };
   }
 
   function draftOf(dto: StockDocDto): Draft {
@@ -287,8 +294,9 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
             FROM stock_doc_lines WHERE doc_id IN (${sql.join(page.map((r) => sql`${r.id}`), sql`, `)}) GROUP BY doc_id`);
         for (const a of agg) totals.set(a.docId, { total: a.total, n: a.n });
       }
+      const paid = paidByDoc(db, page.filter((r) => r.type === 'receipt').map((r) => r.id));
       return {
-        docs: page.map((r) => ({ ...r, total: totals.get(r.id)?.total ?? 0, linesCount: totals.get(r.id)?.n ?? 0 })),
+        docs: page.map((r) => ({ ...r, total: totals.get(r.id)?.total ?? 0, linesCount: totals.get(r.id)?.n ?? 0, paid: paid.get(r.id) ?? 0 })),
         hasMore: rows.length > q.limit,
       };
     },

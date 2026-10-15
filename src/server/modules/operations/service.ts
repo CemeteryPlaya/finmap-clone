@@ -10,6 +10,7 @@ import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import type { RatesService } from '../rates/service';
+import { assertOperationPayments, operationPayments, replaceOperationPayments, type StockPaymentDto, type StockPaymentInput } from '../stock/payments';
 
 export type OperationType = 'income' | 'expense' | 'transfer';
 
@@ -32,6 +33,8 @@ export interface OperationInput {
   comment: string | null;
   lines: LineInput[];
   tagIds: number[];
+  /** Оплата закупки: какие поступления склада гасит этот расход. Нет поля — оплат нет. */
+  stockPayments?: StockPaymentInput[];
 }
 
 export interface OperationLineDto extends LineInput {
@@ -45,6 +48,8 @@ export type OperationRow = typeof operations.$inferSelect;
 export interface OperationDto extends OperationRow {
   lines: OperationLineDto[];
   tagIds: number[];
+  /** Оплаты закупок расхода с номерами поступлений; у строк журнала не заполняется. */
+  stockPayments?: StockPaymentDto[];
 }
 
 export interface OperationPatch extends Partial<Omit<OperationInput, 'type'>> {
@@ -102,7 +107,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
       .all()
       .map((t) => t.tagId)
       .sort((a, b) => a - b);
-    return { ...row, lines, tagIds };
+    return { ...row, lines, tagIds, stockPayments: operationPayments(db, id) };
   }
 
   function draftOf(op: OperationDto): OperationInput {
@@ -118,6 +123,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
       comment: op.comment,
       lines: op.lines.map((l) => ({ categoryId: l.categoryId, projectId: l.projectId, amount: l.amount })),
       tagIds: op.tagIds,
+      stockPayments: (op.stockPayments ?? []).map((p) => ({ docId: p.docId, amount: p.amount })),
     };
   }
 
@@ -143,6 +149,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
       paidAt: new Date(input.paidAt).toISOString(),
       lines: input.lines.map((l) => ({ categoryId: l.categoryId, projectId: l.projectId, amount: l.amount })),
       tagIds: [...new Set(input.tagIds)].sort((a, b) => a - b),
+      stockPayments: (input.stockPayments ?? []).map((p) => ({ docId: p.docId, amount: p.amount })).sort((a, b) => a.docId - b.docId),
     };
     const acc = account(companyId, draft.accountId, 'accountId');
     let toAcc: AccountRow | null = null;
@@ -231,6 +238,14 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
       if (archivedTag) throw archivedRef(`Тег «${archivedTag.name}» в архиве — выберите другой`);
     }
 
+    // оплаты закупок: расход со счёта в валюте компании, поставщик и поступления из этой компании (§6.1)
+    assertOperationPayments(
+      db,
+      companyId,
+      { type: draft.type, amount: draft.amount, counterpartyId: draft.counterpartyId, accountCurrency: acc.currency, baseCurrency: requireCompany(db, companyId).baseCurrency },
+      draft.stockPayments ?? [],
+    );
+
     return { draft, account: acc, toAccount: toAcc };
   }
 
@@ -292,6 +307,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
           .returning({ id: operations.id })
           .get();
         writeLinesAndTags(tx, row.id, draft, baseAmount);
+        if (draft.stockPayments?.length) replaceOperationPayments(tx, row.id, draft.stockPayments);
         record({ companyId, userId, entity: 'operation', entityId: row.id, action: 'create', diff: { ...draft, rate, baseAmount } });
         return row.id;
       });
@@ -366,6 +382,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
           .get();
         if (!updated) throw new AppError(409, 'VERSION_CONFLICT', 'Операция изменена другим пользователем');
         writeLinesAndTags(tx, id, draft, baseAmount);
+        if (changes.after.stockPayments !== undefined) replaceOperationPayments(tx, id, draft.stockPayments ?? []);
         record({
           companyId,
           userId,

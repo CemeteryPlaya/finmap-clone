@@ -27,6 +27,8 @@ const line = z.object({
 });
 const lines = z.array(line).max(50, 'Не больше 50 строк');
 const tagIds = z.array(id).max(20, 'Не больше 20 тегов');
+/** Оплата закупки (§6.1 спецификации «Склад»): сколько этот расход платит по поступлению. */
+const stockPayments = z.array(z.object({ docId: id, amount: money })).max(50, 'Не больше 50 оплат');
 
 export const operationCreateSchema = z.object({
   type: z.enum(['income', 'expense', 'transfer'], { message: 'Неверный тип операции' }),
@@ -40,6 +42,7 @@ export const operationCreateSchema = z.object({
   comment: comment.optional(),
   lines: lines.default([]),
   tagIds: tagIds.default([]),
+  stockPayments: stockPayments.default([]),
 });
 
 export const operationUpdateSchema = z.object({
@@ -57,6 +60,8 @@ export const operationUpdateSchema = z.object({
   comment: comment.optional(),
   lines: lines.optional(),
   tagIds: tagIds.optional(),
+  /** Без поля оплаты не меняются; список целиком заменяет прежний. */
+  stockPayments: stockPayments.optional(),
 });
 
 /**
