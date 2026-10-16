@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ReportRow } from '../../src/shared/report-engine';
-import { cellTitle, columnHint, DEFAULT_EXPANDED, isDrillRow, moneyText, nextCell, percentText, rowLabel, tableLines } from '../../src/client/lib/report-table';
+import { cellTitle, columnHint, DEFAULT_EXPANDED, isDrillRow, moneyText, nextCell, noBatchText, percentText, ROW_HELP, rowLabel, tableLines } from '../../src/client/lib/report-table';
 
 const row = (id: string, kind: ReportRow['kind'], values: (number | null)[], children?: ReportRow[], extra: Partial<ReportRow> = {}): ReportRow => ({
   id,
@@ -96,5 +96,30 @@ describe('строки таблицы отчёта (§4.1)', () => {
     expect(nextCell(grid, { row: 2, col: 0 }, 'End')).toEqual({ row: 2, col: 2 });
     expect(nextCell(grid, { row: 2, col: 0 }, 'Home')).toBeNull();
     expect(nextCell(grid, { row: 0, col: 1 }, 'ArrowRight')).toBeNull();
+  });
+});
+
+describe('«Прибыль» в таблице (§5.2, §5.3)', () => {
+  it('«Прибыль» выделена, как итог; строки склада — с пояснением «?», в операции не раскрываются', () => {
+    const lines = tableLines(
+      [row('profit', 'info', [700]), row('income', 'group', [1000]), row('expense', 'group', [300], [row('expense:stock:cogs', 'stock', [300])])],
+      new Set(DEFAULT_EXPANDED),
+    );
+    expect(lines.map((l) => [l.row.id, l.tone, l.group?.id ?? null])).toEqual([
+      ['profit', 'total', null],
+      ['income', 'group', 'income'],
+      ['expense', 'group', 'expense'],
+      ['expense:stock:cogs', 'plain', 'expense'],
+    ]);
+    expect(isDrillRow(row('profit', 'info', [700]))).toBe(true);
+    expect(isDrillRow(row('expense:stock:cogs', 'stock', [300]))).toBe(false);
+    expect(ROW_HELP['expense:stock:cogs']).toMatch(/FIFO/);
+    expect(ROW_HELP['expense:stock:writeoff']).toMatch(/Списание/);
+  });
+
+  it('предупреждение «Нет партии»: 1, 21 — «продажи», 2, 5, 11 — «продаж»', () => {
+    expect(noBatchText(1)).toBe('У 1 продажи себестоимость не определена — прибыль завышена');
+    expect(noBatchText(21)).toBe('У 21 продажи себестоимость не определена — прибыль завышена');
+    for (const n of [2, 5, 11, 111]) expect(noBatchText(n)).toBe(`У ${n} продаж себестоимость не определена — прибыль завышена`);
   });
 });

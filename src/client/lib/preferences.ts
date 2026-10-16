@@ -14,6 +14,14 @@ export function journalWrap(prefs: Record<string, unknown> | undefined): boolean
   return prefs?.[JOURNAL_WRAP_PREF] === true;
 }
 
+/** Баннер над «Прибылью» закрыт (§5.1 спецификации «Аналитика»): настройка пользователя. */
+export const PNL_BANNER_PREF = 'analytics.pnlBannerHidden';
+
+/** Баннер «Прибыли» скрыт. Значение неизвестного вида — по умолчанию (баннер виден). */
+export function pnlBannerHidden(prefs: Record<string, unknown> | undefined): boolean {
+  return prefs?.[PNL_BANNER_PREF] === true;
+}
+
 /**
  * Текст ошибки «Применить» в «Настройках журнала» (§7.5 этапа 1.5, итоги 1.5-1b №5): настройки сохраняются по
  * очереди, на первой ошибке — стоп. Сначала — какая не сохранилась и почему, затем — что уже сохранено.

@@ -37,6 +37,11 @@ export function journalDateParts(iso: string, timeZone: string, today: string): 
   return { date: formatDateShortRu(day), time: `${prefix}${timeLabel(iso, timeZone)}` };
 }
 
+/** «Дата сделки» операции в «Прибыли» (§3.1, §5.2): своя дата сделки, иначе день платежа в поясе приложения. */
+export function dealDay(item: { accrualDate: string | null; paidAt: string }, timeZone: string): string {
+  return item.accrualDate ?? dayOf(item.paidAt, timeZone);
+}
+
 /** Категория в ячейке журнала: название и собственный systemKey (бейдж «системная» — только у самой системной категории). */
 export interface CategoryInfo {
   name: string;

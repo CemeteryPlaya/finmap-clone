@@ -18,6 +18,7 @@ import {
   reportRange,
   reportSearch,
   resetReportState,
+  STOCK_CHOICES,
   stepChoices,
   usesIds,
   withFittingStep,
@@ -47,6 +48,21 @@ describe('настройки отчёта в адресе (§2.2)', () => {
     expect(phoneReportCount(tableOnly)).toBe(0);
     expect(resetReportState(s)).toEqual(tableOnly);
     expect(reportApiParams(s, TODAY).has('view')).toBe(false);
+  });
+
+  it('склад «Прибыли» (§5.3): по умолчанию учитывается; выключенный — stock=0 в адресе и в API, точка, число на телефоне', () => {
+    expect(DEFAULT_REPORT_STATE.stock).toBe(true);
+    expect(parse('stock=0').stock).toBe(false);
+    expect(parse('stock=1').stock).toBe(true);
+    const off: ReportUrlState = { ...DEFAULT_REPORT_STATE, view: 'table', percent: true, stock: false };
+    expect(reportSearch(off).toString()).toBe('view=table&pct=1&stock=0');
+    expect(parse(reportSearch(off).toString())).toEqual(off);
+    expect(reportApiParams(off, TODAY).get('stock')).toBe('0');
+    expect(reportApiParams(DEFAULT_REPORT_STATE, TODAY).has('stock')).toBe(false);
+    expect(changedControls(off).stock).toBe(true);
+    expect(phoneReportCount(off)).toBe(2);
+    expect(resetReportState(off).stock).toBe(true);
+    expect(STOCK_CHOICES.map((c) => c.label)).toEqual(['Учитывать склад по себестоимости', 'Без учёта склада']);
   });
 
   it('проценты считаются изменением только в таблице: в виде «график» контрола нет, pct=1 в адресе не даёт «Сбросить» и число на телефоне', () => {
@@ -133,7 +149,7 @@ describe('параметры API и изменённые контролы', () =
 
   it('точки у изменённых контролов и счётчик фильтра', () => {
     const s: ReportUrlState = { ...DEFAULT_REPORT_STATE, view: 'table', step: 'quarter', percent: true, categoryIds: [1], withoutCategory: true, tagIds: [2] };
-    expect(changedControls(s)).toEqual({ period: false, by: false, step: true, percent: true, filter: true });
+    expect(changedControls(s)).toEqual({ period: false, by: false, step: true, percent: true, stock: false, filter: true });
     expect(reportFilterCount(s)).toBe(2);
     expect(isReportChanged(s)).toBe(true);
     expect(isReportChanged({ ...DEFAULT_REPORT_STATE, withoutCounterparty: true })).toBe(true);

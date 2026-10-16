@@ -12,6 +12,9 @@ import { btnClose, btnSecondary } from '../ui';
 /** Колонки списка под отчётом (§2.5): дата, сумма, счёт с остатком, контрагент, категория, проект, комментарий. */
 export const REPORT_OPERATION_COLUMNS: readonly JournalColumnId[] = ['date', 'amount', 'account', 'counterparty', 'category', 'project', 'comment'];
 
+/** Подпись над списками «Прибыли» (R5): сортировка остаётся по дате платежа. */
+export const DEAL_ORDER_NOTE = 'Новые сверху по дате платежа';
+
 /**
  * Список операций под отчётом (§2.5 спецификации «Аналитика»), общий для отчётов. В таблице — список ячейки: заголовок
  * «{строка} за {колонка}» получает фокус при открытии, «×» закрывает. Под графиками (§4.2) — списки периода в две колонки:
@@ -35,6 +38,8 @@ export function ReportOperations(props: {
   headingLevel?: 2 | 3;
   columns?: readonly JournalColumnId[];
   narrow?: boolean;
+  /** «Прибыль» (§5.2): «Дата сделки» и «Движение денег». */
+  dealDates?: boolean;
 }) {
   const list = useCellOperations(props.company.id, props.params);
   const openForm = useOpenOperationForm();
@@ -63,6 +68,8 @@ export function ReportOperations(props: {
           </button>
         )}
       </div>
+      {/* порядок списка «Прибыли» — по дате платежа, а не сделки (R5); у списков под графиками подпись одна, над ними */}
+      {props.dealDates && !props.narrow && <p className="-mt-1 mb-3 text-sm text-muted">{DEAL_ORDER_NOTE}</p>}
       {!list.data && !list.error ? (
         <p className="py-6 text-center text-muted">Загрузка…</p>
       ) : !list.data ? (
@@ -77,13 +84,23 @@ export function ReportOperations(props: {
       ) : items.length === 0 ? (
         <p className="py-6 text-center text-muted">Операций нет.</p>
       ) : props.mobile ? (
-        <JournalCards items={items} lookups={props.lookups} baseCurrency={props.company.baseCurrency} timeZone={props.timeZone} busy={list.isFetching && !list.isFetchingNextPage} parts={parts} onOpenOperation={open} />
+        <JournalCards
+          items={items}
+          lookups={props.lookups}
+          baseCurrency={props.company.baseCurrency}
+          timeZone={props.timeZone}
+          busy={list.isFetching && !list.isFetchingNextPage}
+          parts={parts}
+          dealDates={props.dealDates}
+          onOpenOperation={open}
+        />
       ) : (
         <JournalTable
           items={items}
-          columns={props.columns ?? REPORT_OPERATION_COLUMNS}
+          columns={props.columns ?? (props.dealDates ? [...REPORT_OPERATION_COLUMNS, 'accrualDate'] : REPORT_OPERATION_COLUMNS)}
           wrap={false}
           narrow={props.narrow}
+          dealDates={props.dealDates}
           lookups={props.lookups}
           baseCurrency={props.company.baseCurrency}
           timeZone={props.timeZone}

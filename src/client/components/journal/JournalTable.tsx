@@ -5,7 +5,7 @@ import { badgeClass } from '../ui';
 import { canAssign, type AssignField } from '../../lib/journal-assign';
 import { JOURNAL_COLUMNS, type JournalColumnId } from '../../lib/journal-columns';
 import type { JournalSortKey, JournalSortOrder } from '../../lib/journal-filter';
-import { journalDateParts, lineDimension, projectShare, signedMoney, splitLabel, type CategoryInfo } from '../../lib/journal-format';
+import { dealDay, journalDateParts, lineDimension, projectShare, signedMoney, splitLabel, type CategoryInfo } from '../../lib/journal-format';
 import { SYSTEM_BADGE } from '../../lib/operation-options';
 import type { Account, JournalItem } from '../../lib/queries';
 import { SplitHint } from './SplitHint';
@@ -44,6 +44,11 @@ export interface JournalTableProps {
   /** Узкая таблица (списки под графиками «Аналитики» в две колонки): меньше колонок и меньшая минимальная ширина. */
   narrow?: boolean;
   /**
+   * Список под «Прибылью» (§5.2): первые колонки — «Дата сделки» (без неё — день платежа), «Сумма», «Движение денег»
+   * (дата и время платежа).
+   */
+  dealDates?: boolean;
+  /**
    * Открыть операцию в форме: клик по строке или кнопка в ячейке даты (с клавиатуры).
    * Не передан — строка не реагирует на клик.
    */
@@ -75,6 +80,9 @@ const thClass = 'px-3 text-left text-xs font-semibold text-muted';
  * а длинный текст обрезается внутри колонки (truncate + title), не раздвигая таблицу. Так при 1440 px
  * все колонки по умолчанию помещаются без горизонтальной прокрутки.
  */
+/** Порядок первых колонок списка «Прибыли» (§5.2): «Дата сделки», «Сумма», «Движение денег». */
+const DEAL_ORDER: readonly JournalColumnId[] = ['accrualDate', 'amount', 'date'];
+
 const COLUMN_WIDTH: Partial<Record<JournalColumnId, string>> = {
   date: 'w-[7.5rem]',
   amount: 'w-[9rem]',
@@ -153,7 +161,13 @@ function Balance({ account, balance }: { account: Account | undefined; balance: 
 
 export function JournalTable(props: JournalTableProps) {
   const { lookups, columns, selection, wrap } = props;
-  const shown = JOURNAL_COLUMNS.filter((c) => columns.includes(c.id));
+  // «Прибыль» (§5.2): «Дата сделки» первой, затем сумма и «Движение денег» (дата платежа), как у Finmap
+  // (в узком списке «Движение денег» — под «Датой сделки» в первой колонке, порядок обычный, R8)
+  const order = props.dealDates && !props.narrow ? [...DEAL_ORDER.map((id) => JOURNAL_COLUMNS.find((c) => c.id === id)!), ...JOURNAL_COLUMNS.filter((c) => !DEAL_ORDER.includes(c.id))] : JOURNAL_COLUMNS;
+  const shown = order.filter((c) => columns.includes(c.id));
+  // узкий список (две колонки, R8): «Движение денег» не отдельная колонка, а вторая строка под «Датой сделки»
+  const stacked = !!props.dealDates && !!props.narrow;
+  const label = (c: (typeof JOURNAL_COLUMNS)[number]) => (props.dealDates && c.id === 'date' ? (stacked ? 'Дата сделки' : 'Движение денег') : c.label);
   const selectedCount = selection ? props.items.filter((i) => selection.selected.has(i.id)).length : 0;
   const allSelected = props.items.length > 0 && selectedCount === props.items.length;
 
@@ -205,10 +219,10 @@ export function JournalTable(props: JournalTableProps) {
             )}
             {shown.map((c) =>
               (c.id === 'date' || c.id === 'amount') && props.onSort ? (
-                <SortHeader key={c.id} label={c.label} column={c.id} sort={props.sort ?? 'date'} order={props.order ?? 'desc'} onSort={props.onSort} className={COLUMN_WIDTH[c.id]} />
+                <SortHeader key={c.id} label={label(c)} column={c.id} sort={props.sort ?? 'date'} order={props.order ?? 'desc'} onSort={props.onSort} className={COLUMN_WIDTH[c.id]} />
               ) : (
                 <th key={c.id} scope="col" className={`${thClass} ${COLUMN_WIDTH[c.id] ?? ''}`}>
-                  {c.label}
+                  {label(c)}
                 </th>
               ),
             )}
@@ -223,9 +237,20 @@ export function JournalTable(props: JournalTableProps) {
             const share = projectShare(item.lines, props.projectFilter);
             const when = journalDateParts(item.paidAt, props.timeZone, props.today);
             const part = props.parts?.get(item.id);
+            // «Дата сделки» в «Прибыли» — и у операции без неё: день платежа (§3.1)
+            const deal = props.dealDates ? dealDay(item, props.timeZone) : item.accrualDate;
             const signed = signedMoney(item.type, part ?? item.amount, currency);
             const assign = (field: AssignField) => (props.renderAssign && canAssign(item, field) ? props.renderAssign(item, field) : null);
-            const dateText = (
+            const dateText = stacked ? (
+              <span className="block whitespace-nowrap text-left">
+                <time dateTime={deal!} className="block">
+                  {formatDateShortRu(deal!)}
+                </time>
+                <time dateTime={item.paidAt} className="block text-xs text-muted">
+                  Движение денег: {when.date}, {when.time}
+                </time>
+              </span>
+            ) : (
               <time dateTime={item.paidAt} className="block whitespace-nowrap text-left">
                 <span className="block">{when.date}</span>
                 <span className="block text-xs text-muted">{when.time}</span>
@@ -267,9 +292,9 @@ export function JournalTable(props: JournalTableProps) {
                   {part !== undefined && <span className="block text-xs text-muted">часть операции</span>}
                 </span>
               ),
-              accrualDate: item.accrualDate && (
-                <time dateTime={item.accrualDate} className="whitespace-nowrap">
-                  {formatDateShortRu(item.accrualDate)}
+              accrualDate: deal && (
+                <time dateTime={deal} className="whitespace-nowrap">
+                  {formatDateShortRu(deal)}
                 </time>
               ),
               account: (

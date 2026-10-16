@@ -23,6 +23,8 @@ export interface ReportUrlState {
   by: ReportBy;
   step: ReportStep;
   percent: boolean;
+  /** «Учитывать склад по себестоимости» (§5.3): только у «Прибыли»; в адресе — `stock=0`, когда выключен. */
+  stock: boolean;
   accountIds: number[];
   categoryIds: number[];
   projectIds: number[];
@@ -40,6 +42,7 @@ export const DEFAULT_REPORT_STATE: ReportUrlState = {
   by: 'category',
   step: 'month',
   percent: false,
+  stock: true,
   accountIds: [],
   categoryIds: [],
   projectIds: [],
@@ -67,6 +70,14 @@ export const BY_CHOICES = REPORT_BYS.map((value) => ({ value, label: BY_LABELS[v
 export const PERCENT_CHOICES = [
   { value: 'off', label: 'Скрыть проценты' },
   { value: 'on', label: 'Показать проценты' },
+] as const;
+/**
+ * Пункты меню «Склад» «Прибыли» (§5.3): подпись — текущее состояние, как у процентов. `short` — короткая подпись кнопки на
+ * панели компьютера (R7), чтобы «Обновить» оставался в одной строке с периодом.
+ */
+export const STOCK_CHOICES = [
+  { value: 'on', label: 'Учитывать склад по себестоимости', short: 'Склад: по себестоимости' },
+  { value: 'off', label: 'Без учёта склада', short: 'Склад: закупки' },
 ] as const;
 /** Подсказка недоступного шага (§2.3). */
 export const TOO_MANY_COLUMNS_HINT = 'Слишком много колонок — выберите больший шаг или короче период';
@@ -107,6 +118,7 @@ export function parseReportSearch(params: URLSearchParams): ReportUrlState {
   const step = params.get('step');
   if (REPORT_STEPS.includes(step as ReportStep)) state.step = step as ReportStep;
   state.percent = params.get('pct') === '1';
+  state.stock = params.get('stock') !== '0';
   for (const field of LIST_FIELDS) state[field] = ids(params.getAll(LIST_KEYS[field]));
   for (const field of FLAG_FIELDS) state[field] = params.get(FLAG_KEYS[field]) === '1';
   return state;
@@ -123,6 +135,7 @@ export function reportSearch(state: ReportUrlState): URLSearchParams {
   if (state.by !== DEFAULT_REPORT_STATE.by) p.set('by', state.by);
   if (state.step !== DEFAULT_REPORT_STATE.step) p.set('step', state.step);
   if (state.percent) p.set('pct', '1');
+  if (!state.stock) p.set('stock', '0');
   for (const field of LIST_FIELDS) for (const id of state[field]) p.append(LIST_KEYS[field], String(id));
   for (const field of FLAG_FIELDS) if (state[field]) p.set(FLAG_KEYS[field], '1');
   return p;
@@ -163,6 +176,7 @@ export function reportApiParams(state: ReportUrlState, today: string): URLSearch
   p.set('by', state.by);
   for (const field of LIST_FIELDS) for (const id of state[field]) p.append(API_LIST[field], String(id));
   for (const field of FLAG_FIELDS) if (state[field]) p.set(field, 'true');
+  if (!state.stock) p.set('stock', '0');
   return p;
 }
 
@@ -185,13 +199,14 @@ export function reportFilterCount(state: ReportUrlState): number {
 export function changedControls(
   state: ReportUrlState,
   range?: { from: string; to: string },
-): { period: boolean; by: boolean; step: boolean; percent: boolean; filter: boolean } {
+): { period: boolean; by: boolean; step: boolean; percent: boolean; stock: boolean; filter: boolean } {
   return {
     period: state.period !== DEFAULT_REPORT_STATE.period,
     by: state.by !== DEFAULT_REPORT_STATE.by,
     step: (range ? effectiveStep(state.step, range) : state.step) !== DEFAULT_REPORT_STATE.step,
     // проценты — только в таблице: в виде «график» контрола нет, и скрытая настройка (pct=1 в адресе) не считается изменением
     percent: state.view === 'table' && state.percent !== DEFAULT_REPORT_STATE.percent,
+    stock: state.stock !== DEFAULT_REPORT_STATE.stock,
     filter: reportFilterCount(state) > 0,
   };
 }
@@ -205,10 +220,10 @@ export function resetReportState(state: Pick<ReportUrlState, 'view'>): ReportUrl
   return { ...DEFAULT_REPORT_STATE, view: state.view };
 }
 
-/** Число на кнопке «Фильтры» телефона (§2.2): изменённые период, разрез, шаг, проценты и заданные измерения фильтра. */
+/** Число на кнопке «Фильтры» телефона (§2.2): изменённые период, разрез, шаг, проценты, склад и заданные измерения фильтра. */
 export function phoneReportCount(state: ReportUrlState, range?: { from: string; to: string }): number {
   const c = changedControls(state, range);
-  return [c.period, c.by, c.step, c.percent].filter(Boolean).length + reportFilterCount(state);
+  return [c.period, c.by, c.step, c.percent, c.stock].filter(Boolean).length + reportFilterCount(state);
 }
 
 /** Какие значения фильтра известны: id из справочников компании по спискам адреса. */

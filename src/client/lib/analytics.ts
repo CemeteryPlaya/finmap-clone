@@ -11,7 +11,19 @@ export type { ReportColumn, ReportKind, ReportRow };
 export interface ReportData {
   columns: ReportColumn[];
   rows: ReportRow[];
-  meta: { from: string; to: string; step: ReportStep; by: ReportBy; currency: string; empty: boolean; balancesHidden: boolean };
+  meta: {
+    from: string;
+    to: string;
+    step: ReportStep;
+    by: ReportBy;
+    currency: string;
+    empty: boolean;
+    balancesHidden: boolean;
+    /** «Прибыль»: склад по себестоимости учтён (§5.3). */
+    stock?: boolean;
+    /** «Прибыль»: продаж «Нет партии» в периоде. */
+    noBatch?: number;
+  };
 }
 
 /** Операция в списке под отчётом (§2.5): строка журнала и сумма строк ячейки (в валюте счёта), если вошла только часть операции. */
@@ -57,7 +69,7 @@ export function invalidateAnalytics(companyId: number): Promise<void> {
   return queryClient.invalidateQueries({ queryKey: ['analytics', companyId] });
 }
 
-export type CardIcon = 'wallet' | 'history' | 'plan' | 'in' | 'out' | 'scale';
+export type CardIcon = 'wallet' | 'profit' | 'history' | 'plan' | 'in' | 'out' | 'scale';
 
 /** Карточка раздела «Аналитика» (§2.1): ссылка на отчёт или неактивная (пунктир и подпись). */
 export interface AnalyticsCard {
@@ -76,7 +88,7 @@ export interface AnalyticsCard {
 const PLANNED = 'Появится с плановыми операциями';
 
 /**
- * Карточки по порядку §2.1. Отчёты следующих планов («Прибыль», «Выписка по счету», «Проекты», «Финансовые показатели»)
+ * Карточки по порядку §2.1. Отчёты следующих планов («Выписка по счету», «Проекты», «Финансовые показатели»)
  * появляются вместе с ними: мёртвых карточек нет. «План/Факт», «Дебиторка», «Кредиторка», «Баланс» — неактивные (этап 3).
  */
 export const ANALYTICS_CARDS: readonly AnalyticsCard[] = [
@@ -87,6 +99,14 @@ export const ANALYTICS_CARDS: readonly AnalyticsCard[] = [
     help: 'Поступления, списания и остатки по дате платежа: сколько денег пришло и ушло за каждый день, неделю, месяц или квартал.',
     icon: 'wallet',
     href: (cid) => `/c/${cid}/analytics/cashflow`,
+  },
+  {
+    key: 'pnl',
+    title: 'Прибыль / P&L',
+    description: 'Отчёт о прибыли и убытках',
+    help: 'Доходы, расходы и прибыль по дате сделки, без переводов, инвестиций, дивидендов, займов и кредитов; товары склада — по себестоимости.',
+    icon: 'profit',
+    href: (cid) => `/c/${cid}/analytics/pnl`,
   },
   {
     key: 'history',

@@ -19,7 +19,8 @@ export interface TableLine {
   tone: LineTone;
 }
 
-const TONE: Record<string, LineTone> = { 'balance:start': 'balance', 'balance:end': 'balance', nonop: 'balance', net: 'total', income: 'group', expense: 'group' };
+/** «Прибыль» выделена, как «Чистый денежный поток» (§5.2). */
+const TONE: Record<string, LineTone> = { 'balance:start': 'balance', 'balance:end': 'balance', nonop: 'balance', net: 'total', profit: 'total', income: 'group', expense: 'group' };
 
 /**
  * Строки таблицы сверху вниз (§4.1): раскрытые строки показывают детей сразу под собой. Группы и их строки получают
@@ -122,4 +123,15 @@ export const ROW_HELP: Readonly<Record<string, string>> = {
   'nonop:transfers': 'Переводы между счетами отчёта и остальными счетами. Переводы внутри компании меняют остаток счёта, но по всем счетам в сумме равны нулю.',
   'nonop:excluded': 'Поступления и списания, которые не входят в отчёт: движение архивных счетов (без фильтра «Счета»).',
   'nonop:fx': 'Переоценка остатков в валюте по курсу на конец колонки и разница курсов в переводах.',
+  'expense:stock:cogs': 'Себестоимость проданных товаров по FIFO — по документам склада «Продажа» с датой в колонке. Оплаты закупок при этом в расходы не входят.',
+  'expense:stock:writeoff': 'Себестоимость списанного товара по FIFO — по документам склада «Списание» с датой в колонке.',
 };
+
+/**
+ * Предупреждение под «Прибылью» (§5.3): «У 1 продажи…», «У 2 продаж…», «У 21 продажи…» — себестоимость продаж
+ * «Нет партии» не определена.
+ */
+export function noBatchText(count: number): string {
+  const one = count % 10 === 1 && count % 100 !== 11;
+  return `У ${count} ${one ? 'продажи' : 'продаж'} себестоимость не определена — прибыль завышена`;
+}

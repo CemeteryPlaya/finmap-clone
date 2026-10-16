@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { CashflowPage } from './pages/analytics/CashflowPage';
+import { PnlPage } from './pages/analytics/PnlPage';
 import { CompanyGate } from './pages/CompanyGate';
 import { CompanyLayout } from './pages/CompanyLayout';
 import { JournalPage } from './pages/JournalPage';
@@ -46,6 +47,7 @@ export const router = createBrowserRouter([
             children: [
               { index: true, element: <AnalyticsPage /> },
               { path: 'cashflow', element: <CashflowPage /> },
+              { path: 'pnl', element: <PnlPage /> },
               { path: '*', element: <Navigate to=".." replace /> },
             ],
           },

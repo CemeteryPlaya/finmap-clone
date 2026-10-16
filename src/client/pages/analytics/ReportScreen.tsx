@@ -4,7 +4,7 @@ import { todayInTimezone } from '../../../shared/dates';
 import { ChangedMark, ChoiceMenu } from '../../components/analytics/ChoiceMenu';
 import { ReportCharts } from '../../components/analytics/ReportCharts';
 import { ReportFilterDialog } from '../../components/analytics/ReportFilterDialog';
-import { ReportOperations } from '../../components/analytics/ReportOperations';
+import { DEAL_ORDER_NOTE, ReportOperations } from '../../components/analytics/ReportOperations';
 import { cellKey, ReportTable } from '../../components/analytics/ReportTable';
 import { ViewSwitch } from '../../components/analytics/ViewSwitch';
 import type { BarsLineNames } from '../../components/charts/BarsLineChart';
@@ -13,15 +13,16 @@ import { FunnelIcon, RefreshIcon } from '../../components/icons';
 import type { JournalLookups } from '../../components/journal/JournalTable';
 import { PeriodMenu } from '../../components/journal/PeriodMenu';
 import { Pending, StaleNotice } from '../../components/QueryState';
-import { btnSecondary } from '../../components/ui';
+import { btnClose, btnSecondary } from '../../components/ui';
 import { useReport, type ReportKind } from '../../lib/analytics';
 import type { JournalColumnId } from '../../lib/journal-columns';
 import { periodLabel } from '../../lib/journal-filter';
 import { categoryLookup } from '../../lib/journal-format';
 import { useIsMobile } from '../../lib/media';
+import { PNL_BANNER_PREF, pnlBannerHidden } from '../../lib/preferences';
 import { useMeta } from '../../lib/query';
-import { useAccounts, useCategories, useCounterparties, useProjects, useTags, type Company } from '../../lib/queries';
-import { cellTitle, DEFAULT_EXPANDED } from '../../lib/report-table';
+import { savePreference, useAccounts, useCategories, useCounterparties, usePreferences, useProjects, useTags, type Company } from '../../lib/queries';
+import { cellTitle, DEFAULT_EXPANDED, noBatchText } from '../../lib/report-table';
 import {
   BY_CHOICES,
   changedControls,
@@ -39,11 +40,13 @@ import {
   resetReportState,
   STEP_LABELS,
   stepChoices,
+  STOCK_CHOICES,
   usesIds,
   withFittingStep,
   type KnownIds,
   type ReportUrlState,
 } from '../../lib/report-url';
+import { useStockWarehouses } from '../../lib/stock';
 
 /** Отчёт с таблицей и графиками («Деньги», «Прибыль»): тексты страницы и подписи групп. */
 export interface ReportConfig {
@@ -55,10 +58,17 @@ export interface ReportConfig {
   dateHeading: string;
   /** Подписи групп и линии графика: «Поступления», «Списания», «Сальдо». */
   names: BarsLineNames;
+  /** Переключатель «Учитывать склад по себестоимости» (§5.3): показывается, если у компании есть склад. */
+  stock?: boolean;
+  /** Списки операций с «Датой сделки» и «Движением денег» (§5.2). */
+  dealDates?: boolean;
+  /** Закрываемый баннер над отчётом (§5.1); закрытие запоминается настройкой пользователя. */
+  banner?: { title: string; text: string; note: string };
 }
 
-/** Колонки списков под графиками (§4.2): две колонки рядом — без счёта и проекта. */
+/** Колонки списков под графиками (§4.2): две колонки рядом — без счёта и проекта; у «Прибыли» «Движение денег» — вторая строка под «Датой сделки» (R8). */
 const CHART_COLUMNS: readonly JournalColumnId[] = ['date', 'amount', 'counterparty', 'category', 'comment'];
+const DEAL_CHART_COLUMNS: readonly JournalColumnId[] = ['date', 'amount', 'category', 'comment'];
 
 /**
  * Страница отчёта (§2.2 спецификации «Аналитика»): заголовок с видом «график / таблица», панель контролов (период, разрез,
@@ -73,6 +83,8 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
   const projects = useProjects(company.id);
   const counterparties = useCounterparties(company.id);
   const tags = useTags(company.id);
+  const warehouses = useStockWarehouses(company.id);
+  const prefs = usePreferences();
   const parsed = useMemo(() => parseReportSearch(params), [params]);
   // id из адреса, которых нет в справочниках (удалённый счёт, чужая ссылка), убираются из настроек до запроса — иначе 400 без выхода (R14)
   const cleaned = useMemo(() => {
@@ -86,11 +98,15 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
     };
     return dropUnknownIds(parsed, known);
   }, [parsed, accounts.data, categories.data, projects.data, counterparties.data, tags.data]);
-  const state = cleaned?.state ?? parsed;
+  // склад (§5.3): переключатель — только у отчёта со складом и компании со складом; без него stock=0 из адреса не действует
+  const stockAvailable = !!config.stock && (warehouses.data?.length ?? 0) > 0;
+  const stockKnown = !config.stock || warehouses.data !== undefined || warehouses.isError;
+  const raw = cleaned?.state ?? parsed;
+  const state = !stockAvailable && !raw.stock ? { ...raw, stock: true } : raw;
   const timeZone = meta.data?.timezone;
   const today = timeZone ? todayInTimezone(timeZone) : null;
-  // с id в адресе отчёт запрашивается, когда справочники загружены и id проверены
-  const apiParams = today && (cleaned || !usesIds(parsed)) ? reportApiParams(state, today).toString() : null;
+  // с id в адресе отчёт запрашивается, когда справочники загружены и id проверены; у «Прибыли» — ещё и склады
+  const apiParams = today && stockKnown && (cleaned || !usesIds(parsed)) ? reportApiParams(state, today).toString() : null;
   const report = useReport(company.id, config.report, apiParams);
   const [notice, setNotice] = useState('');
   useEffect(() => {
@@ -102,6 +118,10 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
   }, [cleaned]);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(DEFAULT_EXPANDED));
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const bannerId = useId();
+  const [bannerClosed, setBannerClosed] = useState(false);
+  // баннер виден, пока пользователь его не закрыл (настройка); до ответа настроек — не мигает
+  const bannerShown = !!config.banner && !bannerClosed && (prefs.data ? !pnlBannerHidden(prefs.data) : prefs.isError);
   const periodOpsRef = useRef<HTMLHeadingElement>(null);
   const periodOpsId = useId();
   // итог для программ чтения: объявляется, когда пришёл новый ответ (не прежняя таблица, оставленная до ответа)
@@ -291,6 +311,11 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
               />
             </ChangedMark>
           )}
+          {stockAvailable && (
+            <ChangedMark on={changed.stock}>
+              <ChoiceMenu name="Склад" value={state.stock ? 'on' : 'off'} options={STOCK_CHOICES} onChange={(v) => update({ ...state, stock: v === 'on' })} />
+            </ChangedMark>
+          )}
           {Object.values(changed).some(Boolean) && (
             <button
               type="button"
@@ -316,6 +341,7 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
         phone={filterOpen === 'phone'}
         today={today}
         dateHeading={config.dateHeading}
+        stock={stockAvailable}
         state={state}
         data={{
           accounts: accounts.data!,
@@ -327,6 +353,31 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
         onApply={update}
         onClose={() => setFilterOpen(false)}
       />
+      {bannerShown && config.banner && (
+        <section aria-labelledby={bannerId} className="mb-4 flex items-start gap-3 rounded-2xl bg-income-soft/60 p-4 ring-1 ring-income/30">
+          <div className="min-w-0 flex-1">
+            <h2 id={bannerId} className="text-sm font-bold text-ink">
+              {config.banner.title}
+            </h2>
+            <p className="mt-1 text-sm text-ink">{config.banner.text}</p>
+            <p className="mt-1 text-xs text-label">{config.banner.note}</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Скрыть подсказку"
+            title="Скрыть"
+            onClick={() => {
+              setBannerClosed(true);
+              // кнопка исчезает вместе с фокусом — он переходит на заголовок отчёта; закрытие запоминается
+              headingRef.current?.focus();
+              void savePreference(PNL_BANNER_PREF, true).catch(() => undefined);
+            }}
+            className={btnClose}
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </section>
+      )}
       {notice && (
         <p role="status" className="mb-3 rounded-lg bg-field px-3 py-2 text-sm text-ink">
           {notice}
@@ -381,6 +432,15 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
           />
         </div>
       )}
+      {(report.data?.meta.noBatch ?? 0) > 0 && (
+        // продажи «Нет партии» (§5.3): себестоимость не определена — ссылка туда, где это исправить
+        <p className="mt-4 rounded-lg bg-expense-soft px-3 py-2 text-sm text-ink">
+          {noBatchText(report.data!.meta.noBatch!)}.{' '}
+          <Link to={`/c/${company.id}/stock/balance`} className="font-semibold underline">
+            Склад → Остатки
+          </Link>
+        </p>
+      )}
       {table && cell && report.data && (
         <ReportOperations
           company={company}
@@ -390,6 +450,7 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
           timeZone={timeZone}
           today={today}
           mobile={mobile}
+          dealDates={config.dealDates}
           onClose={closeCell}
         />
       )}
@@ -414,6 +475,7 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
               </button>
             )}
           </div>
+          {config.dealDates && <p className="-mt-1 mb-3 text-sm text-muted">{DEAL_ORDER_NOTE}</p>}
           {/* в две колонки — от 2xl (R8): на 1280–1536 px колонке тесно */}
           <div className="grid gap-8 2xl:grid-cols-2">
             {(['income', 'expense'] as const).map((group) => (
@@ -428,7 +490,8 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
                 mobile={mobile}
                 autoFocus={false}
                 headingLevel={3}
-                columns={CHART_COLUMNS}
+                columns={config.dealDates ? DEAL_CHART_COLUMNS : CHART_COLUMNS}
+                dealDates={config.dealDates}
                 narrow
               />
             ))}

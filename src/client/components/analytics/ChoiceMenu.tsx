@@ -6,6 +6,8 @@ import { Caret, Popover } from '../Popover';
 export interface Choice<T extends string> {
   value: T;
   label: string;
+  /** Короткая подпись кнопки-пилюли (не в широком меню окна): целиком, вместе с названием меню. */
+  short?: string;
   disabled?: string;
 }
 
@@ -15,16 +17,19 @@ export interface Choice<T extends string> {
  * под ним — подсказка. Имя кнопки — «{name}: {значение}».
  */
 export function ChoiceMenu<T extends string>(props: { name: string; value: T; options: readonly Choice<T>[]; onChange: (value: T) => void; wide?: boolean }) {
-  const current = props.options.find((o) => o.value === props.value)?.label ?? '';
+  const option = props.options.find((o) => o.value === props.value);
+  const current = option?.label ?? '';
+  // короткая подпись заменяет «{название}: {значение}» на кнопке и в её имени
+  const short = props.wide ? undefined : option?.short;
   return (
     <Popover
       label={
         <>
-          <span className="truncate">{current}</span>
+          <span className="truncate">{short ?? current}</span>
           <Caret />
         </>
       }
-      ariaLabel={`${props.name}: ${current}`}
+      ariaLabel={short ?? `${props.name}: ${current}`}
       panelLabel={props.name}
       buttonClassName={props.wide ? wideClass : pillClass}
       panelClassName="w-72 pointer-coarse:w-[336px]"

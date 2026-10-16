@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { JOURNAL_WRAP_PREF, journalWrap, prefsSaveError, SKIP_CLOSE_CONFIRM_PREF, skipCloseConfirm } from '../../src/client/lib/preferences';
+import { dealDay } from '../../src/client/lib/journal-format';
+import { JOURNAL_WRAP_PREF, journalWrap, PNL_BANNER_PREF, pnlBannerHidden, prefsSaveError, SKIP_CLOSE_CONFIRM_PREF, skipCloseConfirm } from '../../src/client/lib/preferences';
 
 describe('настройка «Больше не спрашивать» (§2.4, §10.2 этапа 1.5)', () => {
   it('ключ настройки пользователя', () => {
@@ -41,5 +42,17 @@ describe('ошибка «Применить» в «Настройках журн
     const text = prefsSaveError(['Колонки'], 'Показывать полностью', 'Сбой');
     expect(text).toBe('Не удалось сохранить «Показывать полностью»: Сбой. Сохранено: «Колонки».');
     expect(text).not.toMatch(/Остальное/);
+  });
+});
+
+describe('баннер «Прибыли» (§5.1)', () => {
+  it('скрыт только при true; дата сделки — своя или день платежа в поясе приложения', () => {
+    expect(pnlBannerHidden({ [PNL_BANNER_PREF]: true })).toBe(true);
+    for (const v of [false, 'true', null, undefined]) expect(pnlBannerHidden({ [PNL_BANNER_PREF]: v })).toBe(false);
+    expect(pnlBannerHidden(undefined)).toBe(false);
+    expect(PNL_BANNER_PREF).toBe('analytics.pnlBannerHidden');
+    expect(dealDay({ accrualDate: '2026-08-15', paidAt: '2026-09-10T06:00:00.000Z' }, 'Asia/Almaty')).toBe('2026-08-15');
+    // 31 августа 20:30 UTC — уже 1 сентября по Алматы
+    expect(dealDay({ accrualDate: null, paidAt: '2026-08-31T20:30:00.000Z' }, 'Asia/Almaty')).toBe('2026-09-01');
   });
 });

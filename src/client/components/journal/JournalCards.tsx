@@ -1,4 +1,6 @@
+import { formatDateShortRu } from '../../../shared/dates';
 import { journalCardText } from '../../lib/journal-card';
+import { dealDay } from '../../lib/journal-format';
 import type { JournalItem } from '../../lib/queries';
 import type { JournalLookups } from './JournalTable';
 
@@ -21,6 +23,8 @@ export function JournalCards(props: {
   busy: boolean;
   /** Список под отчётом «Аналитики»: сумма строк ячейки у операции, вошедшей частью, и пометка «часть операции». */
   parts?: ReadonlyMap<number, number>;
+  /** Список под «Прибылью» (§5.2): дата сделки (без неё — день платежа) и под ней дата платежа. */
+  dealDates?: boolean;
   onOpenOperation: (item: JournalItem) => void;
 }) {
   return (
@@ -39,7 +43,14 @@ export function JournalCards(props: {
             >
               <span className="flex items-start justify-between gap-3">
                 <span data-card-line="date" className="pt-0.5 text-sm text-muted">
-                  {c.date}
+                  {props.dealDates ? (
+                    <>
+                      <span className="block">Сделка: {formatDateShortRu(dealDay(item, props.timeZone))}</span>
+                      <span className="block text-xs">Деньги: {c.date}</span>
+                    </>
+                  ) : (
+                    c.date
+                  )}
                 </span>
                 <span className="shrink-0 text-right tabular-nums">
                   <span data-card-line="amount" className={`block font-semibold ${AMOUNT_CLASS[item.type]}`}>

@@ -11,6 +11,7 @@ import {
   reportDialogFields,
   reportRange,
   stepChoices,
+  STOCK_CHOICES,
   withDialogFields,
   withFittingStep,
   type ReportUrlState,
@@ -26,7 +27,7 @@ import { ChoiceMenu } from './ChoiceMenu';
  * (категории, контрагенты, проекты, теги, счета); на телефоне (§2.2) первыми идут период, разрез, шаг и проценты —
  * остальные контролы переезжают сюда. «Готово» применяет черновик поверх текущих настроек, «Сбросить» возвращает черновик
  * к значениям по умолчанию (вид «график / таблица» остаётся), «×» и Esc закрывают без изменений. Поля фильтра — те же, что
- * у журнала, без типов операций. Проценты — только в виде «таблица» (§2.2).
+ * у журнала, без типов операций. Проценты — только в виде «таблица» (§2.2); склад — у «Прибыли» компании со складом (§5.3).
  */
 function ReportFilterForm(props: {
   state: ReportUrlState;
@@ -34,6 +35,7 @@ function ReportFilterForm(props: {
   phone: boolean;
   today: string;
   dateHeading: string;
+  stock: boolean;
   onApply: (next: ReportUrlState) => void;
 }) {
   const [draft, setDraft] = useState<ReportUrlState>(props.state);
@@ -61,6 +63,9 @@ function ReportFilterForm(props: {
           <ChoiceMenu wide name="Шаг" value={effectiveStep(draft.step, range)} options={stepChoices(range)} onChange={(step) => setDraft((d) => ({ ...d, step }))} />
           {draft.view === 'table' && (
             <ChoiceMenu wide name="Проценты" value={draft.percent ? 'on' : 'off'} options={PERCENT_CHOICES} onChange={(v) => setDraft((d) => ({ ...d, percent: v === 'on' }))} />
+          )}
+          {props.stock && (
+            <ChoiceMenu wide name="Склад" value={draft.stock ? 'on' : 'off'} options={STOCK_CHOICES} onChange={(v) => setDraft((d) => ({ ...d, stock: v === 'on' }))} />
           )}
         </div>
       )}
@@ -109,6 +114,8 @@ export function ReportFilterDialog(props: {
   today: string;
   /** Тип даты над списком периодов (§2.3): «По дате платежа» или «По дате сделки». */
   dateHeading: string;
+  /** Переключатель «Учитывать склад по себестоимости» на телефоне (§5.3): у «Прибыли» компании со складом. */
+  stock?: boolean;
   onApply: (next: ReportUrlState) => void;
   onClose: () => void;
 }) {
@@ -120,6 +127,7 @@ export function ReportFilterDialog(props: {
         phone={props.phone}
         today={props.today}
         dateHeading={props.dateHeading}
+        stock={props.stock ?? false}
         onApply={(next) => {
           props.onApply(next);
           props.onClose();
