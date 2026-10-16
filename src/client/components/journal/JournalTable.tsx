@@ -1,11 +1,12 @@
 import type { MouseEvent, ReactNode } from 'react';
 import { formatDateShortRu } from '../../../shared/dates';
 import { formatMoney, MONEY_SCREEN } from '../../../shared/money';
+import { statementLeg, transferLabel } from '../../../shared/report-statement';
 import { badgeClass } from '../ui';
 import { canAssign, type AssignField } from '../../lib/journal-assign';
 import { JOURNAL_COLUMNS, type JournalColumnId } from '../../lib/journal-columns';
 import type { JournalSortKey, JournalSortOrder } from '../../lib/journal-filter';
-import { dealDay, journalDateParts, lineDimension, projectShare, signedMoney, splitLabel, type CategoryInfo } from '../../lib/journal-format';
+import { dealDay, deltaMoney, journalDateParts, lineDimension, projectShare, signedMoney, splitLabel, type CategoryInfo } from '../../lib/journal-format';
 import { SYSTEM_BADGE } from '../../lib/operation-options';
 import type { Account, JournalItem } from '../../lib/queries';
 import { SplitHint } from './SplitHint';
@@ -51,6 +52,12 @@ export interface JournalTableProps {
    */
   dealDates?: boolean;
   /**
+   * «Выписка по счету» (§6 спецификации «Аналитика»): сумма и остаток — по этому счёту. Сумма со знаком в его валюте
+   * (перевод на счёт — плюс, со счёта — минус), «Счёт/остаток» — «Остаток после операции» этого счёта, у перевода в
+   * «Категории» — «Перевод: {другой счёт}».
+   */
+  statementAccountId?: number;
+  /**
    * Открыть операцию в форме: клик по строке или кнопка в ячейке даты (с клавиатуры).
    * Не передан — строка не реагирует на клик.
    */
@@ -79,6 +86,8 @@ const AMOUNT_CLASS: Record<JournalItem['type'], string> = {
 const thClass = 'px-3 text-left text-xs font-semibold text-muted';
 /** Порядок первых колонок списка «Прибыли» (§5.2): «Дата сделки», «Сумма», «Движение денег». */
 const DEAL_ORDER: readonly JournalColumnId[] = ['accrualDate', 'amount', 'date'];
+/** Заголовки колонок «Выписки по счету» (§6). */
+const STATEMENT_LABEL: Partial<Record<JournalColumnId, string>> = { date: 'Дата и время', account: 'Остаток после операции' };
 
 /**
  * Раскладка `table-fixed` (H1 финала 1.5-2a): узкие колонки — фиксированной ширины, текстовые делят остаток поровну,
@@ -169,7 +178,10 @@ export function JournalTable(props: JournalTableProps) {
   const shown = order.filter((c) => columns.includes(c.id));
   // узкий список (две колонки, R8): «Движение денег» не отдельная колонка, а вторая строка под «Датой сделки»
   const stacked = !!props.dealDates && !!props.narrow;
-  const label = (c: (typeof JOURNAL_COLUMNS)[number]) => (props.dealDates && c.id === 'date' ? (stacked ? 'Дата сделки' : 'Движение денег') : c.label);
+  const statement = props.statementAccountId;
+  const statementAccount = statement === undefined ? undefined : lookups.accounts.get(statement);
+  const label = (c: (typeof JOURNAL_COLUMNS)[number]) =>
+    (statement !== undefined ? STATEMENT_LABEL[c.id] : undefined) ?? (props.dealDates && c.id === 'date' ? (stacked ? 'Дата сделки' : 'Движение денег') : c.label);
   const selectedCount = selection ? props.items.filter((i) => selection.selected.has(i.id)).length : 0;
   const allSelected = props.items.length > 0 && selectedCount === props.items.length;
 
@@ -234,14 +246,16 @@ export function JournalTable(props: JournalTableProps) {
           {props.items.map((item) => {
             const account = lookups.accounts.get(item.accountId);
             const toAccount = item.toAccountId === null ? undefined : lookups.accounts.get(item.toAccountId);
-            const currency = account?.currency ?? props.baseCurrency;
+            // выписка (§6): движение и остаток — по её счёту, в его валюте
+            const leg = statement === undefined ? null : statementLeg(item, statement);
+            const currency = (leg ? statementAccount?.currency : account?.currency) ?? props.baseCurrency;
             const hint = lineHint(item, lookups, currency);
             const share = projectShare(item.lines, props.projectFilter);
             const when = journalDateParts(item.paidAt, props.timeZone, props.today);
             const part = props.parts?.get(item.id);
             // «Дата сделки» в «Прибыли» — и у операции без неё: день платежа (§3.1)
             const deal = props.dealDates ? dealDay(item, props.timeZone) : item.accrualDate;
-            const signed = signedMoney(item.type, part ?? item.amount, currency);
+            const signed = leg ? deltaMoney(leg.delta, currency) : signedMoney(item.type, part ?? item.amount, currency);
             const assign = (field: AssignField) => (props.renderAssign && canAssign(item, field) ? props.renderAssign(item, field) : null);
             const dateText = stacked ? (
               <span className="block whitespace-nowrap text-left">
@@ -276,7 +290,7 @@ export function JournalTable(props: JournalTableProps) {
               ),
               amount: (
                 <span className="block whitespace-nowrap tabular-nums">
-                  <span className={`block ${AMOUNT_CLASS[item.type]}`}>
+                  <span className={`block ${leg ? (leg.delta < 0 ? 'text-expense-strong' : 'text-income') : AMOUNT_CLASS[item.type]}`}>
                     {item.type === 'transfer' && <span aria-hidden="true">⇄ </span>}
                     {item.type === 'transfer' && (
                       <span className="sr-only">
@@ -285,10 +299,10 @@ export function JournalTable(props: JournalTableProps) {
                     )}
                     {signed}
                   </span>
-                  {item.type === 'transfer' && toAccount && toAccount.currency !== currency && item.toAmount !== null && (
+                  {!leg && item.type === 'transfer' && toAccount && toAccount.currency !== currency && item.toAmount !== null && (
                     <span className="block text-xs text-transfer">→ {formatMoney(item.toAmount, toAccount.currency, MONEY_SCREEN)}</span>
                   )}
-                  {currency !== props.baseCurrency && part === undefined && (
+                  {!leg && currency !== props.baseCurrency && part === undefined && (
                     <span className="block text-xs text-muted">{formatMoney(item.baseAmount, props.baseCurrency, MONEY_SCREEN)}</span>
                   )}
                   {share !== null && <span className="block text-xs text-muted">доля проекта: {formatMoney(share, currency, MONEY_SCREEN)}</span>}
@@ -300,7 +314,11 @@ export function JournalTable(props: JournalTableProps) {
                   {formatDateShortRu(deal)}
                 </time>
               ),
-              account: (
+              account: leg ? (
+                <span className="block whitespace-nowrap tabular-nums">
+                  <Balance account={statementAccount} balance={leg.balance} />
+                </span>
+              ) : (
                 <span className="block">
                   <CellText text={item.type === 'transfer' ? `${account?.name ?? '…'} → ${toAccount?.name ?? '…'}` : (account?.name ?? '…')} wrap={wrap} />
                   <span className="block truncate whitespace-nowrap text-xs tabular-nums">
@@ -317,7 +335,12 @@ export function JournalTable(props: JournalTableProps) {
                 </span>
               ),
               counterparty: item.counterpartyId === null ? assign('counterparty') : <CellText text={lookups.counterparties.get(item.counterpartyId) ?? '…'} wrap={wrap} />,
-              category: dimensionCell(item, 'categoryId', categoryName, hint, assign('category')),
+              category:
+                leg && leg.other !== null ? (
+                  <CellText text={transferLabel(lookups.accounts.get(leg.other)?.name ?? '…')} wrap={wrap} />
+                ) : (
+                  dimensionCell(item, 'categoryId', categoryName, hint, assign('category'))
+                ),
               project: dimensionCell(item, 'projectId', projectName, hint, assign('project')),
               comment: item.comment && <CellText text={item.comment} wrap={wrap} />,
             };

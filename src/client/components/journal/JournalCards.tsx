@@ -25,6 +25,8 @@ export function JournalCards(props: {
   parts?: ReadonlyMap<number, number>;
   /** Список под «Прибылью» (§5.2): дата сделки (без неё — день платежа) и под ней дата платежа. */
   dealDates?: boolean;
+  /** «Выписка по счету» (§6): сумма и остаток — по этому счёту, у перевода — «Перевод: {другой счёт}». */
+  statementAccountId?: number;
   /** Имя списка для программ чтения с экрана; по умолчанию «Операции» (у двух списков на странице — разные). */
   label?: string;
   onOpenOperation: (item: JournalItem) => void;
@@ -34,6 +36,8 @@ export function JournalCards(props: {
       {props.items.map((item) => {
         const part = props.parts?.get(item.id);
         const c = journalCardText(part === undefined ? item : { ...item, amount: part }, props.lookups, props);
+        // в выписке цвет суммы — по движению по счёту: перевод на счёт — как доход, со счёта — как расход
+        const tone = props.statementAccountId === undefined ? AMOUNT_CLASS[item.type] : c.amount.startsWith('+') ? AMOUNT_CLASS.income : AMOUNT_CLASS.expense;
         return (
           <li key={item.id}>
             <button
@@ -55,7 +59,7 @@ export function JournalCards(props: {
                   )}
                 </span>
                 <span className="shrink-0 text-right tabular-nums">
-                  <span data-card-line="amount" className={`block font-semibold ${AMOUNT_CLASS[item.type]}`}>
+                  <span data-card-line="amount" className={`block font-semibold ${tone}`}>
                     {item.type === 'transfer' && (
                       <>
                         <span aria-hidden="true">⇄ </span>

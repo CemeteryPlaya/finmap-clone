@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery, type InfiniteData } from '@tanstack/react-query';
 import type { ReportBy, ReportColumn, ReportRow, ReportStep } from '../../shared/report-engine';
+import type { StatementSummary } from '../../shared/report-statement';
 import type { ReportKind } from '../../shared/schemas/analytics';
 import { api, type ApiError } from './api';
 import type { JournalItem } from './queries';
@@ -64,12 +65,46 @@ export function useCellOperations(companyId: number, params: string) {
   });
 }
 
+/** Страница операций выписки (§6): строки журнала с остатками после операции, новые сверху. */
+export interface StatementPageData {
+  items: JournalItem[];
+  nextCursor: string | null;
+}
+
+/** Первая страница выписки — со счётом и сводкой в его валюте. */
+export interface StatementData extends StatementPageData {
+  account: { id: number; name: string; currency: string; archived: boolean; openedAt: string };
+  summary: StatementSummary;
+  meta: { from: string; to: string };
+}
+
+/**
+ * «Выписка по счету» (§6, §9) по строке запроса (statementApiParams) или null, пока она не готова: первая страница —
+ * `statement` со сводкой, следующие — `statement/operations` по курсору. Ключ ['analytics', cid, 'statement', …]: его
+ * сбрасывает invalidateAnalytics. При смене счёта или периода прежняя выписка остаётся на экране до ответа.
+ */
+export function useStatement(companyId: number, params: string | null) {
+  return useInfiniteQuery<StatementPageData, ApiError, InfiniteData<StatementPageData, string | null>, readonly unknown[], string | null>({
+    queryKey: ['analytics', companyId, 'statement', params],
+    enabled: params !== null,
+    initialPageParam: null,
+    queryFn: ({ pageParam }) => {
+      if (pageParam === null) return api<StatementData>(`/companies/${companyId}/analytics/statement?${params}`);
+      const p = new URLSearchParams(params ?? '');
+      p.set('cursor', pageParam);
+      return api<StatementPageData>(`/companies/${companyId}/analytics/statement/operations?${p.toString()}`);
+    },
+    getNextPageParam: (last) => last.nextCursor,
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === companyId ? prev : undefined),
+  });
+}
+
 /** Любая операция, документ склада, импорт или правка счёта меняют отчёты (§10): кэш отчётов компании сбрасывается. */
 export function invalidateAnalytics(companyId: number): Promise<void> {
   return queryClient.invalidateQueries({ queryKey: ['analytics', companyId] });
 }
 
-export type CardIcon = 'wallet' | 'profit' | 'history' | 'plan' | 'in' | 'out' | 'scale';
+export type CardIcon = 'wallet' | 'profit' | 'statement' | 'history' | 'plan' | 'in' | 'out' | 'scale';
 
 /** Карточка раздела «Аналитика» (§2.1): ссылка на отчёт или неактивная (пунктир и подпись). */
 export interface AnalyticsCard {
@@ -88,7 +123,7 @@ export interface AnalyticsCard {
 const PLANNED = 'Появится с плановыми операциями';
 
 /**
- * Карточки по порядку §2.1. Отчёты следующих планов («Выписка по счету», «Проекты», «Финансовые показатели»)
+ * Карточки по порядку §2.1. Отчёты следующих планов («Проекты», «Финансовые показатели»)
  * появляются вместе с ними: мёртвых карточек нет. «План/Факт», «Дебиторка», «Кредиторка», «Баланс» — неактивные (этап 3).
  */
 export const ANALYTICS_CARDS: readonly AnalyticsCard[] = [
@@ -107,6 +142,14 @@ export const ANALYTICS_CARDS: readonly AnalyticsCard[] = [
     help: 'Доходы, расходы и прибыль по дате сделки, без переводов, инвестиций, дивидендов, займов и кредитов; товары склада — по себестоимости.',
     icon: 'profit',
     href: (cid) => `/c/${cid}/analytics/pnl`,
+  },
+  {
+    key: 'statement',
+    title: 'Выписка по счету',
+    description: 'Все поступления, списания и переводы одного счёта',
+    help: 'Все деньги, которые приходили и уходили по одному счёту: поступления, списания и переводы за период, с остатком после каждой операции. Удобно сверить с выпиской банка.',
+    icon: 'statement',
+    href: (cid) => `/c/${cid}/analytics/statement`,
   },
   {
     key: 'history',

@@ -108,6 +108,11 @@ export function signedMoney(type: OperationType, minor: number, currency: string
   return `${sign}${formatMoney(minor, currency, MONEY_SCREEN)}`;
 }
 
+/** Движение по счёту в выписке (§6 спецификации «Аналитика»): «+1 500 ₸» или «\u22121 500 ₸» — знак по движению, не по типу. */
+export function deltaMoney(delta: number, currency: string): string {
+  return `${delta < 0 ? '\u2212' : '+'}${formatMoney(Math.abs(delta), currency, MONEY_SCREEN)}`;
+}
+
 /** Минимальные единицы → текст поля ввода: «1500», «1500,5», «0,05» (без разрядов и лишних нулей). */
 export function amountInputText(minor: number, minorUnits: number): string {
   return formatAmount(minor, minorUnits)

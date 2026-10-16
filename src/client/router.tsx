@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from 'react-router';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { CashflowPage } from './pages/analytics/CashflowPage';
 import { PnlPage } from './pages/analytics/PnlPage';
+import { StatementPage } from './pages/analytics/StatementPage';
 import { CompanyGate } from './pages/CompanyGate';
 import { CompanyLayout } from './pages/CompanyLayout';
 import { JournalPage } from './pages/JournalPage';
@@ -48,6 +49,7 @@ export const router = createBrowserRouter([
               { index: true, element: <AnalyticsPage /> },
               { path: 'cashflow', element: <CashflowPage /> },
               { path: 'pnl', element: <PnlPage /> },
+              { path: 'statement', element: <StatementPage /> },
               { path: '*', element: <Navigate to=".." replace /> },
             ],
           },

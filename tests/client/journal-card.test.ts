@@ -128,3 +128,25 @@ describe('карточка операции в журнале на телефо�
     expect(journalCardText(item({ accountId: 5 }), lookups, ctx).account).toBe('…');
   });
 });
+
+describe('карточка «Выписки по счету» (§6 спецификации «Аналитика»)', () => {
+  const transfer = item({ type: 'transfer', accountId: 1, toAccountId: 2, amount: 47512, toAmount: 100, balanceAfter: 1522488, toBalanceAfter: 100, lines: [] });
+
+  it('перевод между валютами глазами каждого счёта: знак и валюта счёта, остаток после операции, «Перевод: {другой счёт}»', () => {
+    expect(plain(journalCardText(transfer, lookups, { ...ctx, statementAccountId: 1 }))).toEqual({
+      date: '7 окт. 2026',
+      amount: '\u2212475,12 ₸',
+      extra: null,
+      counterparty: null,
+      account: 'Остаток: 15 224,88 ₸',
+      category: 'Перевод: Валютный',
+    });
+    expect(plain(journalCardText(transfer, lookups, { ...ctx, statementAccountId: 2 }))).toMatchObject({ amount: '+1 $', account: 'Остаток: 1 $', category: 'Перевод: Касса' });
+  });
+
+  it('доход и расход — знак по движению, категория как в журнале; остатка нет — имя счёта', () => {
+    const income = item({ type: 'income', amount: 100000, balanceAfter: -50000, lines: [line(10, null, 100000)] });
+    expect(plain(journalCardText(income, lookups, { ...ctx, statementAccountId: 1 }))).toMatchObject({ amount: '+1 000 ₸', account: 'Остаток: \u2212500 ₸', category: 'Аренда' });
+    expect(plain(journalCardText(item({}), lookups, { ...ctx, statementAccountId: 1 }))).toMatchObject({ amount: '\u22122 500 ₸', account: 'Касса', category: 'Аренда' });
+  });
+});

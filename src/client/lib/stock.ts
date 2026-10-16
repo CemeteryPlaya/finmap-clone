@@ -175,10 +175,12 @@ export function useStockItems(companyId: number) {
   });
 }
 
-export function useStockWarehouses(companyId: number) {
+/** Склады компании; enabled = false — не запрашивать (отчёт без переключателя склада). */
+export function useStockWarehouses(companyId: number, enabled = true) {
   return useQuery<StockWarehouse[], ApiError>({
     queryKey: ['stock', companyId, 'warehouses'],
     queryFn: async () => (await api<{ warehouses: StockWarehouse[] }>(`${base(companyId)}/warehouses`)).warehouses,
+    enabled,
   });
 }
 

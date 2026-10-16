@@ -1,7 +1,8 @@
 import { formatDateShortRu } from '../../shared/dates';
 import { formatMoney, MONEY_SCREEN } from '../../shared/money';
+import { statementLeg, transferLabel } from '../../shared/report-statement';
 import type { JournalLookups } from '../components/journal/JournalTable';
-import { dayOf, lineDimension, signedMoney, splitLabel } from './journal-format';
+import { dayOf, deltaMoney, lineDimension, signedMoney, splitLabel } from './journal-format';
 import type { JournalItem } from './queries';
 
 /** Текст карточки операции в журнале на телефоне (§8.4 этапа 1.5, как в Finmap). */
@@ -20,10 +21,35 @@ export interface JournalCardText {
   category: string | null;
 }
 
-export function journalCardText(item: JournalItem, lookups: JournalLookups, ctx: { baseCurrency: string; timeZone: string }): JournalCardText {
+/**
+ * statementAccountId — карточка «Выписки по счету» (§6 спецификации «Аналитика»): сумма — движение по этому счёту в его
+ * валюте со знаком, строка счёта — «Остаток: …» после операции, у перевода категория — «Перевод: {другой счёт}».
+ */
+export function journalCardText(item: JournalItem, lookups: JournalLookups, ctx: { baseCurrency: string; timeZone: string; statementAccountId?: number }): JournalCardText {
   const account = lookups.accounts.get(item.accountId);
   const toAccount = item.toAccountId === null ? undefined : lookups.accounts.get(item.toAccountId);
   const currency = account?.currency ?? ctx.baseCurrency;
+  if (ctx.statementAccountId !== undefined) {
+    const leg = statementLeg(item, ctx.statementAccountId);
+    const own = lookups.accounts.get(ctx.statementAccountId);
+    const ownCurrency = own?.currency ?? ctx.baseCurrency;
+    const d = lineDimension(item.lines, 'categoryId');
+    return {
+      date: formatDateShortRu(dayOf(item.paidAt, ctx.timeZone)),
+      amount: deltaMoney(leg.delta, ownCurrency),
+      extra: null,
+      counterparty: item.counterpartyId === null ? null : (lookups.counterparties.get(item.counterpartyId) ?? '…'),
+      account: leg.balance === null ? (own?.name ?? '…') : `Остаток: ${formatMoney(leg.balance, ownCurrency, MONEY_SCREEN)}`,
+      category:
+        leg.other !== null
+          ? transferLabel(lookups.accounts.get(leg.other)?.name ?? '…')
+          : d.kind === 'many'
+            ? splitLabel(d.count, 'category')
+            : d.id === null
+              ? 'Без категории'
+              : (lookups.categories.get(d.id)?.name ?? '…'),
+    };
+  }
 
   let category: string | null = null;
   if (item.type !== 'transfer') {

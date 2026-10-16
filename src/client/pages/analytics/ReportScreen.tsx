@@ -1,35 +1,31 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router';
-import { todayInTimezone } from '../../../shared/dates';
+import { useEffect, useId, useRef, useState } from 'react';
+import { Link } from 'react-router';
 import { ChangedMark, ChoiceMenu } from '../../components/analytics/ChoiceMenu';
 import { ReportCharts } from '../../components/analytics/ReportCharts';
 import { ReportFilterDialog } from '../../components/analytics/ReportFilterDialog';
 import { DEAL_ORDER_NOTE, ReportOperations } from '../../components/analytics/ReportOperations';
+import { ExcelLink, RefreshButton, ReportHeader, ReportLoading } from '../../components/analytics/ReportParts';
 import { cellKey, ReportTable } from '../../components/analytics/ReportTable';
 import { ViewSwitch } from '../../components/analytics/ViewSwitch';
 import type { BarsLineNames } from '../../components/charts/BarsLineChart';
 import { HelpButton } from '../../components/HelpButton';
-import { DownloadIcon, FunnelIcon, RefreshIcon } from '../../components/icons';
-import type { JournalLookups } from '../../components/journal/JournalTable';
+import { FunnelIcon } from '../../components/icons';
 import { PeriodMenu } from '../../components/journal/PeriodMenu';
 import { Pending, StaleNotice } from '../../components/QueryState';
-import { btnClose, btnSecondary } from '../../components/ui';
+import { btnClose } from '../../components/ui';
 import { useReport, type ReportKind } from '../../lib/analytics';
 import type { JournalColumnId } from '../../lib/journal-columns';
 import { periodLabel } from '../../lib/journal-filter';
-import { categoryLookup } from '../../lib/journal-format';
 import { useIsMobile } from '../../lib/media';
 import { PNL_BANNER_PREF, pnlBannerHidden } from '../../lib/preferences';
-import { useMeta } from '../../lib/query';
-import { savePreference, useAccounts, useCategories, useCounterparties, usePreferences, useProjects, useTags, type Company } from '../../lib/queries';
+import { savePreference, usePreferences, type Company } from '../../lib/queries';
+import { useReportSettings } from '../../lib/report-settings';
 import { cellTitle, DEFAULT_EXPANDED, listMissesStock, noBatchText, STOCK_LIST_NOTE } from '../../lib/report-table';
 import {
   BY_CHOICES,
   changedControls,
   customRangeError,
-  dropUnknownIds,
   effectiveStep,
-  parseReportSearch,
   PERCENT_CHOICES,
   phoneReportCount,
   REPORT_PERIODS,
@@ -37,17 +33,12 @@ import {
   reportExcelHref,
   reportFilterCount,
   reportRange,
-  reportSearch,
   resetReportState,
   STEP_LABELS,
   stepChoices,
   STOCK_CHOICES,
-  usesIds,
   withFittingStep,
-  type KnownIds,
-  type ReportUrlState,
 } from '../../lib/report-url';
-import { useStockWarehouses } from '../../lib/stock';
 
 /** Отчёт с таблицей и графиками («Деньги», «Прибыль»): тексты страницы и подписи групп. */
 export interface ReportConfig {
@@ -76,46 +67,13 @@ const CHART_COLUMNS: readonly JournalColumnId[] = ['date', 'amount', 'counterpar
  * операции под ними (§2.5). Настройки — в адресе. Экран создаётся заново при смене компании (key у страницы).
  */
 export function ReportScreen({ company, config }: { company: Company; config: ReportConfig }) {
-  const meta = useMeta();
-  const [params, setParams] = useSearchParams();
-  const accounts = useAccounts(company.id);
-  const categories = useCategories(company.id);
-  const projects = useProjects(company.id);
-  const counterparties = useCounterparties(company.id);
-  const tags = useTags(company.id);
-  const warehouses = useStockWarehouses(company.id);
-  const prefs = usePreferences();
-  const parsed = useMemo(() => parseReportSearch(params), [params]);
-  // id из адреса, которых нет в справочниках (удалённый счёт, чужая ссылка), убираются из настроек до запроса — иначе 400 без выхода (R14)
-  const cleaned = useMemo(() => {
-    if (!accounts.data || !categories.data || !projects.data || !counterparties.data || !tags.data) return null;
-    const known: KnownIds = {
-      accountIds: new Set(accounts.data.map((x) => x.id)),
-      categoryIds: new Set(categoryLookup(categories.data).keys()),
-      projectIds: new Set(projects.data.map((x) => x.id)),
-      counterpartyIds: new Set(counterparties.data.map((x) => x.id)),
-      tagIds: new Set(tags.data.map((x) => x.id)),
-    };
-    return dropUnknownIds(parsed, known);
-  }, [parsed, accounts.data, categories.data, projects.data, counterparties.data, tags.data]);
   // склад (§5.3): переключатель — только у отчёта со складом и компании со складом; без него stock=0 из адреса не действует
-  const stockAvailable = !!config.stock && (warehouses.data?.length ?? 0) > 0;
-  const stockKnown = !config.stock || warehouses.data !== undefined || warehouses.isError;
-  const raw = cleaned?.state ?? parsed;
-  const state = !stockAvailable && !raw.stock ? { ...raw, stock: true } : raw;
-  const timeZone = meta.data?.timezone;
-  const today = timeZone ? todayInTimezone(timeZone) : null;
+  const settings = useReportSettings(company, { stock: !!config.stock });
+  const { state, today, timeZone, stockAvailable, notice, update, lookups } = settings;
+  const prefs = usePreferences();
   // с id в адресе отчёт запрашивается, когда справочники загружены и id проверены; у «Прибыли» — ещё и склады
-  const apiParams = today && stockKnown && (cleaned || !usesIds(parsed)) ? reportApiParams(state, today).toString() : null;
+  const apiParams = today && settings.ready ? reportApiParams(state, today).toString() : null;
   const report = useReport(company.id, config.report, apiParams);
-  const [notice, setNotice] = useState('');
-  useEffect(() => {
-    if (!cleaned || cleaned.dropped.length === 0) return;
-    setNotice(`Из ссылки убраны фильтры, которых больше нет: ${cleaned.dropped.join(', ')}`);
-    setParams(reportSearch(cleaned.state), { replace: true });
-    // адрес исправляется один раз на каждую испорченную ссылку; setParams меняется вместе с адресом
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cleaned]);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(DEFAULT_EXPANDED));
   const headingRef = useRef<HTMLHeadingElement>(null);
   const bannerId = useId();
@@ -154,21 +112,7 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
     setCell(null);
     setPicked(null);
   }, [apiParams, state.view]);
-  const lookups = useMemo<JournalLookups | null>(() => {
-    if (!accounts.data || !categories.data || !projects.data || !counterparties.data) return null;
-    return {
-      accounts: new Map(accounts.data.map((a) => [a.id, a])),
-      categories: categoryLookup(categories.data),
-      projects: new Map(projects.data.map((p) => [p.id, p.name])),
-      counterparties: new Map(counterparties.data.map((c) => [c.id, c.name])),
-    };
-  }, [accounts.data, categories.data, projects.data, counterparties.data]);
 
-  // настройки меняют адрес без новой записи в истории: «Назад» уводит со страницы, а не по шагам настроек
-  const update = (next: ReportUrlState) => {
-    setNotice('');
-    setParams(reportSearch(next), { replace: true });
-  };
   const range = today ? reportRange(state, today) : null;
   // точка у «Шага» — по действующему шагу: из адреса можно получить шаг, который на этом периоде заменяется другим
   const step = range ? effectiveStep(state.step, range) : state.step;
@@ -182,70 +126,34 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
     </p>
   );
 
-  const refresh = (size: string) => (
-    <button
-      type="button"
-      aria-label="Обновить"
-      title="Обновить"
-      onClick={() => void report.refetch()}
-      className={`grid ${size} shrink-0 place-items-center rounded-full bg-field text-ink hover:brightness-95 focus-visible:outline-2 focus-visible:outline-focus`}
-    >
-      <RefreshIcon spinning={report.isFetching} />
-    </button>
-  );
+  const refresh = (size: string) => <RefreshButton size={size} spinning={report.isFetching} onClick={() => void report.refetch()} />;
 
-  // «Excel» (§2.6): ссылка без побочных эффектов, файл — текущая таблица отчёта; на компьютере только значок (R10: в худшем
-  // случае панели на 1440 px всё в одну строку), имя и подсказка — в aria-label и title
-  const excel = (size: string) =>
-    today && (
-      <a
-        href={reportExcelHref(company.id, config.report, state, today)}
-        download
-        aria-label="Скачать Excel"
-        title="Скачать Excel"
-        className={`grid ${size} shrink-0 place-items-center rounded-full bg-field text-ink hover:brightness-95 focus-visible:outline-2 focus-visible:outline-focus`}
-      >
-        <DownloadIcon />
-      </a>
-    );
+  // «Excel» (§2.6): файл — текущая таблица отчёта; на компьютере только значок (R10: в худшем случае панели на 1440 px всё в одну строку)
+  const excel = (size: string) => today && <ExcelLink size={size} href={reportExcelHref(company.id, config.report, state, today)} />;
 
   const help = <HelpButton about={config.title} text={config.help} />;
 
+  // компьютер: вид рядом с заголовком, как у Finmap (R7); «?» там уходит вправо панели, на телефоне остаётся у заголовка
   const header = (
-    <div className="mb-4 flex items-start gap-3">
-      <Link
-        to={`/c/${company.id}/analytics`}
-        aria-label="Назад к отчётам"
-        title="Назад к отчётам"
-        className="grid size-10 shrink-0 place-items-center rounded-full text-xl hover:bg-field focus-visible:outline-2 focus-visible:outline-focus"
-      >
-        <span aria-hidden="true">←</span>
-      </Link>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold outline-none">
-            {config.title}
-          </h1>
-          {/* компьютер: вид рядом с заголовком, как у Finmap (R7); «?» там уходит вправо панели, на телефоне остаётся у заголовка */}
-          <div className="ml-2 max-md:hidden">
-            <ViewSwitch value={state.view} onChange={(view) => update({ ...state, view })} />
-          </div>
-          <span className="contents md:hidden">{help}</span>
-        </div>
-        <p className="text-sm text-muted">{config.subtitle}</p>
-      </div>
-    </div>
+    <ReportHeader
+      companyId={company.id}
+      title={config.title}
+      subtitle={config.subtitle}
+      headingRef={headingRef}
+      help={help}
+      aside={<ViewSwitch value={state.view} onChange={(view) => update({ ...state, view })} />}
+    />
   );
 
-  const dictionaries = [meta, accounts, categories, projects, counterparties, tags];
-  if (!today || !range || !timeZone || !lookups || !tags.data) {
+  const filterData = settings.filterData;
+  if (!today || !range || !timeZone || !lookups || !filterData) {
     return (
       <section>
         {header}
         {status}
         {/* «?» компьютера живёт в панели; пока панели нет — под заголовком */}
         <div className="mb-2 flex justify-end max-md:hidden">{help}</div>
-        <Pending queries={dictionaries} />
+        <Pending queries={settings.dictionaries} />
       </section>
     );
   }
@@ -362,13 +270,7 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
         dateHeading={config.dateHeading}
         stock={stockAvailable}
         state={state}
-        data={{
-          accounts: accounts.data!,
-          categories: categories.data!,
-          projects: projects.data!,
-          counterparties: counterparties.data!,
-          tags: tags.data,
-        }}
+        data={filterData}
         onApply={update}
         onClose={() => setFilterOpen(false)}
       />
@@ -403,23 +305,8 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
         </p>
       )}
       <StaleNotice queries={report.data ? [report] : []} />
-      {!report.data && !report.error ? (
-        // скелет (§10): серые полосы на месте строк
-        <div aria-busy="true" className="flex flex-col gap-2">
-          <span className="sr-only">Загрузка…</span>
-          {[0, 1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="h-10 animate-pulse rounded-lg bg-field" />
-          ))}
-        </div>
-      ) : !report.data ? (
-        <div className="py-8 text-center">
-          <p role="alert" className="mb-4 text-expense-strong">
-            {report.error?.message}
-          </p>
-          <button type="button" onClick={() => void report.refetch()} className={btnSecondary}>
-            Повторить
-          </button>
-        </div>
+      {!report.data ? (
+        <ReportLoading error={report.error} onRetry={() => void report.refetch()} />
       ) : table ? (
         <ReportTable
           caption={config.title}
