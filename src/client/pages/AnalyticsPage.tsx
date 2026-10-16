@@ -36,7 +36,8 @@ export function AnalyticsPage() {
         {ANALYTICS_CARDS.map((card) => {
           const body = (
             <>
-              <span className="mb-4 block text-ink">
+              {/* у неактивной карточки приглушены рисунок и рамка, а не текст: подпись остаётся читаемой (AA) */}
+              <span className={`mb-4 block text-ink ${card.href ? '' : 'opacity-50'}`}>
                 <Icon name={card.icon} />
               </span>
               <span className="block text-base font-bold text-ink">{card.title}</span>
@@ -44,7 +45,7 @@ export function AnalyticsPage() {
             </>
           );
           return (
-            <li key={card.key} className={`relative min-h-40 rounded-2xl bg-card ${card.href ? 'shadow-sm ring-1 ring-field' : 'border border-dashed border-muted/50'}`}>
+            <li key={card.key} className={`relative min-h-40 rounded-2xl bg-card ${card.href ? 'shadow-sm ring-1 ring-field' : 'border border-dashed border-muted/40'}`}>
               {card.href ? (
                 <Link
                   to={card.href(company.id)}
@@ -53,7 +54,7 @@ export function AnalyticsPage() {
                   {body}
                 </Link>
               ) : (
-                <div className="h-full p-6 pr-12 opacity-80">
+                <div className="h-full p-6 pr-12">
                   {body}
                 </div>
               )}

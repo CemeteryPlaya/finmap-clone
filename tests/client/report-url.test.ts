@@ -3,6 +3,7 @@ import {
   BY_CHOICES,
   changedControls,
   customRangeError,
+  dropUnknownIds,
   reportDialogFields,
   withDialogFields,
   DEFAULT_REPORT_STATE,
@@ -17,7 +18,9 @@ import {
   reportRange,
   reportSearch,
   stepChoices,
+  usesIds,
   withFittingStep,
+  type KnownIds,
   type ReportUrlState,
 } from '../../src/client/lib/report-url';
 
@@ -116,6 +119,50 @@ describe('параметры API и изменённые контролы', () =
     expect(phoneReportCount({ ...DEFAULT_REPORT_STATE, period: 'month', by: 'project', percent: true, accountIds: [1], withoutCounterparty: true })).toBe(5);
     expect(BY_CHOICES.map((c) => c.label)).toEqual(['По категориям', 'По контрагентам', 'По проектам']);
     expect(PERCENT_CHOICES.map((c) => c.label)).toEqual(['Скрыть проценты', 'Показать проценты']);
+  });
+
+  it('действующий шаг (R18): точка у «Шага» и число на телефоне считаются по шагу, который реально строится', () => {
+    // пять лет по неделям — 261 колонка, больше 92: действует «По месяцам», то есть шаг по умолчанию
+    const range = { from: '2022-01-01', to: '2026-12-31' };
+    const fromUrl: ReportUrlState = { ...DEFAULT_REPORT_STATE, period: 'custom', from: range.from, to: range.to, step: 'week' };
+    expect(effectiveStep('week', range)).toBe('month');
+    // без периода шаг сравнивается как записан в адресе, с периодом — по действующему
+    expect(changedControls(fromUrl).step).toBe(true);
+    expect(changedControls(fromUrl, range).step).toBe(false);
+    // период изменён (+1), шаг на деле нет: то же число, что показывает компьютер (точка только у периода)
+    expect(phoneReportCount(fromUrl)).toBe(2);
+    expect(phoneReportCount(fromUrl, range)).toBe(1);
+    // «По дням» на годе заменяется «По неделям» — не шаг по умолчанию, это изменение
+    expect(isReportChanged({ ...DEFAULT_REPORT_STATE, step: 'day' }, { from: '2026-01-01', to: '2026-12-31' })).toBe(true);
+    expect(isReportChanged({ ...DEFAULT_REPORT_STATE, step: 'week' }, range)).toBe(false);
+    // «По дням» на коротком периоде действует как есть — это изменение; «По кварталам» на году тоже
+    expect(changedControls({ ...DEFAULT_REPORT_STATE, step: 'day' }, { from: '2026-01-01', to: '2026-02-28' }).step).toBe(true);
+    const year = { from: '2026-01-01', to: '2026-12-31' };
+    expect(phoneReportCount({ ...DEFAULT_REPORT_STATE, step: 'quarter' }, year)).toBe(1);
+    expect(phoneReportCount({ ...DEFAULT_REPORT_STATE, step: 'day', percent: true }, year)).toBe(2);
+  });
+
+  it('id из адреса, которых нет в справочниках, убираются с названиями списков (R14); нечего убирать — тот же объект', () => {
+    const known: KnownIds = {
+      accountIds: new Set([1, 2]),
+      categoryIds: new Set([10]),
+      projectIds: new Set(),
+      counterpartyIds: new Set([5]),
+      tagIds: new Set([7]),
+    };
+    const clean: ReportUrlState = { ...DEFAULT_REPORT_STATE, accountIds: [1, 2], categoryIds: [10], counterpartyIds: [5] };
+    expect(dropUnknownIds(clean, known)).toEqual({ state: clean, dropped: [] });
+    expect(dropUnknownIds(clean, known).state).toBe(clean);
+    const bad: ReportUrlState = { ...clean, accountIds: [1, 99], projectIds: [3], tagIds: [7, 8], percent: true, withoutCategory: true };
+    const r = dropUnknownIds(bad, known);
+    expect(r.dropped).toEqual(['счета', 'проекты', 'теги']);
+    expect(r.state).toEqual({ ...bad, accountIds: [1], projectIds: [], tagIds: [7] });
+    // всё, что не относится к спискам, остаётся
+    expect(r.state.percent).toBe(true);
+    expect(r.state.withoutCategory).toBe(true);
+    expect(usesIds(DEFAULT_REPORT_STATE)).toBe(false);
+    expect(usesIds({ ...DEFAULT_REPORT_STATE, withoutCategory: true })).toBe(false);
+    expect(usesIds({ ...DEFAULT_REPORT_STATE, tagIds: [1] })).toBe(true);
   });
 
   it('свои даты: обе обязательны, не больше 5 лет', () => {

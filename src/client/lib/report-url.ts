@@ -169,25 +169,58 @@ export function reportFilterCount(state: ReportUrlState): number {
   ].filter(Boolean).length;
 }
 
-/** Какие контролы отличаются от значений по умолчанию (§2.2): у них точка; хоть один — «Сбросить». */
-export function changedControls(state: ReportUrlState): { period: boolean; by: boolean; step: boolean; percent: boolean; filter: boolean } {
+/**
+ * Какие контролы отличаются от значений по умолчанию (§2.2): у них точка; хоть один — «Сбросить». С периодом (range)
+ * шаг сравнивается по действующему (effectiveStep): из адреса можно получить шаг, который на этом периоде заменяется
+ * другим. Точка на компьютере и число на телефоне считаются только так (R18).
+ */
+export function changedControls(
+  state: ReportUrlState,
+  range?: { from: string; to: string },
+): { period: boolean; by: boolean; step: boolean; percent: boolean; filter: boolean } {
   return {
     period: state.period !== DEFAULT_REPORT_STATE.period,
     by: state.by !== DEFAULT_REPORT_STATE.by,
-    step: state.step !== DEFAULT_REPORT_STATE.step,
+    step: (range ? effectiveStep(state.step, range) : state.step) !== DEFAULT_REPORT_STATE.step,
     percent: state.percent !== DEFAULT_REPORT_STATE.percent,
     filter: reportFilterCount(state) > 0,
   };
 }
 
-export function isReportChanged(state: ReportUrlState): boolean {
-  return Object.values(changedControls(state)).some(Boolean);
+export function isReportChanged(state: ReportUrlState, range?: { from: string; to: string }): boolean {
+  return Object.values(changedControls(state, range)).some(Boolean);
 }
 
 /** Число на кнопке «Фильтры» телефона (§2.2): изменённые период, разрез, шаг, проценты и заданные измерения фильтра. */
-export function phoneReportCount(state: ReportUrlState): number {
-  const c = changedControls(state);
+export function phoneReportCount(state: ReportUrlState, range?: { from: string; to: string }): number {
+  const c = changedControls(state, range);
   return [c.period, c.by, c.step, c.percent].filter(Boolean).length + reportFilterCount(state);
+}
+
+/** Какие значения фильтра известны: id из справочников компании по спискам адреса. */
+export type KnownIds = Readonly<Record<ListField, ReadonlySet<number>>>;
+
+const LIST_NAMES: Record<ListField, string> = { accountIds: 'счета', categoryIds: 'категории', projectIds: 'проекты', counterpartyIds: 'контрагенты', tagIds: 'теги' };
+
+/** Есть ли в настройках id справочников (адрес с такими id нужно сверить со справочниками до запроса отчёта). */
+export function usesIds(state: ReportUrlState): boolean {
+  return LIST_FIELDS.some((field) => state[field].length > 0);
+}
+
+/**
+ * Настройки без id, которых нет в справочниках (счёт удалён, ссылка чужая, id выдуман): запрос с ними дал бы 400 без выхода (R14).
+ * Если убирать нечего — тот же объект. dropped — названия списков, из которых что-то убрано, по порядку фильтра.
+ */
+export function dropUnknownIds(state: ReportUrlState, known: KnownIds): { state: ReportUrlState; dropped: string[] } {
+  let next = state;
+  const dropped: string[] = [];
+  for (const field of LIST_FIELDS) {
+    const kept = state[field].filter((id) => known[field].has(id));
+    if (kept.length === state[field].length) continue;
+    next = { ...next, [field]: kept };
+    dropped.push(LIST_NAMES[field]);
+  }
+  return { state: next, dropped };
 }
 
 /** Своё значение «Выбрать даты» (§2.3): обе даты, не больше 5 лет; иначе текст ошибки. */

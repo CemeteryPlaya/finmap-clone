@@ -236,7 +236,7 @@ export function JournalTable(props: JournalTableProps) {
                   type="button"
                   data-row-open=""
                   onClick={() => props.onOpenOperation!(item)}
-                  aria-label={`Открыть операцию: ${when.date}, ${when.time}, ${signed}`}
+                  aria-label={`Открыть операцию: ${when.date}, ${when.time}, ${signed}${part === undefined ? '' : ', часть операции'}`}
                   className="rounded text-left hover:underline focus-visible:outline-2 focus-visible:outline-focus"
                 >
                   {dateText}

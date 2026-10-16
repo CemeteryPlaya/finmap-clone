@@ -25,17 +25,22 @@ async function apiPost(page: Page, url: string, data: unknown) {
   return res.json();
 }
 
-/** Момент n минут назад: операция не в будущем. */
-const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
+const almatyYear = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty', year: 'numeric' }).format(new Date());
 
 /**
- * Компания для «Денег»: «Касса Клуб 1» (тенге, стартовый остаток 100 000 ₸ с 1 января текущего года), категории «Бар» и
+ * Момент n минут назад: операция не в будущем и не в прошлом году. В первые минуты года «n минут назад» — это ещё прошлый
+ * год: момент берётся не раньше начала текущего года по Алматы (UTC+5), и отчёт «За текущий год» не зависит от времени запуска (R17).
+ */
+const minutesAgo = (n: number) => new Date(Math.max(Date.now() - n * 60_000, Date.parse(`${almatyYear()}-01-01T00:00:00+05:00`))).toISOString();
+
+/**
+ * Компания для «Денег»: «Касса Клуб 1» (тенге, стартовый остаток 100 000 ₸ с 1 декабря прошлого года), категории «Бар» и
  * «Аренда», контрагент «Поставщик А», доход 1 500 ₸ «Бар» и расход 500 ₸ «Аренда» у «Поставщика А».
  */
 async function cashflowSetup(page: Page, cid: number) {
   const base = `/api/v1/companies/${cid}`;
-  const year = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty', year: 'numeric' }).format(new Date());
-  const account = (await apiPost(page, `${base}/accounts`, { name: 'Касса Клуб 1', currency: 'KZT', openedAt: `${year}-01-01`, startingBalance: 10_000_000 })).account.id as number;
+  const year = almatyYear();
+  const account = (await apiPost(page, `${base}/accounts`, { name: 'Касса Клуб 1', currency: 'KZT', openedAt: `${Number(year) - 1}-12-01`, startingBalance: 10_000_000 })).account.id as number;
   const bar = (await apiPost(page, `${base}/categories`, { kind: 'income', name: 'Бар' })).category.id as number;
   const rent = (await apiPost(page, `${base}/categories`, { kind: 'expense', name: 'Аренда' })).category.id as number;
   const supplier = (await apiPost(page, `${base}/counterparties`, { type: 'supplier', name: 'Поставщик А' })).counterparty.id as number;
@@ -74,6 +79,11 @@ test('«Аналитика»: вкладка между «Журналом» и 
     await expect(cards.nth(i)).toContainText('Появится с плановыми операциями');
   }
   await expect(cards.nth(5)).toContainText('Баланс');
+  // неактивная карточка: приглушены рисунок и рамка, подпись и название — нет (контраст AA)
+  const dim = cards.nth(2).locator('div.h-full');
+  expect(await dim.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+  expect(await dim.locator('span').first().evaluate((el) => getComputedStyle(el).opacity)).toBe('0.5');
+  expect(await dim.locator('span').nth(2).evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
 
   // «?» — подсказка поверх карточки; Esc закрывает и возвращает фокус на кнопку
   const help = cards.nth(0).getByRole('button', { name: 'Подсказка: Деньги / Cash flow' });
@@ -101,6 +111,10 @@ test('«Деньги»: таблица по месяцам, разрез, шаг
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/analytics/cashflow$`));
   await expect(page.getByRole('heading', { level: 1, name: 'Деньги' })).toBeVisible();
   await expect(main(page).getByText('Отчёт о движении денежных средств (cash flow)')).toBeVisible();
+  // «Обновить» один на экране (на телефоне свой, см. тест телефона)
+  await expect(main(page).getByRole('button', { name: 'Обновить', exact: true })).toHaveCount(1);
+  // первая колонка закреплена: сфокусированная ячейка не прячется под ней (scroll-padding равен её ширине)
+  expect(await main(page).getByRole('region', { name: 'Деньги: таблица' }).evaluate((el) => getComputedStyle(el).scrollPaddingLeft)).toBe('224px');
 
   // новый ответ объявляется вежливым статусом (R5)
   await expect(main(page).getByRole('status').filter({ hasText: 'Отчёт обновлён' })).toHaveText('Отчёт обновлён: За текущий год, по месяцам');
@@ -116,9 +130,9 @@ test('«Деньги»: таблица по месяцам, разрез, шаг
   await expect(rowNames.nth(2)).toHaveText(/^Неоперационные изменения остатка/);
   await expect(rowNames.nth(3)).toHaveText('Чистый денежный поток');
   await expect(rowNames.nth(4)).toHaveText('Поступления');
-  // остаток на начало года — 0, на конец — стартовые 100 000 + 1 500 - 500
+  // остаток на начало года — стартовые 100 000 (счёт открыт в прошлом году), на конец — 100 000 + 1 500 - 500
   const total = (name: string | RegExp) => reportRow(page, name).getByRole('cell').last();
-  await expect(reportRow(page, /^Остаток на начало периода/).getByRole('cell').first()).toHaveText(/^₸\s*0$/);
+  await expect(reportRow(page, /^Остаток на начало периода/).getByRole('cell').first()).toHaveText(/^₸\s*100\s*000$/);
   await expect(total(/^Остаток на конец периода/)).toHaveText(/^₸\s*101\s*000$/);
   await expect(total('Чистый денежный поток')).toHaveText(/^₸\s*1\s*000$/);
   await expect(total('Бар')).toHaveText(/^₸\s*1\s*500$/);
@@ -129,7 +143,8 @@ test('«Деньги»: таблица по месяцам, разрез, шаг
   await nonop.click();
   await expect(nonop).toHaveAttribute('aria-expanded', 'true');
   // у подстрок с «?» имя заголовка строки — название и подсказка
-  await expect(total(/^Стартовые остатки/)).toHaveText(/^₸\s*100\s*000$/);
+  // счёт открыт до периода: стартовых остатков внутри периода нет
+  await expect(total(/^Стартовые остатки/)).toHaveText(/^₸\s*0$/);
   await report(page).getByRole('button', { name: 'Подсказка: Курсовая разница' }).click();
   await expect(page.getByRole('dialog', { name: 'Курсовая разница' })).toContainText('Переоценка');
   await page.keyboard.press('Escape');
@@ -223,6 +238,9 @@ test('«Деньги»: ячейка → операции под таблице�
   const split = ops.locator('tbody tr').filter({ hasText: 'Разбитый расход' });
   await expect(split.locator('[data-column="amount"]')).toContainText(/\u2212300\s₸/);
   await expect(split.locator('[data-column="amount"]')).toContainText('часть операции');
+  // имя кнопки «Открыть операцию» тоже говорит, что это часть операции
+  await expect(split.getByRole('button', { name: /^Открыть операцию: .*, часть операции$/ })).toHaveCount(1);
+  await expect(ops.locator('tbody tr').filter({ hasText: 'Поставщик А' }).getByRole('button', { name: /^Открыть операцию: / })).not.toHaveAccessibleName(/часть операции/);
   const whole = ops.locator('tbody tr').filter({ hasText: 'Поставщик А' });
   await expect(whole.locator('[data-column="amount"]')).not.toContainText('часть операции');
   // «×» закрывает блок, фокус — обратно в ячейку
@@ -263,6 +281,19 @@ test('«Деньги»: ячейка → операции под таблице�
   await expect(reportRow(page, /^Остаток на начало периода/)).toHaveCount(0);
   await expect(total('Аренда')).toHaveText(/^₸\s*800$/);
   await expect(heading).toBeHidden();
+  // сообщение о скрытых остатках не шире блока таблицы (1024 px), даже если блок прокручен вбок
+  await page.setViewportSize({ width: 1024, height: 768 });
+  const region = main(page).getByRole('region', { name: 'Деньги: таблица' });
+  const hiddenText = report(page).getByText(/^Остатки скрыты/);
+  const fits = () =>
+    Promise.all([region.evaluate((el) => el.getBoundingClientRect().toJSON()), hiddenText.evaluate((el) => el.getBoundingClientRect().toJSON())]).then(
+      ([r, t]) => t.right <= r.right + 0.5 && t.left >= r.left - 0.5,
+    );
+  expect(await fits()).toBe(true);
+  await region.evaluate((el) => el.scrollBy(300, 0));
+  await expect.poll(() => region.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  expect(await fits()).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   // фильтр по счёту остатки сохраняет; «Сбросить» в окне очищает условия
   await filterButton.click();
@@ -332,6 +363,21 @@ test('телефон: «Деньги» — сверху только «Филь�
   const filters = main(page).getByRole('button', { name: /^Фильтры/ });
   await expect(filters).toHaveText('Фильтры');
   expect((await filters.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  // «Обновить» остался на телефоне рядом с «Фильтрами» и обновляет отчёт (N1)
+  const refresh = main(page).getByRole('button', { name: 'Обновить', exact: true });
+  await expect(refresh).toHaveCount(1);
+  const [fb, rb] = [(await filters.boundingBox())!, (await refresh.boundingBox())!];
+  expect(rb.width).toBeGreaterThanOrEqual(44);
+  expect(rb.height).toBeGreaterThanOrEqual(44);
+  expect(Math.abs(rb.y + rb.height / 2 - (fb.y + fb.height / 2))).toBeLessThan(2);
+  const refetch = page.waitForRequest((req) => /\/analytics\/cashflow\?/.test(req.url()));
+  await refresh.click();
+  await refetch;
+  // «?» на телефоне: кнопка 32 px и невидимая область вокруг неё — нажимаемый размер 44 px
+  const help = main(page).getByRole('button', { name: 'Подсказка: Деньги', exact: true });
+  expect(await help.evaluate((el) => [getComputedStyle(el, '::after').width, getComputedStyle(el, '::after').height])).toEqual(['44px', '44px']);
+  // закреплённая колонка названий уже: scroll-padding по её ширине
+  expect(await main(page).getByRole('region', { name: 'Деньги: таблица' }).evaluate((el) => getComputedStyle(el).scrollPaddingLeft)).toBe('144px');
 
   // страница не уезжает вбок; таблица прокручивается в своём блоке, колонка названий закреплена
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -403,4 +449,129 @@ test('телефон: «Ещё» → «Аналитика», карточки в
   expect(second.y).toBeGreaterThan(first.y + first.height - 1);
   expect(Math.round(second.x)).toBe(Math.round(first.x));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test('«Деньги»: пока показан прежний отчёт, ячейки не открываются ни щелчком, ни Enter и пробелом (R8)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Занято ${Date.now()}`);
+  await cashflowSetup(page, cid);
+  await page.goto(`/c/${cid}/analytics/cashflow`);
+  const incomeCell = report(page).getByRole('button', { name: /^Поступления за весь период: / });
+  await expect(incomeCell).toBeVisible();
+  const list = main(page).getByRole('heading', { level: 2, name: 'Поступления за весь период' });
+
+  // ответ на новые настройки задерживается: до него на экране прежняя таблица
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route(/\/analytics\/cashflow\?/, async (route) => {
+    await gate;
+    await route.continue();
+  });
+  await main(page).getByRole('button', { name: 'Шаг: По месяцам' }).click();
+  await page.getByRole('dialog', { name: 'Шаг' }).getByRole('button', { name: 'По кварталам' }).click();
+  await expect(report(page)).toHaveAttribute('aria-busy', 'true');
+  await expect(incomeCell).toHaveAttribute('aria-disabled', 'true');
+  await incomeCell.click({ force: true });
+  await incomeCell.focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(300);
+  await expect(list).toHaveCount(0);
+
+  // ответ пришёл: список не открылся сам, ячейка снова работает
+  release();
+  await expect(report(page)).toHaveAttribute('aria-busy', 'false');
+  await expect(list).toHaveCount(0);
+  await expect(incomeCell).not.toHaveAttribute('aria-disabled', 'true');
+  await incomeCell.click();
+  await expect(list).toBeFocused();
+  // другие настройки закрывают открытый список: он не остаётся под новым отчётом
+  await main(page).getByRole('button', { name: 'Разрез: По категориям' }).click();
+  await page.getByRole('dialog', { name: 'Разрез' }).getByRole('button', { name: 'По контрагентам' }).click();
+  await expect(list).toHaveCount(0);
+});
+
+test('«Деньги»: id из адреса, которых нет в справочниках, убираются с короткой пометкой, без тупиковой ошибки (R14)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Ссылка ${Date.now()}`);
+  const s = await cashflowSetup(page, cid);
+  await page.goto(`/c/${cid}/analytics/cashflow?account=${s.account}&account=999999&category=888888&pct=1`);
+  const notice = main(page).getByRole('status').filter({ hasText: 'Из ссылки убраны' });
+  await expect(notice).toHaveText('Из ссылки убраны фильтры, которых больше нет: счета, категории');
+  await expect(reportRow(page, 'Поступления')).toBeVisible();
+  await expect(main(page).getByRole('alert')).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/analytics/cashflow\\?pct=1&account=${s.account}$`));
+  await expect(main(page).getByRole('button', { name: /^Фильтр/ })).toHaveText('Фильтр · 1');
+
+  // адрес только с неизвестным счётом — обычный отчёт без фильтра
+  await page.goto(`/c/${cid}/analytics/cashflow?account=999999`);
+  await expect(notice).toHaveText('Из ссылки убраны фильтры, которых больше нет: счета');
+  await expect(reportRow(page, 'Поступления')).toBeVisible();
+  await expect(main(page).getByRole('alert')).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/analytics/cashflow$`));
+  await expect(main(page).getByRole('button', { name: /^Фильтр/ })).toHaveText('Фильтр');
+  // следующее действие убирает пометку
+  await main(page).getByRole('button', { name: 'Проценты: Скрыть проценты' }).click();
+  await page.getByRole('dialog', { name: 'Проценты' }).getByRole('button', { name: 'Показать проценты' }).click();
+  await expect(notice).toHaveCount(0);
+});
+
+test('«Деньги»: область для программ чтения есть уже до загрузки справочников (R12)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Статус ${Date.now()}`);
+  await cashflowSetup(page, cid);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route(new RegExp(`/api/v1/companies/${cid}/accounts$`), async (route) => {
+    await gate;
+    await route.continue();
+  });
+  await page.goto(`/c/${cid}/analytics/cashflow`);
+  await expect(main(page).getByText('Загрузка…')).toBeVisible();
+  await expect(main(page).locator('p.sr-only[role="status"][aria-live="polite"]')).toHaveCount(1);
+  release();
+  await expect(reportRow(page, 'Поступления')).toBeVisible();
+  await expect(main(page).locator('p.sr-only[role="status"][aria-live="polite"]')).toHaveText('Отчёт обновлён: За текущий год, по месяцам');
+});
+
+test('архивная компания: вкладка «Аналитика», «Деньги» загружаются только для чтения; на телефоне «Ещё» → «Аналитика» (R11)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Архив аналитика ${Date.now()}`);
+  const s = await cashflowSetup(page, cid);
+  // счёт в архив — только с нулевым балансом: стартовый остаток убираем, расход добирает 1 500 ₸ дохода до нуля
+  const patched = await page.request.patch(`/api/v1/companies/${cid}/accounts/${s.account}`, { data: { startingBalance: 0 }, headers: csrf(page) });
+  expect(patched.ok(), await patched.text()).toBe(true);
+  await apiPost(page, `${s.base}/operations`, { type: 'expense', paidAt: minutesAgo(5), accountId: s.account, amount: 100_000, lines: [{ categoryId: s.rent, amount: 100_000 }] });
+  await apiPost(page, `/api/v1/companies/${cid}/accounts/${s.account}/archive`, {});
+  await apiPost(page, `/api/v1/companies/${cid}/archive`, {});
+
+  await page.goto(`/c/${cid}/log`);
+  const tabs = main(page).getByRole('navigation').first().getByRole('link');
+  await expect(tabs).toHaveText(['Журнал', 'Аналитика', 'Склад']);
+  await tabs.filter({ hasText: 'Аналитика' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/analytics$`));
+  await main(page).getByRole('link', { name: /^Деньги \/ Cash flow/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/analytics/cashflow$`));
+  const total = (name: string) => reportRow(page, name).getByRole('cell').last();
+  await expect(total('Поступления')).toHaveText(/^₸\s*1\s*500$/);
+  await expect(total('Чистый денежный поток')).toHaveText(/^₸\s*0$/);
+  // список операций ячейки открывается; отчёт только читается — ни одного запроса на запись
+  const writes: string[] = [];
+  page.on('request', (req) => {
+    if (req.method() !== 'GET') writes.push(`${req.method()} ${req.url()}`);
+  });
+  await report(page).getByRole('button', { name: /^Бар за весь период: / }).click();
+  await expect(main(page).getByRole('heading', { level: 2, name: 'Бар за весь период' })).toBeFocused();
+  await expect(main(page).getByRole('table', { name: 'Операции' }).locator('tbody tr')).toHaveCount(1);
+  await main(page).getByRole('button', { name: 'Обновить', exact: true }).click();
+  await expect(total('Поступления')).toHaveText(/^₸\s*1\s*500$/);
+  expect(writes).toEqual([]);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/c/${cid}/log`);
+  await page.getByRole('navigation', { name: 'Разделы', exact: true }).getByRole('button', { name: 'Ещё', exact: true }).click();
+  const menu = page.getByRole('dialog', { name: 'Ещё', exact: true });
+  await expect(menu.getByRole('link').first()).toHaveText('Аналитика');
+  await menu.getByRole('link', { name: 'Аналитика' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/analytics$`));
 });

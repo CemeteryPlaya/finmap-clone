@@ -27,6 +27,7 @@ export const cellKey = (rowId: string, col: string) => `${rowId}|${col}`;
  * остальные прокручиваются по горизонтали внутри блока; отрицательные суммы — красным; суммы — в базовой валюте.
  * Строки с детьми раскрываются кнопкой с aria-expanded; у неоперационных строк — «?» с пояснением. Ячейки строк разреза,
  * групп и «Чистого денежного потока» — кнопки «{строка} за {колонка}»: открывают список операций под таблицей (§2.5).
+ * Пока показан прежний отчёт (busy), ячейки не открываются: aria-disabled, щелчок и Enter с пробелом игнорируются (R8).
  * Кнопки ячеек — одна точка Tab (roving tabindex, R1): стрелки, Home и End двигают фокус между ними, Enter и пробел
  * открывают список. Точка Tab — ячейка, на которой был фокус, иначе открытая ячейка, иначе первая.
  */
@@ -106,8 +107,13 @@ export function ReportTable(props: {
         tabIndex={key === stop ? 0 : -1}
         aria-label={spoken}
         aria-current={active ? 'true' : undefined}
+        aria-disabled={props.busy || undefined}
         onFocus={() => setFocused(key)}
-        onClick={() => props.onCell(line.row, column)}
+        onClick={() => {
+          // щелчок тоже запоминает ячейку (Safari не переводит на кнопку фокус); пока показан прежний отчёт, ячейки не открываются (R8)
+          setFocused(key);
+          if (!props.busy) props.onCell(line.row, column);
+        }}
         className={`-mx-1.5 rounded-md px-1.5 py-0.5 text-right hover:bg-income-soft/60 focus-visible:outline-2 focus-visible:outline-focus ${active ? 'bg-income-soft ring-1 ring-income' : ''}`}
       >
         {amount}
@@ -118,7 +124,7 @@ export function ReportTable(props: {
   const innerFocusable = stop !== null || lines.some((l) => l.expandable || ROW_HELP[l.row.id]);
   return (
     // блок прокручивается сам: страница на телефоне не уезжает вбок
-    <div role="region" aria-label={`${props.caption}: таблица`} tabIndex={innerFocusable ? undefined : 0} className="overflow-x-auto rounded-xl focus-visible:outline-2 focus-visible:outline-focus">
+    <div role="region" aria-label={`${props.caption}: таблица`} tabIndex={innerFocusable ? undefined : 0} className="@container scroll-pl-56 overflow-x-auto rounded-xl focus-visible:outline-2 focus-visible:outline-focus max-md:scroll-pl-36">
       <table aria-busy={props.busy} onKeyDown={onKeyDown} className={`w-full min-w-max border-collapse text-sm ${props.busy ? 'opacity-60' : ''}`}>
         <caption className="sr-only">{props.caption}</caption>
         <thead>
@@ -145,7 +151,7 @@ export function ReportTable(props: {
                 <tr key={row.id} className="border-b border-field bg-field">
                   <td colSpan={columns.length + 2} className="px-3 py-3 text-sm text-muted">
                     {/* текст остаётся на виду при прокрутке вбок: сама ячейка занимает всю строку и не сдвигается */}
-                    <span className="sticky left-0 inline-block max-w-[calc(100vw-2rem)]">{row.label}</span>
+                    <span className="sticky left-0 inline-block max-w-[calc(100cqw-1.5rem)]">{row.label}</span>
                   </td>
                 </tr>
               );
