@@ -56,6 +56,12 @@ const FLAG_FIELDS = Object.keys(FLAG_KEYS) as FlagField[];
 
 export const BY_LABELS: Record<ReportBy, string> = { category: 'По категориям', counterparty: 'По контрагентам', project: 'По проектам' };
 export const STEP_LABELS: Record<ReportStep, string> = { day: 'По дням', week: 'По неделям', month: 'По месяцам', quarter: 'По кварталам' };
+/** Пункты меню «Разрез» и «Проценты» (§2.2): у процентов подпись — текущее состояние, как у Finmap. */
+export const BY_CHOICES = REPORT_BYS.map((value) => ({ value, label: BY_LABELS[value] }));
+export const PERCENT_CHOICES = [
+  { value: 'off', label: 'Скрыть проценты' },
+  { value: 'on', label: 'Показать проценты' },
+] as const;
 /** Подсказка недоступного шага (§2.3). */
 export const TOO_MANY_COLUMNS_HINT = 'Слишком много колонок — выберите больший шаг или короче период';
 
@@ -176,6 +182,12 @@ export function changedControls(state: ReportUrlState): { period: boolean; by: b
 
 export function isReportChanged(state: ReportUrlState): boolean {
   return Object.values(changedControls(state)).some(Boolean);
+}
+
+/** Число на кнопке «Фильтры» телефона (§2.2): изменённые период, разрез, шаг, проценты и заданные измерения фильтра. */
+export function phoneReportCount(state: ReportUrlState): number {
+  const c = changedControls(state);
+  return [c.period, c.by, c.step, c.percent].filter(Boolean).length + reportFilterCount(state);
 }
 
 /** Своё значение «Выбрать даты» (§2.3): обе даты, не больше 5 лет; иначе текст ошибки. */

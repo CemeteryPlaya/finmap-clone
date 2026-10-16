@@ -1,34 +1,67 @@
 import { useState } from 'react';
-import type { DialogFields } from '../../lib/journal-filter';
 import { dimensionOptions, dimensionSelected, REPORT_DIMENSIONS, toggleDimension, type FilterDialogData } from '../../lib/journal-filter-dialog';
-import { DEFAULT_REPORT_STATE, reportDialogFields, withDialogFields, type ReportUrlState } from '../../lib/report-url';
+import {
+  BY_CHOICES,
+  customRangeError,
+  DEFAULT_REPORT_STATE,
+  effectiveStep,
+  PERCENT_CHOICES,
+  REPORT_PERIODS,
+  reportDialogFields,
+  reportRange,
+  stepChoices,
+  withDialogFields,
+  withFittingStep,
+  type ReportUrlState,
+} from '../../lib/report-url';
+import { PeriodMenu } from '../journal/PeriodMenu';
 import { Modal } from '../Modal';
 import { MultiSelectField } from '../MultiSelectField';
 import { btnPrimary, phoneFullScreenModal } from '../ui';
+import { ChoiceMenu } from './ChoiceMenu';
 
 /**
- * Поля окна: черновик — условия фильтра (§2.4 спецификации «Аналитика»); «Готово» применяет его поверх текущих настроек
- * отчёта, «Сбросить» очищает черновик, «×» и Esc закрывают без изменений. Поля и их пункты — те же, что у фильтра журнала,
- * без типов операций.
+ * Поля окна: черновик — настройки отчёта (§2.4 спецификации «Аналитика»). На компьютере окно задаёт только фильтр
+ * (категории, контрагенты, проекты, теги, счета); на телефоне (§2.2) первыми идут период, разрез, шаг и проценты —
+ * остальные контролы переезжают сюда. «Готово» применяет черновик поверх текущих настроек, «Сбросить» возвращает черновик
+ * к значениям по умолчанию, «×» и Esc закрывают без изменений. Поля фильтра — те же, что у журнала, без типов операций.
  */
-function ReportFilterForm(props: { state: ReportUrlState; data: FilterDialogData; onApply: (next: ReportUrlState) => void }) {
-  const [draft, setDraft] = useState<DialogFields>(() => reportDialogFields(props.state));
+function ReportFilterForm(props: { state: ReportUrlState; data: FilterDialogData; phone: boolean; today: string; onApply: (next: ReportUrlState) => void }) {
+  const [draft, setDraft] = useState<ReportUrlState>(props.state);
+  const fields = reportDialogFields(draft);
+  const range = reportRange(draft, props.today);
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        props.onApply(withDialogFields(props.state, draft));
+        props.onApply(props.phone ? withFittingStep(draft, props.today) : withDialogFields(props.state, fields));
       }}
     >
+      {props.phone && (
+        <div className="mb-3 flex flex-col gap-3">
+          <PeriodMenu
+            wide
+            state={draft}
+            today={props.today}
+            periods={REPORT_PERIODS}
+            heading="По дате платежа"
+            validate={customRangeError}
+            onChange={(next) => setDraft(withFittingStep(next, props.today))}
+          />
+          <ChoiceMenu wide name="Разрез" value={draft.by} options={BY_CHOICES} onChange={(by) => setDraft((d) => ({ ...d, by }))} />
+          <ChoiceMenu wide name="Шаг" value={effectiveStep(draft.step, range)} options={stepChoices(range)} onChange={(step) => setDraft((d) => ({ ...d, step }))} />
+          <ChoiceMenu wide name="Проценты" value={draft.percent ? 'on' : 'off'} options={PERCENT_CHOICES} onChange={(v) => setDraft((d) => ({ ...d, percent: v === 'on' }))} />
+        </div>
+      )}
       <div className="grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-2">
         {REPORT_DIMENSIONS.map((d) => (
           <div key={d.dim} className={`min-w-0 ${d.dim === 'typesCategories' ? 'md:col-span-2' : ''}`}>
             <MultiSelectField
               label={d.label}
               allLabel={d.allLabel}
-              options={dimensionOptions(d.dim, props.data, draft, { types: false })}
-              selected={dimensionSelected(d.dim, draft)}
-              onToggle={(key) => setDraft((current) => toggleDimension(d.dim, current, key))}
+              options={dimensionOptions(d.dim, props.data, fields, { types: false })}
+              selected={dimensionSelected(d.dim, fields)}
+              onToggle={(key) => setDraft((current) => withDialogFields(current, toggleDimension(d.dim, reportDialogFields(current), key)))}
             />
           </div>
         ))}
@@ -41,7 +74,11 @@ function ReportFilterForm(props: { state: ReportUrlState; data: FilterDialogData
         <button type="submit" className={`${btnPrimary} max-md:basis-full`}>
           Готово
         </button>
-        <button type="button" onClick={() => setDraft(reportDialogFields(DEFAULT_REPORT_STATE))} className="text-sm font-semibold text-muted underline hover:text-ink">
+        <button
+          type="button"
+          onClick={() => setDraft((d) => (props.phone ? DEFAULT_REPORT_STATE : withDialogFields(d, reportDialogFields(DEFAULT_REPORT_STATE))))}
+          className="text-sm font-semibold text-muted underline hover:text-ink"
+        >
           Сбросить
         </button>
       </div>
@@ -49,13 +86,26 @@ function ReportFilterForm(props: { state: ReportUrlState; data: FilterDialogData
   );
 }
 
-/** Окно «Фильтры» отчёта (§2.4): категории с подкатегориями, контрагенты, проекты, теги, счета; по умолчанию — «Все». */
-export function ReportFilterDialog(props: { open: boolean; state: ReportUrlState; data: FilterDialogData; onApply: (next: ReportUrlState) => void; onClose: () => void }) {
+/**
+ * Окно «Фильтры» отчёта (§2.4): категории с подкатегориями, контрагенты, проекты, теги, счета; по умолчанию — «Все».
+ * На телефоне — на весь экран и с контролами отчёта (§2.2); режим запоминается при открытии.
+ */
+export function ReportFilterDialog(props: {
+  open: boolean;
+  state: ReportUrlState;
+  data: FilterDialogData;
+  phone: boolean;
+  today: string;
+  onApply: (next: ReportUrlState) => void;
+  onClose: () => void;
+}) {
   return (
-    <Modal open={props.open} title="Фильтры" onClose={props.onClose} className={`max-w-[818px] ${phoneFullScreenModal}`} phoneFullScreen>
+    <Modal open={props.open} title="Фильтры" onClose={props.onClose} className={`max-w-[818px] max-md:scroll-pb-44 ${phoneFullScreenModal}`} phoneFullScreen>
       <ReportFilterForm
         state={props.state}
         data={props.data}
+        phone={props.phone}
+        today={props.today}
         onApply={(next) => {
           props.onApply(next);
           props.onClose();

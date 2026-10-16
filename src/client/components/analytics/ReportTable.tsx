@@ -123,7 +123,8 @@ export function ReportTable(props: {
         <caption className="sr-only">{props.caption}</caption>
         <thead>
           <tr className="h-12 border-b border-field">
-            <th scope="col" className="sticky left-0 z-10 min-w-56 bg-card px-3 text-left text-xs font-semibold text-muted max-md:min-w-40">
+            {/* на телефоне колонка названий узкая, длинные названия переносятся: суммы видны без прокрутки страницы */}
+            <th scope="col" className="sticky left-0 z-10 min-w-56 bg-card px-3 text-left text-xs font-semibold text-muted max-md:w-36 max-md:min-w-36">
               Название
             </th>
             {columns.map((c) => (

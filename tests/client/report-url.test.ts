@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BY_CHOICES,
   changedControls,
   customRangeError,
   reportDialogFields,
@@ -8,6 +9,8 @@ import {
   effectiveStep,
   isReportChanged,
   parseReportSearch,
+  PERCENT_CHOICES,
+  phoneReportCount,
   REPORT_PERIODS,
   reportApiParams,
   reportFilterCount,
@@ -106,6 +109,13 @@ describe('параметры API и изменённые контролы', () =
     const fields = reportDialogFields(s);
     expect(fields).toEqual({ types: [], accountIds: [], categoryIds: [], projectIds: [], counterpartyIds: [], tagIds: [3], withoutCategory: false, withoutProject: true, withoutCounterparty: false });
     expect(withDialogFields(s, { ...fields, tagIds: [], categoryIds: [7], types: ['income'] })).toEqual({ ...s, tagIds: [], categoryIds: [7] });
+  });
+
+  it('телефон: число на «Фильтрах» — изменённые период, разрез, шаг, проценты и измерения фильтра; пункты меню', () => {
+    expect(phoneReportCount(DEFAULT_REPORT_STATE)).toBe(0);
+    expect(phoneReportCount({ ...DEFAULT_REPORT_STATE, period: 'month', by: 'project', percent: true, accountIds: [1], withoutCounterparty: true })).toBe(5);
+    expect(BY_CHOICES.map((c) => c.label)).toEqual(['По категориям', 'По контрагентам', 'По проектам']);
+    expect(PERCENT_CHOICES.map((c) => c.label)).toEqual(['Скрыть проценты', 'Показать проценты']);
   });
 
   it('свои даты: обе обязательны, не больше 5 лет', () => {

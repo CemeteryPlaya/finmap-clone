@@ -319,6 +319,73 @@ test('«Деньги»: ячейки — одна точка Tab, стрелки
   await expect(main(page).getByRole('heading', { level: 2, name: /^Поступления за февраль \d{4}$/ })).toBeFocused();
 });
 
+test('телефон: «Деньги» — сверху только «Фильтры», окно на весь экран с контролами; таблица прокручивается внутри; операции — карточками', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Деньги телефон ${Date.now()}`);
+  await cashflowSetup(page, cid);
+  const phone = { width: 390, height: 844 };
+  await page.setViewportSize(phone);
+  await page.goto(`/c/${cid}/analytics/cashflow`);
+  await expect(reportRow(page, 'Поступления')).toBeVisible();
+  await expect(main(page).getByRole('button', { name: /^Период:/ })).toBeHidden();
+  await expect(main(page).getByRole('button', { name: /^Разрез:/ })).toBeHidden();
+  const filters = main(page).getByRole('button', { name: /^Фильтры/ });
+  await expect(filters).toHaveText('Фильтры');
+  expect((await filters.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+
+  // страница не уезжает вбок; таблица прокручивается в своём блоке, колонка названий закреплена
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const region = main(page).getByRole('region', { name: 'Деньги: таблица' });
+  expect(await region.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  const label = reportRow(page, 'Поступления').getByRole('rowheader');
+  const x0 = (await label.boundingBox())!.x;
+  await region.evaluate((el) => el.scrollBy(400, 0));
+  await expect.poll(() => region.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  expect(Math.round((await label.boundingBox())!.x)).toBe(Math.round(x0));
+
+  // «Фильтры» — окно на весь экран: период, разрез, шаг, проценты, затем поля фильтра
+  await filters.click();
+  const dialog = page.getByRole('dialog', { name: 'Фильтры', exact: true });
+  const box = (await dialog.boundingBox())!;
+  expect([Math.round(box.width), Math.round(box.height)]).toEqual([phone.width, phone.height]);
+  await expect(dialog.locator('button[aria-haspopup="dialog"]')).toHaveText([
+    /^За текущий год/,
+    /^По категориям/,
+    /^По месяцам/,
+    /^Скрыть проценты/,
+    /^Категории/,
+    /^Контрагенты/,
+    /^Проекты/,
+    /^Теги/,
+    /^Счета/,
+  ]);
+  await dialog.getByRole('button', { name: 'Разрез: По категориям' }).click();
+  await dialog.getByRole('dialog', { name: 'Разрез' }).getByRole('button', { name: 'По контрагентам' }).click();
+  await dialog.getByRole('button', { name: 'Проценты: Скрыть проценты' }).click();
+  await dialog.getByRole('dialog', { name: 'Проценты' }).getByRole('button', { name: 'Показать проценты' }).click();
+  // до «Готово» отчёт прежний
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/analytics/cashflow$`));
+  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page).toHaveURL(/by=counterparty&pct=1$/);
+  await expect(filters).toHaveText('Фильтры · 2');
+
+  // ячейка «Поставщик А» → список карточками, заголовок в фокусе
+  await report(page).getByRole('button', { name: /^Поставщик А за весь период: / }).click();
+  await expect(main(page).getByRole('heading', { level: 2, name: 'Поставщик А за весь период' })).toBeFocused();
+  const cards = main(page).getByRole('list', { name: 'Операции' }).getByRole('listitem');
+  await expect(cards).toHaveCount(1);
+  await expect(cards.first()).toContainText(/\u2212500\s₸/);
+
+  // «Сбросить» в окне — все настройки по умолчанию
+  await filters.click();
+  await dialog.getByRole('button', { name: 'Сбросить' }).click();
+  await expect(dialog.getByRole('button', { name: 'Разрез: По категориям' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/analytics/cashflow$`));
+  await expect(filters).toHaveText('Фильтры');
+});
+
 test('телефон: «Ещё» → «Аналитика», карточки в одну колонку, заголовок получает фокус', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Аналитика телефон ${Date.now()}`);

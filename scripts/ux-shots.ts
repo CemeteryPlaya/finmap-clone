@@ -167,6 +167,8 @@ const seedStock = async (p: Page) => {
   await post(`${base}/stock/docs`, { type: 'sale', at: '2026-10-09T10:00:00.000Z', warehouseId: warehouse, lines: [{ itemId: cola, qty: 6000, amount: 300_000 }] });
 };
 const stockTable = (p: Page) => p.getByRole('main').getByRole('table', { name: 'Остатки' });
+/** Таблица «Денег» (план А-1) дождалась данных демо-компании: строка «Поступления» на месте. */
+const cashflowReady = (p: Page) => p.getByRole('main').getByRole('table', { name: 'Деньги' }).getByRole('rowheader', { name: 'Поступления' }).waitFor();
 
 /** Экраны, которые уже есть. Следующие планы этапа 1.5 добавляют сюда свои. */
 const SCENARIOS: Scenario[] = [
@@ -563,6 +565,50 @@ const SCENARIOS: Scenario[] = [
       await p.getByRole('navigation', { name: 'Разделы', exact: true }).getByRole('button', { name: 'Ещё', exact: true }).click();
       await p.getByRole('dialog', { name: 'Ещё', exact: true }).getByRole('link', { name: 'Склад' }).click();
       await stockTable(p).getByRole('row').filter({ hasText: 'Кола 0,5' }).first().waitFor();
+    },
+  },
+  // «Аналитика» (план А-1): карточки, «Деньги» таблицей, операции ячейки; на телефоне — карточки и окно «Фильтры»
+  { ours: 'c47-analytics-index.png', finmap: 'analytics/00-analytic-index.png', path: 'analytics' },
+  {
+    ours: 'c48-cashflow-table.png',
+    finmap: 'analytics/09-cashflow-table.png',
+    path: 'analytics/cashflow',
+    act: async (p) => {
+      await cashflowReady(p);
+      await p.getByRole('main').getByRole('button', { name: 'Неоперационные изменения остатка', exact: true }).click();
+    },
+  },
+  {
+    ours: 'c49-cashflow-cell.png',
+    finmap: 'analytics/11-cashflow-cell-click.png',
+    path: 'analytics/cashflow',
+    act: async (p) => {
+      await cashflowReady(p);
+      // первая категория доходов с суммой за октябрь 2026 — список операций под таблицей
+      await p.locator('[data-cell^="income:category:"][data-cell$="|2026-10-01"]').filter({ hasText: /[1-9]/ }).first().click();
+      await p.locator('section[aria-labelledby="report-operations-title"] table tbody tr').first().waitFor();
+    },
+  },
+  {
+    ours: 'cm08-analytics.png',
+    finmap: 'analytics/90-mobile-index.png',
+    phone: true,
+    path: 'log',
+    act: async (p) => {
+      await p.getByRole('navigation', { name: 'Разделы', exact: true }).getByRole('button', { name: 'Ещё', exact: true }).click();
+      await p.getByRole('dialog', { name: 'Ещё', exact: true }).getByRole('link', { name: 'Аналитика' }).click();
+      await p.getByRole('main').getByRole('list', { name: 'Отчёты' }).waitFor();
+    },
+  },
+  {
+    ours: 'cm09-cashflow-filter.png',
+    finmap: 'analytics/92-mobile-filter.png',
+    phone: true,
+    path: 'analytics/cashflow',
+    act: async (p) => {
+      await cashflowReady(p);
+      await p.getByRole('main').getByRole('button', { name: /^Фильтры/ }).click();
+      await p.getByRole('dialog', { name: 'Фильтры', exact: true }).getByRole('button', { name: /^Разрез:/ }).waitFor();
     },
   },
   {
