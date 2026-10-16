@@ -1,6 +1,7 @@
 import { getCurrency } from './currencies';
 import { addDays, formatDateRu, startOfDayUtc } from './dates';
 import { convertMinor, type Dec } from './decimal';
+import type { SystemKey } from './system-categories';
 
 /**
  * Движок отчётов «Аналитики» (§3 спецификации «Аналитика»): чистые функции без базы — колонки шага, раскладка строк
@@ -188,6 +189,8 @@ export interface DictCategory {
   parentId: number | null;
   name: string;
   archived: boolean;
+  /** Собственный системный ключ категории (§3.3); у подкатегории системность берётся от родителя (effectiveSystemKey). */
+  systemKey?: SystemKey | null;
 }
 
 export interface DictItem {
@@ -215,7 +218,8 @@ export interface ReportFilter {
   withoutProject?: boolean;
 }
 
-export type RowKind = 'group' | 'category' | 'counterparty' | 'project' | 'balance' | 'info';
+/** stock — строки склада «Прибыли» (§5.3): себестоимость и списания, в операции не раскрываются. */
+export type RowKind = 'group' | 'category' | 'counterparty' | 'project' | 'balance' | 'info' | 'stock';
 
 /** Строка ответа отчёта (§3.2): values — по колонкам, null — значение не считается (нет курса, остатки скрыты). */
 export interface ReportRow {
@@ -332,7 +336,8 @@ export interface GroupResult {
 
 /**
  * Раскладка строк операций по колонкам и разрезу (§3.2): возвращает группы «Поступления» и «Списания» со строками разреза.
- * Строки вне периода не учитываются. Пустой период (ни одной строки) — группы без строк разреза.
+ * Строки вне периода не учитываются. Пустой период (ни одной строки) — группы без строк разреза. labels — названия групп
+ * («Доходы» и «Расходы» у «Прибыли»).
  */
 export function aggregate(input: {
   lines: readonly ReportLine[];
@@ -340,6 +345,7 @@ export function aggregate(input: {
   by: ReportBy;
   dicts: ReportDicts;
   filter: ReportFilter;
+  labels?: Record<LineType, string>;
 }): { income: GroupResult; expense: GroupResult; empty: boolean } {
   const n = Math.max(0, input.starts.length - 1);
   const accs: Record<LineType, Map<string, Acc>> = { income: new Map(), expense: new Map() };
@@ -355,7 +361,7 @@ export function aggregate(input: {
   const empty = count === 0;
   const group = (kind: LineType): GroupResult => {
     const children = breakdown(kind, input.by, accs[kind], n, input.dicts, input.filter, empty);
-    return { values: totals[kind], row: row(kind, 'group', GROUP_LABEL[kind], totals[kind], children.length ? { children } : {}) };
+    return { values: totals[kind], row: row(kind, 'group', (input.labels ?? GROUP_LABEL)[kind], totals[kind], children.length ? { children } : {}) };
   };
   return { income: group('income'), expense: group('expense'), empty };
 }
@@ -541,19 +547,27 @@ export function cashflowRows(input: {
   return { rows: [startRow, endRow, nonopRow, netRow, income.row, expense.row], empty };
 }
 
-/** Доля строки в группе (§4.1 «Показать проценты»): «12,50 %»; группа 0 — null. */
-export function sharePercent(value: number | null, group: number | null): string | null {
+/** Доля строки в группе в сотых долях процента (1250 — 12,50 %); группа 0 или нет значения — null. Экран и Excel — из неё. */
+export function shareBp(value: number | null, group: number | null): number | null {
   if (value === null || group === null || group === 0) return null;
   // модуль округляется отдельно, знак возвращается потом: -0,5 б.п. и 0,5 б.п. округляются одинаково
   const abs = Math.round((Math.abs(value) * 10_000) / Math.abs(group));
-  const negative = abs !== 0 && (value < 0) !== (group < 0);
+  return abs !== 0 && (value < 0) !== (group < 0) ? -abs : abs;
+}
+
+/** Доля строки в группе (§4.1 «Показать проценты»): «12,50 %»; группа 0 — null. */
+export function sharePercent(value: number | null, group: number | null): string | null {
+  const bp = shareBp(value, group);
+  if (bp === null) return null;
+  const abs = Math.abs(bp);
+  const negative = bp < 0;
   return `${negative ? '\u2212' : ''}${Math.trunc(abs / 100)},${pad(abs % 100)}\u00A0%`;
 }
 
 /** Ячейка, по которой открывается список операций (§2.5): какие строки операций в неё вошли. */
 export interface DrillSpec {
   types: LineType[];
-  /** null — вся группа или «Чистый денежный поток». */
+  /** null — вся группа, «Чистый денежный поток» или «Прибыль». */
   dim: ReportBy | null;
   /** id элемента разреза; null — «Без …». */
   id: number | null;
@@ -561,9 +575,9 @@ export interface DrillSpec {
   own: boolean;
 }
 
-/** id строки отчёта → что в неё входит; строки остатков и неоперационных изменений не раскрываются (null). */
+/** id строки отчёта → что в неё входит; строки остатков, неоперационных изменений и склада не раскрываются (null). */
 export function parseDrillRow(id: string): DrillSpec | null {
-  if (id === 'net') return { types: ['income', 'expense'], dim: null, id: null, own: false };
+  if (id === 'net' || id === 'profit') return { types: ['income', 'expense'], dim: null, id: null, own: false };
   if (id === 'income' || id === 'expense') return { types: [id], dim: null, id: null, own: false };
   const m = /^(income|expense):(category|counterparty|project):(none|[1-9]\d{0,14})(:own)?$/.exec(id);
   if (!m || (m[4] && (m[2] !== 'category' || m[3] === 'none'))) return null;
