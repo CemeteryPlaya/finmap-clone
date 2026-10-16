@@ -32,6 +32,8 @@ const reportShape = {
 };
 
 function checkPeriod(v: { from: string; to: string; step: 'day' | 'week' | 'month' | 'quarter' }, ctx: z.RefinementCtx): void {
+  // неверная дата уже названа ошибкой поля — период не считаем (иначе addDays падает на RangeError)
+  if (![v.from, v.to].every((x) => isValidDate(x) && x < '9999')) return;
   if (v.to < v.from) ctx.addIssue({ code: 'custom', path: ['to'], message: 'Конец периода раньше начала' });
   else if (v.to > maxReportTo(v.from)) ctx.addIssue({ code: 'custom', path: ['to'], message: PERIOD_TOO_LONG });
   else if (columnCount(v.from, v.to, v.step) > REPORT_MAX_COLUMNS) ctx.addIssue({ code: 'custom', path: ['step'], message: TOO_MANY_COLUMNS });

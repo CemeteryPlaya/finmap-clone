@@ -303,3 +303,31 @@ describe('JournalService.load (R3)', () => {
     expect(journal.load(w.cid, [])).toEqual([]);
   });
 });
+
+describe('ошибки параметров: 400 вместо 500', () => {
+  it('неверные даты периода дают 400 с полем на обоих маршрутах, без лишних ошибок периода', async () => {
+    w = await opsWorld();
+    const cases: [string, Record<string, string>][] = [
+      ['from=&to=2026-10-01', { from: expect.any(String) as unknown as string }],
+      ['from=x&to=y', { from: expect.any(String) as unknown as string, to: expect.any(String) as unknown as string }],
+      ['from=abc&to=2026-10-01', { from: expect.any(String) as unknown as string }],
+    ];
+    for (const [qs, fields] of cases) {
+      expect(fail(await w.h.req('GET', `${base()}/cashflow?${qs}`), 400).fields).toEqual(fields);
+      expect(fail(await w.h.req('GET', `${base()}/operations?report=cashflow&row=income&col=total&${qs}`), 400).fields).toEqual(fields);
+    }
+  });
+
+  it('операции ячейки: чужой счёт, испорченный курсор, границы limit — 400; нет компании — 404', async () => {
+    await october();
+    const other = await w.h.company('ТОО Другая');
+    const foreign = (await w.post(`/api/v1/companies/${other}/accounts`, { name: 'Касса Клуб 1', currency: 'KZT', openedAt: '2026-10-01', startingBalance: 0 })).account.id as number;
+    const url = (qs: string) => `${base()}/operations?report=cashflow&${OCTOBER}&row=income&col=total&${qs}`;
+    expect(fail(await w.h.req('GET', url(`accounts=${foreign}`)), 400).fields).toEqual({ accounts: 'Неизвестный счёт' });
+    expect(fail(await w.h.req('GET', url('cursor=%21%21')), 400).fields).toMatchObject({ cursor: expect.any(String) });
+    expect(fail(await w.h.req('GET', url('limit=0')), 400).fields).toEqual({ limit: 'От 1 до 200' });
+    expect(fail(await w.h.req('GET', url('limit=201')), 400).fields).toEqual({ limit: 'От 1 до 200' });
+    const missing = await w.h.req('GET', `/api/v1/companies/999999/analytics/operations?report=cashflow&${OCTOBER}&row=income&col=total`);
+    expect(fail(missing, 404).code).toBe('NOT_FOUND');
+  });
+});

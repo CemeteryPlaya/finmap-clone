@@ -142,10 +142,6 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
        WHERE ${reportLineWhere(companyId, f, range)}`);
   }
 
-  /**
-   * Остатки набора счетов (§4.1): выбранные в фильтре «Счета» или все неархивные. Движения до
-   * периода — суммой по счёту, внутри периода — по одному на операцию; курс — rates.resolve с кэшем.
-   */
   /** Счета компании; счёт фильтра не из этой компании — 400 «Неизвестный счёт» (§9). */
   function companyAccounts(companyId: number, f: ReportFilter) {
     const all = db.select().from(accounts).where(eq(accounts.companyId, companyId)).all();
@@ -156,6 +152,10 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
     return all;
   }
 
+  /**
+   * Остатки набора счетов (§4.1): выбранные в фильтре «Счета» или все неархивные. Движения до
+   * периода — суммой по счёту, внутри периода — по одному на операцию; курс — rates.resolve с кэшем.
+   */
   function balances(company: { id: number; baseCurrency: string }, all: (typeof accounts.$inferSelect)[], f: ReportFilter, columns: ReportColumn[], starts: string[]) {
     const chosen = all.filter((a) => (has(f.accountIds) ? f.accountIds.includes(a.id) : a.archivedAt === null));
     const set: BalanceAccount[] = chosen.map((a) => ({ id: a.id, currency: a.currency, startingBalance: a.startingBalance, openedAt: a.openedAt }));

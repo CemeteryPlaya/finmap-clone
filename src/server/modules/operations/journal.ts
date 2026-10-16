@@ -177,11 +177,14 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
   function loadItems(companyId: number, ids: number[]): JournalItem[] {
     if (ids.length === 0) return [];
     const rows = new Map(db.select().from(operations).where(and(eq(operations.companyId, companyId), inArray(operations.id, ids))).all().map((r) => [r.id, r]));
+    // дальше — только найденные операции этой компании, в порядке ids
+    const found = ids.filter((id) => rows.has(id));
+    if (found.length === 0) return [];
     const lines = new Map<number, OperationLineDto[]>();
     for (const l of db
       .select()
       .from(operationLines)
-      .where(inArray(operationLines.operationId, ids))
+      .where(inArray(operationLines.operationId, found))
       .orderBy(asc(operationLines.operationId), asc(operationLines.position))
       .all()) {
       const xs = lines.get(l.operationId) ?? [];
@@ -189,32 +192,31 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
       lines.set(l.operationId, xs);
     }
     const tags = new Map<number, number[]>();
-    for (const t of db.select().from(operationTags).where(inArray(operationTags.operationId, ids)).orderBy(asc(operationTags.tagId)).all()) {
+    for (const t of db.select().from(operationTags).where(inArray(operationTags.operationId, found)).orderBy(asc(operationTags.tagId)).all()) {
       tags.set(t.operationId, [...(tags.get(t.operationId) ?? []), t.tagId]);
     }
     const files = new Map(
       db
         .select({ operationId: attachments.operationId, n: count() })
         .from(attachments)
-        .where(and(inArray(attachments.operationId, ids), isNull(attachments.deletedAt)))
+        .where(and(inArray(attachments.operationId, found), isNull(attachments.deletedAt)))
         .groupBy(attachments.operationId)
         .all()
         .map((r) => [r.operationId, r.n]),
     );
     // окно — по полной истории счетов этой страницы (§4.7), фильтр журнала на него не влияет
     const accountIds = [...new Set([...rows.values()].flatMap((r) => (r.toAccountId === null ? [r.accountId] : [r.accountId, r.toAccountId])))];
-    const after = balances.balancesAfter(companyId, { operationIds: ids, accountIds });
-    return ids.flatMap((id) => {
-      const row = rows.get(id);
-      if (!row) return [];
-      return [{
+    const after = balances.balancesAfter(companyId, { operationIds: found, accountIds });
+    return found.map((id) => {
+      const row = rows.get(id)!;
+      return {
         ...row,
         lines: lines.get(id) ?? [],
         tagIds: tags.get(id) ?? [],
         attachmentCount: files.get(id) ?? 0,
         balanceAfter: after.get(`${id}:${row.accountId}`) ?? null,
         toBalanceAfter: row.toAccountId === null ? null : (after.get(`${id}:${row.toAccountId}`) ?? null),
-      }];
+      };
     });
   }
 
