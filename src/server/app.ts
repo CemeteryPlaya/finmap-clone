@@ -9,6 +9,8 @@ import type { Config } from './config';
 import type { Db, Sqlite } from './db/client';
 import { registerErrorHandler } from './errors';
 import { registerAccountsRoutes } from './modules/accounts/routes';
+import { registerAnalyticsRoutes } from './modules/analytics/routes';
+import { createAnalyticsService } from './modules/analytics/service';
 import { registerCategoriesRoutes } from './modules/categories/routes';
 import { registerCounterpartiesRoutes } from './modules/counterparties/routes';
 import { createCounterpartiesService } from './modules/counterparties/service';
@@ -141,11 +143,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const rates = createRatesService({ db, audit, now });
   registerRatesRoutes(app, { db, rates });
   const operations = createOperationsService({ db, audit, rates, timezone: config.timezone, now });
-  registerOperationsRoutes(app, {
-    operations,
-    journal: createJournal({ db, balances, timezone: config.timezone, now }),
-    bulk: createBulkService({ db, operations }),
-  });
+  const journal = createJournal({ db, balances, timezone: config.timezone, now });
+  registerOperationsRoutes(app, { operations, journal, bulk: createBulkService({ db, operations }) });
+  registerAnalyticsRoutes(app, { analytics: createAnalyticsService({ db, rates, journal, timezone: config.timezone, now }) });
   registerStockRoutes(app, {
     db,
     catalog: createStockCatalogService({ db, audit, timezone: config.timezone, now }),

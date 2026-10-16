@@ -151,6 +151,9 @@ export const journalExportSchema = z
     if (v.format === 'custom' && !v.columns) ctx.addIssue({ code: 'custom', path: ['columns'], message: 'Выберите хотя бы одну колонку' });
   });
 
+/** Части строки запроса, общие с отчётами «Аналитики» (§9 спецификации «Аналитика»): пусто, список, id, флаг. */
+export const queryParts = { blank, list, id, flag };
+
 export type JournalFilter = z.output<typeof journalFilterSchema>;
 export type JournalQuery = z.output<typeof journalQuerySchema>;
 export type JournalExportQuery = z.output<typeof journalExportSchema>;

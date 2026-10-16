@@ -1,4 +1,4 @@
-import { and, asc, count, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { addDays, formatDateTime, startOfDayUtc } from '../../../shared/dates';
 import type { ExportColumnId } from '../../../shared/export-columns';
 import type { JournalExportPreviewQuery, JournalExportQuery, JournalFilter, JournalOrder, JournalQuery, JournalSort } from '../../../shared/schemas/journal';
@@ -31,6 +31,8 @@ export interface JournalPage {
 export interface JournalService {
   /** Страница журнала (§6): фильтр, сортировка, курсор. Удалённые операции не показываются. */
   list(companyId: number, query: JournalQuery): JournalPage;
+  /** Строки журнала по id в заданном порядке — со строками, тегами, вложениями и остатками (список операций отчёта). */
+  load(companyId: number, ids: number[]): JournalItem[];
   /**
    * Выгрузка в Excel по тому же фильтру, без страниц (§7, §8 спецификации импорта): `finmap` — «Excel» в формате Finmap,
    * `custom` — «Собрать Excel» с колонками в заданном порядке. Больше exportLimit операций — 422 EXPORT_LIMIT.
@@ -141,7 +143,7 @@ export function journalOrder(sort: JournalSort, order: JournalOrder): SQL {
   return sql.raw(sort === 'date' ? `o.paid_at ${dir}, o.id ${dir}` : `o.base_amount ${dir}, o.id ${dir}`);
 }
 
-interface CursorKey {
+export interface CursorKey {
   s: JournalSort;
   o: JournalOrder;
   /** paidAt или baseAmount последней строки страницы. */
@@ -149,9 +151,9 @@ interface CursorKey {
   id: number;
 }
 
-const encodeCursor = (k: CursorKey) => Buffer.from(JSON.stringify(k)).toString('base64url');
+export const encodeCursor = (k: CursorKey) => Buffer.from(JSON.stringify(k)).toString('base64url');
 
-function decodeCursor(raw: string, sort: JournalSort, order: JournalOrder): CursorKey {
+export function decodeCursor(raw: string, sort: JournalSort, order: JournalOrder): CursorKey {
   let k: Partial<CursorKey> | null = null;
   try {
     k = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as Partial<CursorKey> | null;
@@ -174,7 +176,7 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
   /** Операции страницы в заданном порядке: со строками, тегами, числом вложений и остатками после операции. */
   function loadItems(companyId: number, ids: number[]): JournalItem[] {
     if (ids.length === 0) return [];
-    const rows = new Map(db.select().from(operations).where(inArray(operations.id, ids)).all().map((r) => [r.id, r]));
+    const rows = new Map(db.select().from(operations).where(and(eq(operations.companyId, companyId), inArray(operations.id, ids))).all().map((r) => [r.id, r]));
     const lines = new Map<number, OperationLineDto[]>();
     for (const l of db
       .select()
@@ -202,16 +204,17 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
     // окно — по полной истории счетов этой страницы (§4.7), фильтр журнала на него не влияет
     const accountIds = [...new Set([...rows.values()].flatMap((r) => (r.toAccountId === null ? [r.accountId] : [r.accountId, r.toAccountId])))];
     const after = balances.balancesAfter(companyId, { operationIds: ids, accountIds });
-    return ids.map((id) => {
-      const row = rows.get(id)!;
-      return {
+    return ids.flatMap((id) => {
+      const row = rows.get(id);
+      if (!row) return [];
+      return [{
         ...row,
         lines: lines.get(id) ?? [],
         tagIds: tags.get(id) ?? [],
         attachmentCount: files.get(id) ?? 0,
         balanceAfter: after.get(`${id}:${row.accountId}`) ?? null,
         toBalanceAfter: row.toAccountId === null ? null : (after.get(`${id}:${row.toAccountId}`) ?? null),
-      };
+      }];
     });
   }
 
@@ -313,6 +316,8 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
   }
 
   return {
+    load: loadItems,
+
     list(companyId, q) {
       requireCompany(db, companyId);
       const conds = [journalWhere(companyId, q, timezone)];
