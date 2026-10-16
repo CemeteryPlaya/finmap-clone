@@ -29,6 +29,12 @@ export const DIMENSIONS: readonly { dim: FilterDimension; label: string; allLabe
   { dim: 'accounts', label: 'Счета', allLabel: 'Все счета' },
 ];
 
+/** Поля окна «Фильтры» отчётов «Аналитики» (§2.4 спецификации «Аналитика»): категории без типов операций, остальное — как у журнала. */
+export const REPORT_DIMENSIONS: readonly { dim: FilterDimension; label: string; allLabel: string }[] = [
+  { dim: 'typesCategories', label: 'Категории', allLabel: 'Все категории' },
+  ...DIMENSIONS.slice(1),
+];
+
 /** Подпись id из адреса, которого нет в справочниках (удалён или из другой компании, 5b №5): его можно снять. */
 export const UNAVAILABLE = 'Недоступный элемент';
 
@@ -60,14 +66,14 @@ function categoryRows(nodes: readonly CategoryNode[], selected: readonly number[
   });
 }
 
-/** Пункты поля окна «Фильтры» (§5.6). */
-export function dimensionOptions(dim: FilterDimension, data: FilterDialogData, draft: DialogFields): MultiOption[] {
+/** Пункты поля окна «Фильтры» (§5.6). types: false — без типов операций (отчёты «Аналитики»). */
+export function dimensionOptions(dim: FilterDimension, data: FilterDialogData, draft: DialogFields, opts: { types?: boolean } = {}): MultiOption[] {
   switch (dim) {
     case 'typesCategories': {
       const all = [...data.categories.income, ...data.categories.expense];
       const known = new Set(all.flatMap((n) => [n.id, ...n.children.map((c) => c.id)]));
       return [
-        ...OPERATION_TYPES.map((t) => ({ key: `${TYPE_PREFIX}${t}`, label: TYPE_LABELS[t], section: 'Тип' })),
+        ...(opts.types === false ? [] : OPERATION_TYPES.map((t) => ({ key: `${TYPE_PREFIX}${t}`, label: TYPE_LABELS[t], section: 'Тип' }))),
         ...categoryRows(data.categories.income, draft.categoryIds, 'Категории дохода'),
         ...categoryRows(data.categories.expense, draft.categoryIds, 'Категории расхода'),
         ...draft.categoryIds.filter((id) => !known.has(id)).map((id) => ({ key: `${CATEGORY_PREFIX}${id}`, label: UNAVAILABLE })),

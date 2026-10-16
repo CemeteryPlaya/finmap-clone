@@ -1,7 +1,7 @@
 import { isValidDate } from '../../shared/dates';
 import { columnCount, maxReportTo, REPORT_BYS, REPORT_MAX_COLUMNS, REPORT_STEPS, type ReportBy, type ReportStep } from '../../shared/report-engine';
 import { JOURNAL_LIST_MAX } from '../../shared/schemas/journal';
-import { periodRange, sortedUnique } from './journal-filter';
+import { periodRange, sortedUnique, type DialogFields } from './journal-filter';
 
 /** Периоды отчётов (§2.3 спецификации «Аналитика»): как у Finmap, без «За все время», «За сегодня», «За вчера». */
 export type ReportPeriod = 'year' | 'lastYear' | 'week' | 'lastWeek' | 'month' | 'lastMonth' | 'custom';
@@ -183,4 +183,34 @@ export function customRangeError(range: { from?: string; to?: string }): string 
   if (!range.from || !range.to) return 'Укажите обе даты';
   const [a, b] = range.from <= range.to ? [range.from, range.to] : [range.to, range.from];
   return b > maxReportTo(a) ? 'Период больше 5 лет' : null;
+}
+
+/** Поля окна «Фильтр» из настроек отчёта: типов у отчётов нет. */
+export function reportDialogFields(state: ReportUrlState): DialogFields {
+  return {
+    types: [],
+    accountIds: state.accountIds,
+    categoryIds: state.categoryIds,
+    projectIds: state.projectIds,
+    counterpartyIds: state.counterpartyIds,
+    tagIds: state.tagIds,
+    withoutCategory: state.withoutCategory,
+    withoutProject: state.withoutProject,
+    withoutCounterparty: state.withoutCounterparty,
+  };
+}
+
+/** Настройки отчёта с полями окна «Фильтр» (период, разрез, шаг и проценты — прежние). */
+export function withDialogFields(state: ReportUrlState, f: DialogFields): ReportUrlState {
+  return {
+    ...state,
+    accountIds: f.accountIds,
+    categoryIds: f.categoryIds,
+    projectIds: f.projectIds,
+    counterpartyIds: f.counterpartyIds,
+    tagIds: f.tagIds,
+    withoutCategory: f.withoutCategory,
+    withoutProject: f.withoutProject,
+    withoutCounterparty: f.withoutCounterparty,
+  };
 }

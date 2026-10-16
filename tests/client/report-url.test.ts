@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   changedControls,
   customRangeError,
+  reportDialogFields,
+  withDialogFields,
   DEFAULT_REPORT_STATE,
   effectiveStep,
   isReportChanged,
@@ -97,6 +99,13 @@ describe('параметры API и изменённые контролы', () =
     expect(reportFilterCount(s)).toBe(2);
     expect(isReportChanged(s)).toBe(true);
     expect(isReportChanged({ ...DEFAULT_REPORT_STATE, withoutCounterparty: true })).toBe(true);
+  });
+
+  it('поля окна «Фильтр»: без типов; применяются поверх периода, разреза, шага и процентов', () => {
+    const s: ReportUrlState = { ...DEFAULT_REPORT_STATE, period: 'month', by: 'project', step: 'week', percent: true, tagIds: [3], withoutProject: true };
+    const fields = reportDialogFields(s);
+    expect(fields).toEqual({ types: [], accountIds: [], categoryIds: [], projectIds: [], counterpartyIds: [], tagIds: [3], withoutCategory: false, withoutProject: true, withoutCounterparty: false });
+    expect(withDialogFields(s, { ...fields, tagIds: [], categoryIds: [7], types: ['income'] })).toEqual({ ...s, tagIds: [], categoryIds: [7] });
   });
 
   it('свои даты: обе обязательны, не больше 5 лет', () => {

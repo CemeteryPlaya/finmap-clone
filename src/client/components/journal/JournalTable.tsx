@@ -29,10 +29,16 @@ export interface JournalTableProps {
   today: string;
   /** Выбранные в фильтре проекты: у разбитых операций под суммой — «доля проекта». */
   projectFilter: readonly number[];
-  sort: JournalSortKey;
-  order: JournalSortOrder;
-  onSort: (sort: JournalSortKey, order: JournalSortOrder) => void;
+  /** Сортировка по дате и сумме; без onSort заголовки — обычный текст (список под отчётом «Аналитики»). */
+  sort?: JournalSortKey;
+  order?: JournalSortOrder;
+  onSort?: (sort: JournalSortKey, order: JournalSortOrder) => void;
   busy: boolean;
+  /**
+   * Список под отчётом (§2.5 спецификации «Аналитика»): у операции, в ячейку которой вошли не все строки, — сумма этих строк
+   * в валюте счёта вместо суммы операции и пометка «часть операции».
+   */
+  parts?: ReadonlyMap<number, number>;
   /** «Показывать полностью» (`journal.wrap`): длинный текст — до двух строк, иначе одна строка с подсказкой. */
   wrap: boolean;
   /**
@@ -77,7 +83,14 @@ const tdClass = 'h-[4.5rem] px-3 py-2 align-middle';
 /** Флажки выделения (§5.2): 18 px, цвет акцента. */
 const checkboxClass = 'size-[18px] shrink-0 cursor-pointer accent-income';
 
-function SortHeader(props: { label: string; column: JournalSortKey; sort: JournalSortKey; order: JournalSortOrder; onSort: JournalTableProps['onSort']; className?: string }) {
+function SortHeader(props: {
+  label: string;
+  column: JournalSortKey;
+  sort: JournalSortKey;
+  order: JournalSortOrder;
+  onSort: (sort: JournalSortKey, order: JournalSortOrder) => void;
+  className?: string;
+}) {
   const active = props.sort === props.column;
   const next: JournalSortOrder = active && props.order === 'desc' ? 'asc' : 'desc';
   return (
@@ -189,8 +202,8 @@ export function JournalTable(props: JournalTableProps) {
               </th>
             )}
             {shown.map((c) =>
-              c.id === 'date' || c.id === 'amount' ? (
-                <SortHeader key={c.id} label={c.label} column={c.id} sort={props.sort} order={props.order} onSort={props.onSort} className={COLUMN_WIDTH[c.id]} />
+              (c.id === 'date' || c.id === 'amount') && props.onSort ? (
+                <SortHeader key={c.id} label={c.label} column={c.id} sort={props.sort ?? 'date'} order={props.order ?? 'desc'} onSort={props.onSort} className={COLUMN_WIDTH[c.id]} />
               ) : (
                 <th key={c.id} scope="col" className={`${thClass} ${COLUMN_WIDTH[c.id] ?? ''}`}>
                   {c.label}
@@ -207,7 +220,8 @@ export function JournalTable(props: JournalTableProps) {
             const hint = lineHint(item, lookups, currency);
             const share = projectShare(item.lines, props.projectFilter);
             const when = journalDateParts(item.paidAt, props.timeZone, props.today);
-            const signed = signedMoney(item.type, item.amount, currency);
+            const part = props.parts?.get(item.id);
+            const signed = signedMoney(item.type, part ?? item.amount, currency);
             const assign = (field: AssignField) => (props.renderAssign && canAssign(item, field) ? props.renderAssign(item, field) : null);
             const dateText = (
               <time dateTime={item.paidAt} className="block whitespace-nowrap text-left">
@@ -244,8 +258,11 @@ export function JournalTable(props: JournalTableProps) {
                   {item.type === 'transfer' && toAccount && toAccount.currency !== currency && item.toAmount !== null && (
                     <span className="block text-xs text-transfer">→ {formatMoney(item.toAmount, toAccount.currency, MONEY_SCREEN)}</span>
                   )}
-                  {currency !== props.baseCurrency && <span className="block text-xs text-muted">{formatMoney(item.baseAmount, props.baseCurrency, MONEY_SCREEN)}</span>}
+                  {currency !== props.baseCurrency && part === undefined && (
+                    <span className="block text-xs text-muted">{formatMoney(item.baseAmount, props.baseCurrency, MONEY_SCREEN)}</span>
+                  )}
                   {share !== null && <span className="block text-xs text-muted">доля проекта: {formatMoney(share, currency, MONEY_SCREEN)}</span>}
+                  {part !== undefined && <span className="block text-xs text-muted">часть операции</span>}
                 </span>
               ),
               accrualDate: item.accrualDate && (

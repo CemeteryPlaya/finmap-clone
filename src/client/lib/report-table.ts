@@ -1,6 +1,6 @@
 import { formatDateRu } from '../../shared/dates';
 import { formatMoney, MONEY_SCREEN_BEFORE } from '../../shared/money';
-import { sharePercent, type ReportColumn, type ReportRow } from '../../shared/report-engine';
+import { parseDrillRow, sharePercent, type ReportColumn, type ReportRow } from '../../shared/report-engine';
 
 /** Раскрыты по умолчанию: группы «Поступления» и «Списания» (как у Finmap); неоперационные и подкатегории свёрнуты. */
 export const DEFAULT_EXPANDED: readonly string[] = ['income', 'expense'];
@@ -61,6 +61,56 @@ export function rowLabel(row: ReportRow): string {
 /** Подсказка заголовка колонки: её точные границы («01.10.2026 – 31.10.2026»), видно у неполных колонок. */
 export function columnHint(column: ReportColumn): string {
   return column.from === column.to ? formatDateRu(column.from) : `${formatDateRu(column.from)} – ${formatDateRu(column.to)}`;
+}
+
+/** Ячейка строки раскрывается в список операций (§2.5): разрез, группы и «Чистый денежный поток»; остатки — нет. */
+export function isDrillRow(row: ReportRow): boolean {
+  return parseDrillRow(row.id) !== null;
+}
+
+/**
+ * Заголовок списка под таблицей (§2.5): «{строка} за {колонка}» — «Бар за октябрь 2026», «Аренда за 13–19 окт»,
+ * у «Итого» — «за весь период». Название месяца — со строчной, как у Finmap.
+ */
+export function cellTitle(row: ReportRow, column: ReportColumn | null): string {
+  if (!column) return `${row.label} за весь период`;
+  const label = /^[А-ЯЁ][а-яё]/.test(column.label) ? column.label[0]!.toLowerCase() + column.label.slice(1) : column.label;
+  return `${row.label} за ${label}`;
+}
+
+export type CellMove = 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight' | 'Home' | 'End';
+
+/**
+ * Куда переходит фокус между ячейками-кнопками (R1, roving tabindex). grid[строка][колонка] — есть ли в ячейке кнопка
+ * (строки остатков и ячейки без значения — false). Стрелки влево и вправо — к ближайшей кнопке в строке, вверх и вниз — к
+ * ближайшей в той же колонке, Home и End — к первой и последней в строке. null — двигаться некуда.
+ */
+export function nextCell(grid: readonly (readonly boolean[])[], from: { row: number; col: number }, key: CellMove): { row: number; col: number } | null {
+  const has = (row: number, col: number) => grid[row]?.[col] === true;
+  const scan = (start: number, step: number, at: (i: number) => boolean, limit: number) => {
+    for (let i = start; i >= 0 && i < limit; i += step) if (at(i)) return i;
+    return null;
+  };
+  const width = grid[from.row]?.length ?? 0;
+  switch (key) {
+    case 'ArrowRight':
+    case 'ArrowLeft': {
+      const step = key === 'ArrowRight' ? 1 : -1;
+      const col = scan(from.col + step, step, (c) => has(from.row, c), width);
+      return col === null ? null : { row: from.row, col };
+    }
+    case 'ArrowDown':
+    case 'ArrowUp': {
+      const step = key === 'ArrowDown' ? 1 : -1;
+      const row = scan(from.row + step, step, (r) => has(r, from.col), grid.length);
+      return row === null ? null : { row, col: from.col };
+    }
+    case 'Home':
+    case 'End': {
+      const col = key === 'Home' ? scan(0, 1, (c) => has(from.row, c), width) : scan(width - 1, -1, (c) => has(from.row, c), width);
+      return col === null || col === from.col ? null : { row: from.row, col };
+    }
+  }
 }
 
 /** Пояснения «?» у строк остатков и неоперационных подстрок (§4.1, как у Finmap; R4 — про архивные счета и курс). */

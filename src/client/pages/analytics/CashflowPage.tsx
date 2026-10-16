@@ -2,27 +2,32 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useOutletContext, useSearchParams } from 'react-router';
 import { todayInTimezone } from '../../../shared/dates';
 import { ChangedMark, ChoiceMenu } from '../../components/analytics/ChoiceMenu';
-import { ReportTable } from '../../components/analytics/ReportTable';
+import { ReportFilterDialog } from '../../components/analytics/ReportFilterDialog';
+import { ReportOperations } from '../../components/analytics/ReportOperations';
+import { cellKey, ReportTable } from '../../components/analytics/ReportTable';
 import { HelpButton } from '../../components/HelpButton';
-import { RefreshIcon } from '../../components/icons';
+import { FunnelIcon, RefreshIcon } from '../../components/icons';
+import type { JournalLookups } from '../../components/journal/JournalTable';
 import { PeriodMenu } from '../../components/journal/PeriodMenu';
 import { Pending, StaleNotice } from '../../components/QueryState';
 import { btnSecondary } from '../../components/ui';
 import { useCashflow } from '../../lib/analytics';
 import { periodLabel } from '../../lib/journal-filter';
+import { categoryLookup } from '../../lib/journal-format';
+import { useIsMobile } from '../../lib/media';
 import { useMeta } from '../../lib/query';
-import type { Company } from '../../lib/queries';
-import { DEFAULT_EXPANDED } from '../../lib/report-table';
+import { useAccounts, useCategories, useCounterparties, useProjects, useTags, type Company } from '../../lib/queries';
+import { cellTitle, DEFAULT_EXPANDED } from '../../lib/report-table';
 import {
   BY_LABELS,
   changedControls,
   customRangeError,
   DEFAULT_REPORT_STATE,
   effectiveStep,
-  isReportChanged,
   parseReportSearch,
   REPORT_PERIODS,
   reportApiParams,
+  reportFilterCount,
   reportRange,
   reportSearch,
   STEP_LABELS,
@@ -63,15 +68,41 @@ function CashflowScreen({ company }: { company: Company }) {
   const freshStep = fresh?.meta.step;
   const freshPeriod = periodLabel(state);
   useEffect(() => {
-    if (freshStamp && freshStep) setAnnouncement(`Отчёт обновлён: ${freshPeriod}, ${STEP_LABELS[freshStep].toLowerCase()}`);
+    if (!freshStamp || !freshStep) return;
+    // сначала пусто, на следующем кадре — текст: тот же текст (смена разреза, «Обновить») тоже объявляется
+    setAnnouncement('');
+    const frame = requestAnimationFrame(() => setAnnouncement(`Отчёт обновлён: ${freshPeriod}, ${STEP_LABELS[freshStep].toLowerCase()}`));
+    return () => cancelAnimationFrame(frame);
     // период в подписи — тот, для которого пришёл ответ: смена настроек без ответа ничего не объявляет
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [freshStamp]);
+  const mobile = useIsMobile();
+  const accounts = useAccounts(company.id);
+  const categories = useCategories(company.id);
+  const projects = useProjects(company.id);
+  const counterparties = useCounterparties(company.id);
+  const tags = useTags(company.id);
+  const [filterOpen, setFilterOpen] = useState(false);
+  // ячейка, по которой открыт список операций (§2.5); заголовок запоминается при щелчке
+  const [cell, setCell] = useState<{ row: string; col: string; title: string } | null>(null);
+  // другие настройки отчёта — прежняя ячейка к ним не относится: список закрывается
+  useEffect(() => setCell(null), [apiParams]);
+  const lookups = useMemo<JournalLookups | null>(() => {
+    if (!accounts.data || !categories.data || !projects.data || !counterparties.data) return null;
+    return {
+      accounts: new Map(accounts.data.map((a) => [a.id, a])),
+      categories: categoryLookup(categories.data),
+      projects: new Map(projects.data.map((p) => [p.id, p.name])),
+      counterparties: new Map(counterparties.data.map((c) => [c.id, c.name])),
+    };
+  }, [accounts.data, categories.data, projects.data, counterparties.data]);
 
   // настройки меняют адрес без новой записи в истории: «Назад» уводит со страницы, а не по шагам настроек
   const update = (next: ReportUrlState) => setParams(reportSearch(next), { replace: true });
-  const changed = changedControls(state);
   const range = today ? reportRange(state, today) : null;
+  // точка у «Шага» — по действующему шагу: из адреса можно получить шаг, который на этом периоде заменяется другим
+  const step = range ? effectiveStep(state.step, range) : state.step;
+  const changed = { ...changedControls(state), step: step !== DEFAULT_REPORT_STATE.step };
 
   const header = (
     <div className="mb-4 flex items-start gap-3">
@@ -95,20 +126,33 @@ function CashflowScreen({ company }: { company: Company }) {
     </div>
   );
 
-  if (!today || !range) {
+  const dictionaries = [meta, accounts, categories, projects, counterparties, tags];
+  if (!today || !range || !timeZone || !lookups || !tags.data) {
     return (
       <section>
         {header}
-        <Pending queries={[meta]} />
+        <Pending queries={dictionaries} />
       </section>
     );
   }
+  const closeCell = () => {
+    const key = cell && cellKey(cell.row, cell.col);
+    setCell(null);
+    // фокус — в ячейку, из которой открыли список (если она ещё в таблице), иначе на заголовок отчёта
+    requestAnimationFrame(() => (document.querySelector<HTMLElement>(`[data-cell="${CSS.escape(key ?? '')}"]`) ?? headingRef.current)?.focus());
+  };
+  const cellParams = (c: { row: string; col: string }) => {
+    const p = new URLSearchParams(apiParams ?? '');
+    p.set('report', 'cashflow');
+    p.set('row', c.row);
+    p.set('col', c.col);
+    return p.toString();
+  };
 
-  const step = effectiveStep(state.step, range);
   return (
     <section>
       {header}
-      {/* область есть всегда, пока пустая: первое объявление тоже читается (как «итог выделения» журнала) */}
+      {/* область есть, пока справочники загружены, и пуста до первого ответа: первое объявление тоже читается (как «итог выделения» журнала) */}
       <p role="status" aria-live="polite" className="sr-only">
         {announcement}
       </p>
@@ -130,6 +174,17 @@ function CashflowScreen({ company }: { company: Company }) {
         <ChangedMark on={changed.step}>
           <ChoiceMenu name="Шаг" value={step} options={stepChoices(range)} onChange={(s) => update({ ...state, step: s })} />
         </ChangedMark>
+        <ChangedMark on={changed.filter}>
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            onClick={() => setFilterOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-full bg-field px-4 py-2 text-sm font-semibold text-ink hover:brightness-95 focus-visible:outline-2 focus-visible:outline-focus"
+          >
+            <FunnelIcon />
+            {`Фильтр${changed.filter ? ` · ${reportFilterCount(state)}` : ''}`}
+          </button>
+        </ChangedMark>
         <ChangedMark on={changed.percent}>
           <ChoiceMenu name="Проценты" value={state.percent ? 'on' : 'off'} options={PERCENT_CHOICES} onChange={(v) => update({ ...state, percent: v === 'on' })} />
         </ChangedMark>
@@ -142,7 +197,7 @@ function CashflowScreen({ company }: { company: Company }) {
         >
           <RefreshIcon spinning={report.isFetching} />
         </button>
-        {isReportChanged(state) && (
+        {Object.values(changed).some(Boolean) && (
           <button
             type="button"
             onClick={() => {
@@ -156,6 +211,13 @@ function CashflowScreen({ company }: { company: Company }) {
           </button>
         )}
       </div>
+      <ReportFilterDialog
+        open={filterOpen}
+        state={state}
+        data={{ accounts: accounts.data!, categories: categories.data!, projects: projects.data!, counterparties: counterparties.data!, tags: tags.data }}
+        onApply={update}
+        onClose={() => setFilterOpen(false)}
+      />
       <StaleNotice queries={report.data ? [report] : []} />
       {!report.data && !report.error ? (
         // скелет таблицы (§10): серые полосы на месте строк
@@ -189,6 +251,20 @@ function CashflowScreen({ company }: { company: Company }) {
             })
           }
           busy={report.isPlaceholderData}
+          active={cell}
+          onCell={(row, column) => setCell({ row: row.id, col: column?.key ?? 'total', title: cellTitle(row, column) })}
+        />
+      )}
+      {cell && report.data && (
+        <ReportOperations
+          company={company}
+          title={cell.title}
+          params={cellParams(cell)}
+          lookups={lookups}
+          timeZone={timeZone}
+          today={today}
+          mobile={mobile}
+          onClose={closeCell}
         />
       )}
     </section>

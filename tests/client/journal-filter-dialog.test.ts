@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EMPTY_JOURNAL_STATE, pickDialogFields, type DialogFields } from '../../src/client/lib/journal-filter';
-import { DIMENSIONS, dimensionOptions, dimensionSelected, toggleDimension, UNAVAILABLE, type FilterDialogData } from '../../src/client/lib/journal-filter-dialog';
+import { DIMENSIONS, dimensionOptions, dimensionSelected, REPORT_DIMENSIONS, toggleDimension, UNAVAILABLE, type FilterDialogData } from '../../src/client/lib/journal-filter-dialog';
 import type { Account, CategoryNode, Counterparty, Project, Tag } from '../../src/client/lib/queries';
 
 const ARCH = '2026-10-01T00:00:00.000Z';
@@ -112,5 +112,22 @@ describe('окно «Фильтры» (§5.6 этапа 1.5)', () => {
     d = toggleDimension('accounts', d, '1');
     expect([dimensionSelected('tags', d), dimensionSelected('accounts', d)]).toEqual([['9'], ['1']]);
     expect(toggleDimension('projects', { ...empty, projectIds: [999999] }, '999999').projectIds).toEqual([]);
+  });
+});
+
+describe('окно «Фильтры» отчётов «Аналитики» (§2.4 спецификации «Аналитика»)', () => {
+  it('«Категории» без типов операций, остальные поля — как у журнала', () => {
+    expect(REPORT_DIMENSIONS.map((d) => [d.label, d.allLabel])).toEqual([
+      ['Категории', 'Все категории'],
+      ['Контрагенты', 'Все контрагенты'],
+      ['Проекты', 'Все проекты'],
+      ['Теги', 'Все теги'],
+      ['Счета', 'Все счета'],
+    ]);
+    const options = dimensionOptions('typesCategories', data, empty, { types: false });
+    expect(options.some((o) => o.section === 'Тип')).toBe(false);
+    expect(options.map((o) => o.label)).toEqual(['Выручка', 'Помещение', 'Коммуналка', 'Без категории']);
+    // с типами — как раньше
+    expect(dimensionOptions('typesCategories', data, empty).filter((o) => o.section === 'Тип')).toHaveLength(3);
   });
 });

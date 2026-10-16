@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ReportRow } from '../../src/shared/report-engine';
-import { columnHint, DEFAULT_EXPANDED, moneyText, percentText, rowLabel, tableLines } from '../../src/client/lib/report-table';
+import { cellTitle, columnHint, DEFAULT_EXPANDED, isDrillRow, moneyText, nextCell, percentText, rowLabel, tableLines } from '../../src/client/lib/report-table';
 
 const row = (id: string, kind: ReportRow['kind'], values: (number | null)[], children?: ReportRow[], extra: Partial<ReportRow> = {}): ReportRow => ({
   id,
@@ -53,6 +53,16 @@ describe('строки таблицы отчёта (§4.1)', () => {
     expect(percentText(get('nonop:fx'), 0)).toBeNull();
   });
 
+  it('ячейки, которые открывают список операций, и заголовок списка «{строка} за {колонка}» (§2.5)', () => {
+    expect(['balance:start', 'nonop', 'nonop:fx', 'net', 'income', 'income:category:1', 'income:category:1:own', 'expense:category:5'].map((id) => isDrillRow(row(id, 'info', [0]))))
+      .toEqual([false, false, false, true, true, true, true, true]);
+    const bar = { ...row('income:category:1', 'category', [1]), label: 'Бар' };
+    expect(cellTitle(bar, { key: '2026-10-01', from: '2026-10-01', to: '2026-10-31', label: 'Октябрь 2026' })).toBe('Бар за октябрь 2026');
+    expect(cellTitle(bar, { key: '2026-10-12', from: '2026-10-12', to: '2026-10-18', label: '12–18 окт' })).toBe('Бар за 12–18 окт');
+    expect(cellTitle(bar, { key: '2026-10-01', from: '2026-10-01', to: '2026-12-31', label: 'IV кв. 2026' })).toBe('Бар за IV кв. 2026');
+    expect(cellTitle(bar, null)).toBe('Бар за весь период');
+  });
+
   it('суммы, архивная строка, подсказка колонки', () => {
     expect(moneyText(150_000, 'KZT')).toBe('₸\u00A01\u202F500');
     expect(moneyText(-5000, 'KZT')).toBe('\u2212₸\u00A050');
@@ -60,5 +70,31 @@ describe('строки таблицы отчёта (§4.1)', () => {
     expect(rowLabel(rows[4]!.children![0]!)).toBe('expense:category:5 (архив)');
     expect(columnHint({ key: '2026-10-12', from: '2026-10-12', to: '2026-10-18', label: '12–18 окт' })).toBe('12.10.2026 – 18.10.2026');
     expect(columnHint({ key: '2026-10-14', from: '2026-10-14', to: '2026-10-14', label: '14 окт' })).toBe('14.10.2026');
+  });
+
+  it('стрелки между ячейками-кнопками: строки без кнопок и пустые ячейки пропускаются, Home и End — края строки', () => {
+    const T = true;
+    const F = false;
+    // строки: остаток (кнопок нет), чистый поток, поступления (в средней колонке нет значения), списания
+    const grid = [
+      [F, F, F],
+      [T, T, T],
+      [T, F, T],
+      [T, T, T],
+    ];
+    expect(nextCell(grid, { row: 1, col: 0 }, 'ArrowRight')).toEqual({ row: 1, col: 1 });
+    expect(nextCell(grid, { row: 1, col: 2 }, 'ArrowRight')).toBeNull();
+    expect(nextCell(grid, { row: 2, col: 0 }, 'ArrowRight')).toEqual({ row: 2, col: 2 });
+    expect(nextCell(grid, { row: 2, col: 2 }, 'ArrowLeft')).toEqual({ row: 2, col: 0 });
+    expect(nextCell(grid, { row: 1, col: 0 }, 'ArrowLeft')).toBeNull();
+    expect(nextCell(grid, { row: 1, col: 1 }, 'ArrowDown')).toEqual({ row: 3, col: 1 });
+    expect(nextCell(grid, { row: 1, col: 0 }, 'ArrowDown')).toEqual({ row: 2, col: 0 });
+    expect(nextCell(grid, { row: 1, col: 1 }, 'ArrowUp')).toBeNull();
+    expect(nextCell(grid, { row: 3, col: 1 }, 'ArrowUp')).toEqual({ row: 1, col: 1 });
+    expect(nextCell(grid, { row: 3, col: 1 }, 'ArrowDown')).toBeNull();
+    expect(nextCell(grid, { row: 2, col: 2 }, 'Home')).toEqual({ row: 2, col: 0 });
+    expect(nextCell(grid, { row: 2, col: 0 }, 'End')).toEqual({ row: 2, col: 2 });
+    expect(nextCell(grid, { row: 2, col: 0 }, 'Home')).toBeNull();
+    expect(nextCell(grid, { row: 0, col: 1 }, 'ArrowRight')).toBeNull();
   });
 });

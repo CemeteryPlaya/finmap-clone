@@ -192,6 +192,133 @@ test('«Деньги»: таблица по месяцам, разрез, шаг
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/analytics$`));
 });
 
+test('«Деньги»: ячейка → операции под таблицей, разбитая операция частью; правка операции пересчитывает отчёт; фильтр скрывает остатки', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Ячейки ${Date.now()}`);
+  const s = await cashflowSetup(page, cid);
+  const supply = (await apiPost(page, `${s.base}/categories`, { kind: 'expense', name: 'Закуп бара' })).category.id as number;
+  // разбитый расход: 300 ₸ «Аренда» и 200 ₸ «Закуп бара»
+  await apiPost(page, `${s.base}/operations`, {
+    type: 'expense',
+    paidAt: minutesAgo(10),
+    accountId: s.account,
+    amount: 50_000,
+    comment: 'Разбитый расход',
+    lines: [
+      { categoryId: s.rent, amount: 30_000 },
+      { categoryId: supply, amount: 20_000 },
+    ],
+  });
+  await page.goto(`/c/${cid}/analytics/cashflow`);
+  const total = (name: string) => reportRow(page, name).getByRole('cell').last();
+  await expect(total('Аренда')).toHaveText(/^₸\s*800$/);
+
+  // ячейка «Итого» строки «Аренда» → блок «Аренда за весь период»: фокус на заголовке, разбитая операция — частью
+  const rentCell = report(page).getByRole('button', { name: /^Аренда за весь период: / });
+  await rentCell.click();
+  const heading = main(page).getByRole('heading', { level: 2, name: 'Аренда за весь период' });
+  await expect(heading).toBeFocused();
+  const ops = main(page).getByRole('table', { name: 'Операции' });
+  await expect(ops.locator('tbody tr')).toHaveCount(2);
+  const split = ops.locator('tbody tr').filter({ hasText: 'Разбитый расход' });
+  await expect(split.locator('[data-column="amount"]')).toContainText(/\u2212300\s₸/);
+  await expect(split.locator('[data-column="amount"]')).toContainText('часть операции');
+  const whole = ops.locator('tbody tr').filter({ hasText: 'Поставщик А' });
+  await expect(whole.locator('[data-column="amount"]')).not.toContainText('часть операции');
+  // «×» закрывает блок, фокус — обратно в ячейку
+  await main(page).getByRole('button', { name: 'Закрыть список операций' }).click();
+  await expect(heading).toBeHidden();
+  await expect(rentCell).toBeFocused();
+
+  // ячейка «Бар» за текущий месяц → операция → правка суммы → отчёт и список пересчитаны
+  await report(page).getByRole('button', { name: /^Бар за [а-я]+ \d{4}: ₸/ }).filter({ hasText: /1\s500/ }).click();
+  await expect(main(page).getByRole('heading', { level: 2, name: /^Бар за [а-я]+ \d{4}$/ })).toBeFocused();
+  await ops.getByRole('button', { name: /^Открыть операцию/ }).click();
+  const form = page.getByRole('dialog', { name: 'Доход', exact: true });
+  const amount = form.getByRole('textbox', { name: /^Сумма,/ });
+  await amount.fill('2000');
+  await amount.press('Enter');
+  await expect(form).toBeHidden();
+  await expect(total('Бар')).toHaveText(/^₸\s*2\s*000$/);
+  await expect(ops.locator('tbody tr').first().locator('[data-column="amount"]')).toContainText(/\+2\s000\s₸/);
+
+  // фильтр по категории: остатки скрыты строкой-пояснением, у «Фильтра» счётчик и точка, список закрыт
+  const filterButton = main(page).getByRole('button', { name: /^Фильтр/ });
+  const dialog = page.getByRole('dialog', { name: 'Фильтры', exact: true });
+  const field = (label: string) => dialog.getByRole('button', { name: new RegExp(`^${label}`) });
+  await filterButton.click();
+  await expect(dialog.locator('button[aria-haspopup="dialog"]')).toHaveText([/^Категории/, /^Контрагенты/, /^Проекты/, /^Теги/, /^Счета/]);
+  await expect(field('Категории')).toHaveAccessibleName('Категории: Все категории');
+  await field('Категории').click();
+  const panel = dialog.getByRole('dialog', { name: 'Категории', exact: true });
+  // типов операций в отчёте нет — только категории
+  await expect(panel.getByRole('group', { name: 'Тип' })).toHaveCount(0);
+  await panel.getByRole('checkbox', { name: 'Аренда', exact: true }).check();
+  await page.keyboard.press('Escape');
+  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page).toHaveURL(new RegExp(`category=${s.rent}`));
+  await expect(filterButton).toHaveText('Фильтр · 1');
+  await expect(report(page).getByRole('row').filter({ hasText: /^Остатки скрыты: при фильтре по категориям/ })).toBeVisible();
+  await expect(reportRow(page, /^Остаток на начало периода/)).toHaveCount(0);
+  await expect(total('Аренда')).toHaveText(/^₸\s*800$/);
+  await expect(heading).toBeHidden();
+
+  // фильтр по счёту остатки сохраняет; «Сбросить» в окне очищает условия
+  await filterButton.click();
+  await field('Категории').click();
+  await panel.getByRole('checkbox', { name: 'Аренда', exact: true }).uncheck();
+  await page.keyboard.press('Escape');
+  await field('Счета').click();
+  await dialog.getByRole('dialog', { name: 'Счета', exact: true }).getByRole('checkbox', { name: 'Касса Клуб 1' }).check();
+  await page.keyboard.press('Escape');
+  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect(page).toHaveURL(new RegExp(`account=${s.account}$`));
+  await expect(reportRow(page, /^Остаток на начало периода/)).toHaveCount(1);
+  await filterButton.click();
+  await dialog.getByRole('button', { name: 'Сбросить' }).click();
+  await expect(field('Счета')).toHaveAccessibleName('Счета: Все счета');
+  await dialog.getByRole('button', { name: 'Готово' }).click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/analytics/cashflow$`));
+  await expect(filterButton).toHaveText('Фильтр');
+});
+
+test('«Деньги»: ячейки — одна точка Tab, стрелки двигают фокус, Enter открывает список (R1); проценты в имени ячейки (R6)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Клавиши ${Date.now()}`);
+  await cashflowSetup(page, cid);
+  await page.goto(`/c/${cid}/analytics/cashflow?pct=1`);
+  const cells = report(page).locator('button[data-cell]');
+  await expect(cells.first()).toBeVisible();
+  // ровно одна ячейка в порядке Tab — первая; остальные -1
+  await expect(report(page).locator('button[data-cell][tabindex="0"]')).toHaveCount(1);
+  await expect(cells.first()).toHaveAttribute('tabindex', '0');
+  await expect(cells.nth(1)).toHaveAttribute('tabindex', '-1');
+  // проценты читаются вместе с суммой
+  await expect(report(page).getByRole('button', { name: /^Поступления за весь период: .+, 100,00/ })).toBeVisible();
+
+  // Tab с «?» предыдущей строки попадает в таблицу на первую ячейку («Чистый денежный поток», январь)
+  await report(page).getByRole('button', { name: 'Подсказка: Неоперационные изменения остатка' }).focus();
+  await page.keyboard.press('Tab');
+  const net = (col: string) => report(page).getByRole('button', { name: new RegExp(`^Чистый денежный поток за ${col}`) });
+  await expect(net('январь')).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(net('февраль')).toBeFocused();
+  await expect(net('февраль')).toHaveAttribute('tabindex', '0');
+  await expect(net('январь')).toHaveAttribute('tabindex', '-1');
+  await page.keyboard.press('ArrowDown');
+  const income = report(page).getByRole('button', { name: /^Поступления за февраль/ });
+  await expect(income).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(report(page).getByRole('button', { name: /^Поступления за весь период/ })).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(report(page).getByRole('button', { name: /^Поступления за январь/ })).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(income).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(main(page).getByRole('heading', { level: 2, name: /^Поступления за февраль \d{4}$/ })).toBeFocused();
+});
+
 test('телефон: «Ещё» → «Аналитика», карточки в одну колонку, заголовок получает фокус', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Аналитика телефон ${Date.now()}`);

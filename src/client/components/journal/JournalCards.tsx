@@ -19,12 +19,15 @@ export function JournalCards(props: {
   baseCurrency: string;
   timeZone: string;
   busy: boolean;
+  /** Список под отчётом «Аналитики»: сумма строк ячейки у операции, вошедшей частью, и пометка «часть операции». */
+  parts?: ReadonlyMap<number, number>;
   onOpenOperation: (item: JournalItem) => void;
 }) {
   return (
     <ul aria-label="Операции" aria-busy={props.busy} className={`divide-y divide-field ${props.busy ? 'opacity-60' : ''}`}>
       {props.items.map((item) => {
-        const c = journalCardText(item, props.lookups, props);
+        const part = props.parts?.get(item.id);
+        const c = journalCardText(part === undefined ? item : { ...item, amount: part }, props.lookups, props);
         return (
           <li key={item.id}>
             <button
@@ -48,7 +51,7 @@ export function JournalCards(props: {
                     )}
                     {c.amount}
                   </span>
-                  {c.extra && <span className="block text-xs text-muted">{c.extra}</span>}
+                  {part === undefined ? c.extra && <span className="block text-xs text-muted">{c.extra}</span> : <span className="block text-xs text-muted">часть операции</span>}
                 </span>
               </span>
               {c.counterparty && (

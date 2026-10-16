@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, type InfiniteData } from '@tanstack/react-query';
 import type { ReportBy, ReportColumn, ReportRow, ReportStep } from '../../shared/report-engine';
 import { api, type ApiError } from './api';
+import type { JournalItem } from './queries';
 import { queryClient } from './query';
 
 export type { ReportColumn, ReportRow };
@@ -10,6 +11,16 @@ export interface ReportData {
   columns: ReportColumn[];
   rows: ReportRow[];
   meta: { from: string; to: string; step: ReportStep; by: ReportBy; currency: string; empty: boolean; balancesHidden: boolean };
+}
+
+/** Операция в списке под отчётом (§2.5): строка журнала и сумма строк ячейки (в валюте счёта), если вошла только часть операции. */
+export interface CellItem extends JournalItem {
+  part: number | null;
+}
+
+export interface CellPageData {
+  items: CellItem[];
+  nextCursor: string | null;
 }
 
 /**
@@ -23,6 +34,20 @@ export function useCashflow(companyId: number, params: string | null) {
     enabled: params !== null,
     queryFn: () => api<ReportData>(`/companies/${companyId}/analytics/cashflow?${params}`),
     placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === companyId ? prev : undefined),
+  });
+}
+
+/** Операции ячейки отчёта (§2.5): страницы по 50 курсором, как журнал. params — параметры отчёта, report, row и col. */
+export function useCellOperations(companyId: number, params: string) {
+  return useInfiniteQuery<CellPageData, ApiError, InfiniteData<CellPageData, string | null>, readonly unknown[], string | null>({
+    queryKey: ['analytics', companyId, 'operations', params],
+    initialPageParam: null,
+    queryFn: ({ pageParam }) => {
+      const p = new URLSearchParams(params);
+      if (pageParam !== null) p.set('cursor', pageParam);
+      return api<CellPageData>(`/companies/${companyId}/analytics/operations?${p.toString()}`);
+    },
+    getNextPageParam: (last) => last.nextCursor,
   });
 }
 
