@@ -2,8 +2,9 @@ import { getCurrency } from '../../../shared/currencies';
 import { formatDateRu } from '../../../shared/dates';
 import { flattenRows, rowLabel, shareBp, type ReportBy, type ReportColumn, type ReportRow, type ReportStep } from '../../../shared/report-engine';
 import { noBatchText } from '../../../shared/report-pnl';
+import { STATEMENT_SUMMARY, type StatementSummary } from '../../../shared/report-statement';
 import type { XlsxCell, XlsxSheet } from '../../http/xlsx';
-import { minorToDecimal } from '../operations/journal-export';
+import { excelDateTime, minorToDecimal } from '../operations/journal-export';
 
 /** Строки, выделенные на экране (остатки, итоги, группы), — полужирным и в файле. */
 const BOLD = new Set(['balance:start', 'balance:end', 'nonop', 'net', 'profit', 'income', 'expense']);
@@ -47,6 +48,66 @@ export function reportSheet(input: {
   });
   const preamble = input.info?.map((text, i): XlsxCell[] => [{ kind: 'text', value: text, bold: i === 0 }]);
   return { name: input.name, columns: header, rows, ...(preamble && preamble.length > 0 ? { preamble } : {}) };
+}
+
+/** Операция в Excel выписки: движение и остаток после операции — в валюте счёта; названия, как в таблице на экране. */
+export interface StatementExportRow {
+  paidAt: string;
+  delta: number;
+  balance: number;
+  counterparty: string | null;
+  category: string | null;
+  project: string | null;
+  comment: string | null;
+}
+
+/**
+ * Лист Excel «Выписки по счету» (§2.6, §6): над таблицей — отчёт, счёт с валютой, период и сводка числами в валюте счёта
+ * (как на экране, по порядку STATEMENT_SUMMARY); таблица — колонки экрана, операции новые сверху.
+ */
+export function statementSheet(input: {
+  account: { name: string; currency: string; archived: boolean; openedAt: string };
+  from: string;
+  to: string;
+  summary: StatementSummary;
+  rows: readonly StatementExportRow[];
+  timeZone: string;
+}): XlsxSheet {
+  const units = getCurrency(input.account.currency).minorUnits;
+  const money = (v: number): XlsxCell => ({ kind: 'number', value: minorToDecimal(v, units), decimals: units });
+  const text = (v: string | null): XlsxCell => (v ? { kind: 'text', value: v } : null);
+  const preamble: XlsxCell[][] = [
+    [{ kind: 'text', value: 'Отчёт: Выписка по счету', bold: true }],
+    [{ kind: 'text', value: `Счёт: ${input.account.name}${input.account.archived ? ' (архив)' : ''}, ${input.account.currency}` }],
+    [{ kind: 'text', value: `Период: ${formatDateRu(input.from)} – ${formatDateRu(input.to)}` }],
+    ...STATEMENT_SUMMARY.map(({ key, label }) => [{ kind: 'text', value: label } as XlsxCell, money(input.summary[key])]),
+    // счёт открыт внутри периода (R2): стартовый остаток уже в остатке на начало
+    ...(input.account.openedAt > input.from
+      ? [[{ kind: 'text', value: `Счёт открыт ${formatDateRu(input.account.openedAt)} — стартовый остаток учтён в остатке на начало` } as XlsxCell]]
+      : []),
+  ];
+  return {
+    name: 'Выписка',
+    columns: [
+      { header: 'Дата и время', width: 20 },
+      { header: 'Сумма', width: 16 },
+      { header: 'Остаток после операции', width: 16 },
+      { header: 'Контрагент', width: 24 },
+      { header: 'Категория', width: 28 },
+      { header: 'Проект', width: 20 },
+      { header: 'Комментарий', width: 40 },
+    ],
+    rows: input.rows.map((r) => [
+      { kind: 'datetime', value: excelDateTime(r.paidAt, input.timeZone) },
+      money(r.delta),
+      money(r.balance),
+      text(r.counterparty),
+      text(r.category),
+      text(r.project),
+      text(r.comment),
+    ]),
+    preamble,
+  };
 }
 
 const STEP_TEXT: Record<ReportStep, string> = { day: 'по дням', week: 'по неделям', month: 'по месяцам', quarter: 'по кварталам' };

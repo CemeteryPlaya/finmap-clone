@@ -1,4 +1,4 @@
-import { asc, eq, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, sql, type SQL } from 'drizzle-orm';
 import { addDays, startOfDayUtc, todayInTimezone } from '../../../shared/dates';
 import type { Dec } from '../../../shared/decimal';
 import {
@@ -20,7 +20,16 @@ import {
   type TransferLeg,
 } from '../../../shared/report-engine';
 import { isFullyPaid, paymentExclusions, pnlExcludedCategories, pnlRows, type PaidOperation, type StockCost, type StockInput } from '../../../shared/report-pnl';
-import { reportFilter, type CellQuery, type ReportExportQuery, type ReportKind, type ReportQuery } from '../../../shared/schemas/analytics';
+import { statementDelta, statementSummary, transferLabel, type StatementSummary } from '../../../shared/report-statement';
+import {
+  reportFilter,
+  type CellQuery,
+  type ReportExportQuery,
+  type ReportKind,
+  type ReportQuery,
+  type StatementExportQuery,
+  type StatementQuery,
+} from '../../../shared/schemas/analytics';
 import type { SystemKey } from '../../../shared/system-categories';
 import type { Db } from '../../db/client';
 import { accounts, categories, counterparties, projects, tags } from '../../db/schema';
@@ -28,9 +37,9 @@ import { AppError } from '../../errors';
 import { exportFileName } from '../../http/export-name';
 import { buildXlsx } from '../../http/xlsx';
 import { requireCompany } from '../companies/guard';
-import { decodeCursor, encodeCursor, type JournalItem, type JournalService } from '../operations/journal';
+import { decodeCursor, encodeCursor, JOURNAL_EXPORT_MAX, type JournalItem, type JournalService } from '../operations/journal';
 import type { RatesService } from '../rates/service';
-import { filterText, reportInfo, reportSheet } from './report-export';
+import { filterText, reportInfo, reportSheet, statementSheet, type StatementExportRow } from './report-export';
 
 /** Ответ отчёта (§3.2): колонки шага, дерево строк и сведения о расчёте. */
 export interface ReportResponse {
@@ -64,6 +73,29 @@ export interface CellPage {
   nextCursor: string | null;
 }
 
+/** Счёт выписки (§6). */
+export interface StatementAccount {
+  id: number;
+  name: string;
+  currency: string;
+  archived: boolean;
+  /** Дата открытия счёта (ГГГГ-ММ-ДД): открыт внутри периода — Excel выписки говорит об этом строкой (R2). */
+  openedAt: string;
+}
+
+/** Страница операций выписки: строки журнала (с остатками после операции), новые сверху. */
+export interface StatementPage {
+  items: JournalItem[];
+  nextCursor: string | null;
+}
+
+/** «Выписка по счету» (§6, §9): счёт, сводка в его валюте и первая страница операций. */
+export interface StatementResponse extends StatementPage {
+  account: StatementAccount;
+  summary: StatementSummary;
+  meta: { from: string; to: string };
+}
+
 export interface AnalyticsService {
   /** «Деньги / Cash flow» (§4.1). */
   cashflow(companyId: number, q: ReportQuery): ReportResponse;
@@ -73,6 +105,12 @@ export interface AnalyticsService {
   operations(companyId: number, q: CellQuery): CellPage;
   /** Excel отчёта (§2.6): таблица как на экране, все строки раскрыты; «{Компания} - {Отчёт} - ДД-ММ-ГГГГ ЧЧ-ММ.xlsx». */
   exportXlsx(companyId: number, report: ReportKind, q: ReportExportQuery): { fileName: string; data: Buffer };
+  /** «Выписка по счету» (§6): сводка за период в валюте счёта и первая страница операций, новые сверху. */
+  statement(companyId: number, q: StatementQuery): StatementResponse;
+  /** Следующие страницы операций выписки (курсор журнала). */
+  statementOperations(companyId: number, q: StatementQuery): StatementPage;
+  /** Excel выписки (§2.6, §6): сводка и все операции периода, как на экране. */
+  statementXlsx(companyId: number, q: StatementExportQuery): { fileName: string; data: Buffer };
 }
 
 /** Названия отчётов в имени файла и листа Excel. */
@@ -142,8 +180,9 @@ const livePayments = (companyId: number) =>
   sql`SELECT p.operation_id AS operationId, SUM(p.amount) AS paid FROM stock_doc_payments p JOIN stock_docs d ON d.id = p.doc_id
        WHERE d.company_id = ${companyId} AND d.deleted_at IS NULL AND d.type = 'receipt' AND d.status = 'posted' GROUP BY p.operation_id`;
 
-export function createAnalyticsService(d: { db: Db; rates: RatesService; journal: JournalService; timezone: string; now?: () => Date }): AnalyticsService {
+export function createAnalyticsService(d: { db: Db; rates: RatesService; journal: JournalService; timezone: string; now?: () => Date; exportLimit?: number }): AnalyticsService {
   const { db, timezone } = d;
+  const exportLimit = d.exportLimit ?? JOURNAL_EXPORT_MAX;
   const now = d.now ?? (() => new Date());
 
   function dicts(companyId: number): ReportDicts {
@@ -336,6 +375,134 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
     return { series, accountIds };
   }
 
+  /** Счёт выписки — любой счёт компании, архивный тоже; чужой или несуществующий — 400 «Неизвестный счёт» (§9). */
+  function statementAccount(companyId: number, accountId: number): StatementAccount {
+    const a = db
+      .select()
+      .from(accounts)
+      .where(and(eq(accounts.companyId, companyId), eq(accounts.id, accountId)))
+      .get();
+    if (!a) throw invalid('account', 'Неизвестный счёт');
+    return { id: a.id, name: a.name, currency: a.currency, archived: a.archivedAt !== null, openedAt: a.openedAt };
+  }
+
+  /**
+   * Операции выписки (§6): фактические неудалённые операции компании, где счёт — счёт списания или зачисления, с моментом
+   * платежа в периоде — календарные дни в APP_TIMEZONE.
+   */
+  function statementWhere(companyId: number, accountId: number, q: { from: string; to: string }): SQL {
+    const start = startOfDayUtc(q.from, timezone);
+    const end = startOfDayUtc(addDays(q.to, 1), timezone);
+    return sql`o.company_id = ${companyId} AND o.deleted_at IS NULL AND o.status = 'actual' AND (o.account_id = ${accountId} OR o.to_account_id = ${accountId})
+      AND o.paid_at >= ${start} AND o.paid_at < ${end}`;
+  }
+
+  /**
+   * Сводка выписки (§6) в валюте счёта. Остаток на начало — как «Остаток после операции» журнала (§4.7): стартовый
+   * остаток счёта плюс все движения до начала периода (дата открытия счёта на остаток не влияет). Остаток на конец —
+   * начало плюс обороты периода (statementSummary), поэтому он равен остатку после последней операции периода.
+   */
+  function statementTotals(companyId: number, account: StatementAccount, q: { from: string; to: string }): StatementSummary {
+    const id = account.id;
+    const before = db.get<{ starting: number; delta: number | null }>(sql`
+      SELECT (SELECT starting_balance FROM accounts WHERE id = ${id}) AS starting,
+             SUM(CASE WHEN o.account_id = ${id} THEN (CASE WHEN o.type = 'income' THEN o.amount ELSE -o.amount END) ELSE 0 END
+               + CASE WHEN o.type = 'transfer' AND o.to_account_id = ${id} THEN o.to_amount ELSE 0 END) AS delta
+        FROM operations o
+       WHERE o.company_id = ${companyId} AND o.deleted_at IS NULL AND o.status = 'actual'
+         AND (o.account_id = ${id} OR o.to_account_id = ${id}) AND o.paid_at < ${startOfDayUtc(q.from, timezone)}`)!;
+    const t = db.get<{ income: number | null; expense: number | null; transfersIn: number | null; transfersOut: number | null }>(sql`
+      SELECT SUM(CASE WHEN o.type = 'income' THEN o.amount END) AS income,
+             SUM(CASE WHEN o.type = 'expense' THEN o.amount END) AS expense,
+             SUM(CASE WHEN o.type = 'transfer' AND o.to_account_id = ${id} THEN o.to_amount END) AS transfersIn,
+             SUM(CASE WHEN o.type = 'transfer' AND o.account_id = ${id} THEN o.amount END) AS transfersOut
+        FROM operations o
+       WHERE ${statementWhere(companyId, id, q)}`)!;
+    return statementSummary(Number(before.starting) + Number(before.delta ?? 0), {
+      income: Number(t.income ?? 0),
+      expense: Number(t.expense ?? 0),
+      transfersIn: Number(t.transfersIn ?? 0),
+      transfersOut: Number(t.transfersOut ?? 0),
+    });
+  }
+
+  /** Страница операций выписки: новые сверху по (paid_at, id), курсор журнала; строки — JournalService.load с остатками. */
+  function statementPage(companyId: number, accountId: number, q: StatementQuery): StatementPage {
+    const conds = [statementWhere(companyId, accountId, q)];
+    if (q.cursor) {
+      const c = decodeCursor(q.cursor, 'date', 'desc');
+      conds.push(sql`(o.paid_at, o.id) < (${c.v}, ${c.id})`);
+    }
+    const found = db.all<{ id: number; paidAt: string }>(sql`
+      SELECT o.id AS id, o.paid_at AS paidAt FROM operations o WHERE ${sql.join(conds, sql` AND `)} ORDER BY o.paid_at DESC, o.id DESC LIMIT ${q.limit + 1}`);
+    const more = found.length > q.limit;
+    const rows = more ? found.slice(0, q.limit) : found;
+    const last = rows.at(-1);
+    return {
+      items: d.journal.load(companyId, rows.map((r) => r.id)),
+      nextCursor: more && last ? encodeCursor({ s: 'date', o: 'desc', v: last.paidAt, id: last.id }) : null,
+    };
+  }
+
+  /**
+   * Строки Excel выписки: все операции периода, новые сверху, как на экране. Остаток после операции — остаток на начало
+   * плюс движения по порядку (paid_at, id): тот же порядок, что у остатка журнала (§4.7). Категория — полные названия
+   * строк («Родитель → Дочерняя») через «; », у перевода — «Перевод: {другой счёт}».
+   */
+  function statementRows(companyId: number, accountId: number, q: { from: string; to: string }, start: number): StatementExportRow[] {
+    const where = statementWhere(companyId, accountId, q);
+    const ops = db.all<{
+      id: number;
+      type: 'income' | 'expense' | 'transfer';
+      paidAt: string;
+      accountId: number;
+      toAccountId: number | null;
+      amount: number;
+      toAmount: number | null;
+      counterpartyId: number | null;
+      comment: string | null;
+    }>(sql`
+      SELECT o.id AS id, o.type AS type, o.paid_at AS paidAt, o.account_id AS accountId, o.to_account_id AS toAccountId, o.amount AS amount,
+             o.to_amount AS toAmount, o.counterparty_id AS counterpartyId, o.comment AS comment
+        FROM operations o WHERE ${where} ORDER BY o.paid_at, o.id`);
+    const lines = new Map<number, { categoryId: number | null; projectId: number | null }[]>();
+    for (const l of db.all<{ operationId: number; categoryId: number | null; projectId: number | null }>(sql`
+      SELECT l.operation_id AS operationId, l.category_id AS categoryId, l.project_id AS projectId
+        FROM operation_lines l JOIN operations o ON o.id = l.operation_id
+       WHERE ${where} ORDER BY l.operation_id, l.position`)) {
+      lines.set(l.operationId, [...(lines.get(l.operationId) ?? []), l]);
+    }
+    const dict = dicts(companyId);
+    const categoryById = new Map(dict.categories.map((c) => [c.id, c]));
+    const categoryName = (id: number | null) => {
+      const c = id === null ? undefined : categoryById.get(id);
+      if (!c) return null;
+      const parent = c.parentId === null ? undefined : categoryById.get(c.parentId);
+      return parent ? `${parent.name} → ${c.name}` : c.name;
+    };
+    const projectName = new Map(dict.projects.map((p) => [p.id, p.name]));
+    const counterpartyName = new Map(dict.counterparties.map((c) => [c.id, c.name]));
+    const accountName = new Map(db.select().from(accounts).where(eq(accounts.companyId, companyId)).all().map((a) => [a.id, a.name]));
+    const joined = (xs: (string | null | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x))].join('; ') || null;
+    let balance = start;
+    const rows = ops.map((o): StatementExportRow => {
+      const delta = statementDelta(o, accountId);
+      balance += delta;
+      const own = lines.get(o.id) ?? [];
+      const other = o.accountId === accountId ? o.toAccountId : o.accountId;
+      return {
+        paidAt: o.paidAt,
+        delta,
+        balance,
+        counterparty: o.counterpartyId === null ? null : (counterpartyName.get(o.counterpartyId) ?? null),
+        category: o.type === 'transfer' ? transferLabel(other === null ? '…' : (accountName.get(other) ?? '…')) : joined(own.map((l) => categoryName(l.categoryId))),
+        project: joined(own.map((l) => (l.projectId === null ? null : projectName.get(l.projectId)))),
+        comment: o.comment,
+      };
+    });
+    return rows.reverse();
+  }
+
   const service: AnalyticsService = {
     cashflow(companyId, q) {
       const company = requireCompany(db, companyId);
@@ -461,6 +628,28 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
       });
       const sheet = reportSheet({ name: REPORT_TITLE[report], columns: data.columns, rows: data.rows, currency: data.meta.currency, percent: q.pct === true, info });
       return { fileName: exportFileName(company.name, REPORT_TITLE[report], now(), timezone), data: buildXlsx(sheet, { strings: 'shared' }) };
+    },
+
+    statement(companyId, q) {
+      requireCompany(db, companyId);
+      const account = statementAccount(companyId, q.account);
+      return { account, summary: statementTotals(companyId, account, q), ...statementPage(companyId, account.id, q), meta: { from: q.from, to: q.to } };
+    },
+
+    statementOperations(companyId, q) {
+      requireCompany(db, companyId);
+      return statementPage(companyId, statementAccount(companyId, q.account).id, q);
+    },
+
+    statementXlsx(companyId, q) {
+      const company = requireCompany(db, companyId);
+      const account = statementAccount(companyId, q.account);
+      // предел выгрузки (R1): тот же, что у журнала, — проверяем до сборки файла
+      const count = db.get<{ n: number }>(sql`SELECT COUNT(*) AS n FROM operations o WHERE ${statementWhere(companyId, account.id, q)}`)!.n;
+      if (count > exportLimit) throw new AppError(422, 'EXPORT_LIMIT', `Больше ${exportLimit.toLocaleString('ru-RU')} операций — сузьте период или фильтр`);
+      const summary = statementTotals(companyId, account, q);
+      const sheet = statementSheet({ account, from: q.from, to: q.to, summary, rows: statementRows(companyId, account.id, q, summary.start), timeZone: timezone });
+      return { fileName: exportFileName(company.name, 'Выписка по счету', now(), timezone), data: buildXlsx(sheet, { strings: 'shared' }) };
     },
   };
   return service;
