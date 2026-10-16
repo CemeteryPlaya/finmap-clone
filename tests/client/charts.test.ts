@@ -148,6 +148,14 @@ describe('кольцо: не больше 8 частей, «Прочие» (§4.
     }
   });
 
+  it('max больше палитры не зацикливает подбор цвета: частей не больше 8, цвета разные', () => {
+    const rs = Array.from({ length: 20 }, (_, i) => row('r' + i, 'Р' + i, [100 + i]));
+    const slices = donutSlices(rs, 50);
+    expect(slices).toHaveLength(8);
+    const colors = slices.filter((s) => s.id !== OTHER_ID).map((s) => s.color);
+    expect(new Set(colors).size).toBe(colors.length);
+  });
+
   it('секторы: доли угла по значениям; одна часть — полный круг двумя дугами', () => {
     const arcs = donutArcs([{ id: 'a', label: 'А', value: 100, color: 0 }], 90, 90, 80, 50);
     expect(arcs).toHaveLength(1);

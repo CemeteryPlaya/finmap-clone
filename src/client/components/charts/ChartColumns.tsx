@@ -10,7 +10,7 @@ export interface TipLine {
 /**
  * Колонки графика для мыши и клавиатуры (§4.2 спецификации «Аналитика»): прозрачные кнопки поверх области построения,
  * одна на колонку шага. Одна точка Tab: стрелки влево и вправо, Home и End двигают фокус; наведение и фокус показывают
- * подсказку (период и суммы; при фокусе в графике - колонки с фокусом, а не под мышью), Escape убирает подсказку, не сдвигая фокус
+ * подсказку (период и суммы; при фокусе в графике — колонки с фокусом, а не под мышью), Escape убирает подсказку, не сдвигая фокус
  * (WCAG 1.4.13), щелчок, Enter и пробел выбирают колонку — под графиками её операции (§2.5). Имя кнопки
  * содержит те же суммы, что подсказка: сама подсказка от программ чтения скрыта. Рисунок (SVG с role="img") — отдельно:
  * внутри изображения кнопок быть не может.
@@ -35,14 +35,17 @@ export function ChartColumns(props: {
   const [last, setLast] = useState<number | null>(null);
   // Escape убрал подсказку: она вернётся при новом наведении, фокусе или стрелке
   const [dismissed, setDismissed] = useState(false);
+  // фокус пришёл с клавиатуры (:focus-visible): только тогда подсказка колонки с фокусом перебивает наведение мыши — после щелчка
+  // кнопка тоже в фокусе, но подсказки других колонок должны следовать за мышью
+  const [keyboard, setKeyboard] = useState(false);
   const step = props.count > 0 ? props.width / props.count : 0;
   const stop = last !== null && last < props.count ? last : Math.min(props.selected ?? 0, Math.max(0, props.count - 1));
-  // пока фокус в графике, подсказка - у колонки с фокусом: забытая под мышью колонка не перебивает стрелки
-  const shown = dismissed ? null : (focus ?? hover);
+  // при клавиатурном фокусе подсказка — у колонки с фокусом: забытая под мышью колонка не перебивает стрелки; иначе следует мышь
+  const shown = dismissed ? null : keyboard && focus !== null ? focus : (hover ?? focus);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') {
-      // подсказка видна - Escape только прячет её (окно или панель вокруг не закрываются)
+      // подсказка видна — Escape только прячет её (окно или панель вокруг не закрываются)
       if (shown !== null) {
         e.stopPropagation();
         setDismissed(true);
@@ -76,8 +79,9 @@ export function ChartColumns(props: {
             setHover(i);
             setDismissed(false);
           }}
-          onFocus={() => {
+          onFocus={(e) => {
             setFocus(i);
+            setKeyboard(e.currentTarget.matches(':focus-visible'));
             setDismissed(false);
             setLast(i);
           }}

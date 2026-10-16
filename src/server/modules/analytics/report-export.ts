@@ -52,7 +52,7 @@ export function reportSheet(input: {
 const STEP_TEXT: Record<ReportStep, string> = { day: 'по дням', week: 'по неделям', month: 'по месяцам', quarter: 'по кварталам' };
 const BY_TEXT: Record<ReportBy, string> = { category: 'по категориям', counterparty: 'по контрагентам', project: 'по проектам' };
 
-/** Названия выбранных значений фильтров отчёта (§2.4) по измерениям - как они стоят в панели фильтров. */
+/** Названия выбранных значений фильтров отчёта (§2.4) по измерениям — как они стоят в панели фильтров. */
 export interface FilterNames {
   accounts: string[];
   categories: string[];
@@ -64,7 +64,7 @@ export interface FilterNames {
   withoutProject: boolean;
 }
 
-/** Фильтры одной строкой: «Счета: Kaspi; Категории: Бар, Аренда; Без проекта»; нет фильтров - «нет». */
+/** Фильтры одной строкой: «Счета: Kaspi; Категории: Бар, Аренда; Без проекта»; нет фильтров — «нет». */
 export function filterText(f: FilterNames): string {
   const parts: string[] = [];
   const add = (label: string, names: readonly string[]) => names.length > 0 && parts.push(`${label}: ${names.join(', ')}`);
@@ -80,7 +80,7 @@ export function filterText(f: FilterNames): string {
 }
 
 /**
- * Строки сведений над таблицей Excel (R13): название отчёта, период, шаг, разрез, фильтры; у «Прибыли» - как учтён склад
+ * Строки сведений над таблицей Excel (R13): название отчёта, период, шаг, разрез, фильтры; у «Прибыли» — как учтён склад
  * и, если есть продажи без партии, предупреждение «прибыль завышена». Без них файл, открытый позже, не говорит, при каких
  * настройках получены цифры.
  */

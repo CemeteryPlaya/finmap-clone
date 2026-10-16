@@ -25,10 +25,12 @@ export function JournalCards(props: {
   parts?: ReadonlyMap<number, number>;
   /** Список под «Прибылью» (§5.2): дата сделки (без неё — день платежа) и под ней дата платежа. */
   dealDates?: boolean;
+  /** Имя списка для программ чтения с экрана; по умолчанию «Операции» (у двух списков на странице — разные). */
+  label?: string;
   onOpenOperation: (item: JournalItem) => void;
 }) {
   return (
-    <ul aria-label="Операции" aria-busy={props.busy} className={`divide-y divide-field ${props.busy ? 'opacity-60' : ''}`}>
+    <ul aria-label={props.label ?? 'Операции'} aria-busy={props.busy} className={`divide-y divide-field ${props.busy ? 'opacity-60' : ''}`}>
       {props.items.map((item) => {
         const part = props.parts?.get(item.id);
         const c = journalCardText(part === undefined ? item : { ...item, amount: part }, props.lookups, props);

@@ -436,7 +436,7 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
     exportXlsx(companyId, report, q) {
       const company = requireCompany(db, companyId);
       const data = service[report](companyId, q);
-      // сведения над таблицей (R13): период, шаг, разрез, фильтры по названиям, у «Прибыли» - склад и «Нет партии»
+      // сведения над таблицей (R13): период, шаг, разрез, фильтры по названиям, у «Прибыли» — склад и «Нет партии»
       const f = reportFilter(q);
       const dict = dicts(companyId);
       const names = (ids: readonly number[] | undefined, items: readonly { id: number; name: string }[]) =>

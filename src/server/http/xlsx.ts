@@ -20,8 +20,8 @@ export interface XlsxSheet {
   columns: { header: string; width: number }[];
   rows: XlsxCell[][];
   /**
-   * Строки над заголовками (сведения об отчёте: период, фильтры): идут с первой строки листа, за ними - пустая строка и
-   * строка заголовков, которая закрепляется. Без них заголовки - в первой строке.
+   * Строки над заголовками (сведения об отчёте: период, фильтры): идут с первой строки листа, за ними — пустая строка и
+   * строка заголовков, которая закрепляется. Без них заголовки — в первой строке.
    */
   preamble?: XlsxCell[][];
 }
@@ -148,7 +148,7 @@ function cellXml(ref: string, cell: XlsxCell, shared: SharedStrings | null, styl
 function sheetXml(sheet: XlsxSheet, shared: SharedStrings | null): string {
   const cols = sheet.columns.map((c, i) => `<col min="${i + 1}" max="${i + 1}" width="${c.width}" customWidth="1"/>`).join('');
   const preamble = sheet.preamble ?? [];
-  // за строками сведений - пустая строка, затем заголовки
+  // за строками сведений — пустая строка, затем заголовки
   const headRow = preamble.length > 0 ? preamble.length + 2 : 1;
   const top = preamble.map((row, r) => `<row r="${r + 1}">${row.map((cell, i) => cellXml(`${columnName(i)}${r + 1}`, cell, shared)).join('')}</row>`);
   const header = `<row r="${headRow}">${sheet.columns.map((c, i) => cellXml(`${columnName(i)}${headRow}`, { kind: 'text', value: c.header }, shared, STYLE.header)).join('')}</row>`;

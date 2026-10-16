@@ -641,6 +641,13 @@ test('«Деньги»: вид «график» — столбцы с линие
   await expect(opsHeading).toBeFocused();
   await expect(current).toHaveAttribute('aria-pressed', 'false');
 
+  // после щелчка мышью (колонка в фокусе) подсказки других колонок следуют за мышью, а не залипают на выбранной
+  const monthButtons = columns.getByRole('button');
+  await monthButtons.nth(0).click();
+  const second = ((await monthButtons.nth(1).getAttribute('aria-label')) ?? '').split(':')[0]!;
+  await monthButtons.nth(1).hover();
+  await expect(main(page).locator('[aria-hidden="true"]').filter({ hasText: 'Сальдо' }).locator('p').first()).toContainText(second);
+
   // пустой период — «Нет операций за период», без списков
   await page.goto(`/c/${cid}/analytics/cashflow?from=${Number(s.year) - 1}-01-01&to=${Number(s.year) - 1}-01-31`);
   await expect(main(page).getByText('Нет операций за период')).toBeVisible();

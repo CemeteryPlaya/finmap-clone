@@ -94,6 +94,7 @@ export function ReportOperations(props: {
           busy={list.isFetching && !list.isFetchingNextPage}
           parts={parts}
           dealDates={props.dealDates}
+          label={`Операции: ${props.title}`}
           onOpenOperation={open}
         />
       ) : (

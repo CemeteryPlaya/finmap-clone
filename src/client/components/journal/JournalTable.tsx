@@ -21,7 +21,7 @@ export interface JournalLookups {
 }
 
 export interface JournalTableProps {
-  /** Подпись таблицы для программ чтения с экрана; по умолчанию «Операции» (у двух таблиц на странице - разные). */
+  /** Подпись таблицы для программ чтения с экрана; по умолчанию «Операции» (у двух таблиц на странице — разные). */
   caption?: string;
   items: JournalItem[];
   columns: readonly JournalColumnId[];
