@@ -1,4 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
+import { invalidateAnalytics } from '../lib/analytics';
 import { api, type ApiError } from '../lib/api';
 import { queryClient } from '../lib/query';
 import { useProjects, type Account, type Company } from '../lib/queries';
@@ -26,9 +27,14 @@ function toBody(v: AccountFormValues) {
 export function AccountEditor({ company, account: fresh, gone = false, onDone }: { company: Company; account: Account | null; gone?: boolean; onDone: () => void }) {
   const projects = useProjects(company.id);
   const base = `/companies/${company.id}/accounts`;
-  // ['accounts', cid] обновляет и балансы (['accounts', cid, 'balances'])
-  // и «Компании» (итог в меню компаний)
-  const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['accounts', company.id] }), queryClient.invalidateQueries({ queryKey: ['companies', 'summary'] })]);
+  // ['accounts', cid] обновляет и балансы (['accounts', cid, 'balances']), «Компании» (итог в меню компаний)
+  // и отчёты «Аналитики» (стартовый остаток, архив счёта)
+  const refresh = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['accounts', company.id] }),
+      queryClient.invalidateQueries({ queryKey: ['companies', 'summary'] }),
+      invalidateAnalytics(company.id),
+    ]);
   const save = useMutation<unknown, ApiError, AccountFormValues>({
     mutationFn: (v) => (fresh ? api(`${base}/${fresh.id}`, { method: 'PATCH', body: toBody(v) }) : api(base, { method: 'POST', body: toBody(v) })),
     onSuccess: async () => {

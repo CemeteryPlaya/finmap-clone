@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { StockDocType, WriteoffReason } from '../../shared/schemas/stock';
 import type { StockUnit } from '../../shared/stock-qty';
 import type { PricePoint } from '../../shared/stock-price';
+import { invalidateAnalytics } from './analytics';
 import { api, type ApiError } from './api';
 import { queryClient } from './query';
 
@@ -243,7 +244,7 @@ export function useUnpaid(companyId: number, supplierId: number | null, operatio
   });
 }
 
-/** После любого изменения склада: каталог, документы, остатки, стоимость и долги по закупкам. */
-export function invalidateStock(companyId: number): Promise<void> {
-  return queryClient.invalidateQueries({ queryKey: ['stock', companyId] });
+/** После любого изменения склада: каталог, документы, остатки, стоимость, долги по закупкам и отчёты «Аналитики». */
+export async function invalidateStock(companyId: number): Promise<void> {
+  await Promise.all([queryClient.invalidateQueries({ queryKey: ['stock', companyId] }), invalidateAnalytics(companyId)]);
 }

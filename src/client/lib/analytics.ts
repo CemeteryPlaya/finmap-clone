@@ -1,3 +1,36 @@
+import { useQuery } from '@tanstack/react-query';
+import type { ReportBy, ReportColumn, ReportRow, ReportStep } from '../../shared/report-engine';
+import { api, type ApiError } from './api';
+import { queryClient } from './query';
+
+export type { ReportColumn, ReportRow };
+
+/** Ответ отчёта (§3.2 спецификации «Аналитика»). */
+export interface ReportData {
+  columns: ReportColumn[];
+  rows: ReportRow[];
+  meta: { from: string; to: string; step: ReportStep; by: ReportBy; currency: string; empty: boolean; balancesHidden: boolean };
+}
+
+/**
+ * «Деньги» по строке запроса (reportApiParams) или null, пока она не готова. Ключ ['analytics', cid, …]: сброс
+ * ['analytics', cid] (invalidateAnalytics) обновляет все отчёты компании. При смене настроек прежняя таблица остаётся
+ * на экране до ответа; отчёт другой компании не показывается.
+ */
+export function useCashflow(companyId: number, params: string | null) {
+  return useQuery<ReportData, ApiError>({
+    queryKey: ['analytics', companyId, 'cashflow', params],
+    enabled: params !== null,
+    queryFn: () => api<ReportData>(`/companies/${companyId}/analytics/cashflow?${params}`),
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === companyId ? prev : undefined),
+  });
+}
+
+/** Любая операция, документ склада, импорт или правка счёта меняют отчёты (§10): кэш отчётов компании сбрасывается. */
+export function invalidateAnalytics(companyId: number): Promise<void> {
+  return queryClient.invalidateQueries({ queryKey: ['analytics', companyId] });
+}
+
 export type CardIcon = 'wallet' | 'history' | 'plan' | 'in' | 'out' | 'scale';
 
 /** Карточка раздела «Аналитика» (§2.1): ссылка на отчёт или неактивная (пунктир и подпись). */

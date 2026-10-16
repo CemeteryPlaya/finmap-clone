@@ -205,12 +205,19 @@ export function periodRange(state: Pick<JournalUrlState, 'period' | 'from' | 'to
   }
 }
 
+/** Период и свои даты — общее у журнала и отчётов «Аналитики» (меню периода). */
+export interface PeriodFields<P extends PeriodKey = PeriodKey> {
+  period: P;
+  from?: string;
+  to?: string;
+}
+
 /**
  * Фильтр с другим периодом (меню периода, §5.1 этапа 1.5). У обычного периода границ from/to нет. У «Выбрать даты»
  * границы из range: можно одну; перепутанные меняются местами — журнал не пустеет из-за порядка полей.
  */
-export function withPeriod(state: JournalUrlState, period: PeriodKey, range: { from?: string; to?: string } = {}): JournalUrlState {
-  const next: JournalUrlState = { ...state, period };
+export function withPeriod<S extends PeriodFields>(state: S, period: S['period'], range: { from?: string; to?: string } = {}): S {
+  const next: S = { ...state, period };
   delete next.from;
   delete next.to;
   if (period !== 'custom') return next;

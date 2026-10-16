@@ -1,5 +1,6 @@
 import { MutationObserver, type InfiniteData } from '@tanstack/react-query';
 import { useMemo, useRef } from 'react';
+import { invalidateAnalytics } from './analytics';
 import { api, ApiError } from './api';
 import { assignPatch, withAssigned, type AssignField } from './journal-assign';
 import type { BulkAction, BulkResult } from './journal-bulk';
@@ -7,14 +8,15 @@ import type { JournalItem, JournalPageData } from './queries';
 import { queryClient } from './query';
 
 /**
- * После любого изменения операций — «Указать», массовые действия, форма операции (шаг 6):
- * журнал, счета (балансы и `hasOperations`) и компании (`currencyLocked`, итоги в переключателе).
+ * После любого изменения операций — «Указать», массовые действия, форма операции (шаг 6), импорт:
+ * журнал, счета (балансы и `hasOperations`), компании (`currencyLocked`, итоги в переключателе) и отчёты «Аналитики».
  */
 export async function invalidateOperations(companyId: number): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ['journal', companyId] }),
     queryClient.invalidateQueries({ queryKey: ['accounts', companyId] }),
     queryClient.invalidateQueries({ queryKey: ['companies'] }),
+    invalidateAnalytics(companyId),
   ]);
 }
 
@@ -28,6 +30,7 @@ export async function refreshOperations(companyId: number): Promise<void> {
     queryClient.invalidateQueries({ queryKey: ['journal', companyId] }, { throwOnError: true }),
     queryClient.invalidateQueries({ queryKey: ['accounts', companyId] }),
     queryClient.invalidateQueries({ queryKey: ['companies'] }),
+    invalidateAnalytics(companyId),
   ]);
   if (journal.status === 'rejected') throw journal.reason;
 }
