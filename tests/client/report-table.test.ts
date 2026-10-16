@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ReportRow } from '../../src/shared/report-engine';
-import { cellTitle, columnHint, DEFAULT_EXPANDED, isDrillRow, moneyText, nextCell, noBatchText, percentText, ROW_HELP, rowLabel, tableLines } from '../../src/client/lib/report-table';
+import { cellTitle, columnHint, DEFAULT_EXPANDED, isDrillRow, listMissesStock, moneyText, nextCell, noBatchText, percentText, ROW_HELP, rowLabel, tableLines } from '../../src/client/lib/report-table';
 
 const row = (id: string, kind: ReportRow['kind'], values: (number | null)[], children?: ReportRow[], extra: Partial<ReportRow> = {}): ReportRow => ({
   id,
@@ -115,6 +115,15 @@ describe('«Прибыль» в таблице (§5.2, §5.3)', () => {
     expect(isDrillRow(row('expense:stock:cogs', 'stock', [300]))).toBe(false);
     expect(ROW_HELP['expense:stock:cogs']).toMatch(/FIFO/);
     expect(ROW_HELP['expense:stock:writeoff']).toMatch(/Списание/);
+  });
+
+  it('подпись «склад в список не входит» (R14): только «Прибыль» со складом и строки «Расходы», «Прибыль», проект', () => {
+    for (const row of ['expense', 'profit', 'expense:project:7', 'expense:project:null']) expect(listMissesStock('pnl', true, row), row).toBe(true);
+    for (const row of ['income', 'expense:category:3', 'expense:counterparty:2', 'income:project:7']) expect(listMissesStock('pnl', true, row), row).toBe(false);
+    // склад выключен или его нет в компании, и «Деньги» - подписи нет
+    expect(listMissesStock('pnl', false, 'expense')).toBe(false);
+    expect(listMissesStock('pnl', undefined, 'profit')).toBe(false);
+    expect(listMissesStock('cashflow', true, 'expense')).toBe(false);
   });
 
   it('предупреждение «Нет партии»: 1, 21 — «продажи», 2, 5, 11 — «продаж»', () => {

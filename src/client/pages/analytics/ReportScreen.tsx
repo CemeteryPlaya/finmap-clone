@@ -22,7 +22,7 @@ import { useIsMobile } from '../../lib/media';
 import { PNL_BANNER_PREF, pnlBannerHidden } from '../../lib/preferences';
 import { useMeta } from '../../lib/query';
 import { savePreference, useAccounts, useCategories, useCounterparties, usePreferences, useProjects, useTags, type Company } from '../../lib/queries';
-import { cellTitle, DEFAULT_EXPANDED, noBatchText } from '../../lib/report-table';
+import { cellTitle, DEFAULT_EXPANDED, listMissesStock, noBatchText, STOCK_LIST_NOTE } from '../../lib/report-table';
 import {
   BY_CHOICES,
   changedControls,
@@ -69,7 +69,6 @@ export interface ReportConfig {
 
 /** Колонки списков под графиками (§4.2): две колонки рядом — без счёта и проекта; у «Прибыли» «Движение денег» — вторая строка под «Датой сделки» (R8). */
 const CHART_COLUMNS: readonly JournalColumnId[] = ['date', 'amount', 'counterparty', 'category', 'comment'];
-const DEAL_CHART_COLUMNS: readonly JournalColumnId[] = ['date', 'amount', 'counterparty', 'category', 'comment'];
 
 /**
  * Страница отчёта (§2.2 спецификации «Аналитика»): заголовок с видом «график / таблица», панель контролов (период, разрез,
@@ -202,7 +201,7 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
       <a
         href={reportExcelHref(company.id, config.report, state, today)}
         download
-        aria-label="Excel"
+        aria-label="Скачать Excel"
         title="Скачать Excel"
         className={`grid ${size} shrink-0 place-items-center rounded-full bg-field text-ink hover:brightness-95 focus-visible:outline-2 focus-visible:outline-focus`}
       >
@@ -471,6 +470,7 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
           today={today}
           mobile={mobile}
           dealDates={config.dealDates}
+          footnote={listMissesStock(config.report, report.data.meta.stock, cell.row) ? STOCK_LIST_NOTE : undefined}
           onClose={closeCell}
         />
       )}
@@ -510,12 +510,13 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
                 mobile={mobile}
                 autoFocus={false}
                 headingLevel={3}
-                columns={config.dealDates ? DEAL_CHART_COLUMNS : CHART_COLUMNS}
+                columns={CHART_COLUMNS}
                 dealDates={config.dealDates}
                 narrow
               />
             ))}
           </div>
+          {listMissesStock(config.report, report.data.meta.stock, 'expense') && <p className="mt-4 text-sm text-muted">{STOCK_LIST_NOTE}</p>}
         </section>
       )}
     </section>

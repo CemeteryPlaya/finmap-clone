@@ -72,3 +72,23 @@ describe('писатель XLSX: несколько листов и общие �
     expect(() => buildXlsx([])).toThrow('В книге нужен хотя бы один лист');
   });
 });
+
+describe('писатель XLSX: строки сведений над заголовками (R13)', () => {
+  it('сведения - с первой строки, затем пустая строка и заголовки, закрепляются заголовки; без сведений - заголовки в первой строке', () => {
+    const sheet: XlsxSheet = {
+      name: 'Деньги',
+      columns: [{ header: 'Название', width: 20 }, { header: 'Итого', width: 10 }],
+      rows: [[{ kind: 'text', value: 'Аренда' }, { kind: 'number', value: '1.00', decimals: 2 }]],
+      preamble: [[{ kind: 'text', value: 'Отчёт: Деньги', bold: true }], [{ kind: 'text', value: 'Период: 01.10.2026 – 31.10.2026' }]],
+    };
+    const xml = part(new AdmZip(buildXlsx(sheet, { strings: 'shared' })), 'xl/worksheets/sheet1.xml');
+    expect(xml).toContain('<row r="1"><c r="A1" t="s" s="1">');
+    expect(xml).toContain('<row r="2"><c r="A2" t="s">');
+    expect(xml).not.toContain('<row r="3">');
+    expect(xml).toContain('<row r="4"><c r="A4" t="s" s="1">');
+    expect(xml).toContain('<row r="5"><c r="A5" t="s">');
+    expect(xml).toContain('<pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/>');
+    const plain = part(new AdmZip(buildXlsx({ ...sheet, preamble: undefined })), 'xl/worksheets/sheet1.xml');
+    expect(plain).toContain('<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>');
+  });
+});

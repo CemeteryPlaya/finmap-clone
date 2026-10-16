@@ -23,6 +23,11 @@ const HEADERS = { origin: 'http://localhost:3000', 'x-requested-with': 'fetch' }
 const BUDGET_MS = 300;
 const LINES_PER_YEAR = 50_000;
 const RUNS = 20;
+/** Повторов замера на сценарий: бюджет проверяется по медиане p95 трёх повторов (p95 одного повтора шумит сильнее запаса). */
+const REPEATS = 3;
+/** Годы истории, которые добавляются перед сценариями «5 лет истории» (к 2025–2026). */
+const HISTORY_FROM = 2022;
+const HISTORY_TO = 2024;
 
 /** Повторяемый генератор: замер на одних и тех же данных. */
 function rng(seed: number) {
@@ -124,8 +129,8 @@ try {
   const pick = <T>(xs: readonly T[]) => xs[Math.floor(random() * xs.length)]!;
   const stamp = NOW.toISOString();
   let lines2026 = 0;
-  sqlite.transaction(() => {
-    for (let y = 2025; y <= 2026; y++) {
+  const insertYears = sqlite.transaction((yearFrom: number, yearTo: number) => {
+    for (let y = yearFrom; y <= yearTo; y++) {
       const start = Date.UTC(y, 0, 1) - 5 * 3_600_000;
       const span = Date.UTC(y + 1, 0, 1) - Date.UTC(y, 0, 1);
       let lines = 0;
@@ -148,7 +153,8 @@ try {
       }
       if (y === 2026) lines2026 = lines;
     }
-  })();
+  });
+  insertYears(2025, 2026);
 
   const lines: string[] = [`Компания: строк операций за 2026 год — ${lines2026}, всего операций — ${(sqlite.prepare('SELECT COUNT(*) AS n FROM operations').get() as { n: number }).n}`];
   const year = 'from=2026-01-01&to=2026-12-31';
@@ -159,7 +165,8 @@ try {
     ['«Прибыль»: год по неделям, по проектам, склад', `pnl?${year}&step=week&by=project`],
     ['«Прибыль»: год по кварталам, без склада', `pnl?${year}&step=quarter&stock=0`],
   ];
-  for (const [name, url] of scenarios) {
+  const median = (xs: number[]) => [...xs].sort((x, y) => x - y)[Math.floor(xs.length / 2)]!;
+  const runScenario = async (name: string, url: string) => {
     headers = await login();
     const call = async () => {
       const t = performance.now();
@@ -171,15 +178,29 @@ try {
     const first = await call();
     if (!first.body.rows.some((r) => r.id === 'income' && (r.total ?? 0) > 0)) throw new Error(`${name}: пустой отчёт — замер ничего не измерил`);
     await call();
-    const times: number[] = [];
-    for (let i = 0; i < RUNS; i++) times.push((await call()).ms);
-    times.sort((a, b) => a - b);
-    const p50 = times[Math.ceil(0.5 * RUNS) - 1]!;
-    const p95 = times[Math.ceil(0.95 * RUNS) - 1]!;
+    const p50s: number[] = [];
+    const p95s: number[] = [];
+    for (let repeat = 0; repeat < REPEATS; repeat++) {
+      const times: number[] = [];
+      for (let i = 0; i < RUNS; i++) times.push((await call()).ms);
+      times.sort((a, b) => a - b);
+      p50s.push(times[Math.ceil(0.5 * RUNS) - 1]!);
+      p95s.push(times[Math.ceil(0.95 * RUNS) - 1]!);
+    }
+    const p50 = median(p50s);
+    const p95 = median(p95s);
     if (p95 > BUDGET_MS) over = true;
-    lines.push(`${name.padEnd(48)} p50 ${p50.toFixed(1).padStart(7)} мс   p95 ${p95.toFixed(1).padStart(7)} мс   ${p95 <= BUDGET_MS ? 'OK' : 'ПРЕВЫШЕН'}`);
-  }
-  console.log(`\nЗамер отчётов (§3.2 спецификации «Аналитика»), Node ${process.version}, бюджет ${BUDGET_MS} мс (p95):\n`);
+    lines.push(
+      `${name.padEnd(52)} p50 ${p50.toFixed(1).padStart(7)} мс   p95 ${p95.toFixed(1).padStart(7)} мс  [${p95s.map((x) => x.toFixed(0)).join(' / ')}]  ${p95 <= BUDGET_MS ? 'OK' : 'ПРЕВЫШЕН'}`,
+    );
+  };
+  for (const [name, url] of scenarios) await runScenario(name, url);
+  // пять лет истории: к 2025–2026 добавляются 2022–2024, отчёт за 2026 год тот же — растёт только объём операций до периода
+  insertYears(HISTORY_FROM, HISTORY_TO);
+  lines.push(`История: операций всего — ${(sqlite.prepare('SELECT COUNT(*) AS n FROM operations').get() as { n: number }).n} (${HISTORY_FROM}–2026)`);
+  await runScenario('«Деньги»: год по месяцам, 5 лет истории', `cashflow?${year}`);
+  await runScenario('«Прибыль»: год по месяцам, склад, 5 лет истории', `pnl?${year}`);
+  console.log(`\nЗамер отчётов (§3.2 спецификации «Аналитика»), Node ${process.version}, бюджет ${BUDGET_MS} мс (медиана p95 из ${REPEATS} повторов по ${RUNS} вызовов; в скобках p95 каждого повтора):\n`);
   for (const l of lines) console.log(l);
 } catch (e) {
   failed = true;

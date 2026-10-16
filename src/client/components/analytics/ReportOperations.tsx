@@ -40,6 +40,8 @@ export function ReportOperations(props: {
   narrow?: boolean;
   /** «Прибыль» (§5.2): «Дата сделки» и «Движение денег». */
   dealDates?: boolean;
+  /** Приглушённая подпись под списком (R14: склад в список операций не входит). */
+  footnote?: string;
 }) {
   const list = useCellOperations(props.company.id, props.params);
   const openForm = useOpenOperationForm();
@@ -101,6 +103,7 @@ export function ReportOperations(props: {
           wrap={false}
           narrow={props.narrow}
           dealDates={props.dealDates}
+          caption={`Операции: ${props.title}`}
           lookups={props.lookups}
           baseCurrency={props.company.baseCurrency}
           timeZone={props.timeZone}
@@ -112,6 +115,7 @@ export function ReportOperations(props: {
         />
       )}
       {list.data && <LoadMore hasNext={list.hasNextPage} loading={list.isFetchingNextPage} failed={list.isFetchNextPageError} onLoad={() => void list.fetchNextPage()} />}
+      {props.footnote && <p className="mt-3 text-sm text-muted">{props.footnote}</p>}
     </section>
   );
 }

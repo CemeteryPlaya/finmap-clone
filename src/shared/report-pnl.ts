@@ -65,6 +65,15 @@ export function isFullyPaid(op: PaidOperation, matched: ReadonlySet<number>): bo
   return sum > 0 && cut === sum;
 }
 
+/**
+ * Предупреждение под «Прибылью» (§5.3): «У 1 продажи…», «У 2 продаж…», «У 21 продажи…» — себестоимость продаж
+ * «Нет партии» не определена. Один текст на экране и в Excel.
+ */
+export function noBatchText(count: number): string {
+  const one = count % 10 === 1 && count % 100 !== 11;
+  return `У ${count} ${one ? 'продажи' : 'продаж'} себестоимость не определена — прибыль завышена`;
+}
+
 export type StockCostKind = 'cogs' | 'writeoff';
 
 /** Себестоимость строки «Продажи» или «Списания» склада (§5.3): момент документа, проект склада, сумма FIFO в базовой валюте. */

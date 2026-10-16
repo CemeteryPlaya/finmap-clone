@@ -109,6 +109,9 @@ test('«Прибыль»: карточка, баннер, график и таб
 
     // операции под графиками (R5, R8): подпись порядка одна, «Движение денег» — вторая строка под «Датой сделки»
     await expect(main(page).getByText('Новые сверху по дате платежа')).toHaveCount(1);
+    // склад в списки не входит (R14): подпись одна под списками графика
+    const stockNote = main(page).getByText('Себестоимость и списания склада в список операций не входят');
+    await expect(stockNote).toHaveCount(1);
     const chartOps = main(page).getByRole('table', { name: 'Операции' });
     await expect(chartOps).toHaveCount(2);
     await expect(chartOps.first().getByRole('columnheader')).toHaveText(['Дата сделки', 'Сумма', 'Контрагент', 'Категория', 'Комментарий']);
@@ -141,6 +144,11 @@ test('«Прибыль»: карточка, баннер, график и таб
     await expect(row.locator('[data-column="amount"]')).toContainText(/\u2212150\s₸/);
     await expect(row.locator('[data-column="amount"]')).toContainText('часть операции');
     await expect(row.locator('[data-column="accrualDate"]')).not.toBeEmpty();
+    // у категории склад не сидит - подписи нет; у «Расходов» - есть (R14)
+    await expect(stockNote).toHaveCount(0);
+    await report(page).getByRole('button', { name: /^Расходы за весь период: / }).click();
+    await expect(main(page).getByRole('heading', { level: 2, name: 'Расходы за весь период' })).toBeFocused();
+    await expect(stockNote).toBeVisible();
 
     // склад выключен: оплата закупки — обычный расход, строк склада и предупреждения нет; точка и «Сбросить»
     await main(page).getByRole('button', { name: 'Склад: по себестоимости' }).click();
@@ -151,6 +159,7 @@ test('«Прибыль»: карточка, баннер, график и таб
     await expect(total(page, 'Прибыль')).toHaveText(/^₸\s*800$/);
     await expect(reportRow(page, /^Себестоимость проданных товаров/)).toHaveCount(0);
     await expect(warning).toBeHidden();
+    await expect(stockNote).toHaveCount(0);
     await expect(main(page).locator('[data-changed]')).toHaveCount(1);
     await main(page).getByRole('button', { name: 'Сбросить' }).click();
     await expect(page).toHaveURL(new RegExp(`/c/${cid}/analytics/pnl\\?view=table$`));

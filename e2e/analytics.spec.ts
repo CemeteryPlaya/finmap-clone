@@ -617,6 +617,10 @@ test('«Деньги»: вид «график» — столбцы с линие
   await current.focus();
   const tip = main(page).locator('[aria-hidden="true"]').filter({ hasText: 'Сальдо' }).filter({ hasText: /₸\s1\s000/ });
   await expect(tip).toBeVisible();
+  // Escape прячет подсказку, не сдвигая фокус (WCAG 1.4.13); стрелка возвращает её
+  await page.keyboard.press('Escape');
+  await expect(tip).toHaveCount(0);
+  await expect(current).toBeFocused();
   const month = ((await current.getAttribute('aria-label')) ?? '').split(':')[0]!;
   if (!month.startsWith('Январь')) {
     await page.keyboard.press('ArrowLeft');
@@ -665,7 +669,7 @@ test('«Деньги» и «Прибыль»: «Excel» скачивает те�
   const cid = await createCompany(page, name);
   await cashflowSetup(page, cid);
   await page.goto(`/c/${cid}/analytics/cashflow?view=table&pct=1`);
-  const excel = main(page).getByRole('link', { name: 'Excel', exact: true });
+  const excel = main(page).getByRole('link', { name: 'Скачать Excel', exact: true });
   await expect(excel).toHaveAttribute('href', new RegExp(`^/api/v1/companies/${cid}/analytics/cashflow\\.xlsx\\?from=.+&pct=true$`));
   const file = page.waitForEvent('download');
   await excel.click();
@@ -723,7 +727,7 @@ test('«Прибыль»: на 1440 px худший случай — табли�
       bar.getByRole('button', { name: /^Проценты:/ }),
       bar.getByRole('button', { name: /^Склад:/ }),
       bar.getByRole('button', { name: 'Сбросить' }),
-      bar.getByRole('link', { name: 'Excel', exact: true }),
+      bar.getByRole('link', { name: 'Скачать Excel', exact: true }),
       bar.getByRole('button', { name: 'Обновить', exact: true }),
       bar.getByRole('button', { name: /^Подсказка:/ }),
     ];

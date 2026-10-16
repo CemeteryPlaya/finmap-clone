@@ -23,14 +23,14 @@ import { isFullyPaid, paymentExclusions, pnlExcludedCategories, pnlRows, type Pa
 import { reportFilter, type CellQuery, type ReportExportQuery, type ReportKind, type ReportQuery } from '../../../shared/schemas/analytics';
 import type { SystemKey } from '../../../shared/system-categories';
 import type { Db } from '../../db/client';
-import { accounts, categories, counterparties, projects } from '../../db/schema';
+import { accounts, categories, counterparties, projects, tags } from '../../db/schema';
 import { AppError } from '../../errors';
 import { exportFileName } from '../../http/export-name';
 import { buildXlsx } from '../../http/xlsx';
 import { requireCompany } from '../companies/guard';
 import { decodeCursor, encodeCursor, type JournalItem, type JournalService } from '../operations/journal';
 import type { RatesService } from '../rates/service';
-import { reportSheet } from './report-export';
+import { filterText, reportInfo, reportSheet } from './report-export';
 
 /** Ответ отчёта (§3.2): колонки шага, дерево строк и сведения о расчёте. */
 export interface ReportResponse {
@@ -219,8 +219,8 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
   }
 
   /** Расходы с оплатами закупок: id операции → сумма оплат и все её строки (base_amount) по порядку (§5.3). */
-  function paidOperations(companyId: number, operationIds?: readonly number[]): Map<number, { paid: number; lines: { id: number; amount: number }[] }> {
-    const ops = new Map<number, { paid: number; lines: { id: number; amount: number }[] }>();
+  function paidOperations(companyId: number, operationIds?: readonly number[]): Map<number, PaidOperation> {
+    const ops = new Map<number, PaidOperation>();
     if (operationIds && operationIds.length === 0) return ops;
     const scope = operationIds ? sql`AND p.operationId IN (${idList(operationIds)})` : sql.empty();
     const rows = db.all<{ operationId: number; paid: number; lineId: number; amount: number }>(sql`
@@ -231,9 +231,9 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
        WHERE 1 = 1 ${scope}
        ORDER BY p.operationId, l.position, l.id`);
     for (const r of rows) {
-      const op = ops.get(r.operationId) ?? { paid: Number(r.paid), lines: [] };
-      op.lines.push({ id: r.lineId, amount: r.amount });
-      ops.set(r.operationId, op);
+      const op = ops.get(r.operationId);
+      const line = { id: r.lineId, amount: r.amount };
+      ops.set(r.operationId, op ? { paid: op.paid, lines: [...op.lines, line] } : { paid: Number(r.paid), lines: [line] });
     }
     return ops;
   }
@@ -409,7 +409,7 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
       for (let exhausted = false; !exhausted && kept.length <= q.limit; ) {
         const found = page(after, q.limit + 1);
         exhausted = found.length < q.limit + 1;
-        const paid = stock ? paidOperations(companyId, found.map((r) => r.id)) : new Map<number, { paid: number; lines: { id: number; amount: number }[] }>();
+        const paid = stock ? paidOperations(companyId, found.map((r) => r.id)) : new Map<number, PaidOperation>();
         for (const row of found) {
           if (kept.length > q.limit) break;
           const op = paid.get(row.id);
@@ -436,7 +436,30 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
     exportXlsx(companyId, report, q) {
       const company = requireCompany(db, companyId);
       const data = service[report](companyId, q);
-      const sheet = reportSheet({ name: REPORT_TITLE[report], columns: data.columns, rows: data.rows, currency: data.meta.currency, percent: q.pct === true });
+      // сведения над таблицей (R13): период, шаг, разрез, фильтры по названиям, у «Прибыли» - склад и «Нет партии»
+      const f = reportFilter(q);
+      const dict = dicts(companyId);
+      const names = (ids: readonly number[] | undefined, items: readonly { id: number; name: string }[]) =>
+        (ids ?? []).map((id) => items.find((i) => i.id === id)?.name).filter((n): n is string => n !== undefined);
+      const info = reportInfo({
+        title: REPORT_TITLE[report],
+        from: q.from,
+        to: q.to,
+        step: q.step,
+        by: q.by,
+        filters: filterText({
+          accounts: names(f.accountIds, db.select().from(accounts).where(eq(accounts.companyId, companyId)).all()),
+          categories: names(f.categoryIds, dict.categories),
+          counterparties: names(f.counterpartyIds, dict.counterparties),
+          projects: names(f.projectIds, dict.projects),
+          tags: names(f.tagIds, db.select().from(tags).where(eq(tags.companyId, companyId)).all()),
+          withoutCategory: f.withoutCategory === true,
+          withoutCounterparty: f.withoutCounterparty === true,
+          withoutProject: f.withoutProject === true,
+        }),
+        ...(report === 'pnl' ? { stock: data.meta.stock === true, noBatch: data.meta.noBatch ?? 0 } : {}),
+      });
+      const sheet = reportSheet({ name: REPORT_TITLE[report], columns: data.columns, rows: data.rows, currency: data.meta.currency, percent: q.pct === true, info });
       return { fileName: exportFileName(company.name, REPORT_TITLE[report], now(), timezone), data: buildXlsx(sheet, { strings: 'shared' }) };
     },
   };

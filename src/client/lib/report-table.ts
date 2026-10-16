@@ -109,11 +109,17 @@ export const ROW_HELP: Readonly<Record<string, string>> = {
   'expense:stock:writeoff': 'Себестоимость списанного товара по FIFO — по документам склада «Списание» с датой в колонке.',
 };
 
+/** Предупреждение под «Прибылью» (§5.3) - то же слово в экране и в Excel (shared/report-pnl). */
+export { noBatchText } from '../../shared/report-pnl';
+
+/** Подпись под списками операций «Прибыли» со складом (R14): сумма ячейки включает склад, список - только журнал. */
+export const STOCK_LIST_NOTE = 'Себестоимость и списания склада в список операций не входят';
+
 /**
- * Предупреждение под «Прибылью» (§5.3): «У 1 продажи…», «У 2 продаж…», «У 21 продажи…» — себестоимость продаж
- * «Нет партии» не определена.
+ * Нужна ли подпись STOCK_LIST_NOTE под списком ячейки: «Прибыль» со складом по себестоимости, строки «Расходы», «Прибыль» и
+ * проекта в разрезе «По проектам» (там сидят строки склада проекта). Категории и контрагентов склад не касается: его
+ * строки отдельные и в операции не раскрываются.
  */
-export function noBatchText(count: number): string {
-  const one = count % 10 === 1 && count % 100 !== 11;
-  return `У ${count} ${one ? 'продажи' : 'продаж'} себестоимость не определена — прибыль завышена`;
+export function listMissesStock(report: string, stock: boolean | undefined, row: string): boolean {
+  return report === 'pnl' && stock === true && (row === 'expense' || row === 'profit' || row.startsWith('expense:project:'));
 }

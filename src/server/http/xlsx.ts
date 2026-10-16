@@ -19,6 +19,11 @@ export interface XlsxSheet {
   name: string;
   columns: { header: string; width: number }[];
   rows: XlsxCell[][];
+  /**
+   * Строки над заголовками (сведения об отчёте: период, фильтры): идут с первой строки листа, за ними - пустая строка и
+   * строка заголовков, которая закрепляется. Без них заголовки - в первой строке.
+   */
+  preamble?: XlsxCell[][];
 }
 
 export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -142,10 +147,14 @@ function cellXml(ref: string, cell: XlsxCell, shared: SharedStrings | null, styl
 
 function sheetXml(sheet: XlsxSheet, shared: SharedStrings | null): string {
   const cols = sheet.columns.map((c, i) => `<col min="${i + 1}" max="${i + 1}" width="${c.width}" customWidth="1"/>`).join('');
-  const header = `<row r="1">${sheet.columns.map((c, i) => cellXml(`${columnName(i)}1`, { kind: 'text', value: c.header }, shared, STYLE.header)).join('')}</row>`;
-  const body = sheet.rows.map((row, r) => `<row r="${r + 2}">${row.map((cell, i) => cellXml(`${columnName(i)}${r + 2}`, cell, shared)).join('')}</row>`);
+  const preamble = sheet.preamble ?? [];
+  // за строками сведений - пустая строка, затем заголовки
+  const headRow = preamble.length > 0 ? preamble.length + 2 : 1;
+  const top = preamble.map((row, r) => `<row r="${r + 1}">${row.map((cell, i) => cellXml(`${columnName(i)}${r + 1}`, cell, shared)).join('')}</row>`);
+  const header = `<row r="${headRow}">${sheet.columns.map((c, i) => cellXml(`${columnName(i)}${headRow}`, { kind: 'text', value: c.header }, shared, STYLE.header)).join('')}</row>`;
+  const body = sheet.rows.map((row, r) => `<row r="${headRow + 1 + r}">${row.map((cell, i) => cellXml(`${columnName(i)}${headRow + 1 + r}`, cell, shared)).join('')}</row>`);
   // строка заголовков закреплена
-  return `<worksheet xmlns="${NS_MAIN}"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${cols}</cols><sheetData>${header}${body.join('')}</sheetData></worksheet>`;
+  return `<worksheet xmlns="${NS_MAIN}"><sheetViews><sheetView workbookViewId="0"><pane ySplit="${headRow}" topLeftCell="A${headRow + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${cols}</cols><sheetData>${top.join('')}${header}${body.join('')}</sheetData></worksheet>`;
 }
 
 /**

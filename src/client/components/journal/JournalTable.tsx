@@ -21,6 +21,8 @@ export interface JournalLookups {
 }
 
 export interface JournalTableProps {
+  /** Подпись таблицы для программ чтения с экрана; по умолчанию «Операции» (у двух таблиц на странице - разные). */
+  caption?: string;
   items: JournalItem[];
   columns: readonly JournalColumnId[];
   lookups: JournalLookups;
@@ -198,7 +200,7 @@ export function JournalTable(props: JournalTableProps) {
       {props.bulkBar}
       <div className="overflow-x-auto">
       <table aria-busy={props.busy} className={`w-full ${props.narrow ? 'min-w-[32rem]' : 'min-w-[56rem]'} table-fixed border-collapse text-sm ${props.busy ? 'opacity-60' : ''}`}>
-        <caption className="sr-only">Операции</caption>
+        <caption className="sr-only">{props.caption ?? 'Операции'}</caption>
         <thead>
           <tr className="h-12 border-b border-field">
             {selection && (

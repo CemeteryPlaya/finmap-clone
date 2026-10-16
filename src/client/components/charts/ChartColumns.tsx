@@ -10,7 +10,8 @@ export interface TipLine {
 /**
  * Колонки графика для мыши и клавиатуры (§4.2 спецификации «Аналитика»): прозрачные кнопки поверх области построения,
  * одна на колонку шага. Одна точка Tab: стрелки влево и вправо, Home и End двигают фокус; наведение и фокус показывают
- * подсказку (период и суммы), щелчок, Enter и пробел выбирают колонку — под графиками её операции (§2.5). Имя кнопки
+ * подсказку (период и суммы; при фокусе в графике - колонки с фокусом, а не под мышью), Escape убирает подсказку, не сдвигая фокус
+ * (WCAG 1.4.13), щелчок, Enter и пробел выбирают колонку — под графиками её операции (§2.5). Имя кнопки
  * содержит те же суммы, что подсказка: сама подсказка от программ чтения скрыта. Рисунок (SVG с role="img") — отдельно:
  * внутри изображения кнопок быть не может.
  */
@@ -32,15 +33,27 @@ export function ChartColumns(props: {
   const [focus, setFocus] = useState<number | null>(null);
   // точка Tab — колонка, где был фокус (если она ещё есть), иначе выбранная, иначе первая
   const [last, setLast] = useState<number | null>(null);
+  // Escape убрал подсказку: она вернётся при новом наведении, фокусе или стрелке
+  const [dismissed, setDismissed] = useState(false);
   const step = props.count > 0 ? props.width / props.count : 0;
   const stop = last !== null && last < props.count ? last : Math.min(props.selected ?? 0, Math.max(0, props.count - 1));
-  const shown = hover ?? focus;
+  // пока фокус в графике, подсказка - у колонки с фокусом: забытая под мышью колонка не перебивает стрелки
+  const shown = dismissed ? null : (focus ?? hover);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      // подсказка видна - Escape только прячет её (окно или панель вокруг не закрываются)
+      if (shown !== null) {
+        e.stopPropagation();
+        setDismissed(true);
+      }
+      return;
+    }
     const from = focus ?? stop;
     const to = e.key === 'ArrowRight' ? from + 1 : e.key === 'ArrowLeft' ? from - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? props.count - 1 : null;
     if (to === null) return;
     e.preventDefault();
+    setDismissed(false);
     if (to < 0 || to >= props.count) return;
     e.currentTarget.querySelector<HTMLElement>(`[data-chart-column="${to}"]`)?.focus();
   };
@@ -59,9 +72,13 @@ export function ChartColumns(props: {
           aria-label={props.names[i]}
           aria-pressed={props.selected === i}
           aria-disabled={props.busy || undefined}
-          onMouseEnter={() => setHover(i)}
+          onMouseEnter={() => {
+            setHover(i);
+            setDismissed(false);
+          }}
           onFocus={() => {
             setFocus(i);
+            setDismissed(false);
             setLast(i);
           }}
           onBlur={() => setFocus(null)}

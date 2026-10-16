@@ -292,3 +292,81 @@ describe('операции ячейки «Прибыли»: «полностью
     expect((await cell(`row=expense:category:${p}&col=total&stock=0`)).items.map((i) => i.id)).toEqual([half, full]);
   });
 });
+
+describe('«Прибыль»: ограничения запросов и «Нет партии» под фильтром проекта (R15)', () => {
+  const failure = async (url: string) => {
+    const res = await w.h.req('GET', url);
+    expect(res.statusCode, res.body).toBe(400);
+    return res.json().error.fields as Record<string, string>;
+  };
+
+  it('ячейка строки склада («Себестоимость», «Списания») в операции не раскрывается - 400 с полем row', async () => {
+    await quarter();
+    for (const row of ['expense:stock:cogs', 'expense:stock:writeoff']) {
+      expect(await failure(`${base()}/operations?report=pnl&${Q3}&row=${row}&col=total`), row).toEqual({ row: 'Строка отчёта не раскрывается в операции' });
+    }
+  });
+
+  it('счёт другой компании в «Прибыли» и в её операциях ячейки - 400 «Неизвестный счёт»', async () => {
+    await quarter();
+    const other = await w.h.company('ТОО Другая');
+    const foreign = (await w.post(`/api/v1/companies/${other}/accounts`, { name: 'Касса Клуб 1', currency: 'KZT', openedAt: '2026-01-01', startingBalance: 0 })).account.id as number;
+    expect(await failure(`${base()}/pnl?${Q3}&accounts=${foreign}`)).toEqual({ accounts: 'Неизвестный счёт' });
+    expect(await failure(`${base()}/operations?report=pnl&${Q3}&row=income&col=total&accounts=${foreign}`)).toEqual({ accounts: 'Неизвестный счёт' });
+  });
+
+  it('«Нет партии» считается по проекту склада: у каждого клуба по одной продаже, без проекта-фильтра - две', async () => {
+    await quarter();
+    expect((await pnl(Q3)).meta.noBatch).toBe(2);
+    expect((await pnl(`${Q3}&projects=${w.project}`)).meta.noBatch).toBe(1);
+    expect((await pnl(`${Q3}&projects=${w.project2}`)).meta.noBatch).toBe(1);
+  });
+});
+
+describe('операции ячейки «Прибыли»: страницы с пропуском полностью оплаченных расходов (R15)', () => {
+  it('limit меньше числа строк, часть строк пропущена: обход по nextCursor без пропусков и повторов до null', async () => {
+    w = await stockWorld();
+    await w.h.req('PATCH', `/api/v1/companies/${w.cid}/accounts/${w.kzt}`, { openedAt: '2026-01-01' });
+    const p = (await w.post(`/api/v1/companies/${w.cid}/categories`, { kind: 'expense', name: 'Закупка П' })).category.id as number;
+    const o = (await w.post(`/api/v1/companies/${w.cid}/categories`, { kind: 'expense', name: 'Закупка О' })).category.id as number;
+    const lines = [
+      { categoryId: p, amount: 10_000 },
+      { categoryId: o, amount: 10_000 },
+    ];
+    const spend = async (day: number, pay: number) => {
+      const receipt = await w.receipt('2026-07-01T06:00:00Z', [[w.syrup, 1000, Math.max(pay, 1000)]]);
+      const at = `2026-07-${String(day).padStart(2, '0')}T06:00:00Z`;
+      return (await w.post(w.ops, { accountId: w.kzt, type: 'expense', paidAt: at, amount: 20_000, counterpartyId: w.supplier, lines, stockPayments: [{ docId: receipt.id, amount: pay }] })).operation.id as number;
+    };
+    // старые - новые: по два оплаченных целиком подряд между частично оплаченными и в начале списка
+    await spend(2, 20_000);
+    const half1 = await spend(3, 10_000);
+    await spend(4, 20_000);
+    await spend(5, 20_000);
+    const half2 = await spend(6, 10_000);
+    await spend(7, 20_000);
+    const half3 = await spend(8, 10_000);
+    await spend(9, 20_000);
+    const url = (extra: string) => `${base()}/operations?report=pnl&${Q3}&row=expense:category:${p}&col=total${extra}`;
+    const page = async (extra: string) => {
+      const res = await w.h.req('GET', url(extra));
+      expect(res.statusCode, res.body).toBe(200);
+      return res.json() as { items: { id: number; part: number | null }[]; nextCursor: string | null };
+    };
+    const expected = [half3, half2, half1];
+    expect((await page('&limit=200')).items.map((i) => i.id)).toEqual(expected);
+    for (const limit of [1, 2]) {
+      const seen: number[] = [];
+      let cursor: string | null = null;
+      for (let guard = 0; guard < 10; guard++) {
+        const next: { items: { id: number; part: number | null }[]; nextCursor: string | null } = await page(`&limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+        expect(next.items.length, `limit=${limit}`).toBeLessThanOrEqual(limit);
+        seen.push(...next.items.map((i) => i.id));
+        cursor = next.nextCursor;
+        if (cursor === null) break;
+      }
+      expect(cursor, `limit=${limit}: обход закончился`).toBeNull();
+      expect(seen, `limit=${limit}`).toEqual(expected);
+    }
+  });
+});

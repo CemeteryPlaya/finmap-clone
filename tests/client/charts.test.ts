@@ -106,17 +106,46 @@ describe('кольцо: не больше 8 частей, «Прочие» (§4.
     expect(colors(0)).toEqual({ b: 1, c: 2 });
   });
 
-  it('смена состава семёрки не перекрашивает оставшиеся; цвет в стеке тот же, что в кольце', () => {
+  it('смена состава семёрки не перекрашивает строки без конфликта; цвет в стеке тот же, что в кольце', () => {
     const make = (v1: number) => [row('r0', 'Р0', [v1]), ...Array.from({ length: 8 }, (_, i) => row('r' + (i + 1), 'Р' + (i + 1), [(i + 2) * 100]))];
     const byId = (rs: ReportRow[]) => Object.fromEntries(donutSlices(rs).map((s) => [s.id, s.color]));
     const small = byId(make(10)); // r0 уходит в «Прочие»
-    const big = byId(make(5000)); // r0 входит в семёрку, вытесняя r1
+    const big = byId(make(5000)); // r0 входит в семёрку, вытесняя r2
     expect(small.other).toBe('other');
-    for (const id of ['r3', 'r4', 'r8']) expect(small[id]).toBe(big[id]);
+    for (const id of ['r3', 'r4', 'r5', 'r6', 'r7']) expect(small[id]).toBe(big[id]);
     expect(big.r0).toBe(0);
     const rs = make(5000);
     const slices = donutSlices(rs);
     expect(stackSeries(rs, slices, 1).map((s) => s.color)).toEqual(slices.map((s) => s.color));
+  });
+
+  it('строки 0 и 8 показаны вместе: вторая берёт следующий свободный цвет, а не цвет первой; в стеке цвета те же', () => {
+    const rs = Array.from({ length: 10 }, (_, i) => row('r' + i, 'Р' + i, [i === 0 || i === 8 ? 5000 : 100 + i]));
+    const slices = donutSlices(rs);
+    const byId = Object.fromEntries(slices.map((s) => [s.id, s.color]));
+    expect(slices.map((s) => s.id)).toEqual(expect.arrayContaining(['r0', 'r8']));
+    expect(byId.r0).toBe(0);
+    expect(byId.r8).not.toBe(byId.r0);
+    expect(stackSeries(rs, slices, 1).map((s) => s.color)).toEqual(slices.map((s) => s.color));
+  });
+
+  it('цвета показанных частей всегда разные (кроме «Прочих») при любом числе строк и значений; цвет - из палитры', () => {
+    let seed = 7;
+    const next = () => {
+      seed = (seed * 1_664_525 + 1_013_904_223) % 2 ** 32;
+      return seed / 2 ** 32;
+    };
+    for (let n = 1; n <= 24; n++) {
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const rs = Array.from({ length: n }, (_, i) => row('r' + i, 'Р' + i, [next() < 0.2 ? 0 : Math.floor(next() * 1000)]));
+        const slices = donutSlices(rs);
+        const colors = slices.filter((s) => s.id !== OTHER_ID).map((s) => s.color);
+        expect(new Set(colors).size, `n=${n}`).toBe(colors.length);
+        for (const c of colors) expect(typeof c === 'number' && c >= 0 && c < 8).toBe(true);
+        expect(slices.length).toBeLessThanOrEqual(8);
+        for (const s of slices.filter((x) => x.id === OTHER_ID)) expect(s.color).toBe('other');
+      }
+    }
   });
 
   it('секторы: доли угла по значениям; одна часть — полный круг двумя дугами', () => {
