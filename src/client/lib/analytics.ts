@@ -1,10 +1,11 @@
 import { useInfiniteQuery, useQuery, type InfiniteData } from '@tanstack/react-query';
 import type { ReportBy, ReportColumn, ReportRow, ReportStep } from '../../shared/report-engine';
+import type { ReportKind } from '../../shared/schemas/analytics';
 import { api, type ApiError } from './api';
 import type { JournalItem } from './queries';
 import { queryClient } from './query';
 
-export type { ReportColumn, ReportRow };
+export type { ReportColumn, ReportKind, ReportRow };
 
 /** Ответ отчёта (§3.2 спецификации «Аналитика»). */
 export interface ReportData {
@@ -24,15 +25,15 @@ export interface CellPageData {
 }
 
 /**
- * «Деньги» по строке запроса (reportApiParams) или null, пока она не готова. Ключ ['analytics', cid, …]: сброс
- * ['analytics', cid] (invalidateAnalytics) обновляет все отчёты компании. При смене настроек прежняя таблица остаётся
- * на экране до ответа; отчёт другой компании не показывается.
+ * Отчёт («Деньги», «Прибыль») по строке запроса (reportApiParams) или null, пока она не готова. Ключ ['analytics', cid, …]:
+ * сброс ['analytics', cid] (invalidateAnalytics) обновляет все отчёты компании. При смене настроек прежняя таблица
+ * остаётся на экране до ответа; отчёт другой компании не показывается.
  */
-export function useCashflow(companyId: number, params: string | null) {
+export function useReport(companyId: number, report: ReportKind, params: string | null) {
   return useQuery<ReportData, ApiError>({
-    queryKey: ['analytics', companyId, 'cashflow', params],
+    queryKey: ['analytics', companyId, report, params],
     enabled: params !== null,
-    queryFn: () => api<ReportData>(`/companies/${companyId}/analytics/cashflow?${params}`),
+    queryFn: () => api<ReportData>(`/companies/${companyId}/analytics/${report}?${params}`),
     placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === companyId ? prev : undefined),
   });
 }

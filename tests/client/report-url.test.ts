@@ -17,6 +17,7 @@ import {
   reportFilterCount,
   reportRange,
   reportSearch,
+  resetReportState,
   stepChoices,
   usesIds,
   withFittingStep,
@@ -32,6 +33,20 @@ describe('настройки отчёта в адресе (§2.2)', () => {
     expect(parse('')).toEqual(DEFAULT_REPORT_STATE);
     expect(reportSearch(DEFAULT_REPORT_STATE).toString()).toBe('');
     expect(isReportChanged(DEFAULT_REPORT_STATE)).toBe(false);
+  });
+
+  it('вид «график / таблица»: по умолчанию график; в адресе только view=table первым; не изменённый контрол; «Сбросить» вид оставляет', () => {
+    expect(DEFAULT_REPORT_STATE.view).toBe('chart');
+    expect(parse('view=table').view).toBe('table');
+    expect(parse('view=pie').view).toBe('chart');
+    const s: ReportUrlState = { ...DEFAULT_REPORT_STATE, view: 'table', period: 'month', percent: true };
+    expect(reportSearch(s).toString()).toBe('view=table&period=month&pct=1');
+    expect(parse(reportSearch(s).toString())).toEqual(s);
+    const tableOnly: ReportUrlState = { ...DEFAULT_REPORT_STATE, view: 'table' };
+    expect(isReportChanged(tableOnly)).toBe(false);
+    expect(phoneReportCount(tableOnly)).toBe(0);
+    expect(resetReportState(s)).toEqual(tableOnly);
+    expect(reportApiParams(s, TODAY).has('view')).toBe(false);
   });
 
   it('туда и обратно: адрес → настройки → тот же адрес для любых сочетаний', () => {

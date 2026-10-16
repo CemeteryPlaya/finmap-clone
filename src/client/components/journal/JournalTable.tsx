@@ -41,6 +41,8 @@ export interface JournalTableProps {
   parts?: ReadonlyMap<number, number>;
   /** «Показывать полностью» (`journal.wrap`): длинный текст — до двух строк, иначе одна строка с подсказкой. */
   wrap: boolean;
+  /** Узкая таблица (списки под графиками «Аналитики» в две колонки): меньше колонок и меньшая минимальная ширина. */
+  narrow?: boolean;
   /**
    * Открыть операцию в форме: клик по строке или кнопка в ячейке даты (с клавиатуры).
    * Не передан — строка не реагирует на клик.
@@ -181,7 +183,7 @@ export function JournalTable(props: JournalTableProps) {
     <div>
       {props.bulkBar}
       <div className="overflow-x-auto">
-      <table aria-busy={props.busy} className={`w-full min-w-[56rem] table-fixed border-collapse text-sm ${props.busy ? 'opacity-60' : ''}`}>
+      <table aria-busy={props.busy} className={`w-full ${props.narrow ? 'min-w-[32rem]' : 'min-w-[56rem]'} table-fixed border-collapse text-sm ${props.busy ? 'opacity-60' : ''}`}>
         <caption className="sr-only">Операции</caption>
         <thead>
           <tr className="h-12 border-b border-field">
@@ -195,7 +197,7 @@ export function JournalTable(props: JournalTableProps) {
                   ref={(el) => {
                     if (el) el.indeterminate = selectedCount > 0 && !allSelected;
                   }}
-                  // есть выделение (в том числе частичное, «−») — снимает его; нет выделения — выбирает все загруженные
+                  // есть выделение (в том числе частичное, «\u2212») — снимает его; нет выделения — выбирает все загруженные
                   onChange={() => selection.onToggleAll(selectedCount === 0)}
                   className={checkboxClass}
                 />

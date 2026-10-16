@@ -27,7 +27,8 @@ export function DonutChart(props: { title: string; total: number; slices: readon
           {arcs.length === 0 ? (
             <circle cx={SIZE / 2} cy={SIZE / 2} r={(R + R0) / 2} fill="none" strokeWidth={R - R0} className="stroke-field" />
           ) : (
-            arcs.map((a) => <path key={a.id} d={a.d} strokeWidth={2} strokeLinejoin="round" className={`${fillOf(a.color)} stroke-card`} />)
+            // у единственной части зазора нет: полный круг из двух половин без шва
+            arcs.map((a) => <path key={a.id} d={a.d} strokeWidth={arcs.length > 1 ? 2 : 0} strokeLinejoin="round" className={`${fillOf(a.color)} stroke-card`} />)
           )}
           <text x={SIZE / 2} y={SIZE / 2} dy="0.35em" textAnchor="middle" className="fill-ink text-sm font-semibold">
             {arcs.length === 0 ? 'Нет сумм' : compactMoney(props.total, props.currency)}

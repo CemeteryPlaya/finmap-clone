@@ -572,7 +572,7 @@ const SCENARIOS: Scenario[] = [
   {
     ours: 'c48-cashflow-table.png',
     finmap: 'analytics/09-cashflow-table.png',
-    path: 'analytics/cashflow',
+    path: 'analytics/cashflow?view=table',
     act: async (p) => {
       await cashflowReady(p);
       await p.getByRole('main').getByRole('button', { name: 'Неоперационные изменения остатка', exact: true }).click();
@@ -581,12 +581,12 @@ const SCENARIOS: Scenario[] = [
   {
     ours: 'c49-cashflow-cell.png',
     finmap: 'analytics/11-cashflow-cell-click.png',
-    path: 'analytics/cashflow',
+    path: 'analytics/cashflow?view=table',
     act: async (p) => {
       await cashflowReady(p);
       // первая категория доходов с суммой за октябрь 2026 — список операций под таблицей
       await p.locator('[data-cell^="income:category:"][data-cell$="|2026-10-01"]').filter({ hasText: /[1-9]/ }).first().click();
-      await p.locator('section[aria-labelledby="report-operations-title"] table tbody tr').first().waitFor();
+      await p.locator('section[data-report-operations] table tbody tr').first().waitFor();
     },
   },
   {
@@ -604,7 +604,7 @@ const SCENARIOS: Scenario[] = [
     ours: 'cm09-cashflow-filter.png',
     finmap: 'analytics/92-mobile-filter.png',
     phone: true,
-    path: 'analytics/cashflow',
+    path: 'analytics/cashflow?view=table',
     act: async (p) => {
       await cashflowReady(p);
       await p.getByRole('main').getByRole('button', { name: /^Фильтры/ }).click();

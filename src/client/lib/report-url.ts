@@ -7,11 +7,16 @@ import { periodRange, sortedUnique, type DialogFields } from './journal-filter';
 export type ReportPeriod = 'year' | 'lastYear' | 'week' | 'lastWeek' | 'month' | 'lastMonth' | 'custom';
 export const REPORT_PERIODS: readonly ReportPeriod[] = ['year', 'lastYear', 'week', 'lastWeek', 'month', 'lastMonth', 'custom'];
 
+/** Вид отчёта (§2.2): «график» (по умолчанию, как у Finmap) или «таблица». */
+export type ReportView = 'chart' | 'table';
+export const VIEW_LABELS: Record<ReportView, string> = { chart: 'График', table: 'Таблица' };
+
 /**
- * Настройки отчёта в адресе страницы (§2.2 — улучшение против Finmap): период, разрез, шаг, проценты и фильтр. Списки —
- * по возрастанию без повторов; from и to — только у «Выбрать даты» и всегда оба.
+ * Настройки отчёта в адресе страницы (§2.2 — улучшение против Finmap): вид, период, разрез, шаг, проценты и фильтр.
+ * Списки — по возрастанию без повторов; from и to — только у «Выбрать даты» и всегда оба.
  */
 export interface ReportUrlState {
+  view: ReportView;
   period: ReportPeriod;
   from?: string;
   to?: string;
@@ -28,8 +33,9 @@ export interface ReportUrlState {
   withoutCounterparty: boolean;
 }
 
-/** Значения по умолчанию (§2.3, §2.4): «За текущий год», «По категориям», «По месяцам», без процентов, без фильтра. */
+/** Значения по умолчанию (§2.2–§2.4): «график», «За текущий год», «По категориям», «По месяцам», без процентов, без фильтра. */
 export const DEFAULT_REPORT_STATE: ReportUrlState = {
+  view: 'chart',
   period: 'year',
   by: 'category',
   step: 'month',
@@ -95,6 +101,7 @@ export function parseReportSearch(params: URLSearchParams): ReportUrlState {
   } else if (REPORT_PERIODS.includes(period as ReportPeriod)) {
     state.period = period as ReportPeriod;
   }
+  if (params.get('view') === 'table') state.view = 'table';
   const by = params.get('by');
   if (REPORT_BYS.includes(by as ReportBy)) state.by = by as ReportBy;
   const step = params.get('step');
@@ -108,6 +115,7 @@ export function parseReportSearch(params: URLSearchParams): ReportUrlState {
 /** Настройки → адрес: только отличия от значений по умолчанию, в постоянном порядке. */
 export function reportSearch(state: ReportUrlState): URLSearchParams {
   const p = new URLSearchParams();
+  if (state.view !== DEFAULT_REPORT_STATE.view) p.set('view', state.view);
   if (state.period === 'custom' && state.from && state.to) {
     p.set('from', state.from);
     p.set('to', state.to);
@@ -189,6 +197,11 @@ export function changedControls(
 
 export function isReportChanged(state: ReportUrlState, range?: { from: string; to: string }): boolean {
   return Object.values(changedControls(state, range)).some(Boolean);
+}
+
+/** «Сбросить» (§2.2): все контролы — по умолчанию; вид «график / таблица» остаётся (у Finmap он тоже не изменённый контрол). */
+export function resetReportState(state: Pick<ReportUrlState, 'view'>): ReportUrlState {
+  return { ...DEFAULT_REPORT_STATE, view: state.view };
 }
 
 /** Число на кнопке «Фильтры» телефона (§2.2): изменённые период, разрез, шаг, проценты и заданные измерения фильтра. */

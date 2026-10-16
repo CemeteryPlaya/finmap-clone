@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { useCellOperations } from '../../lib/analytics';
 import type { JournalColumnId } from '../../lib/journal-columns';
 import { uniqueById } from '../../lib/journal-format';
@@ -10,13 +10,15 @@ import { useOpenOperationForm } from '../operation/OperationFormHost';
 import { btnClose, btnSecondary } from '../ui';
 
 /** Колонки списка под отчётом (§2.5): дата, сумма, счёт с остатком, контрагент, категория, проект, комментарий. */
-const COLUMNS: readonly JournalColumnId[] = ['date', 'amount', 'account', 'counterparty', 'category', 'project', 'comment'];
+export const REPORT_OPERATION_COLUMNS: readonly JournalColumnId[] = ['date', 'amount', 'account', 'counterparty', 'category', 'project', 'comment'];
 
 /**
- * Список операций ячейки под отчётом (§2.5 спецификации «Аналитика»), общий для отчётов: заголовок «{строка} за {колонка}»
- * получает фокус при открытии, «×» закрывает. Строки — компоненты журнала (таблица, на телефоне — карточки): у разбитой
- * операции сумма — только строк ячейки и пометка «часть операции». Щелчок по строке открывает форму операции; после
- * сохранения отчёт и список перечитываются (invalidateAnalytics). Подгрузка страницами, как журнал.
+ * Список операций под отчётом (§2.5 спецификации «Аналитика»), общий для отчётов. В таблице — список ячейки: заголовок
+ * «{строка} за {колонка}» получает фокус при открытии, «×» закрывает. Под графиками (§4.2) — списки периода в две колонки:
+ * без «×», фокус остаётся на колонке графика (autoFocus = false), колонок меньше (narrow). Строки — компоненты журнала
+ * (таблица, на телефоне — карточки): у разбитой операции сумма — только строк ячейки и пометка «часть операции». Щелчок
+ * по строке открывает форму операции; после сохранения отчёт и список перечитываются (invalidateAnalytics). Подгрузка
+ * страницами, как журнал.
  */
 export function ReportOperations(props: {
   company: Company;
@@ -27,29 +29,39 @@ export function ReportOperations(props: {
   timeZone: string;
   today: string;
   mobile: boolean;
-  onClose: () => void;
+  /** «×» — закрыть список ячейки; без него кнопки нет (списки под графиками). */
+  onClose?: () => void;
+  autoFocus?: boolean;
+  headingLevel?: 2 | 3;
+  columns?: readonly JournalColumnId[];
+  narrow?: boolean;
 }) {
   const list = useCellOperations(props.company.id, props.params);
   const openForm = useOpenOperationForm();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const headingId = useId();
+  const autoFocus = props.autoFocus ?? true;
   // новая ячейка — фокус на заголовок списка
   useEffect(() => {
-    headingRef.current?.focus();
-  }, [props.params]);
+    if (autoFocus) headingRef.current?.focus();
+  }, [props.params, autoFocus]);
 
   const items = uniqueById(list.data?.pages.flatMap((p) => p.items) ?? []);
   const parts = new Map(items.flatMap((i) => (i.part === null ? [] : [[i.id, i.part] as const])));
   const open = (item: { id: number }) => openForm({ kind: 'edit', id: item.id, focusAfterDelete: () => headingRef.current });
+  const Heading = props.headingLevel === 3 ? 'h3' : 'h2';
 
   return (
-    <section aria-labelledby="report-operations-title" className="mt-8">
+    <section data-report-operations="" aria-labelledby={headingId} className={props.headingLevel === 3 ? 'min-w-0' : 'mt-8'}>
       <div className="mb-3 flex items-start justify-between gap-3">
-        <h2 id="report-operations-title" ref={headingRef} tabIndex={-1} className="text-xl font-bold outline-none">
+        <Heading id={headingId} ref={headingRef} tabIndex={-1} className={`${props.headingLevel === 3 ? 'text-base' : 'text-xl'} font-bold outline-none`}>
           {props.title}
-        </h2>
-        <button type="button" aria-label="Закрыть список операций" title="Закрыть" onClick={props.onClose} className={btnClose}>
-          <span aria-hidden="true">×</span>
-        </button>
+        </Heading>
+        {props.onClose && (
+          <button type="button" aria-label="Закрыть список операций" title="Закрыть" onClick={props.onClose} className={btnClose}>
+            <span aria-hidden="true">×</span>
+          </button>
+        )}
       </div>
       {!list.data && !list.error ? (
         <p className="py-6 text-center text-muted">Загрузка…</p>
@@ -69,8 +81,9 @@ export function ReportOperations(props: {
       ) : (
         <JournalTable
           items={items}
-          columns={COLUMNS}
+          columns={props.columns ?? REPORT_OPERATION_COLUMNS}
           wrap={false}
+          narrow={props.narrow}
           lookups={props.lookups}
           baseCurrency={props.company.baseCurrency}
           timeZone={props.timeZone}

@@ -5,6 +5,7 @@ import {
   customRangeError,
   DEFAULT_REPORT_STATE,
   effectiveStep,
+  resetReportState,
   PERCENT_CHOICES,
   REPORT_PERIODS,
   reportDialogFields,
@@ -24,9 +25,17 @@ import { ChoiceMenu } from './ChoiceMenu';
  * Поля окна: черновик — настройки отчёта (§2.4 спецификации «Аналитика»). На компьютере окно задаёт только фильтр
  * (категории, контрагенты, проекты, теги, счета); на телефоне (§2.2) первыми идут период, разрез, шаг и проценты —
  * остальные контролы переезжают сюда. «Готово» применяет черновик поверх текущих настроек, «Сбросить» возвращает черновик
- * к значениям по умолчанию, «×» и Esc закрывают без изменений. Поля фильтра — те же, что у журнала, без типов операций.
+ * к значениям по умолчанию (вид «график / таблица» остаётся), «×» и Esc закрывают без изменений. Поля фильтра — те же, что
+ * у журнала, без типов операций. Проценты — только в виде «таблица» (§2.2).
  */
-function ReportFilterForm(props: { state: ReportUrlState; data: FilterDialogData; phone: boolean; today: string; onApply: (next: ReportUrlState) => void }) {
+function ReportFilterForm(props: {
+  state: ReportUrlState;
+  data: FilterDialogData;
+  phone: boolean;
+  today: string;
+  dateHeading: string;
+  onApply: (next: ReportUrlState) => void;
+}) {
   const [draft, setDraft] = useState<ReportUrlState>(props.state);
   const fields = reportDialogFields(draft);
   const range = reportRange(draft, props.today);
@@ -44,13 +53,15 @@ function ReportFilterForm(props: { state: ReportUrlState; data: FilterDialogData
             state={draft}
             today={props.today}
             periods={REPORT_PERIODS}
-            heading="По дате платежа"
+            heading={props.dateHeading}
             validate={customRangeError}
             onChange={(next) => setDraft(withFittingStep(next, props.today))}
           />
           <ChoiceMenu wide name="Разрез" value={draft.by} options={BY_CHOICES} onChange={(by) => setDraft((d) => ({ ...d, by }))} />
           <ChoiceMenu wide name="Шаг" value={effectiveStep(draft.step, range)} options={stepChoices(range)} onChange={(step) => setDraft((d) => ({ ...d, step }))} />
-          <ChoiceMenu wide name="Проценты" value={draft.percent ? 'on' : 'off'} options={PERCENT_CHOICES} onChange={(v) => setDraft((d) => ({ ...d, percent: v === 'on' }))} />
+          {draft.view === 'table' && (
+            <ChoiceMenu wide name="Проценты" value={draft.percent ? 'on' : 'off'} options={PERCENT_CHOICES} onChange={(v) => setDraft((d) => ({ ...d, percent: v === 'on' }))} />
+          )}
         </div>
       )}
       <div className="grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-2">
@@ -76,7 +87,7 @@ function ReportFilterForm(props: { state: ReportUrlState; data: FilterDialogData
         </button>
         <button
           type="button"
-          onClick={() => setDraft((d) => (props.phone ? DEFAULT_REPORT_STATE : withDialogFields(d, reportDialogFields(DEFAULT_REPORT_STATE))))}
+          onClick={() => setDraft((d) => (props.phone ? resetReportState(d) : withDialogFields(d, reportDialogFields(DEFAULT_REPORT_STATE))))}
           className="text-sm font-semibold text-muted underline hover:text-ink"
         >
           Сбросить
@@ -96,6 +107,8 @@ export function ReportFilterDialog(props: {
   data: FilterDialogData;
   phone: boolean;
   today: string;
+  /** Тип даты над списком периодов (§2.3): «По дате платежа» или «По дате сделки». */
+  dateHeading: string;
   onApply: (next: ReportUrlState) => void;
   onClose: () => void;
 }) {
@@ -106,6 +119,7 @@ export function ReportFilterDialog(props: {
         data={props.data}
         phone={props.phone}
         today={props.today}
+        dateHeading={props.dateHeading}
         onApply={(next) => {
           props.onApply(next);
           props.onClose();
