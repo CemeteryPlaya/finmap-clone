@@ -1,5 +1,5 @@
 import { and, asc, count, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
-import { addDays, formatDateTime, startOfDayUtc } from '../../../shared/dates';
+import { addDays, startOfDayUtc } from '../../../shared/dates';
 import type { ExportColumnId } from '../../../shared/export-columns';
 import type { JournalExportPreviewQuery, JournalExportQuery, JournalFilter, JournalOrder, JournalQuery, JournalSort } from '../../../shared/schemas/journal';
 import { foldCase } from '../../../shared/search';
@@ -7,6 +7,7 @@ import { effectiveSystemKey, type SystemKey } from '../../../shared/system-categ
 import type { Db } from '../../db/client';
 import { attachments, operationLines, operations, operationTags } from '../../db/schema';
 import { AppError } from '../../errors';
+import { exportFileName } from '../../http/export-name';
 import { buildXlsx } from '../../http/xlsx';
 import type { LedgerBalances } from '../balances/service';
 import { requireCompany } from '../companies/guard';
@@ -349,11 +350,8 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
       }
       const columns = q.format === 'custom' ? (q.columns ?? []) : [];
       const ops = completeExportRows(companyId, q, rows, columns.some((c) => BALANCE_COLUMNS.includes(c)) ? 'all' : 'none');
-      // «{Компания} - Журнал - ДД-ММ-ГГГГ ЧЧ-ММ.xlsx» по часам APP_TIMEZONE; символы, запрещённые в Windows, — «_»
-      const [date = '', time = ''] = formatDateTime(now().toISOString(), timezone).split(', ');
-      const safeName = company.name.replace(/[\\/:*?"<>|\u0000-\u001F]/g, '_');
       return {
-        fileName: `${safeName} - Журнал - ${date.replaceAll('.', '-')} ${time.replace(':', '-')}.xlsx`,
+        fileName: exportFileName(company.name, 'Журнал', now(), timezone),
         data: buildXlsx(q.format === 'custom' ? customSheet(ops, columns, company.baseCurrency, timezone) : finmapSheet(ops, company.baseCurrency, timezone), {
           strings: 'shared',
         }),

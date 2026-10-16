@@ -44,6 +44,9 @@ function checkPeriod(v: { from: string; to: string; step: 'day' | 'week' | 'mont
 /** `GET …/analytics/cashflow` и `…/pnl` (§9). */
 export const reportQuerySchema = z.object(reportShape).superRefine(checkPeriod);
 
+/** `GET …/analytics/{cashflow|pnl}.xlsx` (§2.6): параметры отчёта и проценты, как на экране (`pct=true`). */
+export const reportExportSchema = z.object({ ...reportShape, pct: flag }).superRefine(checkPeriod);
+
 /** Отчёты, у которых есть операции ячейки и выгрузка (А-2): «Деньги» и «Прибыль». */
 export const REPORT_KINDS = ['cashflow', 'pnl'] as const;
 export type ReportKind = (typeof REPORT_KINDS)[number];
@@ -79,6 +82,7 @@ export const cellQuerySchema = z
 
 export type ReportQuery = z.output<typeof reportQuerySchema>;
 export type CellQuery = z.output<typeof cellQuerySchema>;
+export type ReportExportQuery = z.output<typeof reportExportSchema>;
 
 /** Параметры запроса → фильтр движка отчётов. */
 export function reportFilter(q: ReportQuery | CellQuery): ReportFilter {

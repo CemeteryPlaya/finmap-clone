@@ -547,6 +547,38 @@ export function cashflowRows(input: {
   return { rows: [startRow, endRow, nonopRow, netRow, income.row, expense.row], empty };
 }
 
+/** Строка отчёта сверху вниз (§4.1): глубина, раскрытие и группа («Поступления» или «Списания»), от которой считаются проценты. */
+export interface FlatRow {
+  row: ReportRow;
+  depth: number;
+  expandable: boolean;
+  expanded: boolean;
+  /** Группа для процентов; null — без процентов (остатки, неоперационные, итоги). */
+  group: ReportRow | null;
+}
+
+/**
+ * Дерево строк ответа сверху вниз: раскрытые (isOpen) строки показывают детей сразу под собой. Общая для таблицы на экране
+ * и листа Excel (§2.6) — порядок и проценты в файле те же, что на экране.
+ */
+export function flattenRows(rows: readonly ReportRow[], isOpen: (id: string) => boolean): FlatRow[] {
+  const out: FlatRow[] = [];
+  const walk = (row: ReportRow, depth: number, group: ReportRow | null) => {
+    const own = row.kind === 'group' ? row : group;
+    const children = row.children ?? [];
+    const open = children.length > 0 && isOpen(row.id);
+    out.push({ row, depth, expandable: children.length > 0, expanded: open, group: own });
+    if (open) for (const child of children) walk(child, depth + 1, own);
+  };
+  for (const row of rows) walk(row, 0, null);
+  return out;
+}
+
+/** Название строки: архивная — с пометкой «(архив)». */
+export function rowLabel(row: ReportRow): string {
+  return row.archived ? `${row.label} (архив)` : row.label;
+}
+
 /** Доля строки в группе в сотых долях процента (1250 — 12,50 %); группа 0 или нет значения — null. Экран и Excel — из неё. */
 export function shareBp(value: number | null, group: number | null): number | null {
   if (value === null || group === null || group === 0) return null;

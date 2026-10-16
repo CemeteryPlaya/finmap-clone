@@ -1,6 +1,9 @@
 import { formatDateRu } from '../../shared/dates';
 import { formatMoney, MONEY_SCREEN_BEFORE } from '../../shared/money';
-import { parseDrillRow, sharePercent, type ReportColumn, type ReportRow } from '../../shared/report-engine';
+import { flattenRows, parseDrillRow, sharePercent, type FlatRow, type ReportColumn, type ReportRow } from '../../shared/report-engine';
+
+/** Название строки (архивная — с пометкой): то же правило в таблице и в Excel. */
+export { rowLabel } from '../../shared/report-engine';
 
 /** Раскрыты по умолчанию: группы «Поступления» и «Списания» (как у Finmap); неоперационные и подкатегории свёрнуты. */
 export const DEFAULT_EXPANDED: readonly string[] = ['income', 'expense'];
@@ -8,14 +11,8 @@ export const DEFAULT_EXPANDED: readonly string[] = ['income', 'expense'];
 /** Как выглядит строка таблицы (§4.1): остатки — фоном, группы — полужирным, неоперационные подстроки — приглушённо. */
 export type LineTone = 'balance' | 'total' | 'group' | 'plain' | 'muted';
 
-/** Строка таблицы отчёта на экране: строка ответа, глубина, раскрытие и группа для процентов. */
-export interface TableLine {
-  row: ReportRow;
-  depth: number;
-  expandable: boolean;
-  expanded: boolean;
-  /** Группа («Поступления» или «Списания»), от которой считаются проценты; null — без процентов. */
-  group: ReportRow | null;
+/** Строка таблицы отчёта на экране: строка ответа, глубина, раскрытие, группа для процентов (flattenRows) и вид. */
+export interface TableLine extends FlatRow {
   tone: LineTone;
 }
 
@@ -27,17 +24,7 @@ const TONE: Record<string, LineTone> = { 'balance:start': 'balance', 'balance:en
  * группу для процентов (§4.1 «Показать проценты»): у групп — 100 %, остатки и неоперационные — без процентов.
  */
 export function tableLines(rows: readonly ReportRow[], expanded: ReadonlySet<string>): TableLine[] {
-  const out: TableLine[] = [];
-  const walk = (row: ReportRow, depth: number, group: ReportRow | null) => {
-    const isGroup = row.kind === 'group';
-    const own = isGroup ? row : group;
-    const children = row.children ?? [];
-    const open = children.length > 0 && expanded.has(row.id);
-    out.push({ row, depth, expandable: children.length > 0, expanded: open, group: own, tone: TONE[row.id] ?? (row.id.startsWith('nonop:') ? 'muted' : 'plain') });
-    if (open) for (const child of children) walk(child, depth + 1, own);
-  };
-  for (const row of rows) walk(row, 0, null);
-  return out;
+  return flattenRows(rows, (id) => expanded.has(id)).map((line) => ({ ...line, tone: TONE[line.row.id] ?? (line.row.id.startsWith('nonop:') ? 'muted' : 'plain') }));
 }
 
 /** Сумма ячейки: «₸ 1 500», отрицательная — со знаком минус; нет значения — пусто. */
@@ -52,11 +39,6 @@ export function percentText(line: TableLine, index: number | null): string | nul
   const group = index === null ? line.group.total : (line.group.values[index] ?? null);
   const share = sharePercent(value, group);
   return share === null ? null : `(${share})`;
-}
-
-/** Название строки: архивная — с пометкой. */
-export function rowLabel(row: ReportRow): string {
-  return row.archived ? `${row.label} (архив)` : row.label;
 }
 
 /** Подсказка заголовка колонки: её точные границы («01.10.2026 – 31.10.2026»), видно у неполных колонок. */

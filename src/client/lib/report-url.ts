@@ -1,5 +1,6 @@
 import { isValidDate } from '../../shared/dates';
 import { columnCount, maxReportTo, REPORT_BYS, REPORT_MAX_COLUMNS, REPORT_STEPS, type ReportBy, type ReportStep } from '../../shared/report-engine';
+import type { ReportKind } from '../../shared/schemas/analytics';
 import { JOURNAL_LIST_MAX } from '../../shared/schemas/journal';
 import { periodRange, sortedUnique, type DialogFields } from './journal-filter';
 
@@ -69,7 +70,7 @@ export const STEP_LABELS: Record<ReportStep, string> = { day: 'По дням', w
 export const BY_CHOICES = REPORT_BYS.map((value) => ({ value, label: BY_LABELS[value] }));
 export const PERCENT_CHOICES = [
   { value: 'off', label: 'Скрыть проценты' },
-  { value: 'on', label: 'Показать проценты' },
+  { value: 'on', label: 'Показать проценты', short: 'Проценты: вкл' },
 ] as const;
 /**
  * Пункты меню «Склад» «Прибыли» (§5.3): подпись — текущее состояние, как у процентов. `short` — короткая подпись кнопки на
@@ -178,6 +179,13 @@ export function reportApiParams(state: ReportUrlState, today: string): URLSearch
   for (const field of FLAG_FIELDS) if (state[field]) p.set(field, 'true');
   if (!state.stock) p.set('stock', '0');
   return p;
+}
+
+/** Ссылка «Excel» (§2.6): тот же отчёт с теми же настройками; проценты — если они видны (вид «таблица»). */
+export function reportExcelHref(companyId: number, report: ReportKind, state: ReportUrlState, today: string): string {
+  const p = reportApiParams(state, today);
+  if (state.view === 'table' && state.percent) p.set('pct', 'true');
+  return `/api/v1/companies/${companyId}/analytics/${report}.xlsx?${p.toString()}`;
 }
 
 /** Сколько измерений фильтра задано (счётчик кнопки «Фильтр»). */

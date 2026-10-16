@@ -20,14 +20,17 @@ import {
   type TransferLeg,
 } from '../../../shared/report-engine';
 import { isFullyPaid, paymentExclusions, pnlExcludedCategories, pnlRows, type PaidOperation, type StockCost, type StockInput } from '../../../shared/report-pnl';
-import { reportFilter, type CellQuery, type ReportQuery } from '../../../shared/schemas/analytics';
+import { reportFilter, type CellQuery, type ReportExportQuery, type ReportKind, type ReportQuery } from '../../../shared/schemas/analytics';
 import type { SystemKey } from '../../../shared/system-categories';
 import type { Db } from '../../db/client';
 import { accounts, categories, counterparties, projects } from '../../db/schema';
 import { AppError } from '../../errors';
+import { exportFileName } from '../../http/export-name';
+import { buildXlsx } from '../../http/xlsx';
 import { requireCompany } from '../companies/guard';
 import { decodeCursor, encodeCursor, type JournalItem, type JournalService } from '../operations/journal';
 import type { RatesService } from '../rates/service';
+import { reportSheet } from './report-export';
 
 /** Ответ отчёта (§3.2): колонки шага, дерево строк и сведения о расчёте. */
 export interface ReportResponse {
@@ -68,7 +71,12 @@ export interface AnalyticsService {
   pnl(companyId: number, q: ReportQuery): ReportResponse;
   /** Страница операций ячейки отчёта (§2.5): новые сверху, по 50. */
   operations(companyId: number, q: CellQuery): CellPage;
+  /** Excel отчёта (§2.6): таблица как на экране, все строки раскрыты; «{Компания} - {Отчёт} - ДД-ММ-ГГГГ ЧЧ-ММ.xlsx». */
+  exportXlsx(companyId: number, report: ReportKind, q: ReportExportQuery): { fileName: string; data: Buffer };
 }
+
+/** Названия отчётов в имени файла и листа Excel. */
+const REPORT_TITLE: Record<ReportKind, string> = { cashflow: 'Деньги', pnl: 'Прибыль' };
 
 const idList = (ids: readonly number[]) => sql.join(ids.map((x) => sql`${x}`), sql`, `);
 const has = (xs: readonly number[] | undefined): xs is number[] => !!xs && xs.length > 0;
@@ -328,7 +336,7 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
     return { series, accountIds };
   }
 
-  return {
+  const service: AnalyticsService = {
     cashflow(companyId, q) {
       const company = requireCompany(db, companyId);
       const f = reportFilter(q);
@@ -424,5 +432,13 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
         nextCursor: more && last ? encodeCursor({ s: 'date', o: 'desc', v: last.paidAt, id: last.id }) : null,
       };
     },
+
+    exportXlsx(companyId, report, q) {
+      const company = requireCompany(db, companyId);
+      const data = service[report](companyId, q);
+      const sheet = reportSheet({ name: REPORT_TITLE[report], columns: data.columns, rows: data.rows, currency: data.meta.currency, percent: q.pct === true });
+      return { fileName: exportFileName(company.name, REPORT_TITLE[report], now(), timezone), data: buildXlsx(sheet, { strings: 'shared' }) };
+    },
   };
+  return service;
 }

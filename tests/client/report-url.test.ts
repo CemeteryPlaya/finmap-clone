@@ -14,6 +14,7 @@ import {
   phoneReportCount,
   REPORT_PERIODS,
   reportApiParams,
+  reportExcelHref,
   reportFilterCount,
   reportRange,
   reportSearch,
@@ -80,6 +81,14 @@ describe('настройки отчёта в адресе (§2.2)', () => {
     expect(phoneReportCount({ ...table, step: 'quarter' }, range)).toBe(2);
     // сам pct остаётся в адресе: возврат в таблицу восстанавливает проценты
     expect(reportSearch(chart).toString()).toBe('pct=1');
+  });
+
+  it('ссылка «Excel» (§2.6): параметры отчёта; проценты — только когда видны (вид «таблица»)', () => {
+    const s: ReportUrlState = { ...DEFAULT_REPORT_STATE, by: 'project', percent: true, stock: false, tagIds: [4] };
+    expect(reportExcelHref(7, 'pnl', s, TODAY)).toBe('/api/v1/companies/7/analytics/pnl.xlsx?from=2026-01-01&to=2026-12-31&step=month&by=project&tags=4&stock=0');
+    expect(reportExcelHref(7, 'cashflow', { ...s, view: 'table', stock: true }, TODAY)).toBe(
+      '/api/v1/companies/7/analytics/cashflow.xlsx?from=2026-01-01&to=2026-12-31&step=month&by=project&tags=4&pct=true',
+    );
   });
 
   it('туда и обратно: адрес → настройки → тот же адрес для любых сочетаний', () => {

@@ -9,7 +9,7 @@ import { cellKey, ReportTable } from '../../components/analytics/ReportTable';
 import { ViewSwitch } from '../../components/analytics/ViewSwitch';
 import type { BarsLineNames } from '../../components/charts/BarsLineChart';
 import { HelpButton } from '../../components/HelpButton';
-import { FunnelIcon, RefreshIcon } from '../../components/icons';
+import { DownloadIcon, FunnelIcon, RefreshIcon } from '../../components/icons';
 import type { JournalLookups } from '../../components/journal/JournalTable';
 import { PeriodMenu } from '../../components/journal/PeriodMenu';
 import { Pending, StaleNotice } from '../../components/QueryState';
@@ -34,6 +34,7 @@ import {
   phoneReportCount,
   REPORT_PERIODS,
   reportApiParams,
+  reportExcelHref,
   reportFilterCount,
   reportRange,
   reportSearch,
@@ -194,6 +195,21 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
     </button>
   );
 
+  // «Excel» (§2.6): ссылка без побочных эффектов, файл — текущая таблица отчёта; на компьютере только значок (R10: в худшем
+  // случае панели на 1440 px всё в одну строку), имя и подсказка — в aria-label и title
+  const excel = (size: string) =>
+    today && (
+      <a
+        href={reportExcelHref(company.id, config.report, state, today)}
+        download
+        aria-label="Excel"
+        title="Скачать Excel"
+        className={`grid ${size} shrink-0 place-items-center rounded-full bg-field text-ink hover:brightness-95 focus-visible:outline-2 focus-visible:outline-focus`}
+      >
+        <DownloadIcon />
+      </a>
+    );
+
   const help = <HelpButton about={config.title} text={config.help} />;
 
   const header = (
@@ -256,7 +272,7 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
       {header}
       {status}
       {/* панель контролов прилипает к верху при прокрутке (§2.2); на телефоне сверху вид, «Фильтры» и «Обновить», остальное — в окне */}
-      <div className="sticky top-0 z-20 -mx-4 mb-4 flex flex-wrap items-center gap-2 bg-card px-4 py-2 md:-mx-8 md:px-8">
+      <div className="sticky top-0 z-20 -mx-4 mb-4 flex flex-wrap items-center gap-2 bg-card md:gap-1.5 px-4 py-2 md:-mx-8 md:px-8">
         <span className="contents md:hidden">
           <ViewSwitch phone value={state.view} onChange={(view) => update({ ...state, view })} />
         </span>
@@ -271,8 +287,11 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
           {`Фильтры${phoneCount > 0 ? ` · ${phoneCount}` : ''}`}
         </button>
         {/* телефон: «Обновить» рядом с «Фильтрами» — остальные контролы в окне */}
-        <span className="contents md:hidden">{refresh('size-11')}</span>
-        <div className="contents max-md:hidden">
+        <span className="contents md:hidden">
+          {excel('size-11')}
+          {refresh('size-11')}
+        </span>
+        <div className="contents max-md:hidden md:[&_button.bg-field:not(.size-8)]:px-3">
           <ChangedMark on={changed.period}>
             <PeriodMenu
               state={state}
@@ -329,9 +348,10 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
               Сбросить
             </button>
           )}
-          {/* справа панели: «Обновить» и «?» одним блоком — не переносятся порознь (R7) */}
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            {refresh('size-9')}
+          {/* справа панели: «Excel», «Обновить» и «?» одним блоком — не переносятся порознь (R7) */}
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            {excel('size-8')}
+            {refresh('size-8')}
             {help}
           </div>
         </div>

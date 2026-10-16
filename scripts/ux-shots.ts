@@ -169,6 +169,11 @@ const seedStock = async (p: Page) => {
 const stockTable = (p: Page) => p.getByRole('main').getByRole('table', { name: 'Остатки' });
 /** Таблица «Денег» (план А-1) дождалась данных демо-компании: строка «Поступления» на месте. */
 const cashflowReady = (p: Page) => p.getByRole('main').getByRole('table', { name: 'Деньги' }).getByRole('rowheader', { name: 'Поступления' }).waitFor();
+/** Вид «график» (план А-2): рисунок отчёта и первые строки обоих списков операций под графиками загружены. */
+const chartReady = async (p: Page, title: string) => {
+  await p.getByRole('main').getByRole('img', { name: new RegExp(`^${title}\\. `) }).waitFor();
+  for (const i of [0, 1]) await p.locator('section[data-report-operations]').nth(i).locator('tbody tr, li').first().waitFor();
+};
 
 /** Экраны, которые уже есть. Следующие планы этапа 1.5 добавляют сюда свои. */
 const SCENARIOS: Scenario[] = [
@@ -610,6 +615,36 @@ const SCENARIOS: Scenario[] = [
       await p.getByRole('main').getByRole('button', { name: /^Фильтры/ }).click();
       await p.getByRole('dialog', { name: 'Фильтры', exact: true }).getByRole('button', { name: /^Разрез:/ }).waitFor();
     },
+  },
+  // «Аналитика» (план А-2): «Деньги» графиком, «Прибыль» графиком и таблицей (склад демо-компании — из сценариев склада), телефон
+  {
+    ours: 'c50-cashflow-chart.png',
+    finmap: 'analytics/01-cashflow-chart.png',
+    path: 'analytics/cashflow',
+    act: (p) => chartReady(p, 'Деньги'),
+  },
+  {
+    ours: 'c51-pnl-chart.png',
+    finmap: 'analytics/20-pnl-chart.png',
+    path: 'analytics/pnl',
+    act: async (p) => {
+      await seedStock(p);
+      await p.reload();
+      await chartReady(p, 'Прибыль');
+    },
+  },
+  {
+    ours: 'c52-pnl-table.png',
+    finmap: 'analytics/23-pnl-table.png',
+    path: 'analytics/pnl?view=table',
+    act: (p) => p.getByRole('main').getByRole('table', { name: 'Прибыль' }).getByRole('rowheader', { name: 'Доходы', exact: true }).waitFor(),
+  },
+  {
+    ours: 'cm10-pnl-chart.png',
+    finmap: 'analytics/91-mobile-pnl-chart.png',
+    phone: true,
+    path: 'analytics/pnl',
+    act: (p) => chartReady(p, 'Прибыль'),
   },
   {
     // вкладка «Импорты» (§7 спецификации импорта) — пара к Finmap 24 «История действий» (там снимок c24-history):

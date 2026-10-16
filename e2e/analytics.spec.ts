@@ -659,6 +659,30 @@ test('«Деньги»: вид «график» — столбцы с линие
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
+test('«Деньги» и «Прибыль»: «Excel» скачивает текущую таблицу отчёта с именем «{Компания} - {Отчёт} - ДД-ММ-ГГГГ ЧЧ-ММ.xlsx»', async ({ page }) => {
+  await login(page);
+  const name = `ТОО Excel ${Date.now()}`;
+  const cid = await createCompany(page, name);
+  await cashflowSetup(page, cid);
+  await page.goto(`/c/${cid}/analytics/cashflow?view=table&pct=1`);
+  const excel = main(page).getByRole('link', { name: 'Excel', exact: true });
+  await expect(excel).toHaveAttribute('href', new RegExp(`^/api/v1/companies/${cid}/analytics/cashflow\\.xlsx\\?from=.+&pct=true$`));
+  const file = page.waitForEvent('download');
+  await excel.click();
+  const download = await file;
+  expect(download.suggestedFilename()).toMatch(new RegExp(`^${name} - Деньги - \\d{2}-\\d{2}-\\d{4} \\d{2}-\\d{2}\\.xlsx$`));
+  // ссылка без побочных эффектов: страница та же, отчёт на месте
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/analytics/cashflow\\?view=table&pct=1$`));
+  await expect(report(page)).toBeVisible();
+
+  // в виде «график» процентов нет и в файле; «Прибыль» — своё имя
+  await page.goto(`/c/${cid}/analytics/pnl`);
+  await expect(excel).toHaveAttribute('href', new RegExp(`^/api/v1/companies/${cid}/analytics/pnl\\.xlsx\\?from=[^&]+&to=[^&]+&step=month&by=category$`));
+  const pnlFile = page.waitForEvent('download');
+  await excel.click();
+  expect((await pnlFile).suggestedFilename()).toMatch(new RegExp(`^${name} - Прибыль - `));
+});
+
 test('«Деньги»: на 1440 px «Обновить» в одной строке с кнопкой периода, вид рядом с заголовком (R7)', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Панель ${Date.now()}`);
@@ -675,6 +699,42 @@ test('«Деньги»: на 1440 px «Обновить» в одной стро
   const view = main(page).getByRole('group', { name: 'Вид отчёта' });
   const [hb, vb] = [(await heading.boundingBox())!, (await view.boundingBox())!];
   expect(Math.abs(vb.y + vb.height / 2 - (hb.y + hb.height / 2))).toBeLessThan(12);
+});
+
+test('«Прибыль»: на 1440 px худший случай — таблица, проценты, склад, «Сбросить», «Excel» — панель в одну строку (R10)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Панель худший ${Date.now()}`);
+  const base = `/api/v1/companies/${cid}`;
+  // склад есть → в панели появляется переключатель склада
+  const project = (await apiPost(page, `${base}/projects`, { name: 'Клуб 1', templateKey: 'general' })).project.id as number;
+  await apiPost(page, `${base}/stock/warehouses`, { projectId: project, name: 'Бар Клуб 1' });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const bar = main(page);
+  // склад «по себестоимости» (по умолчанию) — самая длинная подпись панели; «закупки» — с точкой «изменено»
+  for (const stock of ['', '&stock=0']) {
+    await page.goto(`/c/${cid}/analytics/pnl?view=table&pct=1${stock}`);
+    const periodButton = bar.getByRole('button', { name: /^Период:/ });
+    await expect(periodButton).toBeVisible();
+    const controls = [
+      periodButton,
+      bar.getByRole('button', { name: /^Разрез:/ }),
+      bar.getByRole('button', { name: /^Шаг:/ }),
+      bar.getByRole('button', { name: /^Фильтр/ }),
+      bar.getByRole('button', { name: /^Проценты:/ }),
+      bar.getByRole('button', { name: /^Склад:/ }),
+      bar.getByRole('button', { name: 'Сбросить' }),
+      bar.getByRole('link', { name: 'Excel', exact: true }),
+      bar.getByRole('button', { name: 'Обновить', exact: true }),
+      bar.getByRole('button', { name: /^Подсказка:/ }),
+    ];
+    const pb = (await periodButton.boundingBox())!;
+    for (const control of controls) {
+      await expect(control).toBeVisible();
+      const b = (await control.boundingBox())!;
+      expect(Math.abs(b.y + b.height / 2 - (pb.y + pb.height / 2)), `${stock}: ${JSON.stringify(b)}`).toBeLessThan(2);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
 });
 
 test('«Деньги»: pct=1 в виде «график» не даёт «Сбросить» и число на телефоне; пока грузится новый отчёт, колонки графика не выбираются', async ({ page }) => {
