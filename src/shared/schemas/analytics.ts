@@ -29,6 +29,8 @@ const reportShape = {
   withoutCategory: flag,
   withoutCounterparty: flag,
   withoutProject: flag,
+  /** «Учитывать склад по себестоимости» (§5.3): `1` — включён (по умолчанию), `0` — выключен. «Деньги» его не читают. */
+  stock: z.preprocess(blank, z.enum(['0', '1'], { message: 'Склад — 0 или 1' }).default('1')).transform((v) => v === '1'),
 };
 
 function checkPeriod(v: { from: string; to: string; step: 'day' | 'week' | 'month' | 'quarter' }, ctx: z.RefinementCtx): void {
@@ -39,18 +41,25 @@ function checkPeriod(v: { from: string; to: string; step: 'day' | 'week' | 'mont
   else if (columnCount(v.from, v.to, v.step) > REPORT_MAX_COLUMNS) ctx.addIssue({ code: 'custom', path: ['step'], message: TOO_MANY_COLUMNS });
 }
 
-/** `GET …/analytics/cashflow` (§9). */
+/** `GET …/analytics/cashflow` и `…/pnl` (§9). */
 export const reportQuerySchema = z.object(reportShape).superRefine(checkPeriod);
+
+/** Отчёты, у которых есть операции ячейки и выгрузка (А-2): «Деньги» и «Прибыль». */
+export const REPORT_KINDS = ['cashflow', 'pnl'] as const;
+export type ReportKind = (typeof REPORT_KINDS)[number];
+
+const NOT_DRILLABLE = 'Строка отчёта не раскрывается в операции';
 
 /**
  * `GET …/analytics/operations` (§2.5, §9): операции ячейки отчёта — строка (`row`, id строки ответа), колонка (`col`,
- * ключ колонки или `total`), те же параметры отчёта, курсор и размер страницы.
+ * ключ колонки или `total`), те же параметры отчёта, курсор и размер страницы. «Чистый денежный поток» есть только у
+ * «Денег», «Прибыль» — только у «Прибыли».
  */
 export const cellQuerySchema = z
   .object({
     ...reportShape,
-    report: z.enum(['cashflow'], { message: 'Неизвестный отчёт' }),
-    row: z.string({ message: 'Укажите строку отчёта' }).refine((v) => parseDrillRow(v) !== null, 'Строка отчёта не раскрывается в операции'),
+    report: z.enum(REPORT_KINDS, { message: 'Неизвестный отчёт' }),
+    row: z.string({ message: 'Укажите строку отчёта' }).refine((v) => parseDrillRow(v) !== null, NOT_DRILLABLE),
     col: z.string({ message: 'Укажите колонку отчёта' }).max(20, 'Неизвестная колонка'),
     cursor: z.preprocess(blank, z.string().max(500, 'Неверный курсор').optional()),
     limit: z.preprocess(
@@ -63,7 +72,10 @@ export const cellQuerySchema = z
         .default(JOURNAL_LIMIT_DEFAULT),
     ),
   })
-  .superRefine(checkPeriod);
+  .superRefine(checkPeriod)
+  .superRefine((v, ctx) => {
+    if ((v.report === 'cashflow' && v.row === 'profit') || (v.report === 'pnl' && v.row === 'net')) ctx.addIssue({ code: 'custom', path: ['row'], message: NOT_DRILLABLE });
+  });
 
 export type ReportQuery = z.output<typeof reportQuerySchema>;
 export type CellQuery = z.output<typeof cellQuerySchema>;

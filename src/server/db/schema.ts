@@ -291,6 +291,8 @@ export const operations = sqliteTable(
   },
   (t) => [
     index('operations_company_paid_idx').on(t.companyId, t.paidAt, t.id),
+    /** «Прибыль», «Проекты», «Показатели» выбирают строки по дате сделки (§3.2 спецификации «Аналитика», bench:reports). */
+    index('operations_company_accrual_idx').on(t.companyId, t.accrualDate),
     index('operations_import_idx').on(t.importId),
     index('operations_account_idx').on(t.accountId),
     index('operations_to_account_idx').on(t.toAccountId),

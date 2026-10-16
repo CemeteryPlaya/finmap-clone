@@ -1,0 +1,1 @@
+CREATE INDEX `operations_company_accrual_idx` ON `operations` (`company_id`,`accrual_date`);
