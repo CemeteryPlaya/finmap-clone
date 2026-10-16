@@ -75,14 +75,14 @@ const AMOUNT_CLASS: Record<JournalItem['type'], string> = {
 };
 
 const thClass = 'px-3 text-left text-xs font-semibold text-muted';
+/** Порядок первых колонок списка «Прибыли» (§5.2): «Дата сделки», «Сумма», «Движение денег». */
+const DEAL_ORDER: readonly JournalColumnId[] = ['accrualDate', 'amount', 'date'];
+
 /**
  * Раскладка `table-fixed` (H1 финала 1.5-2a): узкие колонки — фиксированной ширины, текстовые делят остаток поровну,
  * а длинный текст обрезается внутри колонки (truncate + title), не раздвигая таблицу. Так при 1440 px
  * все колонки по умолчанию помещаются без горизонтальной прокрутки.
  */
-/** Порядок первых колонок списка «Прибыли» (§5.2): «Дата сделки», «Сумма», «Движение денег». */
-const DEAL_ORDER: readonly JournalColumnId[] = ['accrualDate', 'amount', 'date'];
-
 const COLUMN_WIDTH: Partial<Record<JournalColumnId, string>> = {
   date: 'w-[7.5rem]',
   amount: 'w-[9rem]',
@@ -246,8 +246,9 @@ export function JournalTable(props: JournalTableProps) {
                 <time dateTime={deal!} className="block">
                   {formatDateShortRu(deal!)}
                 </time>
-                <time dateTime={item.paidAt} className="block text-xs text-muted">
-                  Движение денег: {when.date}, {when.time}
+                {/* вторая строка короткая — только день платежа с приглушённым «оплата»; полный текст в title (I-1) */}
+                <time dateTime={item.paidAt} title={`Движение денег: ${when.date}, ${when.time}`} className="block truncate text-xs text-muted">
+                  оплата {when.date}
                 </time>
               </span>
             ) : (
@@ -263,7 +264,7 @@ export function JournalTable(props: JournalTableProps) {
                   type="button"
                   data-row-open=""
                   onClick={() => props.onOpenOperation!(item)}
-                  aria-label={`Открыть операцию: ${when.date}, ${when.time}, ${signed}${part === undefined ? '' : ', часть операции'}`}
+                  aria-label={`Открыть операцию: ${stacked ? `дата сделки ${formatDateShortRu(deal!)}, движение денег ${when.date}, ${when.time}` : `${when.date}, ${when.time}`}, ${signed}${part === undefined ? '' : ', часть операции'}`}
                   className="rounded text-left hover:underline focus-visible:outline-2 focus-visible:outline-focus"
                 >
                   {dateText}

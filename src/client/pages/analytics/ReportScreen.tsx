@@ -68,7 +68,7 @@ export interface ReportConfig {
 
 /** Колонки списков под графиками (§4.2): две колонки рядом — без счёта и проекта; у «Прибыли» «Движение денег» — вторая строка под «Датой сделки» (R8). */
 const CHART_COLUMNS: readonly JournalColumnId[] = ['date', 'amount', 'counterparty', 'category', 'comment'];
-const DEAL_CHART_COLUMNS: readonly JournalColumnId[] = ['date', 'amount', 'category', 'comment'];
+const DEAL_CHART_COLUMNS: readonly JournalColumnId[] = ['date', 'amount', 'counterparty', 'category', 'comment'];
 
 /**
  * Страница отчёта (§2.2 спецификации «Аналитика»): заголовок с видом «график / таблица», панель контролов (период, разрез,
@@ -432,7 +432,7 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
           />
         </div>
       )}
-      {(report.data?.meta.noBatch ?? 0) > 0 && (
+      {(report.data?.meta.noBatch ?? 0) > 0 && !report.isPlaceholderData && (
         // продажи «Нет партии» (§5.3): себестоимость не определена — ссылка туда, где это исправить
         <p className="mt-4 rounded-lg bg-expense-soft px-3 py-2 text-sm text-ink">
           {noBatchText(report.data!.meta.noBatch!)}.{' '}

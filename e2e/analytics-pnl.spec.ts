@@ -111,8 +111,10 @@ test('«Прибыль»: карточка, баннер, график и таб
     await expect(main(page).getByText('Новые сверху по дате платежа')).toHaveCount(1);
     const chartOps = main(page).getByRole('table', { name: 'Операции' });
     await expect(chartOps).toHaveCount(2);
-    await expect(chartOps.first().getByRole('columnheader')).toHaveText(['Дата сделки', 'Сумма', 'Категория', 'Комментарий']);
-    await expect(chartOps.first().locator('tbody tr').first()).toContainText('Движение денег:');
+    await expect(chartOps.first().getByRole('columnheader')).toHaveText(['Дата сделки', 'Сумма', 'Контрагент', 'Категория', 'Комментарий']);
+    await expect(chartOps.first().locator('tbody tr').first()).toContainText('оплата');
+    // доступное имя кнопки открытия содержит обе даты (I-2)
+    await expect(chartOps.first().getByRole('button', { name: /^Открыть операцию: дата сделки .+, движение денег .+, / }).first()).toBeVisible();
 
     // таблица: «Прибыль», «Доходы», «Расходы»; оплата закупки делится по строкам расхода; себестоимость FIFO
     await main(page).getByRole('button', { name: 'Таблица', exact: true }).click();
@@ -179,9 +181,9 @@ test('«Прибыль»: на 1440 px при переключателе скл�
   const cid = await createCompany(page, `ТОО Прибыль панель ${Date.now()}`);
   await pnlSetup(page, cid);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(`/c/${cid}/analytics/pnl?view=table&pct=1&stock=0`);
+  await page.goto(`/c/${cid}/analytics/pnl?view=table`);
   await expect(report(page)).toBeVisible();
-  const stock = main(page).getByRole('button', { name: 'Склад: закупки' });
+  const stock = main(page).getByRole('button', { name: 'Склад: по себестоимости' });
   await expect(stock).toBeVisible();
   const periodButton = main(page).getByRole('button', { name: /^Период:/ });
   const refresh = main(page).getByRole('button', { name: 'Обновить', exact: true });
@@ -228,4 +230,26 @@ test('«Прибыль»: телефон — склад в окне «Фильт
   await expect(report(page)).toBeVisible();
   await expect(main(page).getByRole('button', { name: /^Склад:/ })).toHaveCount(0);
   await expect(reportRow(page, /^Себестоимость проданных товаров/)).toHaveCount(0);
+});
+
+test('«Прибыль»: на 1600 px вторая строка даты сделки не заходит в колонку «Сумма» (I-1)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Прибыль даты ${Date.now()}`);
+  await pnlSetup(page, cid);
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto(`/c/${cid}/analytics/pnl`);
+  const tables = main(page).getByRole('table', { name: 'Операции' });
+  await expect(tables).toHaveCount(2);
+  const rows = tables.first().locator('tbody tr');
+  const count = await rows.count();
+  expect(count).toBeGreaterThan(0);
+  for (let i = 0; i < count; i++) {
+    const dateCell = rows.nth(i).locator('td').first();
+    const amountCell = rows.nth(i).locator('[data-column="amount"]');
+    // правый край содержимого даты (scrollWidth) не больше левого края суммы
+    const [box, amountBox] = [(await dateCell.boundingBox())!, (await amountCell.boundingBox())!];
+    const contentRight = await dateCell.evaluate((el) => Math.max(...Array.from(el.querySelectorAll('*')).map((n) => n.getBoundingClientRect().right), el.getBoundingClientRect().left));
+    expect(contentRight).toBeLessThanOrEqual(amountBox.x + 0.5);
+    expect(box.x + box.width).toBeLessThanOrEqual(amountBox.x + 0.5);
+  }
 });

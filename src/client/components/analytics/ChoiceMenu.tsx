@@ -14,7 +14,7 @@ export interface Choice<T extends string> {
 /**
  * Пилюля выбора одного значения (разрез, шаг, проценты; §2.2 спецификации «Аналитика»), как меню периода: подпись — текущее
  * значение, пункты — кнопки с ✓ и aria-current у текущего. Недоступный пункт остаётся в порядке фокуса (aria-disabled),
- * под ним — подсказка. Имя кнопки — «{name}: {значение}».
+ * под ним — подсказка. Имя кнопки — «{name}: {значение}», а у пункта с `short` — сама короткая подпись.
  */
 export function ChoiceMenu<T extends string>(props: { name: string; value: T; options: readonly Choice<T>[]; onChange: (value: T) => void; wide?: boolean }) {
   const option = props.options.find((o) => o.value === props.value);
