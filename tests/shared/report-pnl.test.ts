@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { startOfDayUtc } from '../../src/shared/dates';
 import { columnStarts, parseDrillRow, reportColumns, shareBp, sharePercent, type ReportDicts, type ReportLine, type ReportRow } from '../../src/shared/report-engine';
-import { isFullyPaid, paymentExclusions, pnlExcludedCategories, pnlRows, stockKept, type StockCost, type StockInput } from '../../src/shared/report-pnl';
+import { isFullyPaid, PNL_EXCLUDED_KEYS, paymentExclusions, pnlExcludedCategories, pnlRows, stockKept, type StockCost, type StockInput } from '../../src/shared/report-pnl';
 
 const TZ = 'Asia/Almaty';
 const almaty = (date: string) => new Date(Date.parse(startOfDayUtc(date, TZ)) + 12 * 3_600_000).toISOString();
@@ -63,6 +63,13 @@ const LINES = [
 describe('«Прибыль»: исключения и строки (§5.1, §5.2)', () => {
   it('исключены системные инвестиции, дивиденды (с подкатегорией), займы и кредиты; зарплата — обычный расход', () => {
     expect([...pnlExcludedCategories(dicts.categories)].sort((a, b) => a - b)).toEqual([2, 12, 13, 15]);
+  });
+
+  it('список исключённых ключей закреплён: шесть ключей §5.1, зарплата, налоги и НДС не исключены', () => {
+    expect([...PNL_EXCLUDED_KEYS]).toEqual(['investment', 'dividends', 'loan_issued', 'loan_repaid', 'credit_received', 'credit_repayment']);
+    const keys = ['loan_issued', 'loan_repaid', 'credit_received', 'salary', 'tax', 'vat'] as const;
+    const categories = keys.map((systemKey, i) => ({ id: 100 + i, kind: 'expense' as const, parentId: null, name: systemKey, archived: false, systemKey }));
+    expect([...pnlExcludedCategories(categories)]).toEqual([100, 101, 102]);
   });
 
   it('«Прибыль», «Доходы», «Расходы»: исключённые категории не видны даже нулями, прибыль = доходы - расходы по колонкам', () => {
@@ -247,11 +254,68 @@ describe('оплата закупки делится по строкам рас�
         { id: 8, amount: -100 },
       ],
     };
-    expect(isFullyPaid(full)).toBe(true);
-    expect(isFullyPaid(partial)).toBe(false);
-    expect(isFullyPaid({ paid: 0, lines: full.lines })).toBe(false);
+    const all = (op: typeof full) => new Set(op.lines.map((l) => l.id));
+    expect(isFullyPaid(full, all(full))).toBe(true);
+    expect(isFullyPaid(partial, all(partial))).toBe(false);
+    expect(isFullyPaid({ paid: 0, lines: full.lines }, all(full))).toBe(false);
     // сумма строк = 400 = оплата, но отрицательная строка отменяет исключение: срез 0, а не 400
-    expect(isFullyPaid(negative)).toBe(false);
+    expect(isFullyPaid(negative, all(negative))).toBe(false);
+    expect(isFullyPaid(negative, new Set([7]))).toBe(false);
     expect(paymentExclusions([negative]).size).toBe(0);
+  });
+
+  it('R1: выборка из части строк - срезы по всем строкам расхода, как в отчёте', () => {
+    const op = {
+      paid: 300,
+      lines: [
+        { id: 1, amount: 200 },
+        { id: 2, amount: 300 },
+      ],
+    };
+    // срезы 120 и 180: в первой строке остаётся 80, поэтому она не оплачена
+    expect([...paymentExclusions([op])]).toEqual([
+      [1, 120],
+      [2, 180],
+    ]);
+    expect(isFullyPaid(op, new Set([1]))).toBe(false);
+    expect(isFullyPaid(op, new Set([2]))).toBe(false);
+    // 2 тиына на три строки по 1: срезы 1, 1, 0
+    const odd = {
+      paid: 2,
+      lines: [
+        { id: 1, amount: 1 },
+        { id: 2, amount: 1 },
+        { id: 3, amount: 1 },
+      ],
+    };
+    expect(isFullyPaid(odd, new Set([1]))).toBe(true);
+    expect(isFullyPaid(odd, new Set([3]))).toBe(false);
+    expect(isFullyPaid(odd, new Set([1, 3]))).toBe(false);
+    // оплачена целиком - любая выборка полностью оплачена; пустая выборка - нет
+    const paid = { paid: 500, lines: op.lines };
+    expect(isFullyPaid(paid, new Set([1, 2]))).toBe(true);
+    expect(isFullyPaid(paid, new Set([2]))).toBe(true);
+    expect(isFullyPaid(paid, new Set())).toBe(false);
+  });
+
+  it('несколько расходов с оплатами в одном вызове и строка с нулевой суммой', () => {
+    const cuts = paymentExclusions([
+      { paid: 100, lines: [{ id: 1, amount: 200 }] },
+      {
+        paid: 50,
+        lines: [
+          { id: 2, amount: 0 },
+          { id: 3, amount: 100 },
+        ],
+      },
+      { paid: 10, lines: [{ id: 4, amount: -5 }] },
+      { paid: 70, lines: [{ id: 5, amount: 70 }] },
+    ]);
+    expect([...cuts]).toEqual([
+      [1, 100],
+      [2, 0],
+      [3, 50],
+      [5, 70],
+    ]);
   });
 });

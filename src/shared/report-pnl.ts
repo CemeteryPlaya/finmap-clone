@@ -48,13 +48,21 @@ export function paymentExclusions(ops: readonly PaidOperation[]): Map<number, nu
 }
 
 /**
- * Операция полностью оплачена закупкой (R1): исключаемый срез равен сумме её строк. Тот же расчёт, что в отчёте
- * (paymentExclusions), поэтому расход с отрицательной строкой или без положительной суммы оплаченным не считается, а
- * список операций ячейки «Прибыли» не расходится с итогом отчёта. lines — строки операции, попавшие в выборку.
+ * Попавшая в выборку часть операции полностью оплачена закупкой (R1): срез её строк равен их сумме и сумма больше нуля.
+ * Срезы считаются по ВСЕМ строкам расхода (op.lines), как в отчёте (paymentExclusions), даже если фильтр оставил часть
+ * строк; matched — id строк, попавших в выборку. Расход с отрицательной строкой оплаченным не считается, а список
+ * операций ячейки «Прибыли» не расходится с её суммой.
  */
-export function isFullyPaid(op: PaidOperation): boolean {
-  const cut = [...paymentExclusions([op]).values()].reduce((s, v) => s + v, 0);
-  return cut > 0 && cut === op.lines.reduce((s, l) => s + l.amount, 0);
+export function isFullyPaid(op: PaidOperation, matched: ReadonlySet<number>): boolean {
+  const cuts = paymentExclusions([op]);
+  let cut = 0;
+  let sum = 0;
+  for (const l of op.lines) {
+    if (!matched.has(l.id)) continue;
+    cut += cuts.get(l.id) ?? 0;
+    sum += l.amount;
+  }
+  return sum > 0 && cut === sum;
 }
 
 export type StockCostKind = 'cogs' | 'writeoff';
@@ -116,7 +124,8 @@ export function pnlRows(input: {
   filter: ReportFilter;
   stock: StockInput | null;
 }): PnlResult {
-  const n = input.columns.length;
+  // число колонок - из starts, как в aggregate: векторы склада и строки операций одной длины
+  const n = Math.max(0, input.starts.length - 1);
   const excluded = pnlExcludedCategories(input.dicts.categories);
   const dicts: ReportDicts = { ...input.dicts, categories: input.dicts.categories.filter((c) => !excluded.has(c.id)) };
   const lines = input.lines.filter((l) => l.categoryId === null || !excluded.has(l.categoryId));
