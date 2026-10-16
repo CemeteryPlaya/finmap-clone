@@ -60,7 +60,7 @@ export function compactMoney(minor: number, currency: string): string {
   return `${sign}${Math.round(abs)}`;
 }
 
-/** Каждая какая подпись колонки видна: не теснее minWidth пикселей на подпись (92 дня на телефоне — каждая 15-я). */
+/** Каждая какая по счёту подпись колонки видна: не теснее minWidth пикселей на подпись (92 дня на телефоне — каждая 15-я). */
 export function labelEvery(columns: number, width: number, minWidth = 56): number {
   if (columns <= 0 || width <= 0) return 1;
   return Math.max(1, Math.ceil((columns * minWidth) / width));
@@ -86,16 +86,25 @@ export const OTHER_LABEL = 'Прочие';
 /** Частей кольца не больше 8 (§4.2): девятая и дальше складываются в «Прочие». */
 export const MAX_SLICES = 8;
 
+/** Цветов в палитре графиков (chart-1…8). */
+export const PALETTE_SIZE = 8;
+
+/** Цвет строки по её месту среди всех строк разреза группы в отчёте (с нуля): один и тот же в кольце и в стеке. */
+export const rowColor = (index: number): SliceColor => index % PALETTE_SIZE;
+
 /**
  * Части кольца по строкам разреза за весь период (§4.2): только положительные итоги (кольцо не рисует минус). Больше
- * MAX_SLICES частей — семь крупнейших и «Прочие». Цвет — по месту строки в отчёте, а не по размеру: тот же цвет у той же
- * строки в кольце и стеке, и смена периода не перекрашивает соседей.
+ * MAX_SLICES частей — семь крупнейших и «Прочие». Цвет — по месту строки среди всех строк разреза в отчёте (rowColor), а не по размеру и не по месту среди
+ * показанных: тот же цвет у той же строки в кольце и стеке, и смена периода (нулевая строка выше, другой состав семёрки)
+ * не перекрашивает соседей.
  */
 export function donutSlices(rows: readonly Pick<ReportRow, 'id' | 'label' | 'total'>[], max = MAX_SLICES): Slice[] {
-  const positive = rows.filter((r) => (r.total ?? 0) > 0).map((r, order) => ({ id: r.id, label: r.label, value: r.total!, order }));
-  if (positive.length <= max) return positive.map((p, i) => ({ id: p.id, label: p.label, value: p.value, color: i }));
+  const positive = rows
+    .map((r, order) => ({ id: r.id, label: r.label, value: r.total ?? 0, order }))
+    .filter((p) => p.value > 0);
+  if (positive.length <= max) return positive.map((p) => ({ id: p.id, label: p.label, value: p.value, color: rowColor(p.order) }));
   const kept = new Set([...positive].sort((a, b) => b.value - a.value || a.order - b.order).slice(0, max - 1).map((p) => p.id));
-  const shown = positive.filter((p) => kept.has(p.id)).map((p, i) => ({ id: p.id, label: p.label, value: p.value, color: i as SliceColor }));
+  const shown = positive.filter((p) => kept.has(p.id)).map((p) => ({ id: p.id, label: p.label, value: p.value, color: rowColor(p.order) }));
   const rest = positive.filter((p) => !kept.has(p.id)).reduce((s, p) => s + p.value, 0);
   return [...shown, { id: OTHER_ID, label: OTHER_LABEL, value: rest, color: 'other' }];
 }

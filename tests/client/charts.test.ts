@@ -80,11 +80,11 @@ describe('шкала оси Y (§4.2)', () => {
 describe('кольцо: не больше 8 частей, «Прочие» (§4.2)', () => {
   const rows = Array.from({ length: 10 }, (_, i) => row(`expense:category:${i + 1}`, `Категория ${i + 1}`, [(i + 1) * 100]));
 
-  it('до 8 частей — все, цвет по месту строки в отчёте; нулевые и отрицательные не рисуются', () => {
+  it('до 8 частей — все; нулевые и отрицательные не рисуются, цвет — по месту строки в отчёте (не среди показанных)', () => {
     const slices = donutSlices([row('a', 'Бар', [500]), row('b', 'Возвраты', [-100]), row('c', 'Пусто', [0]), row('d', 'Аренда', [300])]);
     expect(slices.map((s) => [s.id, s.value, s.color])).toEqual([
       ['a', 500, 0],
-      ['d', 300, 1],
+      ['d', 300, 3],
     ]);
     expect(sliceShare(slices[0]!, slices)).toBe('62,50\u00A0%');
   });
@@ -93,10 +93,30 @@ describe('кольцо: не больше 8 частей, «Прочие» (§4.
     const slices = donutSlices(rows);
     expect(slices).toHaveLength(8);
     expect(slices.slice(0, 7).map((s) => s.label)).toEqual(['Категория 4', 'Категория 5', 'Категория 6', 'Категория 7', 'Категория 8', 'Категория 9', 'Категория 10']);
-    expect(slices.slice(0, 7).map((s) => s.color)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    // строки 4…10 отчёта (индексы 3…9) — цвет по модулю палитры
+    expect(slices.slice(0, 7).map((s) => s.color)).toEqual([3, 4, 5, 6, 7, 0, 1]);
     expect(slices[7]).toEqual({ id: OTHER_ID, label: 'Прочие', value: 600, color: 'other' });
     // ровно 8 — без «Прочих»
     expect(donutSlices(rows.slice(0, 8)).map((s) => s.id)).not.toContain(OTHER_ID);
+  });
+
+  it('нулевая строка выше не перекрашивает остальные: цвет строки не зависит от периода', () => {
+    const colors = (first: number) => Object.fromEntries(donutSlices([row('a', 'А', [first]), row('b', 'Б', [200]), row('c', 'В', [300])]).map((s) => [s.id, s.color]));
+    expect(colors(100)).toEqual({ a: 0, b: 1, c: 2 });
+    expect(colors(0)).toEqual({ b: 1, c: 2 });
+  });
+
+  it('смена состава семёрки не перекрашивает оставшиеся; цвет в стеке тот же, что в кольце', () => {
+    const make = (v1: number) => [row('r0', 'Р0', [v1]), ...Array.from({ length: 8 }, (_, i) => row('r' + (i + 1), 'Р' + (i + 1), [(i + 2) * 100]))];
+    const byId = (rs: ReportRow[]) => Object.fromEntries(donutSlices(rs).map((s) => [s.id, s.color]));
+    const small = byId(make(10)); // r0 уходит в «Прочие»
+    const big = byId(make(5000)); // r0 входит в семёрку, вытесняя r1
+    expect(small.other).toBe('other');
+    for (const id of ['r3', 'r4', 'r8']) expect(small[id]).toBe(big[id]);
+    expect(big.r0).toBe(0);
+    const rs = make(5000);
+    const slices = donutSlices(rs);
+    expect(stackSeries(rs, slices, 1).map((s) => s.color)).toEqual(slices.map((s) => s.color));
   });
 
   it('секторы: доли угла по значениям; одна часть — полный круг двумя дугами', () => {

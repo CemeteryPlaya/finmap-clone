@@ -2,8 +2,7 @@ import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { SliceColor } from '../../lib/charts';
 
 /**
- * Цвета графиков — только токены темы (`--color-chart-*` в styles.css): палитра проверена на различимость при нарушениях
- * цветового зрения; тёмная тема переопределит токены, а не компоненты. Классы перечислены целиком — Tailwind находит их
+ * Цвета графиков — только токены темы (`--color-chart-*` в styles.css): тёмная тема переопределит токены, а не компоненты. Классы перечислены целиком — Tailwind находит их
  * в исходнике.
  */
 const FILL = ['fill-chart-1', 'fill-chart-2', 'fill-chart-3', 'fill-chart-4', 'fill-chart-5', 'fill-chart-6', 'fill-chart-7', 'fill-chart-8'] as const;

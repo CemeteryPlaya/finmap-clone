@@ -31,7 +31,7 @@ export function ChartColumns(props: {
   // точка Tab — колонка, где был фокус (если она ещё есть), иначе выбранная, иначе первая
   const [last, setLast] = useState<number | null>(null);
   const step = props.count > 0 ? props.width / props.count : 0;
-  const stop = last !== null && last < props.count ? last : (props.selected ?? 0);
+  const stop = last !== null && last < props.count ? last : Math.min(props.selected ?? 0, Math.max(0, props.count - 1));
   const shown = hover ?? focus;
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -74,8 +74,8 @@ export function ChartColumns(props: {
           style={{ left: tipLeft }}
         >
           <p className="mb-1 font-semibold text-ink">{tip.title}</p>
-          {tip.lines.map((l) => (
-            <p key={l.label} className="flex items-center gap-2 whitespace-nowrap text-ink">
+          {tip.lines.map((l, k) => (
+            <p key={k} className="flex items-center gap-2 whitespace-nowrap text-ink">
               <span className={`size-2.5 shrink-0 rounded-full ${l.swatch}`} />
               <span className="flex-1 text-muted">{l.label}</span>
               <span className="tabular-nums">{l.value}</span>
