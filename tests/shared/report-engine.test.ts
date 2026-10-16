@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { startOfDayUtc } from '../../src/shared/dates';
-import { DEC_ONE, parseDecimal, type Dec } from '../../src/shared/decimal';
+import { addDays, startOfDayUtc } from '../../src/shared/dates';
+import { convertMinor, DEC_ONE, parseDecimal, type Dec } from '../../src/shared/decimal';
 import {
   aggregate,
   balanceSeries,
@@ -226,6 +226,60 @@ describe('разрезы и нулевые строки (§2.4, §3.3)', () => {
     expect(r.expense.row.children).toEqual([expect.objectContaining({ id: 'expense:counterparty:99', label: '…', total: 10 })]);
   });
 
+  it('архивная подкатегория и архивный родитель с суммами показываются с пометкой, без сумм — скрыты', () => {
+    const withArchive: ReportDicts = {
+      ...dicts,
+      categories: [
+        { id: 40, kind: 'income', parentId: null, name: 'Родитель А', archived: false },
+        { id: 41, kind: 'income', parentId: 40, name: 'Архивная подкатегория', archived: true },
+        { id: 42, kind: 'income', parentId: 40, name: 'Архивная без сумм', archived: true },
+        { id: 43, kind: 'income', parentId: null, name: 'Архивный родитель', archived: true },
+        { id: 44, kind: 'income', parentId: 43, name: 'Дочерняя', archived: false },
+        { id: 45, kind: 'income', parentId: null, name: 'Архивный родитель без сумм', archived: true },
+      ],
+    };
+    const r = aggregate({ lines: [line('2026-01-10', 'income', 100, { categoryId: 41 }), line('2026-02-10', 'income', 70, { categoryId: 44 })], starts, by: 'category', dicts: withArchive, filter: {} });
+    expect(ids(r.income.row.children)).toEqual(['income:category:40', 'income:category:43']);
+    const [parent, archivedParent] = r.income.row.children! as [ReportRow, ReportRow];
+    expect(parent.archived).toBeUndefined();
+    expect(parent.total).toBe(100);
+    expect(parent.children!.map((c) => [c.id, c.archived, c.total])).toEqual([['income:category:41', true, 100]]);
+    // дочерняя неархивная при архивном родителе показывается с пометкой «архив»
+    expect(archivedParent).toMatchObject({ archived: true, total: 70 });
+    expect(archivedParent.children!.map((c) => [c.id, c.archived, c.total])).toEqual([['income:category:44', true, 70]]);
+    expect(r.income.row.total).toBe(170);
+  });
+
+  it('архивный контрагент и проект с суммами показываются с пометкой, без сумм — скрыты', () => {
+    const withArchive: ReportDicts = {
+      ...dicts,
+      counterparties: [...dicts.counterparties, { id: 22, name: 'Бывший поставщик', archived: true }, { id: 23, name: 'Архивный без сумм', archived: true }],
+    };
+    const byCp = aggregate({
+      lines: [line('2026-01-05', 'expense', 40, { counterpartyId: 22 }), line('2026-01-06', 'expense', 10, { counterpartyId: 20 })],
+      starts,
+      by: 'counterparty',
+      dicts: withArchive,
+      filter: {},
+    });
+    expect(byCp.expense.row.children!.map((c) => [c.label, c.archived, c.total])).toEqual([
+      ['Поставщик А', undefined, 10],
+      ['Бывший поставщик', true, 40],
+    ]);
+    const byProject = aggregate({
+      lines: [line('2026-01-05', 'expense', 25, { projectId: 32 }), line('2026-01-06', 'expense', 5, { projectId: 30 })],
+      starts,
+      by: 'project',
+      dicts,
+      filter: {},
+    });
+    expect(byProject.expense.row.children!.map((c) => [c.label, c.archived, c.total])).toEqual([
+      ['Клуб 1', undefined, 5],
+      ['Клуб 2', undefined, 0],
+      ['Клуб 3', true, 25],
+    ]);
+  });
+
   it('фильтр не по счетам скрывает остатки', () => {
     expect(hidesBalances({})).toBe(false);
     expect(hidesBalances({ accountIds: [1] })).toBe(false);
@@ -244,6 +298,17 @@ describe('проценты и ячейки (§2.5, §4.1)', () => {
     expect(sharePercent(0, 1000)).toBe('0,00\u00A0%');
     expect(sharePercent(5, 0)).toBeNull();
     expect(sharePercent(null, 10)).toBeNull();
+  });
+
+  it('отрицательная доля: модуль округляется отдельно, знак возвращается потом', () => {
+    expect(sharePercent(-125, 1000)).toBe('\u221212,50\u00A0%');
+    expect(sharePercent(125, -1000)).toBe('\u221212,50\u00A0%');
+    expect(sharePercent(-125, -1000)).toBe('12,50\u00A0%');
+    // половина базисного пункта округляется от нуля в обе стороны одинаково
+    expect(sharePercent(1, 20_000)).toBe('0,01\u00A0%');
+    expect(sharePercent(-1, 20_000)).toBe('\u22120,01\u00A0%');
+    // ноль после округления — без знака
+    expect(sharePercent(-1, 100_000)).toBe('0,00\u00A0%');
   });
 
   it('строки, которые раскрываются в список операций', () => {
@@ -366,6 +431,30 @@ describe('остатки и неоперационные изменения (§4
     expect(fx.total).toBeNull();
   });
 
+  it('нет курса только для стартового остатка: остатки нулевые и курса не требуют, «Стартовые остатки» и «Курсовая разница» пусты с пояснением', () => {
+    // долларовый счёт открыт в феврале со 100 $ и в феврале же потрачен целиком: остатки на границах равны нулю
+    const usd: BalanceAccount[] = [{ id: 2, currency: 'USD', startingBalance: 100_00, openedAt: '2026-02-10' }];
+    const series = balanceSeries({
+      columns: cols,
+      starts,
+      accounts: usd,
+      opening: new Map(),
+      legs: [{ at: almaty('2026-02-25'), accountId: 2, delta: -100_00 }],
+      transfers: [],
+      baseCurrency: 'KZT',
+      rate: () => null,
+      today: '2026-10-16',
+    });
+    expect(series.at).toEqual([0, 0, 0, 0]);
+    expect(series.starting).toEqual([0, null, 0]);
+    expect(series.missing).toEqual({ currency: 'USD', date: '2026-02-28' });
+    const { rows } = cashflowRows({ columns: cols, starts, lines: [], by: 'category', dicts, filter: {}, balances: { series, accountIds: new Set([2]) } });
+    const nonop = rows.find((r) => r.id === 'nonop')!;
+    expect(nonop.children!.find((c) => c.id === 'nonop:starting')).toMatchObject({ values: [0, null, 0], total: null });
+    expect(nonop.children!.find((c) => c.id === 'nonop:fx')).toMatchObject({ values: [0, null, 0], total: null });
+    expect(rows.find((r) => r.id === 'balance:end')!.note).toBe('Нет курса USD на 28.02.2026');
+  });
+
   it('будущие колонки: курс — на сегодня, нулевая сумма валюты курса не требует', () => {
     const future = reportColumns('2026-10-01', '2026-12-31', 'month');
     const s = columnStarts(future, TZ);
@@ -447,8 +536,12 @@ function randomWorld(random: () => number, kztOnly: boolean) {
   const endAt = starts.at(-1)!;
   for (let i = 0; i < 60; i++) {
     const a = accounts[Math.floor(random() * accounts.length)]!;
-    // операция не раньше открытия счёта (инвариант 6)
-    const day = dateFrom(random, a.openedAt, 500);
+    // операция не раньше открытия счёта (инвариант 6); дни — вокруг периода [from \u2212 60; to + 30], чтобы в большинстве миров были строки внутри него
+    const lo = addDays(from, -60);
+    const hi = addDays(to, 30);
+    const first = a.openedAt > lo ? a.openedAt : lo;
+    if (first > hi) continue;
+    const day = dateFrom(random, first, Math.round((Date.parse(hi) - Date.parse(first)) / 86_400_000) + 1);
     const at = almaty(day, `${String(Math.floor(random() * 24)).padStart(2, '0')}:${String(Math.floor(random() * 60)).padStart(2, '0')}`);
     const amount = 1 + Math.floor(random() * 100_000);
     const base = a.currency === 'KZT' ? amount : amount * usdRate;
@@ -528,5 +621,103 @@ describe('свойства (§11)', () => {
         }
       }
     }
+  });
+});
+
+describe('независимая проверка остатков и курсовой разницы (§11)', () => {
+  const TODAY = '2026-10-16';
+  type World = ReturnType<typeof randomWorld>;
+  const bucket = (w: World, at: string) => {
+    for (let c = 0; c < w.columns.length; c++) if (at >= w.starts[c]! && at < w.starts[c + 1]!) return c;
+    return -1;
+  };
+
+  /** Остатки на границах колонок прямым пересчётом по сырым данным мира, без движка: счёт за счётом, валюта за валютой. */
+  function independentAt(w: World): number[] {
+    const days = [...w.columns.map((c) => c.from), addDays(w.columns.at(-1)!.to, 1)];
+    return days.map((day, k) => {
+      const sums: Record<string, number> = {};
+      for (const a of w.accounts) {
+        let sum = (w.opening.get(a.id) ?? 0) + (a.openedAt < day ? a.startingBalance : 0);
+        for (const leg of w.legs) if (leg.accountId === a.id && leg.at < w.starts[k]!) sum += leg.delta;
+        sums[a.currency] = (sums[a.currency] ?? 0) + sum;
+      }
+      const rateDay = addDays(day, -1) > TODAY ? TODAY : addDays(day, -1);
+      let total = 0;
+      for (const [currency, sum] of Object.entries(sums)) {
+        if (sum === 0) continue;
+        total += currency === 'KZT' ? sum : convertMinor(sum, w.rate(currency, rateDay)!, 2, 2);
+      }
+      return total;
+    });
+  }
+
+  it('тенге: остаток на конец = стартовые остатки открытых счетов + движения до периода + все движения; курсовой разницы нет', () => {
+    const random = rng(7_000_001);
+    let withLines = 0;
+    for (let i = 0; i < 120; i++) {
+      const w = randomWorld(random, true);
+      if (w.lines.some((l) => l.at >= w.starts[0]! && l.at < w.starts.at(-1)!)) withLines++;
+      const series = balanceSeries({ ...w, baseCurrency: 'KZT', today: TODAY });
+      const { rows } = cashflowRows({ ...w, by: 'category', dicts, filter: {}, balances: { series, accountIds: new Set(w.accounts.map((a) => a.id)) } });
+      const end = rows.find((r) => r.id === 'balance:end')!;
+      const endDay = addDays(w.columns.at(-1)!.to, 1);
+      let expected = 0;
+      for (const a of w.accounts) {
+        expected += (a.openedAt < endDay ? a.startingBalance : 0) + (w.opening.get(a.id) ?? 0);
+        for (const leg of w.legs) if (leg.accountId === a.id) expected += leg.delta;
+      }
+      expect(end.total).toBe(expected);
+      expect(independentAt(w).at(-1)).toBe(expected);
+    }
+    // миры без строк внутри периода — меньшинство
+    expect(withLines).toBeGreaterThan(96);
+  });
+
+  it('доллары: остатки на каждой границе и курсовая разница совпадают с пересчётом по сырым данным', () => {
+    const random = rng(7_000_002);
+    let withUsd = 0;
+    for (let i = 0; i < 120; i++) {
+      const w = randomWorld(random, false);
+      if (w.accounts.some((a) => a.currency === 'USD')) withUsd++;
+      const series = balanceSeries({ ...w, baseCurrency: 'KZT', today: TODAY });
+      const inSet = new Set(w.accounts.map((a) => a.id));
+      const { rows } = cashflowRows({ ...w, by: 'category', dicts, filter: {}, balances: { series, accountIds: inSet } });
+      const at = independentAt(w);
+      expect(series.at).toEqual(at);
+      const fx = rows.find((r) => r.id === 'nonop')!.children!.find((c) => c.id === 'nonop:fx')!;
+      const n = w.columns.length;
+      const net = new Array<number>(n).fill(0);
+      const excluded = new Array<number>(n).fill(0);
+      const transfers = new Array<number>(n).fill(0);
+      for (const l of w.lines) {
+        const c = bucket(w, l.at);
+        if (c < 0) continue;
+        const signed = l.type === 'income' ? l.amount : -l.amount;
+        net[c]! += signed;
+        if (!inSet.has(l.accountId)) excluded[c]! -= signed;
+      }
+      for (const t of w.transfers) {
+        const c = bucket(w, t.at);
+        if (c < 0) continue;
+        if (inSet.has(t.to)) transfers[c]! += t.base;
+        if (inSet.has(t.from)) transfers[c]! -= t.base;
+      }
+      for (let c = 0; c < n; c++) {
+        const col = w.columns[c]!;
+        const opened = w.accounts.filter((a) => a.openedAt >= col.from && a.openedAt <= col.to);
+        let starting = 0;
+        for (const currency of ['KZT', 'USD']) {
+          const sum = opened.filter((a) => a.currency === currency).reduce((s, a) => s + a.startingBalance, 0);
+          if (sum === 0) continue;
+          const day = addDays(col.to, 1);
+          const rateDay = addDays(day, -1) > TODAY ? TODAY : addDays(day, -1);
+          starting += currency === 'KZT' ? sum : convertMinor(sum, w.rate(currency, rateDay)!, 2, 2);
+        }
+        // переоценка = всё изменение остатка, кроме потока, стартовых остатков, переводов и потока исключённых счетов
+        expect(fx.values[c]).toBe(at[c + 1]! - at[c]! - net[c]! - starting - transfers[c]! - excluded[c]!);
+      }
+    }
+    expect(withUsd).toBeGreaterThan(60);
   });
 });

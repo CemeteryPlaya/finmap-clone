@@ -290,6 +290,32 @@ describe('остатки на начало периода и «Всего на �
   });
 });
 
+describe('курсовая разница сквозь API (R9)', () => {
+  it('второй курс USD внутри периода: переоценка остатка в долларах попадает в «Курсовую разницу» нужной колонки, остаток на конец = «Всего на счетах»', async () => {
+    w = await opsWorld(); // сегодня 2026-10-06, курс USD 475,12 от 2026-10-01
+    await w.post('/api/v1/rates/manual', { date: '2026-10-04', currency: 'USD', rate: '500' });
+    // до периода: 50 $ на долларовом счёте
+    await w.post(w.ops, { type: 'income', paidAt: '2026-10-02T05:00:00Z', accountId: w.usd, amount: 5000 });
+
+    // по дням 3–6 октября: курс границ — день перед границей; 475,12 до 3 октября, 500 с 4 октября
+    const r = await report('from=2026-10-03&to=2026-10-06&step=day');
+    const fx = find(r.rows, 'nonop:fx');
+    // граница 5 октября (конец колонки 4 октября) — по курсу 4 октября: 50 $ × (500 \u2212 475,12) = 1 244 ₸
+    expect(fx.values).toEqual([0, 124_400, 0, 0]);
+    expect(fx.total).toBe(124_400);
+    expect(find(r.rows, 'balance:start').values).toEqual([2_375_600, 2_375_600, 2_500_000, 2_500_000]);
+    expect(find(r.rows, 'balance:end').values).toEqual([2_375_600, 2_500_000, 2_500_000, 2_500_000]);
+    expect(find(r.rows, 'nonop').total).toBe(124_400);
+
+    const balances = (await w.h.req('GET', `/api/v1/companies/${w.cid}/balances`)).json() as { total: { amount: number } };
+    expect(find(r.rows, 'balance:end').total).toBe(balances.total.amount);
+
+    // счёт в тенге переоценки не имеет
+    const onlyKzt = await report(`from=2026-10-03&to=2026-10-06&step=day&accounts=${w.kzt}`);
+    expect(find(onlyKzt.rows, 'nonop:fx').total).toBe(0);
+  });
+});
+
 describe('JournalService.load (R3)', () => {
   it('чужой и несуществующий id пропускаются, порядок ids сохраняется', async () => {
     const o = await october();

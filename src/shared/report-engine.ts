@@ -544,9 +544,10 @@ export function cashflowRows(input: {
 /** Доля строки в группе (§4.1 «Показать проценты»): «12,50 %»; группа 0 — null. */
 export function sharePercent(value: number | null, group: number | null): string | null {
   if (value === null || group === null || group === 0) return null;
-  const bp = Math.round((value * 10_000) / group);
-  const abs = Math.abs(bp);
-  return `${bp < 0 ? '\u2212' : ''}${Math.trunc(abs / 100)},${pad(abs % 100)}\u00A0%`;
+  // \u043c\u043e\u0434\u0443\u043b\u044c \u043e\u043a\u0440\u0443\u0433\u043b\u044f\u0435\u0442\u0441\u044f \u043e\u0442\u0434\u0435\u043b\u044c\u043d\u043e, \u0437\u043d\u0430\u043a \u0432\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442\u0441\u044f \u043f\u043e\u0442\u043e\u043c: -0,5 \u0431.\u043f. \u0438 0,5 \u0431.\u043f. \u043e\u043a\u0440\u0443\u0433\u043b\u044f\u044e\u0442\u0441\u044f \u043e\u0434\u0438\u043d\u0430\u043a\u043e\u0432\u043e
+  const abs = Math.round((Math.abs(value) * 10_000) / Math.abs(group));
+  const negative = abs !== 0 && (value < 0) !== (group < 0);
+  return `${negative ? '\u2212' : ''}${Math.trunc(abs / 100)},${pad(abs % 100)}\u00A0%`;
 }
 
 /** Ячейка, по которой открывается список операций (§2.5): какие строки операций в неё вошли. */
