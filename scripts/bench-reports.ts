@@ -166,7 +166,8 @@ try {
     ['«Прибыль»: год по кварталам, без склада', `pnl?${year}&step=quarter&stock=0`],
   ];
   const median = (xs: number[]) => [...xs].sort((x, y) => x - y)[Math.floor(xs.length / 2)]!;
-  const runScenario = async (name: string, url: string) => {
+  /** gate=false — справочный сценарий: печатается, но бюджет §3.2 (год в 50 000 строк) не проверяет. */
+  const runScenario = async (name: string, url: string, gate = true) => {
     headers = await login();
     const call = async () => {
       const t = performance.now();
@@ -189,17 +190,20 @@ try {
     }
     const p50 = median(p50s);
     const p95 = median(p95s);
-    if (p95 > BUDGET_MS) over = true;
+    if (gate && p95 > BUDGET_MS) over = true;
+    const verdict = !gate ? 'справочно' : p95 <= BUDGET_MS ? 'OK' : 'ПРЕВЫШЕН';
     lines.push(
-      `${name.padEnd(52)} p50 ${p50.toFixed(1).padStart(7)} мс   p95 ${p95.toFixed(1).padStart(7)} мс  [${p95s.map((x) => x.toFixed(0)).join(' / ')}]  ${p95 <= BUDGET_MS ? 'OK' : 'ПРЕВЫШЕН'}`,
+      `${name.padEnd(52)} p50 ${p50.toFixed(1).padStart(7)} мс   p95 ${p95.toFixed(1).padStart(7)} мс  [${p95s.map((x) => x.toFixed(0)).join(' / ')}]  ${verdict}`,
     );
   };
   for (const [name, url] of scenarios) await runScenario(name, url);
-  // пять лет истории: к 2025–2026 добавляются 2022–2024, отчёт за 2026 год тот же — растёт только объём операций до периода
+  // пять лет истории по 50 000 строк в год (стресс, примерно в 8 раз больше журнала клуба): к 2025–2026 добавляются
+  // 2022–2024, отчёт за 2026 год тот же — растёт только объём операций до периода. Справочно: бюджет §3.2 задан на год
+  // в 50 000 строк; если реальный журнал дорастёт до таких объёмов — остаток на начало хранить снимками по месяцам.
   insertYears(HISTORY_FROM, HISTORY_TO);
   lines.push(`История: операций всего — ${(sqlite.prepare('SELECT COUNT(*) AS n FROM operations').get() as { n: number }).n} (${HISTORY_FROM}–2026)`);
-  await runScenario('«Деньги»: год по месяцам, 5 лет истории', `cashflow?${year}`);
-  await runScenario('«Прибыль»: год по месяцам, склад, 5 лет истории', `pnl?${year}`);
+  await runScenario('«Деньги»: год по месяцам, 5 лет истории', `cashflow?${year}`, false);
+  await runScenario('«Прибыль»: год по месяцам, склад, 5 лет истории', `pnl?${year}`, false);
   console.log(`\nЗамер отчётов (§3.2 спецификации «Аналитика»), Node ${process.version}, бюджет ${BUDGET_MS} мс (медиана p95 из ${REPEATS} повторов по ${RUNS} вызовов; в скобках p95 каждого повтора):\n`);
   for (const l of lines) console.log(l);
 } catch (e) {
