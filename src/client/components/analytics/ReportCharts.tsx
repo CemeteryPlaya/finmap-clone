@@ -12,7 +12,7 @@ const sum = (xs: readonly number[]) => xs.reduce((s, x) => s + x, 0);
  * период и два стека по колонкам — по строкам разреза групп. Щелчок по колонке любого графика выбирает её (повторный —
  * снимает выбор): под графиками — операции этой колонки. Пустой период — «Нет операций за период».
  */
-export function ReportCharts(props: { title: string; data: ReportData; names: BarsLineNames; selected: string | null; onSelect: (key: string | null) => void }) {
+export function ReportCharts(props: { title: string; data: ReportData; names: BarsLineNames; selected: string | null; onSelect: (key: string | null) => void; busy?: boolean }) {
   const { data } = props;
   if (data.meta.empty) {
     return <p className="rounded-xl bg-field px-4 py-10 text-center text-muted">Нет операций за период</p>;
@@ -38,13 +38,14 @@ export function ReportCharts(props: { title: string; data: ReportData; names: Ba
         currency={currency}
         selected={selected}
         onSelect={select}
+        busy={props.busy}
       />
       <div className="grid gap-8 lg:grid-cols-2">
         <DonutChart title={props.names.income} total={sum(chart.income)} slices={incomeSlices} currency={currency} />
         <DonutChart title={props.names.expense} total={sum(chart.expense)} slices={expenseSlices} currency={currency} />
       </div>
-      <StackedBars title={`${props.names.income} ${by}`} columns={data.columns} series={stackSeries(chart.incomeRows, incomeSlices, n)} currency={currency} selected={selected} onSelect={select} />
-      <StackedBars title={`${props.names.expense} ${by}`} columns={data.columns} series={stackSeries(chart.expenseRows, expenseSlices, n)} currency={currency} selected={selected} onSelect={select} />
+      <StackedBars title={`${props.names.income} ${by}`} columns={data.columns} series={stackSeries(chart.incomeRows, incomeSlices, n)} currency={currency} selected={selected} onSelect={select} busy={props.busy} />
+      <StackedBars title={`${props.names.expense} ${by}`} columns={data.columns} series={stackSeries(chart.expenseRows, expenseSlices, n)} currency={currency} selected={selected} onSelect={select} busy={props.busy} />
     </div>
   );
 }

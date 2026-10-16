@@ -208,6 +208,8 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
       <section>
         {header}
         {status}
+        {/* «?» компьютера живёт в панели; пока панели нет — под заголовком */}
+        <div className="mb-2 flex justify-end max-md:hidden">{help}</div>
         <Pending queries={dictionaries} />
       </section>
     );
@@ -373,6 +375,7 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
             data={report.data}
             names={config.names}
             selected={chartCol}
+            busy={report.isPlaceholderData}
             // пока показан прежний отчёт, колонки не выбираются (как ячейки таблицы, R8)
             onSelect={(col) => !report.isPlaceholderData && setPicked(col === null ? null : { col, apiParams })}
           />

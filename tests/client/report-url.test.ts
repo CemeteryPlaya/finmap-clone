@@ -49,6 +49,23 @@ describe('настройки отчёта в адресе (§2.2)', () => {
     expect(reportApiParams(s, TODAY).has('view')).toBe(false);
   });
 
+  it('проценты считаются изменением только в таблице: в виде «график» контрола нет, pct=1 в адресе не даёт «Сбросить» и число на телефоне', () => {
+    const range = { from: '2026-01-01', to: '2026-12-31' };
+    const chart: ReportUrlState = { ...DEFAULT_REPORT_STATE, percent: true };
+    const table: ReportUrlState = { ...chart, view: 'table' };
+    expect(changedControls(chart, range).percent).toBe(false);
+    expect(isReportChanged(chart, range)).toBe(false);
+    expect(phoneReportCount(chart, range)).toBe(0);
+    expect(changedControls(table, range).percent).toBe(true);
+    expect(isReportChanged(table, range)).toBe(true);
+    expect(phoneReportCount(table, range)).toBe(1);
+    // действующий шаг (R18) считается в обоих видах
+    expect(phoneReportCount({ ...chart, step: 'quarter' }, range)).toBe(1);
+    expect(phoneReportCount({ ...table, step: 'quarter' }, range)).toBe(2);
+    // сам pct остаётся в адресе: возврат в таблицу восстанавливает проценты
+    expect(reportSearch(chart).toString()).toBe('pct=1');
+  });
+
   it('туда и обратно: адрес → настройки → тот же адрес для любых сочетаний', () => {
     const states: ReportUrlState[] = [
       { ...DEFAULT_REPORT_STATE, period: 'lastMonth', by: 'project', step: 'week', percent: true },
@@ -115,7 +132,7 @@ describe('параметры API и изменённые контролы', () =
   });
 
   it('точки у изменённых контролов и счётчик фильтра', () => {
-    const s: ReportUrlState = { ...DEFAULT_REPORT_STATE, step: 'quarter', percent: true, categoryIds: [1], withoutCategory: true, tagIds: [2] };
+    const s: ReportUrlState = { ...DEFAULT_REPORT_STATE, view: 'table', step: 'quarter', percent: true, categoryIds: [1], withoutCategory: true, tagIds: [2] };
     expect(changedControls(s)).toEqual({ period: false, by: false, step: true, percent: true, filter: true });
     expect(reportFilterCount(s)).toBe(2);
     expect(isReportChanged(s)).toBe(true);
@@ -131,7 +148,7 @@ describe('параметры API и изменённые контролы', () =
 
   it('телефон: число на «Фильтрах» — изменённые период, разрез, шаг, проценты и измерения фильтра; пункты меню', () => {
     expect(phoneReportCount(DEFAULT_REPORT_STATE)).toBe(0);
-    expect(phoneReportCount({ ...DEFAULT_REPORT_STATE, period: 'month', by: 'project', percent: true, accountIds: [1], withoutCounterparty: true })).toBe(5);
+    expect(phoneReportCount({ ...DEFAULT_REPORT_STATE, view: 'table', period: 'month', by: 'project', percent: true, accountIds: [1], withoutCounterparty: true })).toBe(5);
     expect(BY_CHOICES.map((c) => c.label)).toEqual(['По категориям', 'По контрагентам', 'По проектам']);
     expect(PERCENT_CHOICES.map((c) => c.label)).toEqual(['Скрыть проценты', 'Показать проценты']);
   });
@@ -154,7 +171,7 @@ describe('параметры API и изменённые контролы', () =
     expect(changedControls({ ...DEFAULT_REPORT_STATE, step: 'day' }, { from: '2026-01-01', to: '2026-02-28' }).step).toBe(true);
     const year = { from: '2026-01-01', to: '2026-12-31' };
     expect(phoneReportCount({ ...DEFAULT_REPORT_STATE, step: 'quarter' }, year)).toBe(1);
-    expect(phoneReportCount({ ...DEFAULT_REPORT_STATE, step: 'day', percent: true }, year)).toBe(2);
+    expect(phoneReportCount({ ...DEFAULT_REPORT_STATE, view: 'table', step: 'day', percent: true }, year)).toBe(2);
   });
 
   it('id из адреса, которых нет в справочниках, убираются с названиями списков (R14); нечего убирать — тот же объект', () => {

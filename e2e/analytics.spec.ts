@@ -354,7 +354,7 @@ test('«Деньги»: ячейки — одна точка Tab, стрелки
   await expect(main(page).getByRole('heading', { level: 2, name: /^Поступления за февраль \d{4}$/ })).toBeFocused();
 });
 
-test('телефон: «Деньги» — сверху только «Фильтры», окно на весь экран с контролами; таблица прокручивается внутри; операции — карточками', async ({ page }) => {
+test('телефон: «Деньги» — сверху вид, «Фильтры» и «Обновить», окно на весь экран с контролами; таблица прокручивается внутри; операции — карточками', async ({ page }) => {
   await login(page);
   const cid = await createCompany(page, `ТОО Деньги телефон ${Date.now()}`);
   await cashflowSetup(page, cid);
@@ -673,4 +673,40 @@ test('«Деньги»: на 1440 px «Обновить» в одной стро
   const view = main(page).getByRole('group', { name: 'Вид отчёта' });
   const [hb, vb] = [(await heading.boundingBox())!, (await view.boundingBox())!];
   expect(Math.abs(vb.y + vb.height / 2 - (hb.y + hb.height / 2))).toBeLessThan(12);
+});
+
+test('«Деньги»: pct=1 в виде «график» не даёт «Сбросить» и число на телефоне; пока грузится новый отчёт, колонки графика не выбираются', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Проценты график ${Date.now()}`);
+  await cashflowSetup(page, cid);
+  await page.goto(`/c/${cid}/analytics/cashflow?pct=1`);
+  await expect(main(page).getByRole('img', { name: /^Деньги\. / })).toBeVisible();
+  await expect(main(page).getByRole('button', { name: 'Сбросить' })).toHaveCount(0);
+  // в таблице те же проценты — изменённый контрол
+  await main(page).getByRole('button', { name: 'Таблица', exact: true }).click();
+  await expect(main(page).getByRole('button', { name: 'Сбросить' })).toBeVisible();
+  await main(page).getByRole('button', { name: 'График', exact: true }).click();
+  await expect(main(page).getByRole('button', { name: 'Сбросить' })).toHaveCount(0);
+
+  // ответ на новые настройки задерживается: колонки с aria-disabled и не выбираются
+  const columns = main(page).getByRole('group', { name: 'Деньги: колонки' });
+  const column = columns.locator('button[tabindex="0"]');
+  await expect(column).toBeVisible();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route(/\/analytics\/cashflow\?/, async (route) => {
+    await gate;
+    await route.continue();
+  });
+  await main(page).getByRole('button', { name: 'Шаг: По месяцам' }).click();
+  await page.getByRole('dialog', { name: 'Шаг' }).getByRole('button', { name: 'По кварталам' }).click();
+  await expect(column).toHaveAttribute('aria-disabled', 'true');
+  await column.click({ force: true });
+  await expect(column).toHaveAttribute('aria-pressed', 'false');
+  release();
+  await expect(main(page).getByRole('group', { name: 'Деньги: колонки' }).locator('button[aria-disabled="true"]')).toHaveCount(0);
+
+  // телефон: число — только изменённый шаг (1), pct=1 в графике не считается
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(main(page).getByRole('button', { name: /^Фильтры/ })).toHaveText('Фильтры · 1');
 });

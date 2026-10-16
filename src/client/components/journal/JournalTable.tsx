@@ -197,7 +197,7 @@ export function JournalTable(props: JournalTableProps) {
                   ref={(el) => {
                     if (el) el.indeterminate = selectedCount > 0 && !allSelected;
                   }}
-                  // есть выделение (в том числе частичное, «\u2212») — снимает его; нет выделения — выбирает все загруженные
+                  // есть выделение (в том числе частичное, «минус») — снимает его; нет выделения — выбирает все загруженные
                   onChange={() => selection.onToggleAll(selectedCount === 0)}
                   className={checkboxClass}
                 />

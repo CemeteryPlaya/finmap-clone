@@ -15,6 +15,7 @@ export function StackedBars(props: {
   currency: string;
   selected: number | null;
   onSelect: (index: number) => void;
+  busy?: boolean;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const money = (v: number) => formatMoney(v, props.currency, MONEY_SCREEN_BEFORE);
@@ -76,6 +77,7 @@ export function StackedBars(props: {
               })}
               selected={props.selected}
               onSelect={props.onSelect}
+              busy={props.busy}
             />
           </>
         )}

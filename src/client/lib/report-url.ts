@@ -190,7 +190,8 @@ export function changedControls(
     period: state.period !== DEFAULT_REPORT_STATE.period,
     by: state.by !== DEFAULT_REPORT_STATE.by,
     step: (range ? effectiveStep(state.step, range) : state.step) !== DEFAULT_REPORT_STATE.step,
-    percent: state.percent !== DEFAULT_REPORT_STATE.percent,
+    // проценты — только в таблице: в виде «график» контрола нет, и скрытая настройка (pct=1 в адресе) не считается изменением
+    percent: state.view === 'table' && state.percent !== DEFAULT_REPORT_STATE.percent,
     filter: reportFilterCount(state) > 0,
   };
 }

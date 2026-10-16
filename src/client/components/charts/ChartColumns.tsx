@@ -25,6 +25,8 @@ export function ChartColumns(props: {
   tip: (index: number) => { title: string; lines: TipLine[] };
   selected: number | null;
   onSelect: (index: number) => void;
+  /** Показан прежний отчёт, пока грузится новый: колонки не выбираются (как ячейки таблицы). */
+  busy?: boolean;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [focus, setFocus] = useState<number | null>(null);
@@ -56,13 +58,14 @@ export function ChartColumns(props: {
           tabIndex={i === stop ? 0 : -1}
           aria-label={props.names[i]}
           aria-pressed={props.selected === i}
+          aria-disabled={props.busy || undefined}
           onMouseEnter={() => setHover(i)}
           onFocus={() => {
             setFocus(i);
             setLast(i);
           }}
           onBlur={() => setFocus(null)}
-          onClick={() => props.onSelect(i)}
+          onClick={() => !props.busy && props.onSelect(i)}
           className="absolute top-0 h-full rounded-sm hover:bg-ink/5 focus-visible:outline-2 focus-visible:outline-focus aria-pressed:ring-1 aria-pressed:ring-income"
           style={{ left: i * step, width: step }}
         />
