@@ -19,9 +19,9 @@ const itemClass =
   'flex min-h-12 w-full items-center rounded-xl px-3 text-left text-base font-medium text-ink hover:bg-field focus-visible:outline-2 focus-visible:outline-focus';
 
 /**
- * Нижняя панель вкладок на телефоне (§8.3 этапа 1.5): «Журнал» и «Ещё» — меню вверх с «Склад», «Пользователи», «Настройки»
- * (экран списка разделов, §8.6), «История действий» (панель §3.4) и «Импорт из Excel» (панель импорта на весь экран,
- * §5.1 спецификации импорта; в архивной компании пункта нет). «Аналитика» появится на этапе 2 между ними.
+ * Нижняя панель вкладок на телефоне (§8.3 этапа 1.5): «Журнал» и «Ещё» — меню вверх с «Аналитика» (§2.1 спецификации
+ * «Аналитика»), «Склад», «Пользователи», «Настройки» (экран списка разделов, §8.6), «История действий» (панель §3.4) и
+ * «Импорт из Excel» (панель импорта на весь экран, §5.1 спецификации импорта; в архивной компании пункта нет).
  * «Журнал» в самом журнале — текущий адрес; из настроек — последний адрес журнала с фильтром. Переход по ссылке ставит
  * фокус на `<h1>` новой страницы; закрытие истории возвращает фокус на «Ещё». На компьютере панели нет.
  */
@@ -38,8 +38,10 @@ export function MobileTabBar({ company }: { company: Company }) {
   const onJournal = useMatch('/c/:companyId/log') !== null;
   const inSettings = useMatch('/c/:companyId/settings/*') !== null;
   const inStock = useMatch('/c/:companyId/stock/*') !== null;
+  const inAnalytics = useMatch('/c/:companyId/analytics/*') !== null;
   // запомненный адрес журнала обновляется после отрисовки страницы — в самом журнале берём текущий
   const journal = onJournal ? `${location.pathname}${location.search}` : journalBackHref(company.id, readLastJournal(company.id));
+  const analytics = `/c/${company.id}/analytics`;
   const stock = `/c/${company.id}/stock/balance`;
   const users = `/c/${company.id}/settings/users`;
   const settings = `/c/${company.id}/settings`;
@@ -60,9 +62,14 @@ export function MobileTabBar({ company }: { company: Company }) {
         <NavLink to={journal} onClick={go(journal)} className={tabClass}>
           Журнал
         </NavLink>
-        <Popover key={mobile ? 'phone' : 'wide'} label="Ещё" align="right" buttonClassName={inSettings || inStock ? `${tabBase} ${currentClass}` : tabClass} panelClassName="w-60">
+        <Popover key={mobile ? 'phone' : 'wide'} label="Ещё" align="right" buttonClassName={inSettings || inStock || inAnalytics ? `${tabBase} ${currentClass}` : tabClass} panelClassName="w-60">
           {(close) => (
             <ul className="flex flex-col">
+              <li>
+                <Link to={analytics} onClick={go(analytics, close)} className={itemClass}>
+                  Аналитика
+                </Link>
+              </li>
               <li>
                 <Link to={stock} onClick={go(stock, close)} className={itemClass}>
                   Склад
