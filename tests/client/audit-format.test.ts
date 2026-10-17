@@ -37,7 +37,8 @@ describe('audit-format', () => {
   it('у каждой сущности фильтров есть подпись; операции, курсы и вложения — в своих лентах', () => {
     for (const e of [...COMPANY_ENTITIES, ...SYSTEM_ENTITIES]) expect(ENTITY_LABELS[e]).toBeTruthy();
     expect(ENTITY_LABELS).toMatchObject({ operation: 'Операция', rate: 'Курс', fixed_rate: 'Фиксированный курс', attachment: 'Вложение', import: 'Импорт' });
-    expect(COMPANY_ENTITIES).toEqual(expect.arrayContaining(['operation', 'fixed_rate', 'attachment', 'import']));
+    expect(COMPANY_ENTITIES).toEqual(expect.arrayContaining(['operation', 'fixed_rate', 'attachment', 'import', 'indicator_part']));
+    expect(ENTITY_LABELS.indicator_part).toBe('Финансовый показатель');
     expect(SYSTEM_ENTITIES).toEqual(['user', 'rate']);
   });
 

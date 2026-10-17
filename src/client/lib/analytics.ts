@@ -122,7 +122,7 @@ export function invalidateAnalytics(companyId: number): Promise<void> {
   return queryClient.invalidateQueries({ queryKey: ['analytics', companyId] });
 }
 
-export type CardIcon = 'wallet' | 'profit' | 'statement' | 'projects' | 'history' | 'plan' | 'in' | 'out' | 'scale';
+export type CardIcon = 'wallet' | 'profit' | 'statement' | 'projects' | 'indicators' | 'history' | 'plan' | 'in' | 'out' | 'scale';
 
 /** Карточка раздела «Аналитика» (§2.1): ссылка на отчёт или неактивная (пунктир и подпись). */
 export interface AnalyticsCard {
@@ -140,10 +140,7 @@ export interface AnalyticsCard {
 
 const PLANNED = 'Появится с плановыми операциями';
 
-/**
- * Карточки по порядку §2.1. Отчёт следующего плана («Финансовые показатели»)
- * появляются вместе с ними: мёртвых карточек нет. «План/Факт», «Дебиторка», «Кредиторка», «Баланс» — неактивные (этап 3).
- */
+/** Карточки по порядку §2.1. «План/Факт», «Дебиторка», «Кредиторка», «Баланс» — неактивные (этап 3). */
 export const ANALYTICS_CARDS: readonly AnalyticsCard[] = [
   {
     key: 'cashflow',
@@ -176,6 +173,14 @@ export const ANALYTICS_CARDS: readonly AnalyticsCard[] = [
     help: 'Доходы, расходы, прибыль и рентабельность каждого проекта (клуба) за период — по тем же правилам, что «Прибыль»: по дате сделки, без переводов, инвестиций, дивидендов, займов и кредитов.',
     icon: 'projects',
     href: (cid) => `/c/${cid}/analytics/projects`,
+  },
+  {
+    key: 'indicators',
+    title: 'Финансовые показатели',
+    description: 'Валовая прибыль, маржинальный доход, EBITDA, процент маржи',
+    help: 'Насколько эффективно работает бизнес: валовая прибыль, маржинальный доход, EBITDA и процент маржи по месяцам или кварталам. Категории каждого показателя можно выбрать, нажав его название.',
+    icon: 'indicators',
+    href: (cid) => `/c/${cid}/analytics/indicators`,
   },
   {
     key: 'history',

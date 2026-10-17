@@ -10,6 +10,7 @@ function Icon({ name }: { name: CardIcon }) {
     profit: 'M3 17l6-6 4 4 8-8M15 7h6v6',
     statement: 'M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h7',
     projects: 'M3 21h18M5 21V9l7-5 7 5v12M9 21v-6h6v6',
+    indicators: 'M4 20h16M7 16v-5M12 16V6M17 16v-8M5 9l5-4 4 3 5-4',
     history: 'M3 12a9 9 0 1 0 3-6.7M3 3v6h6M12 7v5l3 2',
     plan: 'M4 19V9M10 19V5M16 19v-7M22 19H2',
     in: 'M10 17l5-5-5-5M15 12H3M21 4v16',

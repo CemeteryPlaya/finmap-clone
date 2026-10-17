@@ -20,6 +20,7 @@ export const ENTITY_LABELS: Record<string, string> = {
   stock_group: 'Группа товаров',
   stock_warehouse: 'Склад',
   stock_doc: 'Документ склада',
+  indicator_part: 'Финансовый показатель',
 };
 
 export const ACTION_LABELS: Record<string, string> = {
@@ -33,6 +34,7 @@ export const ACTION_LABELS: Record<string, string> = {
   login: 'Вход',
   logout: 'Выход',
   password_change: 'Смена пароля',
+  reset: 'Возврат по умолчанию',
 };
 
 /** Сущности ленты компании (для фильтра). */
@@ -52,6 +54,7 @@ export const COMPANY_ENTITIES = [
   'stock_group',
   'stock_warehouse',
   'stock_doc',
+  'indicator_part',
 ] as const;
 
 /** Сущности общей ленты экземпляра (записи без компании): пользователи и ручные курсы. */

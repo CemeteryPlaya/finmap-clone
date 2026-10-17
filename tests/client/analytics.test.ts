@@ -3,12 +3,13 @@ import { ANALYTICS_CARDS } from '../../src/client/lib/analytics';
 
 describe('карточки «Аналитики» (§2.1)', () => {
   it('порядок, ссылки и неактивные карточки плановых операций', () => {
-    expect(ANALYTICS_CARDS.map((c) => c.title)).toEqual(['Деньги / Cash flow', 'Прибыль / P&L', 'Выписка по счету', 'Проекты', 'История действий', 'План/Факт', 'Дебиторка', 'Кредиторка', 'Баланс']);
+    expect(ANALYTICS_CARDS.map((c) => c.title)).toEqual(['Деньги / Cash flow', 'Прибыль / P&L', 'Выписка по счету', 'Проекты', 'Финансовые показатели', 'История действий', 'План/Факт', 'Дебиторка', 'Кредиторка', 'Баланс']);
     expect(ANALYTICS_CARDS.map((c) => c.href?.(7) ?? null)).toEqual([
       '/c/7/analytics/cashflow',
       '/c/7/analytics/pnl',
       '/c/7/analytics/statement',
       '/c/7/analytics/projects',
+      '/c/7/analytics/indicators',
       '/c/7/settings/audit',
       null,
       null,
