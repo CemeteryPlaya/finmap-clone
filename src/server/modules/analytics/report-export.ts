@@ -2,6 +2,7 @@ import { getCurrency } from '../../../shared/currencies';
 import { formatDateRu } from '../../../shared/dates';
 import { flattenRows, rowLabel, shareBp, type ReportBy, type ReportColumn, type ReportRow, type ReportStep } from '../../../shared/report-engine';
 import { noBatchText } from '../../../shared/report-pnl';
+import { incomeExpenseBp, marginPercent, projectLines, projectRowLabel, type ProjectRow } from '../../../shared/report-projects';
 import { STATEMENT_SUMMARY, type StatementSummary } from '../../../shared/report-statement';
 import type { XlsxCell, XlsxSheet } from '../../http/xlsx';
 import { excelDateTime, minorToDecimal } from '../operations/journal-export';
@@ -110,6 +111,43 @@ export function statementSheet(input: {
   };
 }
 
+/**
+ * Лист Excel «Проектов» (§2.6, §7): колонки экрана — «Проект», «Доходы», «Расходы», «Прибыль», «Доход / Расход, %»,
+ * «Рентабельность, %»; строки в порядке экрана, категории проекта — с отступом под ним, «Всего» — полужирным. Проценты —
+ * числа (2 знака и целое), при нуле делителя — «—», как на экране.
+ */
+export function projectsSheet(input: { rows: readonly ProjectRow[]; total: ProjectRow; currency: string; info: readonly string[] }): XlsxSheet {
+  const units = getCurrency(input.currency).minorUnits;
+  const money = (v: number, bold: boolean): XlsxCell => ({ kind: 'number', value: minorToDecimal(v, units), decimals: units, bold });
+  const percent = (v: number | null, decimals: number, bold: boolean): XlsxCell =>
+    v === null ? { kind: 'text', value: '—', bold } : { kind: 'number', value: minorToDecimal(v, decimals), decimals, bold };
+  const rows = projectLines(input.rows, input.total).map(({ row, parent }): XlsxCell[] => {
+    const bold = row.kind === 'total';
+    const profit = row.income - row.expense;
+    return [
+      { kind: 'text', value: `${parent ? '    ' : ''}${projectRowLabel(row)}`, bold },
+      money(row.income, bold),
+      money(row.expense, bold),
+      money(profit, bold),
+      percent(incomeExpenseBp(row.income, row.expense), 2, bold),
+      percent(marginPercent(profit, row.income), 0, bold),
+    ];
+  });
+  return {
+    name: 'Проекты',
+    columns: [
+      { header: 'Проект', width: 40 },
+      { header: 'Доходы', width: 16 },
+      { header: 'Расходы', width: 16 },
+      { header: 'Прибыль', width: 16 },
+      { header: 'Доход / Расход, %', width: 18 },
+      { header: 'Рентабельность, %', width: 18 },
+    ],
+    rows,
+    preamble: input.info.map((text, i): XlsxCell[] => [{ kind: 'text', value: text, bold: i === 0 }]),
+  };
+}
+
 const STEP_TEXT: Record<ReportStep, string> = { day: 'по дням', week: 'по неделям', month: 'по месяцам', quarter: 'по кварталам' };
 const BY_TEXT: Record<ReportBy, string> = { category: 'по категориям', counterparty: 'по контрагентам', project: 'по проектам' };
 
@@ -149,20 +187,20 @@ export function reportInfo(input: {
   title: string;
   from: string;
   to: string;
-  step: ReportStep;
-  by: ReportBy;
+  /** Шаг и разрез — у отчётов по колонкам шага; у «Проектов» их нет. */
+  step?: ReportStep;
+  by?: ReportBy;
+  /** Свои строки отчёта после периода («Проекты: активные проекты»). */
+  extra?: readonly string[];
   filters: string;
   /** Только у «Прибыли»: склад учтён по себестоимости. */
   stock?: boolean;
   noBatch?: number;
 }): string[] {
-  const lines = [
-    `Отчёт: ${input.title}`,
-    `Период: ${formatDateRu(input.from)} – ${formatDateRu(input.to)}`,
-    `Шаг: ${STEP_TEXT[input.step]}`,
-    `Разрез: ${BY_TEXT[input.by]}`,
-    `Фильтры: ${input.filters}`,
-  ];
+  const lines = [`Отчёт: ${input.title}`, `Период: ${formatDateRu(input.from)} – ${formatDateRu(input.to)}`];
+  if (input.step) lines.push(`Шаг: ${STEP_TEXT[input.step]}`);
+  if (input.by) lines.push(`Разрез: ${BY_TEXT[input.by]}`);
+  lines.push(...(input.extra ?? []), `Фильтры: ${input.filters}`);
   if (input.stock !== undefined) lines.push(`Склад: ${input.stock ? 'по себестоимости' : 'закупки'}`);
   if (input.noBatch !== undefined && input.noBatch > 0) lines.push(noBatchText(input.noBatch));
   return lines;

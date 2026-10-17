@@ -12,6 +12,7 @@ import {
   type AccountLeg,
   type BalanceAccount,
   type DrillSpec,
+  type LineType,
   type ReportColumn,
   type ReportDicts,
   type ReportFilter,
@@ -20,10 +21,12 @@ import {
   type TransferLeg,
 } from '../../../shared/report-engine';
 import { isFullyPaid, paymentExclusions, pnlExcludedCategories, pnlRows, type PaidOperation, type StockCost, type StockInput } from '../../../shared/report-pnl';
+import { MODE_LABEL, parseProjectsRow, projectsRows, STATUS_LABEL, type ProjectRow, type ProjectsCol, type ProjectsMode, type ProjectStatus } from '../../../shared/report-projects';
 import { statementDelta, statementSummary, transferLabel, type StatementSummary } from '../../../shared/report-statement';
 import {
   reportFilter,
   type CellQuery,
+  type ProjectsQuery,
   type ReportExportQuery,
   type ReportKind,
   type ReportQuery,
@@ -39,7 +42,7 @@ import { buildXlsx } from '../../http/xlsx';
 import { requireCompany } from '../companies/guard';
 import { decodeCursor, encodeCursor, JOURNAL_EXPORT_MAX, type JournalItem, type JournalService } from '../operations/journal';
 import type { RatesService } from '../rates/service';
-import { filterText, reportInfo, reportSheet, statementSheet, type StatementExportRow } from './report-export';
+import { filterText, projectsSheet, reportInfo, reportSheet, statementSheet, type FilterNames, type StatementExportRow } from './report-export';
 
 /** Ответ отчёта (§3.2): колонки шага, дерево строк и сведения о расчёте. */
 export interface ReportResponse {
@@ -73,6 +76,25 @@ export interface CellPage {
   nextCursor: string | null;
 }
 
+/** «Проекты» (§7): строки проектов, «Всего» и сведения о расчёте; суммы — в базовой валюте компании. */
+export interface ProjectsResponse {
+  rows: ProjectRow[];
+  total: ProjectRow;
+  meta: {
+    from: string;
+    to: string;
+    status: ProjectStatus;
+    mode: ProjectsMode;
+    currency: string;
+    /** В периоде нет ни строк операций, ни себестоимости склада. */
+    empty: boolean;
+    /** Склад по себестоимости учтён: переключатель включён и у компании есть склад (§5.3). */
+    stock: boolean;
+    /** Продаж «Нет партии» в периоде (§5.3). */
+    noBatch: number;
+  };
+}
+
 /** Счёт выписки (§6). */
 export interface StatementAccount {
   id: number;
@@ -101,6 +123,10 @@ export interface AnalyticsService {
   cashflow(companyId: number, q: ReportQuery): ReportResponse;
   /** «Прибыль / P&L» (§5): по дате сделки, без переводов и исключённых категорий, склад — по q.stock. */
   pnl(companyId: number, q: ReportQuery): ReportResponse;
+  /** «Проекты» (§7): по правилам «Прибыли» — дата сделки, исключения, склад по q.stock; статус и режим. */
+  projects(companyId: number, q: ProjectsQuery): ProjectsResponse;
+  /** Excel «Проектов» (§2.6, §7): таблица как на экране, с категориями в режиме «Проекты с категориями». */
+  projectsXlsx(companyId: number, q: ProjectsQuery): { fileName: string; data: Buffer };
   /** Страница операций ячейки отчёта (§2.5): новые сверху, по 50. */
   operations(companyId: number, q: CellQuery): CellPage;
   /** Excel отчёта (§2.6): таблица как на экране, все строки раскрыты; «{Компания} - {Отчёт} - ДД-ММ-ГГГГ ЧЧ-ММ.xlsx». */
@@ -375,6 +401,48 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
     return { series, accountIds };
   }
 
+  /** Границы периода «Прибыли» и «Проектов» (§3.1): моменты дня в APP_TIMEZONE и календарные даты для даты сделки. */
+  const dealRange = (q: { from: string; to: string }): LineRange => ({
+    start: startOfDayUtc(q.from, timezone),
+    end: startOfDayUtc(addDays(q.to, 1), timezone),
+    accrual: { from: q.from, to: q.to },
+  });
+
+  /**
+   * Условие строк ячейки «Проектов» (§7): колонка — доходы, расходы или все строки (прибыль и проценты); строка — проект,
+   * «Без проекта», проекты статуса вместе или все («Всего») и, в «Проектах с категориями», категория с подкатегориями.
+   */
+  function projectsCellWhere(companyId: number, f: ReportFilter, bounds: LineRange, row: string, col: ProjectsCol): SQL[] {
+    const spec = parseProjectsRow(row)!;
+    const types: LineType[] = col === 'total' ? ['income', 'expense'] : [col];
+    const drill: DrillSpec = spec.category === undefined ? { types, dim: null, id: null, own: false } : { types, dim: 'category', id: spec.category, own: false };
+    const where = [reportLineWhere(companyId, f, bounds, drill)];
+    if (spec.project === null) where.push(sql`l.project_id IS NULL`);
+    else if (typeof spec.project === 'number') where.push(sql`l.project_id = ${spec.project}`);
+    else if (spec.project !== 'any') {
+      const archived = sql.raw(spec.project === 'archived' ? 'IS NOT NULL' : 'IS NULL');
+      where.push(sql`l.project_id IN (SELECT p.id FROM projects p WHERE p.company_id = ${companyId} AND p.archived_at ${archived})`);
+    }
+    return where;
+  }
+
+  /** Названия выбранных значений фильтров для сведений Excel (R13). */
+  function filterNames(companyId: number, f: ReportFilter): FilterNames {
+    const dict = dicts(companyId);
+    const names = (ids: readonly number[] | undefined, items: readonly { id: number; name: string }[]) =>
+      (ids ?? []).map((id) => items.find((i) => i.id === id)?.name).filter((n): n is string => n !== undefined);
+    return {
+      accounts: names(f.accountIds, db.select().from(accounts).where(eq(accounts.companyId, companyId)).all()),
+      categories: names(f.categoryIds, dict.categories),
+      counterparties: names(f.counterpartyIds, dict.counterparties),
+      projects: names(f.projectIds, dict.projects),
+      tags: names(f.tagIds, db.select().from(tags).where(eq(tags.companyId, companyId)).all()),
+      withoutCategory: f.withoutCategory === true,
+      withoutCounterparty: f.withoutCounterparty === true,
+      withoutProject: f.withoutProject === true,
+    };
+  }
+
   /** Счёт выписки — любой счёт компании, архивный тоже; чужой или несуществующий — 400 «Неизвестный счёт» (§9). */
   function statementAccount(companyId: number, accountId: number): StatementAccount {
     const a = db
@@ -528,7 +596,8 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
       const columns = reportColumns(q.from, q.to, q.step);
       const starts = columnStarts(columns, timezone);
       const stock = stockOn(companyId, q);
-      const range: LineRange = { start: starts[0]!, end: starts.at(-1)!, accrual: { from: q.from, to: q.to } };
+      // те же границы, что у «Проектов»: итоги «Проектов» равны итогам «Прибыли» (§7)
+      const range = dealRange(q);
       const lines = selectPnlLines(companyId, f, range, stock);
       const result = pnlRows({ columns, starts, lines, by: q.by, dicts: dicts(companyId), filter: f, stock: stock ? stockInput(companyId, range.start, range.end) : null });
       return {
@@ -538,19 +607,60 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
       };
     },
 
+    projects(companyId, q) {
+      const company = requireCompany(db, companyId);
+      const f = reportFilter(q);
+      companyAccounts(companyId, f);
+      const range = dealRange(q);
+      const stock = stockOn(companyId, q);
+      const result = projectsRows({
+        lines: selectPnlLines(companyId, f, range, stock),
+        dicts: dicts(companyId),
+        filter: f,
+        status: q.status,
+        mode: q.mode,
+        stock: stock ? stockInput(companyId, range.start, range.end) : null,
+      });
+      return {
+        rows: result.rows,
+        total: result.total,
+        meta: { from: q.from, to: q.to, status: q.status, mode: q.mode, currency: company.baseCurrency, empty: result.empty, stock, noBatch: result.noBatch },
+      };
+    },
+
+    projectsXlsx(companyId, q) {
+      const company = requireCompany(db, companyId);
+      const data = service.projects(companyId, q);
+      const info = reportInfo({
+        title: 'Проекты',
+        from: q.from,
+        to: q.to,
+        extra: [`Проекты: ${STATUS_LABEL[q.status].toLowerCase()}`, `Режим: ${MODE_LABEL[q.mode].toLowerCase()}`],
+        filters: filterText(filterNames(companyId, reportFilter(q))),
+        stock: data.meta.stock,
+        noBatch: data.meta.noBatch,
+      });
+      const sheet = projectsSheet({ rows: data.rows, total: data.total, currency: data.meta.currency, info });
+      return { fileName: exportFileName(company.name, 'Проекты', now(), timezone), data: buildXlsx(sheet, { strings: 'shared' }) };
+    },
+
     operations(companyId, q) {
       requireCompany(db, companyId);
-      companyAccounts(companyId, reportFilter(q));
-      const range = drillRange(reportColumns(q.from, q.to, q.step), q.col);
+      const projects = q.report === 'projects';
+      // у «Проектов» фильтра по проектам нет (проекты и есть строки): параметры проектов в запросе не читаются
+      const f: ReportFilter = projects ? { ...reportFilter(q), projectIds: [], withoutProject: false } : reportFilter(q);
+      companyAccounts(companyId, f);
+      // у «Проектов» колонок шага нет — ячейка за весь период
+      const range = projects ? { from: q.from, to: q.to } : drillRange(reportColumns(q.from, q.to, q.step), q.col);
       if (!range) throw invalid('col', 'Неизвестная колонка');
-      const drill = parseDrillRow(q.row)!;
-      const pnl = q.report === 'pnl';
+      // «Проекты» — по правилам «Прибыли» (§7): дата сделки, исключения, склад
+      const pnl = q.report !== 'cashflow';
       const bounds: LineRange = {
         start: startOfDayUtc(range.from, timezone),
         end: startOfDayUtc(addDays(range.to, 1), timezone),
         ...(pnl ? { accrual: range } : {}),
       };
-      const where = [reportLineWhere(companyId, reportFilter(q), bounds, drill)];
+      const where = projects ? projectsCellWhere(companyId, f, bounds, q.row, q.col as ProjectsCol) : [reportLineWhere(companyId, f, bounds, parseDrillRow(q.row)!)];
       const stock = pnl && stockOn(companyId, q);
       if (pnl) {
         // «Прибыль» (§5.1): строки исключённых системных категорий не входят
@@ -604,26 +714,13 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
       const company = requireCompany(db, companyId);
       const data = service[report](companyId, q);
       // сведения над таблицей (R13): период, шаг, разрез, фильтры по названиям, у «Прибыли» — склад и «Нет партии»
-      const f = reportFilter(q);
-      const dict = dicts(companyId);
-      const names = (ids: readonly number[] | undefined, items: readonly { id: number; name: string }[]) =>
-        (ids ?? []).map((id) => items.find((i) => i.id === id)?.name).filter((n): n is string => n !== undefined);
       const info = reportInfo({
         title: REPORT_TITLE[report],
         from: q.from,
         to: q.to,
         step: q.step,
         by: q.by,
-        filters: filterText({
-          accounts: names(f.accountIds, db.select().from(accounts).where(eq(accounts.companyId, companyId)).all()),
-          categories: names(f.categoryIds, dict.categories),
-          counterparties: names(f.counterpartyIds, dict.counterparties),
-          projects: names(f.projectIds, dict.projects),
-          tags: names(f.tagIds, db.select().from(tags).where(eq(tags.companyId, companyId)).all()),
-          withoutCategory: f.withoutCategory === true,
-          withoutCounterparty: f.withoutCounterparty === true,
-          withoutProject: f.withoutProject === true,
-        }),
+        filters: filterText(filterNames(companyId, reportFilter(q))),
         ...(report === 'pnl' ? { stock: data.meta.stock === true, noBatch: data.meta.noBatch ?? 0 } : {}),
       });
       const sheet = reportSheet({ name: REPORT_TITLE[report], columns: data.columns, rows: data.rows, currency: data.meta.currency, percent: q.pct === true, info });

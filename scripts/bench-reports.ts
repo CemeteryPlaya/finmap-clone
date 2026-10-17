@@ -164,6 +164,7 @@ try {
     ['«Прибыль»: год по месяцам, склад', `pnl?${year}`],
     ['«Прибыль»: год по неделям, по проектам, склад', `pnl?${year}&step=week&by=project`],
     ['«Прибыль»: год по кварталам, без склада', `pnl?${year}&step=quarter&stock=0`],
+    ['«Проекты»: год, все проекты с категориями, склад', `projects?${year}&status=all&mode=categories`],
   ];
   const median = (xs: number[]) => [...xs].sort((x, y) => x - y)[Math.floor(xs.length / 2)]!;
   /** gate=false — справочный сценарий: печатается, но бюджет §3.2 (год в 50 000 строк) не проверяет. */
@@ -174,10 +175,12 @@ try {
       const res = await target.inject({ method: 'GET', url: `${api}/analytics/${url}`, headers });
       const ms = performance.now() - t;
       if (res.statusCode !== 200) throw new Error(`${name}: ${res.statusCode} ${res.body.slice(0, 200)}`);
-      return { ms, body: res.json() as { rows: { id: string; total: number | null }[] } };
+      return { ms, body: res.json() as { rows?: { id: string; total: number | null }[]; total?: { income: number }; summary?: { income: number } } };
     };
     const first = await call();
-    if (!first.body.rows.some((r) => r.id === 'income' && (r.total ?? 0) > 0)) throw new Error(`${name}: пустой отчёт — замер ничего не измерил`);
+    // «Проекты» (§7) отвечают строками проектов и «Всего», «Выписка» — сводкой, остальные отчёты — деревом строк с группой «Поступления»/«Доходы»
+    const income = first.body.total?.income ?? first.body.summary?.income ?? first.body.rows?.find((r) => r.id === 'income')?.total ?? 0;
+    if (income <= 0) throw new Error(`${name}: пустой отчёт — замер ничего не измерил`);
     await call();
     const p50s: number[] = [];
     const p95s: number[] = [];
@@ -204,6 +207,8 @@ try {
   lines.push(`История: операций всего — ${(sqlite.prepare('SELECT COUNT(*) AS n FROM operations').get() as { n: number }).n} (${HISTORY_FROM}–2026)`);
   await runScenario('«Деньги»: год по месяцам, 5 лет истории', `cashflow?${year}`, false);
   await runScenario('«Прибыль»: год по месяцам, склад, 5 лет истории', `pnl?${year}`, false);
+  // «Выписка по счету» (§6) загруженного счёта: сводка за год и первая страница при пяти годах истории (R5, справочно)
+  await runScenario('«Выписка»: счёт за год, 5 лет истории', `statement?account=${accounts[0]}&${year}`, false);
   console.log(`\nЗамер отчётов (§3.2 спецификации «Аналитика»), Node ${process.version}, бюджет ${BUDGET_MS} мс (медиана p95 из ${REPEATS} повторов по ${RUNS} вызовов; в скобках p95 каждого повтора):\n`);
   for (const l of lines) console.log(l);
 } catch (e) {

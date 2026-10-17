@@ -256,7 +256,7 @@ describe('операции ячейки: GET /companies/:cid/analytics/operation
     const url = (qs: string) => `${base()}/operations?${OCTOBER}&${qs}`;
     expect(fail(await w.h.req('GET', url('report=cashflow&row=balance:start&col=total')), 400).fields).toEqual({ row: 'Строка отчёта не раскрывается в операции' });
     expect(fail(await w.h.req('GET', url('report=cashflow&row=income&col=2026-10-02')), 400).fields).toEqual({ col: 'Неизвестная колонка' });
-    expect(fail(await w.h.req('GET', url('report=projects&row=income&col=total')), 400).fields).toEqual({ report: 'Неизвестный отчёт' });
+    expect(fail(await w.h.req('GET', url('report=statement&row=income&col=total')), 400).fields).toEqual({ report: 'Неизвестный отчёт' });
     // «Чистый денежный поток» — только у «Денег», «Прибыль» — только у «Прибыли»
     expect(fail(await w.h.req('GET', url('report=cashflow&row=profit&col=total')), 400).fields).toEqual({ row: 'Строка отчёта не раскрывается в операции' });
     expect(fail(await w.h.req('GET', url('report=pnl&row=net&col=total')), 400).fields).toEqual({ row: 'Строка отчёта не раскрывается в операции' });

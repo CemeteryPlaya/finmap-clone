@@ -1,6 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import type { FastifyReply } from 'fastify';
-import { cellQuerySchema, REPORT_KINDS, reportExportSchema, reportQuerySchema, statementExportSchema, statementQuerySchema } from '../../../shared/schemas/analytics';
+import {
+  cellQuerySchema,
+  projectsQuerySchema,
+  REPORT_KINDS,
+  reportExportSchema,
+  reportQuerySchema,
+  statementExportSchema,
+  statementQuerySchema,
+} from '../../../shared/schemas/analytics';
 import { contentDisposition } from '../../http/content-disposition';
 import { parseId } from '../../http/params';
 import { XLSX_MIME } from '../../http/xlsx';
@@ -26,12 +34,16 @@ export function registerAnalyticsRoutes(app: FastifyInstance, deps: { analytics:
 
   app.get<C>(`${BASE}/pnl`, async (req) => analytics.pnl(parseId(req.params.cid), reportQuerySchema.parse(req.query)));
 
+  app.get<C>(`${BASE}/projects`, async (req) => analytics.projects(parseId(req.params.cid), projectsQuerySchema.parse(req.query)));
+
   app.get<C>(`${BASE}/operations`, async (req) => analytics.operations(parseId(req.params.cid), cellQuerySchema.parse(req.query)));
 
   // Excel (§2.6): ссылка без побочных эффектов, как у выгрузки журнала
   for (const report of REPORT_KINDS) {
     app.get<C>(`${BASE}/${report}.xlsx`, async (req, reply) => sendXlsx(reply, analytics.exportXlsx(parseId(req.params.cid), report, reportExportSchema.parse(req.query))));
   }
+
+  app.get<C>(`${BASE}/projects.xlsx`, async (req, reply) => sendXlsx(reply, analytics.projectsXlsx(parseId(req.params.cid), projectsQuerySchema.parse(req.query))));
 
   // «Выписка по счету» (§6, §9): сводка и первая страница, затем страницы курсором; Excel
   app.get<C>(`${BASE}/statement`, async (req) => analytics.statement(parseId(req.params.cid), statementQuerySchema.parse(req.query)));
