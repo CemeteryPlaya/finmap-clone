@@ -123,3 +123,11 @@ export const STOCK_LIST_NOTE = 'Себестоимость и списания �
 export function listMissesStock(report: string, stock: boolean | undefined, row: string): boolean {
   return report === 'pnl' && stock === true && (row === 'expense' || row === 'profit' || row.startsWith('expense:project:'));
 }
+
+/**
+ * То же у «Проектов» (§7): склад учтён и список — расходы или все операции строки проекта (не категории): в сумме ячейки
+ * могут быть себестоимость и списания склада проекта, а в списке — только операции журнала.
+ */
+export function projectsListMissesStock(stock: boolean, row: string, col: 'income' | 'expense' | 'total'): boolean {
+  return stock && col !== 'income' && !row.includes(':category:');
+}

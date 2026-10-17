@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from 'react-router';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { CashflowPage } from './pages/analytics/CashflowPage';
 import { PnlPage } from './pages/analytics/PnlPage';
+import { ProjectsPage } from './pages/analytics/ProjectsPage';
 import { StatementPage } from './pages/analytics/StatementPage';
 import { CompanyGate } from './pages/CompanyGate';
 import { CompanyLayout } from './pages/CompanyLayout';
@@ -50,6 +51,7 @@ export const router = createBrowserRouter([
               { path: 'cashflow', element: <CashflowPage /> },
               { path: 'pnl', element: <PnlPage /> },
               { path: 'statement', element: <StatementPage /> },
+              { path: 'projects', element: <ProjectsPage /> },
               { path: '*', element: <Navigate to=".." replace /> },
             ],
           },

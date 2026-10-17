@@ -69,22 +69,24 @@ test('«Аналитика»: вкладка между «Журналом» и 
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/analytics$`));
 
   const cards = main(page).getByRole('list', { name: 'Отчёты' }).getByRole('listitem');
-  await expect(cards).toHaveCount(8);
+  await expect(cards).toHaveCount(9);
   await expect(cards.nth(0)).toContainText('Деньги / Cash flow');
   await expect(cards.nth(0).getByRole('link')).toHaveAttribute('href', `/c/${cid}/analytics/cashflow`);
   await expect(cards.nth(1)).toContainText('Прибыль / P&L');
   await expect(cards.nth(1).getByRole('link')).toHaveAttribute('href', `/c/${cid}/analytics/pnl`);
   await expect(cards.nth(2)).toContainText('Выписка по счету');
   await expect(cards.nth(2).getByRole('link')).toHaveAttribute('href', `/c/${cid}/analytics/statement`);
-  await expect(cards.nth(3).getByRole('link')).toHaveAttribute('href', `/c/${cid}/settings/audit`);
+  await expect(cards.nth(3)).toContainText('Проекты');
+  await expect(cards.nth(3).getByRole('link')).toHaveAttribute('href', `/c/${cid}/analytics/projects`);
+  await expect(cards.nth(4).getByRole('link')).toHaveAttribute('href', `/c/${cid}/settings/audit`);
   // «План/Факт», «Дебиторка», «Кредиторка», «Баланс» — без ссылки, с подписью
-  for (const i of [4, 5, 6, 7]) {
+  for (const i of [5, 6, 7, 8]) {
     await expect(cards.nth(i).getByRole('link')).toHaveCount(0);
     await expect(cards.nth(i)).toContainText('Появится с плановыми операциями');
   }
-  await expect(cards.nth(7)).toContainText('Баланс');
+  await expect(cards.nth(8)).toContainText('Баланс');
   // неактивная карточка: приглушены рисунок и рамка, подпись и название — нет (контраст AA)
-  const dim = cards.nth(4).locator('div.h-full');
+  const dim = cards.nth(5).locator('div.h-full');
   expect(await dim.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
   expect(await dim.locator('span').first().evaluate((el) => getComputedStyle(el).opacity)).toBe('0.5');
   expect(await dim.locator('span').nth(2).evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
@@ -97,7 +99,7 @@ test('«Аналитика»: вкладка между «Журналом» и 
   await expect(page.getByRole('dialog', { name: 'Деньги / Cash flow' })).toBeHidden();
   await expect(help).toBeFocused();
 
-  await cards.nth(3).getByRole('link').click();
+  await cards.nth(4).getByRole('link').click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/audit$`));
 
   // неизвестный отчёт — обратно к карточкам

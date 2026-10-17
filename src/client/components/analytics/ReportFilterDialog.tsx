@@ -5,11 +5,13 @@ import {
   customRangeError,
   DEFAULT_REPORT_STATE,
   effectiveStep,
+  MODE_CHOICES,
   resetReportState,
   PERCENT_CHOICES,
   REPORT_PERIODS,
   reportDialogFields,
   reportRange,
+  STATUS_CHOICES,
   stepChoices,
   STOCK_CHOICES,
   withDialogFields,
@@ -27,7 +29,8 @@ import { ChoiceMenu } from './ChoiceMenu';
  * (категории, контрагенты, проекты, теги, счета); на телефоне (§2.2) первыми идут период, разрез, шаг и проценты —
  * остальные контролы переезжают сюда. «Готово» применяет черновик поверх текущих настроек, «Сбросить» возвращает черновик
  * к значениям по умолчанию (вид «график / таблица» остаётся), «×» и Esc закрывают без изменений. Поля фильтра — те же, что
- * у журнала, без типов операций. Проценты — только в виде «таблица» (§2.2); склад — у «Прибыли» компании со складом (§5.3).
+ * у журнала, без типов операций. Проценты — только в виде «таблица» (§2.2); склад — у «Прибыли» и «Проектов» компании со складом (§5.3). У «Проектов» (§7) на телефоне вместо разреза, шага и процентов — статус и режим, а проектов в фильтре нет:
+ * проекты — строки отчёта.
  */
 function ReportFilterForm(props: {
   state: ReportUrlState;
@@ -36,11 +39,13 @@ function ReportFilterForm(props: {
   today: string;
   dateHeading: string;
   stock: boolean;
+  projects: boolean;
   onApply: (next: ReportUrlState) => void;
 }) {
   const [draft, setDraft] = useState<ReportUrlState>(props.state);
   const fields = reportDialogFields(draft);
   const range = reportRange(draft, props.today);
+  const dimensions = props.projects ? REPORT_DIMENSIONS.filter((d) => d.dim !== 'projects') : REPORT_DIMENSIONS;
   return (
     <form
       onSubmit={(e) => {
@@ -59,9 +64,18 @@ function ReportFilterForm(props: {
             validate={customRangeError}
             onChange={(next) => setDraft(withFittingStep(next, props.today))}
           />
-          <ChoiceMenu wide name="Разрез" value={draft.by} options={BY_CHOICES} onChange={(by) => setDraft((d) => ({ ...d, by }))} />
-          <ChoiceMenu wide name="Шаг" value={effectiveStep(draft.step, range)} options={stepChoices(range)} onChange={(step) => setDraft((d) => ({ ...d, step }))} />
-          {draft.view === 'table' && (
+          {props.projects ? (
+            <>
+              <ChoiceMenu wide name="Проекты" value={draft.status} options={STATUS_CHOICES} onChange={(status) => setDraft((d) => ({ ...d, status }))} />
+              <ChoiceMenu wide name="Режим" value={draft.mode} options={MODE_CHOICES} onChange={(mode) => setDraft((d) => ({ ...d, mode }))} />
+            </>
+          ) : (
+            <>
+              <ChoiceMenu wide name="Разрез" value={draft.by} options={BY_CHOICES} onChange={(by) => setDraft((d) => ({ ...d, by }))} />
+              <ChoiceMenu wide name="Шаг" value={effectiveStep(draft.step, range)} options={stepChoices(range)} onChange={(step) => setDraft((d) => ({ ...d, step }))} />
+            </>
+          )}
+          {!props.projects && draft.view === 'table' && (
             <ChoiceMenu wide name="Проценты" value={draft.percent ? 'on' : 'off'} options={PERCENT_CHOICES} onChange={(v) => setDraft((d) => ({ ...d, percent: v === 'on' }))} />
           )}
           {props.stock && (
@@ -70,7 +84,7 @@ function ReportFilterForm(props: {
         </div>
       )}
       <div className="grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-2">
-        {REPORT_DIMENSIONS.map((d) => (
+        {dimensions.map((d) => (
           <div key={d.dim} className={`min-w-0 ${d.dim === 'typesCategories' ? 'md:col-span-2' : ''}`}>
             <MultiSelectField
               label={d.label}
@@ -83,8 +97,9 @@ function ReportFilterForm(props: {
         ))}
       </div>
       <p className="mt-3 text-xs text-muted">
-        Родительская категория включает подкатегории. При фильтре по категориям, контрагентам, проектам или тегам остатки не считаются — фильтр по счетам их
-        сохраняет.
+        {props.projects
+          ? 'Родительская категория включает подкатегории.'
+          : 'Родительская категория включает подкатегории. При фильтре по категориям, контрагентам, проектам или тегам остатки не считаются — фильтр по счетам их сохраняет.'}
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-3 max-md:sticky max-md:bottom-0 max-md:z-10 max-md:-mx-6 max-md:bg-card max-md:px-6 max-md:py-3">
         <button type="submit" className={`${btnPrimary} max-md:basis-full`}>
@@ -114,8 +129,10 @@ export function ReportFilterDialog(props: {
   today: string;
   /** Тип даты над списком периодов (§2.3): «По дате платежа» или «По дате сделки». */
   dateHeading: string;
-  /** Переключатель «Учитывать склад по себестоимости» на телефоне (§5.3): у «Прибыли» компании со складом. */
+  /** Переключатель «Учитывать склад по себестоимости» на телефоне (§5.3): у «Прибыли» и «Проектов» компании со складом. */
   stock?: boolean;
+  /** «Проекты» (§7): статус и режим вместо разреза, шага и процентов; без поля «Проекты». */
+  projects?: boolean;
   onApply: (next: ReportUrlState) => void;
   onClose: () => void;
 }) {
@@ -128,6 +145,7 @@ export function ReportFilterDialog(props: {
         today={props.today}
         dateHeading={props.dateHeading}
         stock={props.stock ?? false}
+        projects={props.projects ?? false}
         onApply={(next) => {
           props.onApply(next);
           props.onClose();

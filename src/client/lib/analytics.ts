@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery, type InfiniteData } from '@tanstack/react-query';
 import type { ReportBy, ReportColumn, ReportRow, ReportStep } from '../../shared/report-engine';
+import type { ProjectRow, ProjectsMode, ProjectStatus } from '../../shared/report-projects';
 import type { StatementSummary } from '../../shared/report-statement';
 import type { ReportKind } from '../../shared/schemas/analytics';
 import { api, type ApiError } from './api';
@@ -65,6 +66,23 @@ export function useCellOperations(companyId: number, params: string) {
   });
 }
 
+/** Ответ «Проектов» (§7): строки проектов, «Всего» и сведения о расчёте; суммы — в базовой валюте. */
+export interface ProjectsData {
+  rows: ProjectRow[];
+  total: ProjectRow;
+  meta: { from: string; to: string; status: ProjectStatus; mode: ProjectsMode; currency: string; empty: boolean; stock: boolean; noBatch: number };
+}
+
+/** «Проекты» по строке запроса (projectsApiParams) или null, пока она не готова; прежняя таблица — до ответа. */
+export function useProjectsReport(companyId: number, params: string | null) {
+  return useQuery<ProjectsData, ApiError>({
+    queryKey: ['analytics', companyId, 'projects', params],
+    enabled: params !== null,
+    queryFn: () => api<ProjectsData>(`/companies/${companyId}/analytics/projects?${params}`),
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === companyId ? prev : undefined),
+  });
+}
+
 /** Страница операций выписки (§6): строки журнала с остатками после операции, новые сверху. */
 export interface StatementPageData {
   items: JournalItem[];
@@ -104,7 +122,7 @@ export function invalidateAnalytics(companyId: number): Promise<void> {
   return queryClient.invalidateQueries({ queryKey: ['analytics', companyId] });
 }
 
-export type CardIcon = 'wallet' | 'profit' | 'statement' | 'history' | 'plan' | 'in' | 'out' | 'scale';
+export type CardIcon = 'wallet' | 'profit' | 'statement' | 'projects' | 'history' | 'plan' | 'in' | 'out' | 'scale';
 
 /** Карточка раздела «Аналитика» (§2.1): ссылка на отчёт или неактивная (пунктир и подпись). */
 export interface AnalyticsCard {
@@ -123,7 +141,7 @@ export interface AnalyticsCard {
 const PLANNED = 'Появится с плановыми операциями';
 
 /**
- * Карточки по порядку §2.1. Отчёты следующих планов («Проекты», «Финансовые показатели»)
+ * Карточки по порядку §2.1. Отчёт следующего плана («Финансовые показатели»)
  * появляются вместе с ними: мёртвых карточек нет. «План/Факт», «Дебиторка», «Кредиторка», «Баланс» — неактивные (этап 3).
  */
 export const ANALYTICS_CARDS: readonly AnalyticsCard[] = [
@@ -150,6 +168,14 @@ export const ANALYTICS_CARDS: readonly AnalyticsCard[] = [
     help: 'Все деньги, которые приходили и уходили по одному счёту: поступления, списания и переводы за период, с остатком после каждой операции. Удобно сверить с выпиской банка.',
     icon: 'statement',
     href: (cid) => `/c/${cid}/analytics/statement`,
+  },
+  {
+    key: 'projects',
+    title: 'Проекты',
+    description: 'Прибыль и рентабельность по каждому клубу',
+    help: 'Доходы, расходы, прибыль и рентабельность каждого проекта (клуба) за период — по тем же правилам, что «Прибыль»: по дате сделки, без переводов, инвестиций, дивидендов, займов и кредитов.',
+    icon: 'projects',
+    href: (cid) => `/c/${cid}/analytics/projects`,
   },
   {
     key: 'history',

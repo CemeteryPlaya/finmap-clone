@@ -169,6 +169,8 @@ const seedStock = async (p: Page) => {
 const stockTable = (p: Page) => p.getByRole('main').getByRole('table', { name: 'Остатки' });
 /** Таблица «Денег» (план А-1) дождалась данных демо-компании: строка «Поступления» на месте. */
 const cashflowReady = (p: Page) => p.getByRole('main').getByRole('table', { name: 'Деньги' }).getByRole('rowheader', { name: 'Поступления' }).waitFor();
+/** «Проекты» (план А-3): таблица демо-компании дождалась данных — строка «Всего» на месте. */
+const projectsReady = (p: Page) => p.getByRole('main').getByRole('table', { name: 'Проекты' }).getByRole('rowheader', { name: 'Всего', exact: true }).waitFor();
 /** Вид «график» (план А-2): рисунок отчёта и первые строки обоих списков операций под графиками загружены. */
 const chartReady = async (p: Page, title: string) => {
   await p.getByRole('main').getByRole('img', { name: new RegExp(`^${title}\\. `) }).waitFor();
@@ -646,6 +648,34 @@ const SCENARIOS: Scenario[] = [
     path: 'analytics/pnl',
     act: (p) => chartReady(p, 'Прибыль'),
   },
+  // «Аналитика» (план А-3): «Выписка по счету» первого счёта, «Проекты» (склад демо-компании — из сценариев выше), телефон.
+  // У cm11 и cm12 пары в Finmap нет: имена m30 и m40 — заглушки, чтобы карта пар осталась уникальной
+  {
+    ours: 'c53-statement.png',
+    finmap: 'analytics/30-statement.png',
+    path: 'analytics/statement',
+    act: (p) => p.getByRole('main').getByRole('table', { name: /^Операции: / }).locator('tbody tr').first().waitFor(),
+  },
+  { ours: 'c54-projects.png', finmap: 'analytics/40-projects.png', path: 'analytics/projects', act: projectsReady },
+  {
+    ours: 'c55-projects-categories.png',
+    finmap: 'analytics/41-projects-with-categories.png',
+    path: 'analytics/projects?mode=categories',
+    act: async (p) => {
+      await projectsReady(p);
+      // операции первого проекта под таблицей — как на снимке Finmap
+      await p.getByRole('main').getByRole('table', { name: 'Проекты' }).getByRole('rowheader').first().getByRole('button').click();
+      await p.locator('section[data-report-operations] table tbody tr').first().waitFor();
+    },
+  },
+  {
+    ours: 'cm11-statement.png',
+    finmap: 'analytics/m30-statement.png',
+    phone: true,
+    path: 'analytics/statement',
+    act: (p) => p.getByRole('main').getByRole('list', { name: /^Операции: / }).getByRole('listitem').first().waitFor(),
+  },
+  { ours: 'cm12-projects.png', finmap: 'analytics/m40-projects.png', phone: true, path: 'analytics/projects', act: projectsReady },
   {
     // вкладка «Импорты» (§7 спецификации импорта) — пара к Finmap 24 «История действий» (там снимок c24-history):
     // отменённый импорт и импорт с «Отменить». Сценарий последний: импорт меняет данные демо-компании

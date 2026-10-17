@@ -9,6 +9,7 @@ function Icon({ name }: { name: CardIcon }) {
     wallet: 'M3 7a2 2 0 0 1 2-2h12v4M3 7v10a2 2 0 0 0 2 2h14V9H5a2 2 0 0 1-2-2zM16 14h.01',
     profit: 'M3 17l6-6 4 4 8-8M15 7h6v6',
     statement: 'M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h7',
+    projects: 'M3 21h18M5 21V9l7-5 7 5v12M9 21v-6h6v6',
     history: 'M3 12a9 9 0 1 0 3-6.7M3 3v6h6M12 7v5l3 2',
     plan: 'M4 19V9M10 19V5M16 19v-7M22 19H2',
     in: 'M10 17l5-5-5-5M15 12H3M21 4v16',

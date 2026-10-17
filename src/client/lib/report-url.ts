@@ -1,5 +1,6 @@
 import { isValidDate } from '../../shared/dates';
 import { columnCount, maxReportTo, REPORT_BYS, REPORT_MAX_COLUMNS, REPORT_STEPS, type ReportBy, type ReportStep } from '../../shared/report-engine';
+import { MODE_LABEL, PROJECT_STATUSES, PROJECTS_MODES, STATUS_LABEL, type ProjectsMode, type ProjectStatus } from '../../shared/report-projects';
 import type { ReportKind } from '../../shared/schemas/analytics';
 import { JOURNAL_LIST_MAX } from '../../shared/schemas/journal';
 import { periodRange, sortedUnique, type DialogFields } from './journal-filter';
@@ -24,8 +25,12 @@ export interface ReportUrlState {
   by: ReportBy;
   step: ReportStep;
   percent: boolean;
-  /** «Учитывать склад по себестоимости» (§5.3): только у «Прибыли»; в адресе — `stock=0`, когда выключен. */
+  /** «Учитывать склад по себестоимости» (§5.3): у «Прибыли» и «Проектов»; в адресе — `stock=0`, когда выключен. */
   stock: boolean;
+  /** «Проекты» (§7): статус проектов-строк; в адресе — `status=archived|all`. */
+  status: ProjectStatus;
+  /** «Проекты» (§7): «Только проекты» или «Проекты с категориями» (`mode=categories`). */
+  mode: ProjectsMode;
   accountIds: number[];
   categoryIds: number[];
   projectIds: number[];
@@ -44,6 +49,8 @@ export const DEFAULT_REPORT_STATE: ReportUrlState = {
   step: 'month',
   percent: false,
   stock: true,
+  status: 'active',
+  mode: 'projects',
   accountIds: [],
   categoryIds: [],
   projectIds: [],
@@ -80,6 +87,9 @@ export const STOCK_CHOICES = [
   { value: 'on', label: 'Учитывать склад по себестоимости', short: 'Склад: по себестоимости' },
   { value: 'off', label: 'Без учёта склада', short: 'Склад: закупки' },
 ] as const;
+/** Пункты меню статуса и режима «Проектов» (§7). */
+export const STATUS_CHOICES = PROJECT_STATUSES.map((value) => ({ value, label: STATUS_LABEL[value] }));
+export const MODE_CHOICES = PROJECTS_MODES.map((value) => ({ value, label: MODE_LABEL[value] }));
 /** Подсказка недоступного шага (§2.3). */
 export const TOO_MANY_COLUMNS_HINT = 'Слишком много колонок — выберите больший шаг или короче период';
 
@@ -120,6 +130,9 @@ export function parseReportSearch(params: URLSearchParams): ReportUrlState {
   if (REPORT_STEPS.includes(step as ReportStep)) state.step = step as ReportStep;
   state.percent = params.get('pct') === '1';
   state.stock = params.get('stock') !== '0';
+  const status = params.get('status');
+  if (PROJECT_STATUSES.includes(status as ProjectStatus)) state.status = status as ProjectStatus;
+  if (params.get('mode') === 'categories') state.mode = 'categories';
   for (const field of LIST_FIELDS) state[field] = ids(params.getAll(LIST_KEYS[field]));
   for (const field of FLAG_FIELDS) state[field] = params.get(FLAG_KEYS[field]) === '1';
   return state;
@@ -137,9 +150,43 @@ export function reportSearch(state: ReportUrlState): URLSearchParams {
   if (state.step !== DEFAULT_REPORT_STATE.step) p.set('step', state.step);
   if (state.percent) p.set('pct', '1');
   if (!state.stock) p.set('stock', '0');
+  if (state.status !== DEFAULT_REPORT_STATE.status) p.set('status', state.status);
+  if (state.mode !== DEFAULT_REPORT_STATE.mode) p.set('mode', state.mode);
   for (const field of LIST_FIELDS) for (const id of state[field]) p.append(LIST_KEYS[field], String(id));
   for (const field of FLAG_FIELDS) if (state[field]) p.set(FLAG_KEYS[field], '1');
   return p;
+}
+
+/** «Деньги» и «Прибыль»: статуса и режима «Проектов» у них нет — значения из адреса не действуют. */
+export function columnsReportState(s: ReportUrlState): ReportUrlState {
+  return s.status === DEFAULT_REPORT_STATE.status && s.mode === DEFAULT_REPORT_STATE.mode ? s : { ...s, status: DEFAULT_REPORT_STATE.status, mode: DEFAULT_REPORT_STATE.mode };
+}
+
+/**
+ * «Проекты» (§7): действуют период, статус, режим, склад и фильтр без проектов (проекты — строки отчёта); вида, разреза,
+ * шага и процентов нет — значения из адреса отбрасываются.
+ */
+export function projectsState(s: ReportUrlState): ReportUrlState {
+  return { ...s, view: DEFAULT_REPORT_STATE.view, by: DEFAULT_REPORT_STATE.by, step: DEFAULT_REPORT_STATE.step, percent: false, projectIds: [], withoutProject: false };
+}
+
+/** Параметры API «Проектов» (§9): период датами, статус, режим, фильтр без проектов, склад. */
+export function projectsApiParams(state: ReportUrlState, today: string): URLSearchParams {
+  const range = reportRange(state, today);
+  const p = new URLSearchParams();
+  p.set('from', range.from);
+  p.set('to', range.to);
+  p.set('status', state.status);
+  p.set('mode', state.mode);
+  for (const field of LIST_FIELDS) if (field !== 'projectIds') for (const id of state[field]) p.append(API_LIST[field], String(id));
+  for (const field of FLAG_FIELDS) if (field !== 'withoutProject' && state[field]) p.set(field, 'true');
+  if (!state.stock) p.set('stock', '0');
+  return p;
+}
+
+/** Ссылка «Excel» «Проектов» (§2.6): те же настройки, что у таблицы. */
+export function projectsExcelHref(companyId: number, state: ReportUrlState, today: string): string {
+  return `/api/v1/companies/${companyId}/analytics/projects.xlsx?${projectsApiParams(state, today).toString()}`;
 }
 
 /** Границы периода отчёта (включительно) от сегодняшней даты в APP_TIMEZONE; неделя — с понедельника. */
@@ -207,7 +254,7 @@ export function reportFilterCount(state: ReportUrlState): number {
 export function changedControls(
   state: ReportUrlState,
   range?: { from: string; to: string },
-): { period: boolean; by: boolean; step: boolean; percent: boolean; stock: boolean; filter: boolean } {
+): { period: boolean; by: boolean; step: boolean; percent: boolean; stock: boolean; status: boolean; mode: boolean; filter: boolean } {
   return {
     period: state.period !== DEFAULT_REPORT_STATE.period,
     by: state.by !== DEFAULT_REPORT_STATE.by,
@@ -215,6 +262,8 @@ export function changedControls(
     // проценты — только в таблице: в виде «график» контрола нет, и скрытая настройка (pct=1 в адресе) не считается изменением
     percent: state.view === 'table' && state.percent !== DEFAULT_REPORT_STATE.percent,
     stock: state.stock !== DEFAULT_REPORT_STATE.stock,
+    status: state.status !== DEFAULT_REPORT_STATE.status,
+    mode: state.mode !== DEFAULT_REPORT_STATE.mode,
     filter: reportFilterCount(state) > 0,
   };
 }
@@ -228,10 +277,13 @@ export function resetReportState(state: Pick<ReportUrlState, 'view'>): ReportUrl
   return { ...DEFAULT_REPORT_STATE, view: state.view };
 }
 
-/** Число на кнопке «Фильтры» телефона (§2.2): изменённые период, разрез, шаг, проценты, склад и заданные измерения фильтра. */
+/**
+ * Число на кнопке «Фильтры» телефона (§2.2): изменённые период, разрез, шаг, проценты, склад, статус и режим «Проектов» и
+ * заданные измерения фильтра.
+ */
 export function phoneReportCount(state: ReportUrlState, range?: { from: string; to: string }): number {
   const c = changedControls(state, range);
-  return [c.period, c.by, c.step, c.percent, c.stock].filter(Boolean).length + reportFilterCount(state);
+  return [c.period, c.by, c.step, c.percent, c.stock, c.status, c.mode].filter(Boolean).length + reportFilterCount(state);
 }
 
 /** Какие значения фильтра известны: id из справочников компании по спискам адреса. */

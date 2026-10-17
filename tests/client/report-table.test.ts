@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import type { ReportRow } from '../../src/shared/report-engine';
-import { cellTitle, columnHint, DEFAULT_EXPANDED, isDrillRow, listMissesStock, moneyText, nextCell, noBatchText, percentText, ROW_HELP, rowLabel, tableLines } from '../../src/client/lib/report-table';
+import {
+  cellTitle,
+  columnHint,
+  DEFAULT_EXPANDED,
+  isDrillRow,
+  listMissesStock,
+  moneyText,
+  nextCell,
+  noBatchText,
+  percentText,
+  projectsListMissesStock,
+  ROW_HELP,
+  rowLabel,
+  tableLines,
+} from '../../src/client/lib/report-table';
 
 const row = (id: string, kind: ReportRow['kind'], values: (number | null)[], children?: ReportRow[], extra: Partial<ReportRow> = {}): ReportRow => ({
   id,
@@ -130,5 +144,13 @@ describe('«Прибыль» в таблице (§5.2, §5.3)', () => {
     expect(noBatchText(1)).toBe('У 1 продажи себестоимость не определена — прибыль завышена');
     expect(noBatchText(21)).toBe('У 21 продажи себестоимость не определена — прибыль завышена');
     for (const n of [2, 5, 11, 111]) expect(noBatchText(n)).toBe(`У ${n} продаж себестоимость не определена — прибыль завышена`);
+  });
+
+  it('«Проекты» (§7): подпись про склад — у расходов и всех операций строки проекта со складом; у доходов и категорий — нет', () => {
+    expect(projectsListMissesStock(true, 'project:5', 'expense')).toBe(true);
+    expect(projectsListMissesStock(true, 'total', 'total')).toBe(true);
+    expect(projectsListMissesStock(true, 'project:5', 'income')).toBe(false);
+    expect(projectsListMissesStock(true, 'project:5:category:3', 'expense')).toBe(false);
+    expect(projectsListMissesStock(false, 'project:5', 'expense')).toBe(false);
   });
 });

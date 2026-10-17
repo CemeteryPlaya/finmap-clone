@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BY_CHOICES,
   changedControls,
+  columnsReportState,
   customRangeError,
   dropUnknownIds,
   reportDialogFields,
@@ -9,9 +10,13 @@ import {
   DEFAULT_REPORT_STATE,
   effectiveStep,
   isReportChanged,
+  MODE_CHOICES,
   parseReportSearch,
   PERCENT_CHOICES,
   phoneReportCount,
+  projectsApiParams,
+  projectsExcelHref,
+  projectsState,
   REPORT_PERIODS,
   reportApiParams,
   reportExcelHref,
@@ -19,6 +24,7 @@ import {
   reportRange,
   reportSearch,
   resetReportState,
+  STATUS_CHOICES,
   STOCK_CHOICES,
   stepChoices,
   usesIds,
@@ -29,6 +35,35 @@ import {
 
 const parse = (qs: string) => parseReportSearch(new URLSearchParams(qs));
 const TODAY = '2026-10-16';
+
+describe('«Проекты» в адресе (§7)', () => {
+  it('статус и режим: по умолчанию активные и только проекты; в адресе — status и mode; точки, «Сбросить», число на телефоне', () => {
+    expect(DEFAULT_REPORT_STATE).toMatchObject({ status: 'active', mode: 'projects' });
+    expect(STATUS_CHOICES.map((c) => c.label)).toEqual(['Активные проекты', 'Архивные проекты', 'Все проекты']);
+    expect(MODE_CHOICES.map((c) => c.label)).toEqual(['Только проекты', 'Проекты с категориями']);
+    const s = parse('status=archived&mode=categories');
+    expect(s).toEqual({ ...DEFAULT_REPORT_STATE, status: 'archived', mode: 'categories' });
+    expect(parse('status=closed&mode=table')).toEqual(DEFAULT_REPORT_STATE);
+    expect(parse('status=all').status).toBe('all');
+    expect(reportSearch(s).toString()).toBe('status=archived&mode=categories');
+    expect(changedControls(s)).toMatchObject({ status: true, mode: true });
+    expect(phoneReportCount(s)).toBe(2);
+    expect(resetReportState(s)).toEqual(DEFAULT_REPORT_STATE);
+  });
+
+  it('«Проекты» отбрасывают вид, разрез, шаг, проценты и фильтр по проектам; «Деньги» и «Прибыль» — статус и режим', () => {
+    const s = parse('view=table&by=project&step=week&pct=1&project=5&noProject=1&category=3&status=all&mode=categories&stock=0');
+    expect(projectsState(s)).toEqual({ ...DEFAULT_REPORT_STATE, categoryIds: [3], status: 'all', mode: 'categories', stock: false });
+    expect(columnsReportState(s)).toEqual({ ...s, status: 'active', mode: 'projects' });
+    expect(columnsReportState(DEFAULT_REPORT_STATE)).toBe(DEFAULT_REPORT_STATE);
+  });
+
+  it('API и Excel: период датами, статус, режим, фильтр без проектов, склад', () => {
+    const s = projectsState(parse('period=lastMonth&status=archived&account=2&tag=4&noCategory=1&noCounterparty=1&stock=0'));
+    expect(projectsApiParams(s, TODAY).toString()).toBe('from=2026-09-01&to=2026-09-30&status=archived&mode=projects&accounts=2&tags=4&withoutCategory=true&withoutCounterparty=true&stock=0');
+    expect(projectsExcelHref(1, DEFAULT_REPORT_STATE, TODAY)).toBe('/api/v1/companies/1/analytics/projects.xlsx?from=2026-01-01&to=2026-12-31&status=active&mode=projects');
+  });
+});
 
 describe('настройки отчёта в адресе (§2.2)', () => {
   it('пустой адрес — значения по умолчанию: текущий год, по категориям, по месяцам, без процентов и фильтра', () => {
@@ -158,7 +193,7 @@ describe('параметры API и изменённые контролы', () =
 
   it('точки у изменённых контролов и счётчик фильтра', () => {
     const s: ReportUrlState = { ...DEFAULT_REPORT_STATE, view: 'table', step: 'quarter', percent: true, categoryIds: [1], withoutCategory: true, tagIds: [2] };
-    expect(changedControls(s)).toEqual({ period: false, by: false, step: true, percent: true, stock: false, filter: true });
+    expect(changedControls(s)).toEqual({ period: false, by: false, step: true, percent: true, stock: false, status: false, mode: false, filter: true });
     expect(reportFilterCount(s)).toBe(2);
     expect(isReportChanged(s)).toBe(true);
     expect(isReportChanged({ ...DEFAULT_REPORT_STATE, withoutCounterparty: true })).toBe(true);

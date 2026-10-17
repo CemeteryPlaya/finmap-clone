@@ -28,6 +28,7 @@ import {
   effectiveStep,
   PERCENT_CHOICES,
   phoneReportCount,
+  columnsReportState,
   REPORT_PERIODS,
   reportApiParams,
   reportExcelHref,
@@ -68,7 +69,7 @@ const CHART_COLUMNS: readonly JournalColumnId[] = ['date', 'amount', 'counterpar
  */
 export function ReportScreen({ company, config }: { company: Company; config: ReportConfig }) {
   // склад (§5.3): переключатель — только у отчёта со складом и компании со складом; без него stock=0 из адреса не действует
-  const settings = useReportSettings(company, { stock: !!config.stock });
+  const settings = useReportSettings(company, { stock: !!config.stock, normalize: columnsReportState });
   const { state, today, timeZone, stockAvailable, notice, update, lookups } = settings;
   const prefs = usePreferences();
   // с id в адресе отчёт запрашивается, когда справочники загружены и id проверены; у «Прибыли» — ещё и склады
