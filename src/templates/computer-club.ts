@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { BusinessTemplate, CategoryLeaf } from './types';
 
-const r = (ref: string, name: string): CategoryLeaf => ({ ref: `computer-club:${ref}`, name });
+const ref = (key: string) => `computer-club:${key}`;
+const r = (key: string, name: string): CategoryLeaf => ({ ref: ref(key), name });
 
 export const computerClub: BusinessTemplate = {
   key: 'computer-club',
@@ -61,4 +62,9 @@ export const computerClub: BusinessTemplate = {
     { key: 'payrollToRevenue', label: 'ФОТ к выручке', unit: 'percent' },
     { key: 'rentToRevenue', label: 'Аренда к выручке', unit: 'percent' },
   ],
+  // «Закуп бара» — в себестоимости для закупок без документа склада (§8.2)
+  indicatorDefaults: {
+    cogs: [ref('bar-purchase')],
+    variable: [ref('bar-purchase'), ref('loyalty'), ref('bank-fees'), ref('prizes'), ref('consumables')],
+  },
 };

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isValidDate } from '../dates';
 import { columnCount, maxReportTo, parseDrillRow, REPORT_MAX_COLUMNS, type ReportFilter } from '../report-engine';
+import { isIndicatorKey } from '../report-indicators';
 import { parseProjectsRow, PROJECTS_COLS, type ProjectsCol } from '../report-projects';
 import { JOURNAL_LIMIT_DEFAULT, JOURNAL_LIMIT_MAX, queryParts } from './journal';
 
@@ -72,8 +73,27 @@ export const reportExportSchema = z.object({ ...reportShape, pct: flag }).superR
 export const REPORT_KINDS = ['cashflow', 'pnl'] as const;
 export type ReportKind = (typeof REPORT_KINDS)[number];
 
-/** Отчёты, у которых есть операции ячейки (§2.5): «Деньги», «Прибыль» и «Проекты». */
-export const CELL_REPORTS = ['cashflow', 'pnl', 'projects'] as const;
+/** Отчёты, у которых есть операции ячейки (§2.5): «Деньги», «Прибыль», «Проекты» и «Финансовые показатели». */
+export const CELL_REPORTS = ['cashflow', 'pnl', 'projects', 'indicators'] as const;
+
+/**
+ * «Финансовые показатели» (§8.1, §9): период по дате сделки и шаг — «По месяцам» (по умолчанию) или «По кварталам».
+ * Разреза, фильтра и переключателя склада нет: склад — флажок части показателя (§8.2).
+ */
+export const indicatorsQuerySchema = z
+  .object({
+    from: reportDate,
+    to: reportDate,
+    step: z.preprocess(blank, z.enum(['month', 'quarter'], { message: 'Шаг — month или quarter' }).default('month')),
+  })
+  .superRefine(checkPeriod);
+
+/** `PUT …/analytics/indicators/parts/:part` (§8.2, §9): «Все категории» — флаг; иначе список категорий вида части. */
+export const indicatorPartSchema = z.object({
+  allCategories: z.boolean({ message: 'Укажите, все ли категории' }),
+  categoryIds: z.array(z.number().int().positive(), { message: 'Список категорий' }).max(500, 'Не больше 500 категорий'),
+  includeStock: z.boolean({ message: 'Укажите, учитывать ли склад' }),
+});
 
 /**
  * «Проекты» (§7, §9): период по дате сделки, статус проектов (`active` по умолчанию, `archived`, `all`), режим
@@ -115,6 +135,11 @@ export const cellQuerySchema = z
   // у «Проектов» колонок нет (период — весь, без шага): число колонок не считаем
   .superRefine((v, ctx) => (v.report === 'projects' ? void checkRange(v, ctx) : checkPeriod(v, ctx)))
   .superRefine((v, ctx) => {
+    // «Финансовые показатели» (§8.1): строка — показатель, колонка — колонка шага или «Итого»
+    if (v.report === 'indicators') {
+      if (!isIndicatorKey(v.row)) ctx.addIssue({ code: 'custom', path: ['row'], message: NOT_DRILLABLE });
+      return;
+    }
     const drill = v.report === 'projects' ? parseProjectsRow(v.row) : parseDrillRow(v.row);
     if (drill === null || (v.report === 'cashflow' && v.row === 'profit') || (v.report === 'pnl' && v.row === 'net')) ctx.addIssue({ code: 'custom', path: ['row'], message: NOT_DRILLABLE });
     if (v.report === 'projects' && !PROJECTS_COLS.includes(v.col as ProjectsCol)) ctx.addIssue({ code: 'custom', path: ['col'], message: 'Неизвестная колонка' });
@@ -131,6 +156,8 @@ export const statementExportSchema = z.object({ account: statementAccount, from:
 
 export type ReportQuery = z.output<typeof reportQuerySchema>;
 export type ProjectsQuery = z.output<typeof projectsQuerySchema>;
+export type IndicatorsQuery = z.output<typeof indicatorsQuerySchema>;
+export type IndicatorPartInput = z.output<typeof indicatorPartSchema>;
 export type StatementQuery = z.output<typeof statementQuerySchema>;
 export type StatementExportQuery = z.output<typeof statementExportSchema>;
 export type CellQuery = z.output<typeof cellQuerySchema>;

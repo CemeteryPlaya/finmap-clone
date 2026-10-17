@@ -10,6 +10,8 @@ export type AuditAction =
   | 'archive'
   | 'unarchive'
   | 'reorder'
+  /** «Вернуть по умолчанию» у настройки «Финансовых показателей» (§8.2 спецификации «Аналитика»). */
+  | 'reset'
   | 'login'
   | 'logout'
   | 'password_change';

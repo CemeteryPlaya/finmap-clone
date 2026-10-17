@@ -41,6 +41,11 @@ export interface BusinessTemplate {
   defaultAccounts: { name: string; currency?: string }[];
   integrations: string[];
   metrics: MetricDef[];
+  /**
+   * Умолчания «Финансовых показателей» (§8.2 спецификации «Аналитика»): ссылки категорий шаблона (`templateRef`) для частей
+   * «Себестоимость» и «Переменные расходы». Пока часть не настроена, в неё входят категории компании с этими ссылками.
+   */
+  indicatorDefaults?: { cogs: readonly string[]; variable: readonly string[] };
 }
 
 export function isUnderSystem(node: CategoryNode): node is UnderSystemGroup {

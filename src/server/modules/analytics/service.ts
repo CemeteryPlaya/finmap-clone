@@ -20,12 +20,30 @@ import {
   type ReportRow,
   type TransferLeg,
 } from '../../../shared/report-engine';
+import {
+  defaultPart,
+  INDICATOR_EXPENSE,
+  INDICATOR_PARTS,
+  indicatorRows,
+  PART_KIND,
+  PART_LABEL,
+  partCategories,
+  partText,
+  templateCategoryIds,
+  type IndicatorKey,
+  type IndicatorLine,
+  type IndicatorPart,
+  type IndicatorRow,
+  type PartConfig,
+} from '../../../shared/report-indicators';
 import { isFullyPaid, paymentExclusions, pnlExcludedCategories, pnlRows, type PaidOperation, type StockCost, type StockInput } from '../../../shared/report-pnl';
 import { MODE_LABEL, parseProjectsRow, projectsRows, STATUS_LABEL, type ProjectRow, type ProjectsCol, type ProjectsMode, type ProjectStatus } from '../../../shared/report-projects';
 import { statementDelta, statementSummary, transferLabel, type StatementSummary } from '../../../shared/report-statement';
 import {
   reportFilter,
   type CellQuery,
+  type IndicatorPartInput,
+  type IndicatorsQuery,
   type ProjectsQuery,
   type ReportExportQuery,
   type ReportKind,
@@ -34,15 +52,18 @@ import {
   type StatementQuery,
 } from '../../../shared/schemas/analytics';
 import type { SystemKey } from '../../../shared/system-categories';
+import { TEMPLATES } from '../../../templates';
 import type { Db } from '../../db/client';
-import { accounts, categories, counterparties, projects, tags } from '../../db/schema';
+import { accounts, analyticsIndicatorParts, categories, counterparties, projects, tags } from '../../db/schema';
 import { AppError } from '../../errors';
 import { exportFileName } from '../../http/export-name';
 import { buildXlsx } from '../../http/xlsx';
+import { mutate } from '../audit/mutate';
+import { createAuditService, type AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import { decodeCursor, encodeCursor, JOURNAL_EXPORT_MAX, type JournalItem, type JournalService } from '../operations/journal';
 import type { RatesService } from '../rates/service';
-import { filterText, projectsSheet, reportInfo, reportSheet, statementSheet, type FilterNames, type StatementExportRow } from './report-export';
+import { filterText, indicatorsSheet, projectsSheet, reportInfo, reportSheet, statementSheet, type FilterNames, type StatementExportRow } from './report-export';
 
 /** Ответ отчёта (§3.2): колонки шага, дерево строк и сведения о расчёте. */
 export interface ReportResponse {
@@ -118,6 +139,30 @@ export interface StatementResponse extends StatementPage {
   meta: { from: string; to: string };
 }
 
+/** Часть показателя в ответе (§8.2): действующая настройка и признак умолчания (строки настройки нет). */
+export interface IndicatorPartView extends PartConfig {
+  isDefault: boolean;
+}
+
+/** «Финансовые показатели» (§8.1): колонки шага, четыре показателя, действующие настройки частей и сведения о расчёте. */
+export interface IndicatorsResponse {
+  columns: ReportColumn[];
+  rows: IndicatorRow[];
+  parts: Record<IndicatorPart, IndicatorPartView>;
+  meta: {
+    from: string;
+    to: string;
+    step: IndicatorsQuery['step'];
+    currency: string;
+    /** Ни строк «Прибыли», ни себестоимости склада в периоде. */
+    empty: boolean;
+    /** У компании есть склад: флажок склада частей действует (§5.3). */
+    stock: boolean;
+    /** Продаж «Нет партии» в периоде (§5.3). */
+    noBatch: number;
+  };
+}
+
 export interface AnalyticsService {
   /** «Деньги / Cash flow» (§4.1). */
   cashflow(companyId: number, q: ReportQuery): ReportResponse;
@@ -131,6 +176,14 @@ export interface AnalyticsService {
   operations(companyId: number, q: CellQuery): CellPage;
   /** Excel отчёта (§2.6): таблица как на экране, все строки раскрыты; «{Компания} - {Отчёт} - ДД-ММ-ГГГГ ЧЧ-ММ.xlsx». */
   exportXlsx(companyId: number, report: ReportKind, q: ReportExportQuery): { fileName: string; data: Buffer };
+  /** «Финансовые показатели» (§8.1): по правилам «Прибыли», части — настройка компании или умолчание (§8.2). */
+  indicators(companyId: number, q: IndicatorsQuery): IndicatorsResponse;
+  /** Excel «Финансовых показателей» (§2.6): таблица как на экране и настройки частей. */
+  indicatorsXlsx(companyId: number, q: IndicatorsQuery): { fileName: string; data: Buffer };
+  /** Сохранить часть показателя (§8.2) и записать изменение в историю; архивная компания — только чтение. */
+  savePart(companyId: number, part: IndicatorPart, input: IndicatorPartInput, userId: number): Record<IndicatorPart, IndicatorPartView>;
+  /** «Вернуть по умолчанию» (§8.2): удалить настройку части; без настройки — ничего не меняется и не пишется. */
+  resetPart(companyId: number, part: IndicatorPart, userId: number): Record<IndicatorPart, IndicatorPartView>;
   /** «Выписка по счету» (§6): сводка за период в валюте счёта и первая страница операций, новые сверху. */
   statement(companyId: number, q: StatementQuery): StatementResponse;
   /** Следующие страницы операций выписки (курсор журнала). */
@@ -206,10 +259,20 @@ const livePayments = (companyId: number) =>
   sql`SELECT p.operation_id AS operationId, SUM(p.amount) AS paid FROM stock_doc_payments p JOIN stock_docs d ON d.id = p.doc_id
        WHERE d.company_id = ${companyId} AND d.deleted_at IS NULL AND d.type = 'receipt' AND d.status = 'posted' GROUP BY p.operation_id`;
 
-export function createAnalyticsService(d: { db: Db; rates: RatesService; journal: JournalService; timezone: string; now?: () => Date; exportLimit?: number }): AnalyticsService {
+export function createAnalyticsService(d: {
+  db: Db;
+  rates: RatesService;
+  journal: JournalService;
+  timezone: string;
+  now?: () => Date;
+  exportLimit?: number;
+  /** История изменений настроек показателей (§8.2). */
+  audit?: AuditService;
+}): AnalyticsService {
   const { db, timezone } = d;
   const exportLimit = d.exportLimit ?? JOURNAL_EXPORT_MAX;
   const now = d.now ?? (() => new Date());
+  const audit = d.audit ?? createAuditService(db, now);
 
   function dicts(companyId: number): ReportDicts {
     return {
@@ -260,11 +323,11 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
   }
 
   /**
-   * Строки «Прибыли» (§5.1): по дате сделки (момент начала её дня), без переводов. Со складом — без частей расходов,
-   * оплативших поступления (§5.3): оплата делится по всем строкам операции (paymentExclusions), даже если фильтр
-   * оставил только часть строк.
+   * Строки по дате сделки (§3.1): момент начала её дня, без переводов. cut — часть строки расхода, оплатившая поступления
+   * склада (§5.3), когда stock: оплата делится по всем строкам операции (paymentExclusions), даже если фильтр оставил
+   * только часть строк. Без склада cut — 0.
    */
-  function selectPnlLines(companyId: number, f: ReportFilter, range: LineRange, stock: boolean): ReportLine[] {
+  function selectDealLines(companyId: number, f: ReportFilter, range: LineRange, stock: boolean): IndicatorLine[] {
     const rows = db.all<ReportLine & { lineId: number; accrual: string | null }>(sql`
       SELECT l.id AS lineId, o.paid_at AS at, o.accrual_date AS accrual, o.type AS type, o.account_id AS accountId, l.category_id AS categoryId,
              l.project_id AS projectId, o.counterparty_id AS counterpartyId, l.base_amount AS amount
@@ -279,8 +342,53 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
       categoryId: r.categoryId,
       projectId: r.projectId,
       counterpartyId: r.counterpartyId,
-      amount: r.amount - (excluded.get(r.lineId) ?? 0),
+      amount: r.amount,
+      cut: excluded.get(r.lineId) ?? 0,
     }));
+  }
+
+  /** Строки «Прибыли» (§5.1): строки по дате сделки, со складом — без частей расходов, оплативших поступления (§5.3). */
+  function selectPnlLines(companyId: number, f: ReportFilter, range: LineRange, stock: boolean): ReportLine[] {
+    return selectDealLines(companyId, f, range, stock).map(({ cut, ...l }) => ({ ...l, amount: l.amount - cut }));
+  }
+
+  /** Категории компании из умолчаний шаблонов (§8.2): по ссылке шаблона, у «Общего» их нет. */
+  function templateDefaults(companyId: number): { cogs: number[]; variable: number[] } {
+    const rows = db
+      .select({ id: categories.id, templateRef: categories.templateRef })
+      .from(categories)
+      .where(eq(categories.companyId, companyId))
+      .orderBy(asc(categories.orderIndex), asc(categories.id))
+      .all();
+    const refs = (key: 'cogs' | 'variable') => TEMPLATES.flatMap((t) => t.indicatorDefaults?.[key] ?? []);
+    return { cogs: templateCategoryIds(rows, refs('cogs')), variable: templateCategoryIds(rows, refs('variable')) };
+  }
+
+  /** Действующие настройки частей (§8.2): сохранённая строка или умолчание. */
+  function partViews(companyId: number): Record<IndicatorPart, IndicatorPartView> {
+    const saved = new Map(
+      db
+        .select()
+        .from(analyticsIndicatorParts)
+        .where(eq(analyticsIndicatorParts.companyId, companyId))
+        .all()
+        .map((r) => [r.part, r]),
+    );
+    const template = templateDefaults(companyId);
+    const out = {} as Record<IndicatorPart, IndicatorPartView>;
+    for (const part of INDICATOR_PARTS) {
+      const row = saved.get(part);
+      out[part] = row
+        ? { allCategories: row.allCategories, categoryIds: JSON.parse(row.categoryIds) as number[], includeStock: row.includeStock, isDefault: false }
+        : { ...defaultPart(part, template), isDefault: true };
+    }
+    return out;
+  }
+
+  /** Запись истории о части (§8.2): названия категорий на момент изменения — история читается и после их удаления. */
+  function partDiff(part: IndicatorPart, v: IndicatorPartView, names: Map<number, string>) {
+    const categories = v.allCategories ? [] : v.categoryIds.map((id) => names.get(id)).filter((n): n is string => n !== undefined);
+    return { allCategories: v.allCategories, categories, includeStock: v.includeStock, isDefault: v.isDefault, text: partText(part, v, categories) };
   }
 
   /** Расходы с оплатами закупок: id операции → сумма оплат и все её строки (base_amount) по порядку (§5.3). */
@@ -424,6 +532,23 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
       where.push(sql`l.project_id IN (SELECT p.id FROM projects p WHERE p.company_id = ${companyId} AND p.archived_at ${archived})`);
     }
     return where;
+  }
+
+  /**
+   * Условие строк ячейки показателя (§8.1): доходы категорий «Выручки» и расходы категорий его части расходов; «Процент
+   * маржи» — все строки «Прибыли». stock — у части расходов включён склад (у «Процента маржи» — как у «Прибыли»).
+   */
+  function indicatorCellWhere(companyId: number, key: IndicatorKey): { where: SQL; stock: boolean } {
+    const expensePart = INDICATOR_EXPENSE[key];
+    if (expensePart === null) return { where: sql`1 = 1`, stock: true };
+    const parts = partViews(companyId);
+    const cats = dicts(companyId).categories;
+    const side = (part: IndicatorPart) => {
+      const set = partCategories(part, parts[part], cats);
+      const conds = [...(set.ids.size > 0 ? [sql`l.category_id IN (${idList([...set.ids])})`] : []), ...(set.uncategorized ? [sql`l.category_id IS NULL`] : [])];
+      return conds.length > 0 ? sql`(o.type = ${PART_KIND[part]} AND (${sql.join(conds, sql` OR `)}))` : sql`0 = 1`;
+    };
+    return { where: sql`(${side('revenue')} OR ${side(expensePart)})`, stock: parts[expensePart].includeStock };
   }
 
   /** Названия выбранных значений фильтров для сведений Excel (R13). */
@@ -647,8 +772,10 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
     operations(companyId, q) {
       requireCompany(db, companyId);
       const projects = q.report === 'projects';
-      // у «Проектов» фильтра по проектам нет (проекты и есть строки): параметры проектов в запросе не читаются
-      const f: ReportFilter = projects ? { ...reportFilter(q), projectIds: [], withoutProject: false } : reportFilter(q);
+      const indicators = q.report === 'indicators';
+      // у «Проектов» фильтра по проектам нет (проекты и есть строки): параметры проектов в запросе не читаются;
+      // у «Финансовых показателей» фильтра нет совсем (§8.1)
+      const f: ReportFilter = indicators ? {} : projects ? { ...reportFilter(q), projectIds: [], withoutProject: false } : reportFilter(q);
       companyAccounts(companyId, f);
       // у «Проектов» колонок шага нет — ячейка за весь период
       const range = projects ? { from: q.from, to: q.to } : drillRange(reportColumns(q.from, q.to, q.step), q.col);
@@ -660,8 +787,14 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
         end: startOfDayUtc(addDays(range.to, 1), timezone),
         ...(pnl ? { accrual: range } : {}),
       };
-      const where = projects ? projectsCellWhere(companyId, f, bounds, q.row, q.col as ProjectsCol) : [reportLineWhere(companyId, f, bounds, parseDrillRow(q.row)!)];
-      const stock = pnl && stockOn(companyId, q);
+      const indicator = indicators ? indicatorCellWhere(companyId, q.row as IndicatorKey) : null;
+      const where = projects
+        ? projectsCellWhere(companyId, f, bounds, q.row, q.col as ProjectsCol)
+        : indicator
+          ? [reportLineWhere(companyId, f, bounds), indicator.where]
+          : [reportLineWhere(companyId, f, bounds, parseDrillRow(q.row)!)];
+      // у показателя склад — флажок его части расходов (§8.2); «Процент маржи» — как «Прибыль»
+      const stock = pnl && stockOn(companyId, indicator ? { stock: indicator.stock } : q);
       if (pnl) {
         // «Прибыль» (§5.1): строки исключённых системных категорий не входят
         const excluded = [...pnlExcludedCategories(dicts(companyId).categories)];
@@ -725,6 +858,83 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
       });
       const sheet = reportSheet({ name: REPORT_TITLE[report], columns: data.columns, rows: data.rows, currency: data.meta.currency, percent: q.pct === true, info });
       return { fileName: exportFileName(company.name, REPORT_TITLE[report], now(), timezone), data: buildXlsx(sheet, { strings: 'shared' }) };
+    },
+
+    indicators(companyId, q) {
+      const company = requireCompany(db, companyId);
+      const columns = reportColumns(q.from, q.to, q.step);
+      const starts = columnStarts(columns, timezone);
+      // те же границы и строки, что у «Прибыли» (§8.1): дата сделки, исключения; склад — если у компании он есть
+      const range = dealRange(q);
+      const stock = stockOn(companyId, { stock: true });
+      const store = stock ? stockInput(companyId, range.start, range.end) : null;
+      const parts = partViews(companyId);
+      const result = indicatorRows({ starts, lines: selectDealLines(companyId, {}, range, stock), categories: dicts(companyId).categories, parts, stock: store ? store.costs : null });
+      return {
+        columns,
+        rows: result.rows,
+        parts,
+        meta: { from: q.from, to: q.to, step: q.step, currency: company.baseCurrency, empty: result.empty, stock, noBatch: store ? store.noBatch.length : 0 },
+      };
+    },
+
+    indicatorsXlsx(companyId, q) {
+      const company = requireCompany(db, companyId);
+      const data = service.indicators(companyId, q);
+      const names = new Map(dicts(companyId).categories.map((c) => [c.id, c.name]));
+      const info = reportInfo({
+        title: 'Финансовые показатели',
+        from: q.from,
+        to: q.to,
+        step: q.step,
+        extra: INDICATOR_PARTS.map((p) => `${PART_LABEL[p]}: ${partDiff(p, data.parts[p], names).text}`),
+        filters: 'нет',
+        noBatch: data.meta.noBatch,
+      });
+      const sheet = indicatorsSheet({ columns: data.columns, rows: data.rows, currency: data.meta.currency, info });
+      return { fileName: exportFileName(company.name, 'Финансовые показатели', now(), timezone), data: buildXlsx(sheet, { strings: 'shared' }) };
+    },
+
+    savePart(companyId, part, input, userId) {
+      requireCompany(db, companyId, { writable: true });
+      const kind = PART_KIND[part];
+      const all = dicts(companyId).categories;
+      const own = new Set(all.filter((c) => c.kind === kind).map((c) => c.id));
+      const ids = input.allCategories ? [] : [...new Set(input.categoryIds)];
+      if (ids.some((id) => !own.has(id))) throw invalid('categoryIds', kind === 'income' ? 'Неизвестная категория дохода' : 'Неизвестная категория расхода');
+      // у «Выручки» склада нет: флажок — только у частей расходов
+      const next: IndicatorPartView = { allCategories: input.allCategories, categoryIds: ids, includeStock: kind === 'expense' && input.includeStock, isDefault: false };
+      const before = partViews(companyId)[part];
+      const same =
+        !before.isDefault &&
+        before.allCategories === next.allCategories &&
+        before.includeStock === next.includeStock &&
+        JSON.stringify(before.categoryIds) === JSON.stringify(next.categoryIds);
+      if (same) return partViews(companyId);
+      const names = new Map(all.map((c) => [c.id, c.name]));
+      mutate(db, audit, (tx, record) => {
+        const row = { allCategories: next.allCategories, categoryIds: JSON.stringify(next.categoryIds), includeStock: next.includeStock, updatedAt: now().toISOString(), updatedBy: userId };
+        tx.insert(analyticsIndicatorParts)
+          .values({ companyId, part, ...row })
+          .onConflictDoUpdate({ target: [analyticsIndicatorParts.companyId, analyticsIndicatorParts.part], set: row })
+          .run();
+        record({ companyId, userId, entity: 'indicator_part', action: 'update', diff: { part, before: partDiff(part, before, names), after: partDiff(part, next, names) } });
+      });
+      return partViews(companyId);
+    },
+
+    resetPart(companyId, part, userId) {
+      requireCompany(db, companyId, { writable: true });
+      const before = partViews(companyId)[part];
+      if (before.isDefault) return partViews(companyId);
+      const names = new Map(dicts(companyId).categories.map((c) => [c.id, c.name]));
+      mutate(db, audit, (tx, record) => {
+        tx.delete(analyticsIndicatorParts)
+          .where(and(eq(analyticsIndicatorParts.companyId, companyId), eq(analyticsIndicatorParts.part, part)))
+          .run();
+        record({ companyId, userId, entity: 'indicator_part', action: 'reset', diff: { part, before: partDiff(part, before, names), after: partDiff(part, partViews(companyId)[part], names) } });
+      });
+      return partViews(companyId);
     },
 
     statement(companyId, q) {

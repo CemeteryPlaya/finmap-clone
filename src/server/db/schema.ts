@@ -601,3 +601,26 @@ export const stockDocPostings = sqliteTable(
   },
   (t) => [index('stock_doc_postings_op_idx').on(t.operationId)],
 );
+
+/* ---------- «Аналитика» (спецификация «Аналитика», §8.2) ---------- */
+
+/**
+ * Настройка части «Финансовых показателей»: какие категории входят в часть и учитывается ли склад. Пока строки нет,
+ * действует умолчание (§8.2). category_ids — JSON-массив id категорий без внешних ключей: удалённая категория просто
+ * ничего не находит; all_categories — «Все категории», отдельный выбор, а не список.
+ */
+export const analyticsIndicatorParts = sqliteTable(
+  'analytics_indicator_parts',
+  {
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id),
+    part: text('part', { enum: ['revenue', 'cogs', 'variable', 'operating'] }).notNull(),
+    allCategories: integer('all_categories', { mode: 'boolean' }).notNull(),
+    categoryIds: text('category_ids').notNull(),
+    includeStock: integer('include_stock', { mode: 'boolean' }).notNull(),
+    updatedAt: text('updated_at').notNull(),
+    updatedBy: integer('updated_by').references(() => users.id),
+  },
+  (t) => [primaryKey({ columns: [t.companyId, t.part] })],
+);

@@ -1,6 +1,7 @@
 import { getCurrency } from '../../../shared/currencies';
 import { formatDateRu } from '../../../shared/dates';
 import { flattenRows, rowLabel, shareBp, type ReportBy, type ReportColumn, type ReportRow, type ReportStep } from '../../../shared/report-engine';
+import { indicatorDef, type IndicatorRow } from '../../../shared/report-indicators';
 import { noBatchText } from '../../../shared/report-pnl';
 import { incomeExpenseBp, marginPercent, projectLines, projectRowLabel, type ProjectRow } from '../../../shared/report-projects';
 import { STATEMENT_SUMMARY, type StatementSummary } from '../../../shared/report-statement';
@@ -144,6 +145,24 @@ export function projectsSheet(input: { rows: readonly ProjectRow[]; total: Proje
       { header: 'Рентабельность, %', width: 18 },
     ],
     rows,
+    preamble: input.info.map((text, i): XlsxCell[] => [{ kind: 'text', value: text, bold: i === 0 }]),
+  };
+}
+
+/**
+ * Лист Excel «Финансовых показателей» (§2.6, §8.1): «Показатель», колонки шага, «Итого» — как на экране. Деньги — числа в
+ * базовой валюте; «Процент маржи» — целые проценты числами, при нулевой Выручке — «—» текстом.
+ */
+export function indicatorsSheet(input: { columns: readonly ReportColumn[]; rows: readonly IndicatorRow[]; currency: string; info: readonly string[] }): XlsxSheet {
+  const units = getCurrency(input.currency).minorUnits;
+  const cell = (row: IndicatorRow, v: number | null): XlsxCell => {
+    if (v === null) return { kind: 'text', value: '—' };
+    return indicatorDef(row.id).percent ? { kind: 'number', value: String(v), decimals: 0 } : { kind: 'number', value: minorToDecimal(v, units), decimals: units };
+  };
+  return {
+    name: 'Показатели',
+    columns: [{ header: 'Показатель', width: 28 }, ...input.columns.map((c) => ({ header: c.label, width: 16 })), { header: 'Итого', width: 16 }],
+    rows: input.rows.map((row): XlsxCell[] => [{ kind: 'text', value: indicatorDef(row.id).percent ? `${row.label}, %` : row.label }, ...row.values.map((v) => cell(row, v)), cell(row, row.total)]),
     preamble: input.info.map((text, i): XlsxCell[] => [{ kind: 'text', value: text, bold: i === 0 }]),
   };
 }
