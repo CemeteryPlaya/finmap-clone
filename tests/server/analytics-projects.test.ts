@@ -256,4 +256,43 @@ describe('«Проекты»: GET /companies/:cid/analytics/projects (§7)', () 
     expect(withCategories.slice(0, at).map((r) => r[0])).toContain('Склад: закупки');
     expect(withCategories.slice(at + 1).map((r) => r[0])).toEqual(['Клуб 3 (архив)', '    Бар', '    Аренда', 'Активные проекты (вместе)', '    Бар', '    Аренда', 'Без проекта', '    Бар', '    Аренда', '    Закуп бара', 'Всего']);
   });
+
+  it('withoutProject в запросе операций ячейки отбрасывается: строка «Без проекта» и проекты те же, что без него', async () => {
+    const q = await quarter();
+    const ids = async (qs: string) => (await cell(qs)).items.map((i) => i.id);
+    expect(await ids(`row=project:${w.project}&col=income&withoutProject=true`)).toEqual([q.july]);
+    expect(await ids('row=project:none&col=total&withoutProject=true')).toEqual(await ids('row=project:none&col=total'));
+    expect((await ids('row=project:none&col=total')).length).toBeGreaterThan(0);
+    expect(await ids('row=total&col=total&withoutProject=true')).toEqual(await ids('row=total&col=total'));
+  });
+
+  it('длинный период с step=day у ячейки «Проектов» — 200: колонок у отчёта нет, проверка числа колонок не применяется (R11)', async () => {
+    await quarter();
+    const long = `${base()}/operations?report=projects&from=2026-01-01&to=2026-09-30&step=day&row=project:none&col=total`;
+    expect((await w.h.req('GET', long)).statusCode).toBe(200);
+    // у «Денег» тот же запрос по-прежнему отвергается
+    const cashflow = await w.h.req('GET', `${base()}/operations?report=cashflow&from=2026-01-01&to=2026-09-30&step=day&row=income&col=total`);
+    expect(cashflow.statusCode).toBe(400);
+  });
+
+  it('нет компании — 404; чужой счёт — 400; архивная компания читается: «Проекты», Excel и операции ячейки', async () => {
+    await quarter();
+    const paths = [`projects?${Q3}`, `projects.xlsx?${Q3}`, `operations?report=projects&${Q3}&row=project:none&col=total`];
+    for (const path of paths) {
+      const missing = await w.h.req('GET', `/api/v1/companies/999999/analytics/${path}`);
+      expect(missing.statusCode, `${path}: ${missing.body}`).toBe(404);
+      expect((missing.json() as { error: { code: string } }).error.code).toBe('NOT_FOUND');
+    }
+    const other = await w.h.company('Другая');
+    const own = (await w.post(`/api/v1/companies/${other}/accounts`, { name: 'Своя', currency: 'KZT', openedAt: '2026-01-01', startingBalance: 0 })).account.id as number;
+    for (const path of paths) {
+      expect(await fieldError(`/api/v1/companies/${other}/analytics/${path}&accounts=${w.kzt}`), path).toEqual({ accounts: 'Неизвестный счёт' });
+    }
+    await w.post(`/api/v1/companies/${other}/accounts/${own}/archive`, {});
+    await w.post(`/api/v1/companies/${other}/archive`, {});
+    for (const path of paths) {
+      const res = await w.h.req('GET', `/api/v1/companies/${other}/analytics/${path}`);
+      expect(res.statusCode, `${path}: ${res.body}`).toBe(200);
+    }
+  });
 });

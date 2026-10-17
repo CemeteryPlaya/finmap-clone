@@ -1,5 +1,4 @@
-import type { FastifyInstance } from 'fastify';
-import type { FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import {
   cellQuerySchema,
   projectsQuerySchema,

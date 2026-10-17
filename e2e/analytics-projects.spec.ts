@@ -208,3 +208,55 @@ test('«Проекты»: телефон — контролы в окне «Фи
   const region = main(page).getByRole('region', { name: 'Проекты: таблица' });
   expect(await region.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
 });
+
+test('«Проекты»: строки склада не кликабельны и пропускаются стрелками; стрелки, Home и End двигают фокус по ячейкам таблицы', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Проекты клавиши ${Date.now()}`);
+  await projectsSetup(page, cid);
+  await page.goto(`/c/${cid}/analytics/projects?mode=categories`);
+  await expect(table(page).getByRole('rowheader', { name: 'Всего', exact: true })).toBeVisible();
+
+  // строка склада: заголовок без кнопки, суммы без кнопок, щелчок списка операций не открывает
+  const stock = row(page, 'Себестоимость проданных товаров').first();
+  await expect(stock).toBeVisible();
+  await expect(stock.getByRole('button')).toHaveCount(0);
+  await stock.getByRole('cell').first().click();
+  await expect(main(page).getByRole('heading', { level: 2 })).toHaveCount(0);
+
+  // стрелка вниз от категории проекта: следующая ячейка того же столбца - не строка склада
+  const barIncome = row(page, 'Бар').first().getByRole('button').nth(1);
+  await barIncome.focus();
+  await page.keyboard.press('ArrowDown');
+  const rowOf = () => page.evaluate(() => (document.activeElement?.closest('tr') as HTMLElement | null)?.dataset.row ?? '');
+  const below = await rowOf();
+  expect(below).not.toBe('');
+  expect(below).not.toContain(':stock:');
+  await page.keyboard.press('ArrowUp');
+  await expect(barIncome).toBeFocused();
+  // вправо - «Расходы», Home - первая ячейка строки (название), End - последняя («Расходы»)
+  await page.keyboard.press('ArrowRight');
+  await expect(row(page, 'Бар').first().getByRole('button').nth(2)).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(row(page, 'Бар').first().getByRole('button').nth(0)).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(row(page, 'Бар').first().getByRole('button').nth(2)).toBeFocused();
+  // Enter на ячейке открывает список операций
+  await page.keyboard.press('Enter');
+  await expect(main(page).getByRole('heading', { level: 2 })).toBeFocused();
+});
+
+test('«Проекты»: панель в самом длинном состоянии на 1440 px умещается в одну строку (без коротких подписей статуса и режима)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Проекты панель ${Date.now()}`);
+  await projectsSetup(page, cid);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // статус «Архивные проекты», режим «Проекты с категориями», склад выключен, свой период - самые длинные подписи
+  await page.goto(`/c/${cid}/analytics/projects?status=archived&mode=categories&stock=0&period=lastYear`);
+  await expect(table(page).getByRole('rowheader', { name: 'Всего', exact: true })).toBeVisible();
+  const tops = await main(page).locator('div.sticky.top-0').first().locator('button, a').evaluateAll((els) =>
+    els.filter((e) => e.getBoundingClientRect().width > 0).map((e) => Math.round(e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2)),
+  );
+  expect(tops.length).toBeGreaterThan(4);
+  // центры по вертикали совпадают (перенос на вторую строку сдвинул бы их на высоту кнопки)
+  expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(6);
+});

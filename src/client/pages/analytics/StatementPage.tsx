@@ -45,10 +45,14 @@ function StatementScreen({ company }: { company: Company }) {
   const help = <HelpButton about={TITLE} text={HELP} />;
   const header = <ReportHeader companyId={company.id} title={TITLE} subtitle="Все поступления, списания и переводы одного счёта" headingRef={headingRef} help={help} />;
 
-  if (!today || !timeZone || !lookups || !accounts) {
+  const filterData = settings.filterData;
+  // «?» компьютера живёт в панели; пока панели нет — под заголовком
+  const deskHelp = <div className="mb-2 flex justify-end max-md:hidden">{help}</div>;
+  if (!today || !timeZone || !lookups || !accounts || !filterData) {
     return (
       <section>
         {header}
+        {deskHelp}
         <Pending queries={settings.dictionaries} />
       </section>
     );
@@ -57,6 +61,7 @@ function StatementScreen({ company }: { company: Company }) {
     return (
       <section>
         {header}
+        {deskHelp}
         <p className="py-6 text-muted">
           Нет счетов для выписки.{' '}
           <Link to={`/c/${company.id}/settings/accounts`} className="font-semibold text-ink underline">

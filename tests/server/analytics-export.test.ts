@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { reportSheet } from '../../src/server/modules/analytics/report-export';
+import { projectsSheet, reportSheet, statementSheet } from '../../src/server/modules/analytics/report-export';
+import type { ProjectRow } from '../../src/shared/report-projects';
 import { HIDDEN_BALANCES_TEXT } from '../../src/shared/report-engine';
 import { opsWorld, type OpsWorld } from '../helpers/ops';
 import { stockWorld } from '../helpers/stock';
@@ -177,5 +178,57 @@ describe('Excel отчётов: сведения над таблицей, отр
     const off = sheet((await download(url('&stock=0'))).rawPayload);
     expect(off.info.slice(5)).toEqual(['Склад: закупки']);
     expect(off.rows.some((r) => r[0]!.trim() === 'Себестоимость проданных товаров')).toBe(false);
+  });
+});
+
+describe('Excel «Проектов» и «Выписки»: полужирный и вид ячеек (R12)', () => {
+  it('«Проекты»: «Всего» полужирным, деньги и проценты - числа, деление на ноль - текст «—», категория - с отступом без полужирного', () => {
+    const club: ProjectRow = { id: 'project:1', kind: 'project', label: 'Клуб 1', income: 100_000, expense: 50_000, children: [{ id: 'project:1:category:2', kind: 'category', label: 'Бар', income: 100_000, expense: 0 }] };
+    const idle: ProjectRow = { id: 'project:2', kind: 'project', label: 'Клуб 2', income: 0, expense: 20_000 };
+    const total: ProjectRow = { id: 'total', kind: 'total', label: 'Всего', income: 100_000, expense: 70_000 };
+    const sheet = projectsSheet({ rows: [club, idle], total, currency: 'KZT', info: ['Отчёт: Проекты', 'Период: x'] });
+    expect(sheet.rows.map((r) => r[0])).toEqual([
+      { kind: 'text', value: 'Клуб 1', bold: false },
+      { kind: 'text', value: '    Бар', bold: false },
+      { kind: 'text', value: 'Клуб 2', bold: false },
+      { kind: 'text', value: 'Всего', bold: true },
+    ]);
+    // деньги - числа с двумя знаками; проценты - числа (2 знака и целое)
+    expect(sheet.rows[0]!.slice(1)).toEqual([
+      { kind: 'number', value: '1000.00', decimals: 2, bold: false },
+      { kind: 'number', value: '500.00', decimals: 2, bold: false },
+      { kind: 'number', value: '500.00', decimals: 2, bold: false },
+      { kind: 'number', value: '200.00', decimals: 2, bold: false },
+      { kind: 'number', value: '50', decimals: 0, bold: false },
+    ]);
+    // нет дохода - рентабельности нет: текст «—», а не ноль
+    expect(sheet.rows[2]!.slice(4)).toEqual([
+      { kind: 'number', value: '0.00', decimals: 2, bold: false },
+      { kind: 'text', value: '—', bold: false },
+    ]);
+    expect(sheet.rows[3]!.every((c) => c !== null && 'bold' in c && c.bold === true)).toBe(true);
+    // сведения: полужирно только название отчёта
+    expect(sheet.preamble!.map((r) => (r[0] as { bold?: boolean }).bold)).toEqual([true, false]);
+  });
+
+  it('«Выписка»: название отчёта полужирным, сводка и таблица - числа с двумя знаками, пустые контрагент, проект и комментарий - пустые ячейки, дата - дата со временем', () => {
+    const summary = { start: 1_500_000, income: 100_000, expense: 30_000, transfersIn: 0, transfersOut: 0, end: 1_570_000 };
+    const row = { paidAt: '2026-10-02T05:00:00.000Z', delta: -30_000, balance: 1_570_000, counterparty: null, category: 'Аренда', project: null, comment: null };
+    const sheet = statementSheet({ account: { name: 'Касса', currency: 'KZT', archived: false, openedAt: '2026-01-01' }, from: '2026-10-01', to: '2026-10-03', summary, rows: [row], timeZone: 'Asia/Almaty' });
+    expect(sheet.preamble![0]).toEqual([{ kind: 'text', value: 'Отчёт: Выписка по счету', bold: true }]);
+    expect(sheet.preamble![3]).toEqual([
+      { kind: 'text', value: 'Остаток на начало' },
+      { kind: 'number', value: '15000.00', decimals: 2 },
+    ]);
+    const cells = sheet.rows[0]!;
+    expect(cells[0]).toMatchObject({ kind: 'datetime' });
+    expect(cells.slice(1)).toEqual([
+      { kind: 'number', value: '-300.00', decimals: 2 },
+      { kind: 'number', value: '15700.00', decimals: 2 },
+      null,
+      { kind: 'text', value: 'Аренда' },
+      null,
+      null,
+    ]);
   });
 });

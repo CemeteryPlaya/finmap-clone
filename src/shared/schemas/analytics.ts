@@ -112,7 +112,8 @@ export const cellQuerySchema = z
     col: z.string({ message: 'Укажите колонку отчёта' }).max(20, 'Неизвестная колонка'),
     ...pageShape,
   })
-  .superRefine(checkPeriod)
+  // у «Проектов» колонок нет (период — весь, без шага): число колонок не считаем
+  .superRefine((v, ctx) => (v.report === 'projects' ? void checkRange(v, ctx) : checkPeriod(v, ctx)))
   .superRefine((v, ctx) => {
     const drill = v.report === 'projects' ? parseProjectsRow(v.row) : parseDrillRow(v.row);
     if (drill === null || (v.report === 'cashflow' && v.row === 'profit') || (v.report === 'pnl' && v.row === 'net')) ctx.addIssue({ code: 'custom', path: ['row'], message: NOT_DRILLABLE });
@@ -120,7 +121,7 @@ export const cellQuerySchema = z
   });
 
 /** Счёт выписки (§6): обязателен, одно значение. */
-const statementAccount = z.preprocess(blank, z.string({ message: 'Укажите счёт' }).regex(/^[1-9]\d{0,14}$/, 'Неизвестный счёт').transform(Number));
+const statementAccount = z.preprocess(blank, z.string({ error: (issue) => (Array.isArray(issue.input) ? 'Укажите один счёт' : 'Укажите счёт') }).regex(/^[1-9]\d{0,14}$/, 'Неизвестный счёт').transform(Number));
 
 /** `GET …/analytics/statement` и `…/statement/operations` (§6, §9): счёт, период, курсор и размер страницы. */
 export const statementQuerySchema = z.object({ account: statementAccount, from: reportDate, to: reportDate, ...pageShape }).superRefine((v, ctx) => void checkRange(v, ctx));

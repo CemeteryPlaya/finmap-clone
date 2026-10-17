@@ -1,4 +1,5 @@
 import { formatDateShortRu } from '../../../shared/dates';
+import { statementLeg } from '../../../shared/report-statement';
 import { journalCardText } from '../../lib/journal-card';
 import { dealDay } from '../../lib/journal-format';
 import type { JournalItem } from '../../lib/queries';
@@ -37,7 +38,7 @@ export function JournalCards(props: {
         const part = props.parts?.get(item.id);
         const c = journalCardText(part === undefined ? item : { ...item, amount: part }, props.lookups, props);
         // в выписке цвет суммы — по движению по счёту: перевод на счёт — как доход, со счёта — как расход
-        const tone = props.statementAccountId === undefined ? AMOUNT_CLASS[item.type] : c.amount.startsWith('+') ? AMOUNT_CLASS.income : AMOUNT_CLASS.expense;
+        const tone = props.statementAccountId === undefined ? AMOUNT_CLASS[item.type] : statementLeg(item, props.statementAccountId).delta < 0 ? AMOUNT_CLASS.expense : AMOUNT_CLASS.income;
         return (
           <li key={item.id}>
             <button

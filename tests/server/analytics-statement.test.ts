@@ -30,7 +30,7 @@ interface Summary {
   end: number;
 }
 interface Statement {
-  account: { id: number; name: string; currency: string; archived: boolean };
+  account: { id: number; name: string; currency: string; archived: boolean; openedAt: string };
   summary: Summary;
   items: Item[];
   nextCursor: string | null;
@@ -224,7 +224,11 @@ describe('«Выписка по счету»: GET …/analytics/statement (§6, 
     // в периоде 4 операции по счёту «Касса»
     expect(() => analytics(3).statementXlsx(w.cid, q)).toThrowError(expect.objectContaining({ status: 422, code: 'EXPORT_LIMIT' }));
     expect(() => analytics(3).statementXlsx(w.cid, q)).toThrow('Больше 3 операций — сузьте период или фильтр');
-    expect(sheetRows(analytics(4).statementXlsx(w.cid, q).data).at(-1)).toBeDefined();
+    // в пределе файл действительно собран: сводка, заголовки и ровно 4 строки операций, новые сверху
+    const built = sheetRows(analytics(4).statementXlsx(w.cid, q).data);
+    const head = built.findIndex((r) => r[0] === 'Дата и время');
+    expect(head).toBeGreaterThan(0);
+    expect(built.slice(head + 1).map((r) => r[1])).toEqual(['237.56', '-475.12', '-300.00', '1000.00']);
     // экран предел не затрагивает
     expect(analytics(3).statement(w.cid, { ...q, limit: 50 }).items).toHaveLength(4);
   });
@@ -243,5 +247,52 @@ describe('«Выписка по счету»: GET …/analytics/statement (§6, 
     expect(cashflow.rows.find((r) => r.id === 'balance:end')?.total).toBe(s.summary.end);
     const rows = sheetRows((await w.h.req('GET', `${base()}/statement.xlsx?account=${fresh}&${PERIOD}`)).rawPayload);
     expect(rows.map((r) => r[0])).toContain('Счёт открыт 02.10.2026 — стартовый остаток учтён в остатке на начало');
+  });
+
+  it('запланированные операции в выписку не входят: ни в сводку, ни в список, ни в Excel (status = actual)', async () => {
+    await world();
+    const before = await statement(`account=${w.kzt}&${PERIOD}`);
+    const planned = (await w.post(w.ops, { type: 'income', paidAt: '2026-10-02T09:00:00Z', accountId: w.kzt, amount: 77_700, lines: [{ categoryId: w.income, amount: 77_700 }] })).operation.id as number;
+    w.h.t.sqlite.prepare("UPDATE operations SET status = 'planned' WHERE id = ?").run(planned);
+    const after = await statement(`account=${w.kzt}&${PERIOD}`);
+    expect(after.summary).toEqual(before.summary);
+    expect(after.items.map((i) => i.id)).toEqual(before.items.map((i) => i.id));
+    expect(after.items.map((i) => i.id)).not.toContain(planned);
+    const xlsx = sheetRows((await w.h.req('GET', `${base()}/statement.xlsx?account=${w.kzt}&${PERIOD}`)).rawPayload);
+    expect(xlsx.map((r) => r[1])).not.toContain('777.00');
+  });
+
+  it('операция без категории: в Excel в колонке «Категория» — «Без категории», как на экране', async () => {
+    await world();
+    await w.post(w.ops, { type: 'income', paidAt: '2026-10-02T10:00:00Z', accountId: w.kzt, amount: 12_300, lines: [{ amount: 12_300 }] });
+    const rows = sheetRows((await w.h.req('GET', `${base()}/statement.xlsx?account=${w.kzt}&${PERIOD}`)).rawPayload);
+    const head = rows.findIndex((r) => r[0] === 'Дата и время');
+    const category = rows.slice(head + 1).find((r) => r[1] === '123.00')![4];
+    expect(category).toBe('Без категории');
+  });
+
+  it('повторный параметр account — «Укажите один счёт», а не «Укажите счёт»', async () => {
+    await world();
+    expect(await fieldError(`${base()}/statement?account=${w.kzt}&account=${w.usd}&${PERIOD}`)).toEqual({ account: 'Укажите один счёт' });
+  });
+
+  it('нет компании — 404; чужая компания не видит счёт — 400; архивная компания читается (выписка, страницы, Excel)', async () => {
+    await world();
+    for (const path of ['statement', 'statement/operations', 'statement.xlsx']) {
+      const missing = await w.h.req('GET', `/api/v1/companies/999999/analytics/${path}?account=${w.kzt}&${PERIOD}`);
+      expect(missing.statusCode, `${path}: ${missing.body}`).toBe(404);
+      expect((missing.json() as { error: { code: string } }).error.code).toBe('NOT_FOUND');
+    }
+    const other = await w.h.company('Другая');
+    for (const path of ['statement', 'statement/operations', 'statement.xlsx']) {
+      expect(await fieldError(`/api/v1/companies/${other}/analytics/${path}?account=${w.kzt}&${PERIOD}`)).toEqual({ account: 'Неизвестный счёт' });
+    }
+    const account = (await w.post(`/api/v1/companies/${other}/accounts`, { name: 'Своя', currency: 'KZT', openedAt: '2026-01-01', startingBalance: 0 })).account.id as number;
+    await w.post(`/api/v1/companies/${other}/accounts/${account}/archive`, {});
+    await w.post(`/api/v1/companies/${other}/archive`, {});
+    for (const path of ['statement', 'statement/operations', 'statement.xlsx']) {
+      const res = await w.h.req('GET', `/api/v1/companies/${other}/analytics/${path}?account=${account}&${PERIOD}`);
+      expect(res.statusCode, `${path}: ${res.body}`).toBe(200);
+    }
   });
 });

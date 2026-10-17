@@ -666,6 +666,8 @@ const SCENARIOS: Scenario[] = [
       // операции первого проекта под таблицей — как на снимке Finmap
       await p.getByRole('main').getByRole('table', { name: 'Проекты' }).getByRole('rowheader').first().getByRole('button').click();
       await p.locator('section[data-report-operations] table tbody tr').first().waitFor();
+      // курсор не оставляем над таблицей: иначе на снимке подсвечена строка
+      await p.mouse.move(0, 0);
     },
   },
   {

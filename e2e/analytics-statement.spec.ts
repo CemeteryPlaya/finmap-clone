@@ -88,6 +88,8 @@ test('«Выписка по счету»: карточка, сводка схо�
   await expect(summary(page, 'transfersIn')).toHaveText(/^₸\s400$/);
   await expect(summary(page, 'transfersOut')).toHaveText(/^₸\s1\s000$/);
   await expect(summary(page, 'end')).toHaveText(/^₸\s16\s100$/);
+  // счёт открыт до начала периода (R2): строки «Счёт открыт…» нет
+  await expect(main(page).locator('[data-opened-note]')).toHaveCount(0);
 
   // операции новые сверху; остаток после операции — по этому счёту; у перевода — «Перевод: {другой счёт}»
   const table = main(page).getByRole('table', { name: 'Операции: Касса Клуб 1' });
@@ -152,6 +154,8 @@ test('«Выписка по счету»: карточка, сводка схо�
   await expect(page).toHaveURL(new RegExp(`\\?account=${s.kaspi}$`));
   await expect(page.getByRole('heading', { level: 1, name: 'Выписка по счету' })).toBeFocused();
   await expect(summary(page, 'end')).toHaveText(/^₸\s600$/);
+  // после «Сбросить» период снова текущий год, счёт открыт раньше: строки про открытие нет
+  await expect(main(page).locator('[data-opened-note]')).toHaveCount(0);
 
   // архивный счёт: в меню его нет; открыт ссылкой — выбран, с пометкой «(архив)»
   const old = (await apiPost(page, `${s.base}/accounts`, { name: 'Старая касса', currency: 'KZT', openedAt: '2025-01-01', startingBalance: 0 })).account.id as number;
@@ -190,7 +194,58 @@ test('«Выписка по счету»: телефон — счёт и пер�
   await expect(cards.nth(0).locator('[data-card-line="amount"]')).toHaveText(/\+400\s₸$/);
   await expect(cards.nth(0).locator('[data-card-line="account"]')).toHaveText(/^Остаток: 16\s100\s₸$/);
   await expect(cards.nth(1).locator('[data-card-line="amount"]')).toHaveText(/\u22121\s000\s₸$/);
+  // цвет суммы - по движению по счёту (R9): на счёт - как доход, со счёта - как расход
+  await expect(cards.nth(0).locator('[data-card-line="amount"]')).toHaveClass(/text-income/);
+  await expect(cards.nth(1).locator('[data-card-line="amount"]')).toHaveClass(/text-expense-strong/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await cards.nth(3).getByRole('button').click();
   await expect(page.getByRole('dialog', { name: 'Доход', exact: true })).toBeVisible();
+});
+
+test('«Выписка по счету»: список подгружается страницами - первая со сводкой, дальше по курсору, без повторов', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Выписка страницы ${Date.now()}`);
+  await statementSetup(page, cid);
+  // по 3 операции на страницу: у счёта «Касса Клуб 1» их четыре
+  await page.route(/\/analytics\/statement(\/operations)?\?/, (route) => {
+    const url = new URL(route.request().url());
+    url.searchParams.set('limit', '3');
+    return route.continue({ url: url.toString() });
+  });
+  const urls: string[] = [];
+  page.on('request', (r) => {
+    const u = new URL(r.url());
+    if (/\/analytics\/statement(\/operations)?$/.test(u.pathname)) urls.push(`${u.pathname.endsWith('/operations') ? 'operations' : 'first'}:${u.searchParams.get('cursor') ? 'cursor' : 'no-cursor'}`);
+  });
+  await page.goto(`/c/${cid}/analytics/statement`);
+  const rows = main(page).getByRole('table', { name: 'Операции: Касса Клуб 1' }).locator('tbody tr');
+  await expect(summary(page, 'end')).toHaveText(/^₸\s16\s100$/);
+  // низ списка на экране: вторая страница подгружается сама (наблюдатель), «Показать ещё» - запасной путь
+  await expect(rows).toHaveCount(4);
+  await expect(main(page).getByRole('button', { name: 'Показать ещё' })).toHaveCount(0);
+  // последняя строка - самая старая операция: доход 2 000 ₸ «Бар», остаток после неё 17 000 ₸
+  await expect(cells(rows.nth(3))[2]!).toHaveText('Бар');
+  await expect(cells(rows.nth(3))[1]!).toHaveText(/^17\s000\s₸$/);
+  // первая страница - без курсора, следующая - ровно один запрос по курсору (первая может уйти повторно при смене счёта и периода)
+  expect(urls.filter((u) => u.startsWith('operations'))).toEqual(['operations:cursor']);
+  expect(urls.filter((u) => u.startsWith('first')).every((u) => u === 'first:no-cursor')).toBe(true);
+});
+
+test('«Выписка по счету»: не загрузились теги - ошибка с «Повторить» вместо вечной «Загрузки», после повтора выписка открывается (R7)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Выписка ошибка ${Date.now()}`);
+  const s = await statementSetup(page, cid);
+  let fail = true;
+  await page.route(/\/api\/v1\/companies\/\d+\/tags(\?|$)/, (route) =>
+    fail ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'INTERNAL', message: 'Теги недоступны' } }) }) : route.continue(),
+  );
+  // в адресе есть счёт: без справочника тегов адрес проверить нельзя - раньше здесь оставался скелетон
+  await page.goto(`/c/${cid}/analytics/statement?account=${s.cash}`);
+  const alert = main(page).getByRole('alert');
+  await expect(alert).toBeVisible();
+  await expect(alert).toContainText('Теги недоступны');
+  fail = false;
+  await main(page).getByRole('button', { name: 'Повторить' }).click();
+  await expect(summary(page, 'end')).toHaveText(/^₸\s16\s100$/);
+  await expect(main(page).getByRole('alert')).toHaveCount(0);
 });

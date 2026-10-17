@@ -21,6 +21,12 @@ export interface JournalCardText {
   category: string | null;
 }
 
+/** Подпись категории: «2 категории» у разбитой, «Без категории», иначе имя. */
+function categoryText(d: ReturnType<typeof lineDimension>, lookups: JournalLookups): string {
+  if (d.kind === 'many') return splitLabel(d.count, 'category');
+  return d.id === null ? 'Без категории' : (lookups.categories.get(d.id)?.name ?? '…');
+}
+
 /**
  * statementAccountId — карточка «Выписки по счету» (§6 спецификации «Аналитика»): сумма — движение по этому счёту в его
  * валюте со знаком, строка счёта — «Остаток: …» после операции, у перевода категория — «Перевод: {другой счёт}».
@@ -40,21 +46,14 @@ export function journalCardText(item: JournalItem, lookups: JournalLookups, ctx:
       extra: null,
       counterparty: item.counterpartyId === null ? null : (lookups.counterparties.get(item.counterpartyId) ?? '…'),
       account: leg.balance === null ? (own?.name ?? '…') : `Остаток: ${formatMoney(leg.balance, ownCurrency, MONEY_SCREEN)}`,
-      category:
-        leg.other !== null
-          ? transferLabel(lookups.accounts.get(leg.other)?.name ?? '…')
-          : d.kind === 'many'
-            ? splitLabel(d.count, 'category')
-            : d.id === null
-              ? 'Без категории'
-              : (lookups.categories.get(d.id)?.name ?? '…'),
+      category: leg.other !== null ? transferLabel(lookups.accounts.get(leg.other)?.name ?? '…') : categoryText(d, lookups),
     };
   }
 
   let category: string | null = null;
   if (item.type !== 'transfer') {
     const d = lineDimension(item.lines, 'categoryId');
-    category = d.kind === 'many' ? splitLabel(d.count, 'category') : d.id === null ? 'Без категории' : (lookups.categories.get(d.id)?.name ?? '…');
+    category = categoryText(d, lookups);
   }
 
   let extra: string | null = null;

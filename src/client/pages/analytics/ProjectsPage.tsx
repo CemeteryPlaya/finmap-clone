@@ -79,6 +79,8 @@ function ProjectsScreen({ company }: { company: Company }) {
       <section>
         {header}
         {status}
+        {/* «?» компьютера живёт в панели; пока панели нет — под заголовком */}
+        <div className="mb-2 flex justify-end max-md:hidden">{help}</div>
         <Pending queries={settings.dictionaries} />
       </section>
     );

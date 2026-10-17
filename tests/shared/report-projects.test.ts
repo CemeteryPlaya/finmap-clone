@@ -153,6 +153,7 @@ describe('«Проекты»: строки (§7)', () => {
     const categories = [1, 2, 10, 12, null];
     const categoryPool = [1, 10, 11, 12];
     let filteredRounds = 0;
+    let filteredWithStock = 0;
     let stockRows = 0;
     for (let round = 0; round < 60; round++) {
       let lines = Array.from({ length: rnd(25) }, () =>
@@ -167,6 +168,7 @@ describe('«Проекты»: строки (§7)', () => {
           filter = { categoryIds: ids };
           lines = lines.filter((l) => l.categoryId !== null && ids.includes(l.categoryId));
           filteredRounds++;
+          if (stock && stock.costs.length > 0) filteredWithStock++;
         }
       }
       const pnl = pnlRows({ columns, starts, lines, by: 'project', dicts, filter, stock });
@@ -196,6 +198,8 @@ describe('«Проекты»: строки (§7)', () => {
     }
     // сценарий не вырожденный: были и раунды с фильтром, и склад без фильтра
     expect(filteredRounds).toBeGreaterThan(5);
+    // и в отфильтрованных раундах склад был: исключение склада под фильтром проверено на деле, а не на пустом месте
+    expect(filteredWithStock).toBeGreaterThan(0);
     expect(stockRows).toBeGreaterThan(0);
   });
 });

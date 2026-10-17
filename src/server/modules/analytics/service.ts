@@ -563,7 +563,7 @@ export function createAnalyticsService(d: { db: Db; rates: RatesService; journal
         delta,
         balance,
         counterparty: o.counterpartyId === null ? null : (counterpartyName.get(o.counterpartyId) ?? null),
-        category: o.type === 'transfer' ? transferLabel(other === null ? '…' : (accountName.get(other) ?? '…')) : joined(own.map((l) => categoryName(l.categoryId))),
+        category: o.type === 'transfer' ? transferLabel(other === null ? '…' : (accountName.get(other) ?? '…')) : joined(own.map((l) => categoryName(l.categoryId) ?? 'Без категории')) ?? 'Без категории',
         project: joined(own.map((l) => (l.projectId === null ? null : projectName.get(l.projectId)))),
         comment: o.comment,
       };

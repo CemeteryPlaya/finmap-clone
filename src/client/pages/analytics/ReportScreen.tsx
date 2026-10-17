@@ -24,11 +24,11 @@ import { cellTitle, DEFAULT_EXPANDED, listMissesStock, noBatchText, STOCK_LIST_N
 import {
   BY_CHOICES,
   changedControls,
+  columnsReportState,
   customRangeError,
   effectiveStep,
   PERCENT_CHOICES,
   phoneReportCount,
-  columnsReportState,
   REPORT_PERIODS,
   reportApiParams,
   reportExcelHref,
