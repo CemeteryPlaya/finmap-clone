@@ -101,7 +101,7 @@ test('«Аналитика»: вкладка между «Журналом» и 
   await expect(page.getByRole('dialog', { name: 'Деньги / Cash flow' })).toBeHidden();
   await expect(help).toBeFocused();
 
-  await cards.nth(4).getByRole('link').click();
+  await cards.nth(5).getByRole('link').click();
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/settings/audit$`));
 
   // неизвестный отчёт — обратно к карточкам

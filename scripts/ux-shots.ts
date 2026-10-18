@@ -171,6 +171,8 @@ const stockTable = (p: Page) => p.getByRole('main').getByRole('table', { name: '
 const cashflowReady = (p: Page) => p.getByRole('main').getByRole('table', { name: 'Деньги' }).getByRole('rowheader', { name: 'Поступления' }).waitFor();
 /** «Проекты» (план А-3): таблица демо-компании дождалась данных — строка «Всего» на месте. */
 const projectsReady = (p: Page) => p.getByRole('main').getByRole('table', { name: 'Проекты' }).getByRole('rowheader', { name: 'Всего', exact: true }).waitFor();
+/** «Финансовые показатели» (план А-4): таблица демо-компании дождалась данных — строка «EBITDA» на месте. */
+const indicatorsReady = (p: Page) => p.getByRole('main').getByRole('table', { name: 'Финансовые показатели' }).getByRole('rowheader', { name: 'EBITDA' }).waitFor();
 /** Вид «график» (план А-2): рисунок отчёта и первые строки обоих списков операций под графиками загружены. */
 const chartReady = async (p: Page, title: string) => {
   await p.getByRole('main').getByRole('img', { name: new RegExp(`^${title}\\. `) }).waitFor();
@@ -678,6 +680,32 @@ const SCENARIOS: Scenario[] = [
     act: (p) => p.getByRole('main').getByRole('list', { name: /^Операции: / }).getByRole('listitem').first().waitFor(),
   },
   { ours: 'cm12-projects.png', finmap: 'analytics/m40-projects.png', phone: true, path: 'analytics/projects', act: projectsReady },
+  // «Аналитика» (план А-4): «Финансовые показатели» — таблица, окно «Редактировать показатель», вкладка «История»
+  { ours: 'c56-indicators.png', finmap: 'analytics/70-financial-indicators.png', path: 'analytics/indicators', act: indicatorsReady },
+  {
+    ours: 'c57-indicator-dialog.png',
+    finmap: 'analytics/71-indicator-categories.png',
+    path: 'analytics/indicators',
+    act: async (p) => {
+      await indicatorsReady(p);
+      await p.getByRole('main').getByRole('table', { name: 'Финансовые показатели' }).getByRole('button', { name: 'Валовая прибыль', exact: true }).click();
+      await p.getByRole('dialog', { name: 'Редактировать показатель' }).getByRole('button', { name: 'Сохранить' }).waitFor();
+    },
+  },
+  {
+    ours: 'c58-indicators-history.png',
+    finmap: 'analytics/72-indicators-history.png',
+    path: 'analytics/indicators',
+    act: async (p) => {
+      await indicatorsReady(p);
+      // запись в истории — настройка части через API: «Себестоимость» — все категории расхода, без склада
+      const { cid, headers } = apiOf(p);
+      const res = await p.request.put(`/api/v1/companies/${cid}/analytics/indicators/parts/cogs`, { headers, data: { allCategories: true, categoryIds: [], includeStock: false } });
+      if (!res.ok()) throw new Error(`Показатели: ${res.status()} ${await res.text()}`);
+      await p.getByRole('main').getByRole('button', { name: 'История', exact: true }).click();
+      await p.getByRole('main').getByRole('table', { name: 'История изменений показателей' }).getByRole('row').nth(1).waitFor();
+    },
+  },
   {
     // вкладка «Импорты» (§7 спецификации импорта) — пара к Finmap 24 «История действий» (там снимок c24-history):
     // отменённый импорт и импорт с «Отменить». Сценарий последний: импорт меняет данные демо-компании
