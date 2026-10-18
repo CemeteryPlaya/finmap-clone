@@ -87,7 +87,7 @@ export function diffRows(diff: Record<string, unknown> | null, entity?: string):
   const a = after as Record<string, unknown>;
   // часть финансового показателя: одна строка «Настройка» с текстом части, а не служебные поля (§8.2)
   if (entity === 'indicator_part') return [{ field: 'Настройка', before: show(b.text), after: show(a.text) }];
-  const value =(field: string, v: unknown) => (entity === 'operation' && field === 'type' && typeof v === 'string' && OPERATION_TYPE_LABELS[v]) || show(v);
+  const value = (field: string, v: unknown) => (entity === 'operation' && field === 'type' && typeof v === 'string' && OPERATION_TYPE_LABELS[v]) || show(v);
   const fields = [...new Set([...Object.keys(b), ...Object.keys(a)])];
   return fields.map((field) => ({ field, before: value(field, b[field]), after: value(field, a[field]) }));
 }
