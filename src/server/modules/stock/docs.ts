@@ -10,7 +10,7 @@ import {
 } from '../../../shared/schemas/stock';
 import { formatQty, qtyError, UNIT_LABELS } from '../../../shared/stock-qty';
 import type { Db, Executor } from '../../db/client';
-import { counterparties, stockDocLines, stockDocs, stockItems, stockWarehouses } from '../../db/schema';
+import { counterparties, stockComboParts, stockDocLines, stockDocs, stockItems, stockWarehouses } from '../../db/schema';
 import { AppError } from '../../errors';
 import { changedFields, mutate } from '../audit/mutate';
 import type { AuditEntry, AuditService } from '../audit/service';
@@ -115,12 +115,13 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
   function dtoOf(ex: Executor, row: StockDocRow): StockDocDto {
     const lines = ex.select().from(stockDocLines).where(eq(stockDocLines.docId, row.id)).orderBy(stockDocLines.position).all();
     const out = row.type === 'sale' || row.type === 'writeoff' || row.type === 'transfer';
-    const sums = new Map<number, { cost: number | null; covered: number }>();
+    // непокрытое — списания строки без партии (R2): у строки комплекта — в единицах составляющих
+    const sums = new Map<number, { cost: number | null; uncovered: number }>();
     if (lines.length > 0 && out) {
-      const rows = ex.all<{ lineId: number; cost: number | null; covered: number }>(sql`
-        SELECT line_id AS lineId, SUM(cost) AS cost, COALESCE(SUM(CASE WHEN batch_id IS NOT NULL THEN qty END), 0) AS covered
+      const rows = ex.all<{ lineId: number; cost: number | null; uncovered: number }>(sql`
+        SELECT line_id AS lineId, SUM(cost) AS cost, COALESCE(SUM(CASE WHEN batch_id IS NULL THEN qty END), 0) AS uncovered
           FROM stock_allocations WHERE line_id IN (${sql.join(lines.map((l) => sql`${l.id}`), sql`, `)}) GROUP BY line_id`);
-      for (const r of rows) sums.set(r.lineId, { cost: r.cost, covered: r.covered });
+      for (const r of rows) sums.set(r.lineId, { cost: r.cost, uncovered: r.uncovered });
     }
     const dtoLines: StockDocLineDto[] = lines.map((l) => {
       const s = sums.get(l.id);
@@ -131,7 +132,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
         qty: l.qty,
         amount: l.amount,
         cost: out && s ? s.cost : null,
-        uncovered: out ? l.qty - (s?.covered ?? 0) : 0,
+        uncovered: out ? (s ? s.uncovered : l.qty) : 0,
       };
     });
     const payments = row.type === 'receipt' ? docPayments(ex, row.id) : [];
@@ -217,6 +218,11 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
       const item = items.get(l.itemId);
       if (!item) throw new AppError(422, 'INVARIANT_5', 'Товар не найден в этой компании', { [`lines.${i}.itemId`]: 'Товар не найден в этой компании' });
       if (item.archivedAt && !prevItems.has(item.id)) throw new AppError(422, 'ARCHIVED_REFERENCE', `Товар «${item.name}» в архиве — выберите другой`);
+      // комплект своего остатка не имеет — только продажа (решение 5)
+      if (item.isCombo && draft.type !== 'sale') {
+        const message = draft.type === 'receipt' ? 'Комплект нельзя оприходовать — оприходуйте его составляющие' : 'Комплект — только в продаже: используйте его составляющие';
+        throw new AppError(422, 'VALIDATION', message, { [`lines.${i}.itemId`]: message });
+      }
       const qtyProblem = qtyError(l.qty, item.unit);
       if (qtyProblem) throw invalid({ [`lines.${i}.qty`]: qtyProblem });
       if (draft.type === 'writeoff' || draft.type === 'transfer') {
@@ -252,7 +258,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
   function rebuild(tx: Executor, companyId: number, pairs: Pair[], docId: number, sinceAt: string, change: () => void): DocImpact {
     // группы — до изменения строк, по старым и новым парам документа (решение 4 плана Склад-2)
     const groups = groupsOf(tx, companyId, pairs);
-    const before = new Map<number, LineSig>();
+    const before = new Map<string, LineSig>();
     for (const g of groups) for (const [k, v] of storedSigs(tx, g)) before.set(k, v);
     for (const g of groups) clearGroup(tx, g);
     change();
@@ -273,7 +279,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
             { itemId: item.id, available, at: s.at },
           );
         }
-        const old = before.get(s.lineId);
+        const old = before.get(s.key);
         if (s.type === 'transfer' || s.docId === docId || !old || (old.cost === s.cost && old.uncovered === s.uncovered)) continue;
         (s.type === 'sale' ? changed.sale : changed.loss).add(s.docId);
       }
@@ -302,12 +308,20 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
     }
   }
 
-  /** Пары строк документа: у перемещения — обе стороны. */
-  const pairsOf = (draft: Pick<Draft, 'warehouseId' | 'toWarehouseId' | 'lines'>): Pair[] =>
-    draft.lines.flatMap((l) => [
-      { warehouseId: draft.warehouseId, itemId: l.itemId },
-      ...(draft.toWarehouseId === null ? [] : [{ warehouseId: draft.toWarehouseId, itemId: l.itemId }]),
-    ]);
+  /** Пары строк документа: у перемещения — обе стороны, у строки комплекта — пары его составляющих. */
+  function pairsOf(ex: Executor, draft: Pick<Draft, 'warehouseId' | 'toWarehouseId' | 'lines'>): Pair[] {
+    const ids = [...new Set(draft.lines.map((l) => l.itemId))];
+    const parts = new Map<number, number[]>();
+    if (ids.length > 0) {
+      for (const p of ex.select().from(stockComboParts).where(inArray(stockComboParts.comboId, ids)).all()) {
+        const list = parts.get(p.comboId);
+        if (list) list.push(p.itemId);
+        else parts.set(p.comboId, [p.itemId]);
+      }
+    }
+    const whs = draft.toWarehouseId === null ? [draft.warehouseId] : [draft.warehouseId, draft.toWarehouseId];
+    return draft.lines.flatMap((l) => (parts.get(l.itemId) ?? [l.itemId]).flatMap((itemId) => whs.map((warehouseId) => ({ warehouseId, itemId }))));
+  }
 
   const svc: StockDocsService = {
     list(companyId, q) {
@@ -388,7 +402,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
           })
           .returning()
           .get();
-        const impact = rebuild(tx, companyId, pairsOf(draft), row.id, draft.at, () => insertLines(tx, row.id, draft.lines));
+        const impact = rebuild(tx, companyId, pairsOf(tx, draft), row.id, draft.at, () => insertLines(tx, row.id, draft.lines));
         record({ companyId, userId, entity: 'stock_doc', entityId: row.id, action: 'create', diff: { number, ...draft } });
         return { doc: dtoOf(tx, row), impact };
       });
@@ -423,7 +437,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
         const changes = changedFields(prev, draft);
         if (!changes) return { doc: currentDto, impact: NO_IMPACT };
         const sinceAt = draft.at < prev.at ? draft.at : prev.at;
-        const impact = rebuild(tx, companyId, [...pairsOf(prev), ...pairsOf(draft)], id, sinceAt, () => {
+        const impact = rebuild(tx, companyId, [...pairsOf(tx, prev), ...pairsOf(tx, draft)], id, sinceAt, () => {
           const updated = tx
             .update(stockDocs)
             .set({
@@ -454,7 +468,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
         const current = requireRow(tx, companyId, id);
         if (current.deletedAt) return { doc: dtoOf(tx, current), impact: NO_IMPACT };
         const dto = dtoOf(tx, current);
-        const impact = rebuild(tx, companyId, pairsOf(draftOf(dto)), id, current.at, () => {
+        const impact = rebuild(tx, companyId, pairsOf(tx, draftOf(dto)), id, current.at, () => {
           tx.update(stockDocs).set({ deletedAt: now().toISOString(), updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(stockDocs.id, id)).run();
         });
         record({ companyId, userId, entity: 'stock_doc', entityId: id, action: 'delete', diff: { number: current.number, type: current.type, at: current.at, total: dto.total } });

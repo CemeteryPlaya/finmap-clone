@@ -59,7 +59,8 @@ function assertInvariants(world: StockWorld, label: string): void {
     .prepare(
       `SELECT l.id FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id
         WHERE d.type IN ('sale', 'writeoff', 'transfer') AND d.deleted_at IS NULL
-          AND l.qty <> (SELECT COALESCE(SUM(a.qty), 0) FROM stock_allocations a WHERE a.line_id = l.id)`,
+          AND COALESCE((SELECT SUM(l.qty * p.qty / 1000) FROM stock_combo_parts p WHERE p.combo_id = l.item_id), l.qty)
+              <> (SELECT COALESCE(SUM(a.qty), 0) FROM stock_allocations a WHERE a.line_id = l.id)`,
     )
     .all();
   expect(bad, `${label}: части списания`).toEqual([]);
@@ -85,16 +86,27 @@ function assertInvariants(world: StockWorld, label: string): void {
     .all() as { lineId: number; docId: number; position: number; qty: number; amount: number | null; itemId: number; warehouseId: number; toWarehouseId: number | null; type: string; at: string }[];
   // все склады товара — одним проходом: группы пересчёта независимы, их объединение даёт тот же результат
   const byItem = new Map<number, StockEvent[]>();
+  const parts = s.prepare('SELECT combo_id comboId, item_id itemId, qty FROM stock_combo_parts').all() as { comboId: number; itemId: number; qty: number }[];
+  const comboItems = new Set(parts.map((p) => p.comboId));
+  const push = (item: number, ev: StockEvent) => byItem.set(item, [...(byItem.get(item) ?? []), ev]);
   for (const l of lines) {
     const base = { key: l.lineId, at: l.at, docId: l.docId, position: l.position, qty: l.qty, wh: l.warehouseId };
+    // строка комплекта — взятие у каждой составляющей
+    if (comboItems.has(l.itemId)) {
+      for (const p of parts.filter((x) => x.comboId === l.itemId)) push(p.itemId, { ...base, kind: 'out', qty: (l.qty * p.qty) / 1000 });
+      continue;
+    }
     const ev: StockEvent =
       l.type === 'receipt' ? { ...base, kind: 'in', cost: l.amount ?? 0 } : l.type === 'transfer' ? { ...base, kind: 'move', to: l.toWarehouseId! } : { ...base, kind: 'out' };
-    byItem.set(l.itemId, [...(byItem.get(l.itemId) ?? []), ev]);
+    push(l.itemId, ev);
   }
+  const comboLines = new Set(lines.filter((l) => comboItems.has(l.itemId)).map((l) => l.lineId));
   for (const [item, events] of byItem) {
     const fresh = runStock(events);
     for (const o of fresh.outs.values()) {
-      const stored = s.prepare('SELECT COALESCE(SUM(cost), 0) cost, COALESCE(SUM(CASE WHEN batch_id IS NULL THEN qty END), 0) unc FROM stock_allocations WHERE line_id = ?').get(o.key) as { cost: number; unc: number };
+      const stored = s
+        .prepare('SELECT COALESCE(SUM(cost), 0) cost, COALESCE(SUM(CASE WHEN batch_id IS NULL THEN qty END), 0) unc FROM stock_allocations WHERE line_id = ? AND COALESCE(component_item_id, 0) = ?')
+        .get(o.key, comboLines.has(o.key) ? item : 0) as { cost: number; unc: number };
       expect([stored.cost, stored.unc], `${label}: строка ${o.key} товара ${item}`).toEqual([o.takes.reduce((a, t) => a + (t.cost ?? 0), 0), o.uncovered]);
     }
     for (const wh of new Set(fresh.batches.map((b) => b.wh).concat(events.map((e) => e.wh)))) {
@@ -114,6 +126,8 @@ describe('случайные последовательности докумен
       const rand = rng(seed);
       const pick = <T>(list: T[]): T => list[Math.floor(rand() * list.length)]!;
       const items = [world.cola, world.chips];
+      // комплект продаётся наравне с товарами: его строки берут чипсы и две колы
+      const combo = await world.combo('Чипсы + кола', [[world.chips, 1000], [world.cola, 2000]]);
       const warehouses = [world.wh, world.wh2];
       // перемещение: со случайного склада на другой
       const route = () => {
@@ -121,9 +135,9 @@ describe('случайные последовательности докумен
         return { warehouseId: from, toWarehouseId: warehouses.find((x) => x !== from)! };
       };
       const at = () => `2026-10-0${1 + Math.floor(rand() * 5)}T${String(8 + Math.floor(rand() * 10)).padStart(2, '0')}:00:00.000Z`;
-      const lines = (withAmount: boolean) =>
+      const lines = (withAmount: boolean, withCombo = false) =>
         Array.from({ length: 1 + Math.floor(rand() * 3) }, () => ({
-          itemId: pick(items),
+          itemId: withCombo && rand() < 0.3 ? combo : pick(items),
           qty: (1 + Math.floor(rand() * 6)) * 1000,
           ...(withAmount ? { amount: Math.floor(rand() * 50_000) } : {}),
         }));
@@ -165,7 +179,7 @@ describe('случайные последовательности докумен
           res = await world.h.req('POST', `${world.stock}/docs`, { type: 'receipt', at: at(), warehouseId: pick(warehouses), lines: lines(true) });
           if (res.statusCode === 201) live.push({ ...(res.json().doc as { id: number; version: number }), type: 'receipt' });
         } else if (roll < 0.5) {
-          res = await world.h.req('POST', `${world.stock}/docs`, { type: 'sale', at: at(), warehouseId: pick(warehouses), lines: lines(true) });
+          res = await world.h.req('POST', `${world.stock}/docs`, { type: 'sale', at: at(), warehouseId: pick(warehouses), lines: lines(true, true) });
           if (res.statusCode === 201) live.push({ ...(res.json().doc as { id: number; version: number }), type: 'sale' });
         } else if (roll < 0.6) {
           res = await world.h.req('POST', `${world.stock}/docs`, { type: 'writeoff', at: at(), warehouseId: pick(warehouses), reason: 'defect', lines: lines(false) });

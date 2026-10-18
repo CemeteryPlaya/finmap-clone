@@ -48,6 +48,18 @@ const nullableText = (max: number) =>
 
 export const stockGroupSchema = z.object({ name: nameField(STOCK_GROUP_NAME_MAX) });
 
+/** Наибольшее число составляющих комплекта. */
+export const STOCK_COMBO_PARTS_MAX = 20;
+/** Состав комплекта: составляющая и её количество на один комплект (тысячные доли её единицы). */
+const comboParts = z
+  .array(
+    z.object({
+      itemId: id,
+      qty: z.number().int('Количество — целое число тысячных долей').min(1, 'Количество больше нуля').max(QTY_MAX, 'Слишком большое количество'),
+    }),
+  )
+  .max(STOCK_COMBO_PARTS_MAX, `Не больше ${STOCK_COMBO_PARTS_MAX} составляющих`);
+
 export const stockItemCreateSchema = z.object({
   name: nameField(STOCK_ITEM_NAME_MAX),
   groupId: id.nullable().default(null),
@@ -56,6 +68,9 @@ export const stockItemCreateSchema = z.object({
   /** Цена продажи за единицу; больше нуля — пишет первую строку истории с сегодняшней даты. */
   salePrice: money.default(0),
   minQty: z.number().int().min(1, 'Больше нуля').max(QTY_MAX, 'Слишком большое количество').nullable().default(null),
+  /** Комплект (решение 5 плана Склад-2): задаётся только при создании, своего остатка нет. */
+  isCombo: z.boolean().default(false),
+  parts: comboParts.default([]),
 });
 
 export const stockItemUpdateSchema = z.object({
@@ -64,6 +79,8 @@ export const stockItemUpdateSchema = z.object({
   unit: z.enum(STOCK_UNITS, { message: 'Выберите единицу' }).optional(),
   barcode: nullableText(STOCK_BARCODE_MAX).optional(),
   minQty: z.number().int().min(1, 'Больше нуля').max(QTY_MAX, 'Слишком большое количество').nullable().optional(),
+  /** Новый состав комплекта; меняется, пока по комплекту нет документов. */
+  parts: comboParts.optional(),
 });
 
 export const stockPriceSchema = z.object({

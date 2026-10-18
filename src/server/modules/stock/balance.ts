@@ -179,9 +179,9 @@ export function createStockBalanceService(d: { db: Db; timezone: string; now?: (
         SELECT w.id AS warehouseId, w.project_id AS projectId, w.name AS name,
                COALESCE((SELECT SUM(b.cost_left) FROM stock_batches b WHERE b.warehouse_id = w.id), 0) AS value,
                EXISTS (
-                 SELECT 1 FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id
+                 SELECT 1 FROM stock_allocations a JOIN stock_doc_lines l ON l.id = a.line_id JOIN stock_docs d ON d.id = l.doc_id
                   WHERE d.warehouse_id = w.id AND d.deleted_at IS NULL AND d.status = 'posted' AND d.type IN ('sale', 'writeoff')
-                    AND l.qty > COALESCE((SELECT SUM(a.qty) FROM stock_allocations a WHERE a.line_id = l.id AND a.batch_id IS NOT NULL), 0)
+                    AND a.batch_id IS NULL
                ) AS hasDeficit
           FROM stock_warehouses w
          WHERE w.company_id = ${companyId} AND w.archived_at IS NULL

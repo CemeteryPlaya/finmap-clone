@@ -27,6 +27,8 @@ export interface StockWorld extends OpsWorld {
   writeoff(at: string, lines: [number, number][], extra?: Record<string, unknown>): Promise<any>;
   /** Перемещение со склада `from` на склад `to`: lines — [товар, количество (тысячные)]. */
   transfer(at: string, from: number, to: number, lines: [number, number][], extra?: Record<string, unknown>): Promise<any>;
+  /** Комплект в штуках: parts — [составляющая, количество на один комплект (тысячные)]; возвращает id. */
+  combo(name: string, parts: [number, number][], salePrice?: number): Promise<number>;
 }
 
 /** Мир операций плюс склады обоих клубов, три товара, поставщик и покупатель. «Сейчас» — 2026-10-06 12:00 UTC. */
@@ -61,5 +63,7 @@ export async function stockWorld(now?: string): Promise<StockWorld> {
       doc({ type: 'writeoff', at, warehouseId: wh, reason: 'defect', lines: lines.map(([itemId, qty]) => ({ itemId, qty })), ...extra }),
     transfer: (at, from, to, lines, extra = {}) =>
       doc({ type: 'transfer', at, warehouseId: from, toWarehouseId: to, lines: lines.map(([itemId, qty]) => ({ itemId, qty })), ...extra }),
+    combo: async (name, parts, salePrice = 0) =>
+      (await w.post(`${stock}/items`, { name, unit: 'pcs', salePrice, isCombo: true, parts: parts.map(([itemId, qty]) => ({ itemId, qty })) })).item.id as number,
   };
 }
