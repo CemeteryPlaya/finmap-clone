@@ -1,14 +1,17 @@
 import { and, desc, eq, gte, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import { addDays, formatDateRu, startOfDayUtc, todayInTimezone } from '../../../shared/dates';
 import {
+  STOCK_COUNT_LINES_MAX,
   STOCK_DOC_PREFIX,
+  type StockCountCreate,
+  type StockCountUpdate,
   type StockDocCreate,
   type StockDocList,
   type StockDocType,
   type StockDocUpdate,
   type WriteoffReason,
 } from '../../../shared/schemas/stock';
-import { formatQty, qtyError, UNIT_LABELS } from '../../../shared/stock-qty';
+import { formatQty, isWholeUnit, qtyError, QTY_SCALE, UNIT_LABELS, WHOLE_UNIT_ERROR } from '../../../shared/stock-qty';
 import type { Db, Executor } from '../../db/client';
 import { counterparties, stockComboParts, stockDocLines, stockDocs, stockItems, stockWarehouses } from '../../db/schema';
 import { AppError } from '../../errors';
@@ -17,6 +20,7 @@ import type { AuditEntry, AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import { docPayments, paidByDoc, type DocPayment } from './payments';
 import { lastPostOf, postedDocs, postingOf, type DocPosting, type LastPost } from './postings';
+import { countSummary, expectedQtys, type CountSummary } from './count';
 import { buildGroup, clearGroup, groupsOf, storedSigs, type LineSig, type Pair } from './recalc';
 
 export type StockDocRow = typeof stockDocs.$inferSelect;
@@ -32,6 +36,10 @@ export interface StockDocLineDto {
   cost: number | null;
   /** Сколько из строки не нашло партии (§5.3, «Нет партии»). */
   uncovered: number;
+  /** Только у инвентаризации: факт (null — не посчитан). */
+  countedQty?: number | null;
+  /** Только у инвентаризации: учёт — у черновика остаток на момент документа сейчас, у проведённой — зафиксированный. */
+  expected?: number | null;
 }
 
 export interface StockDocDto extends StockDocRow {
@@ -46,6 +54,8 @@ export interface StockDocDto extends StockDocRow {
   posting: DocPosting | null;
   /** У продажи: счёт и категория прошлого проведения этого склада — подсказка для окна «Провести в журнал». */
   lastPost: LastPost | null;
+  /** Только у инвентаризации: итог проведения («Недостача на X, излишек на Y»); у черновика — null. */
+  countSummary?: CountSummary | null;
 }
 
 export interface StockDocListItem extends StockDocRow {
@@ -77,6 +87,20 @@ export interface StockDocsService {
   update(companyId: number, id: number, patch: StockDocUpdate, userId: number): DocSaveResult;
   /** Мягкое удаление: остатки пересчитываются так, будто документа не было. */
   remove(companyId: number, id: number, userId: number, opts?: { dryRun?: boolean }): DocSaveResult;
+  /** Тип документа — маршрут правки выбирает по нему схему тела (R15). */
+  typeOf(companyId: number, id: number): StockDocType;
+  /** Новая инвентаризация — черновик (§7, решение 6). */
+  createCount(companyId: number, input: StockCountCreate, userId: number): StockDocDto;
+  /** Правка черновика инвентаризации. */
+  updateCount(companyId: number, id: number, patch: StockCountUpdate, userId: number): StockDocDto;
+  /** «Провести» инвентаризацию: учёт фиксируется, разница — недостача или излишек. */
+  post(companyId: number, id: number, version: number, userId: number): StockDocDto;
+}
+
+/** Строка черновика инвентаризации. */
+interface CountLine {
+  itemId: number;
+  countedQty: number | null;
 }
 
 interface Draft {
@@ -114,7 +138,18 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
 
   function dtoOf(ex: Executor, row: StockDocRow): StockDocDto {
     const lines = ex.select().from(stockDocLines).where(eq(stockDocLines.docId, row.id)).orderBy(stockDocLines.position).all();
-    const out = row.type === 'sale' || row.type === 'writeoff' || row.type === 'transfer';
+    const out = row.type === 'sale' || row.type === 'writeoff' || row.type === 'transfer' || row.type === 'count';
+    const isCount = row.type === 'count';
+    const draftExpected =
+      isCount && row.status === 'draft' && lines.length > 0
+        ? expectedQtys(
+            ex,
+            row.companyId,
+            row.warehouseId,
+            { at: row.at, docId: row.id, position: -1 },
+            lines.map((l) => l.itemId),
+          )
+        : null;
     // непокрытое — списания строки без партии (R2): у строки комплекта — в единицах составляющих
     const sums = new Map<number, { cost: number | null; uncovered: number }>();
     if (lines.length > 0 && out) {
@@ -132,7 +167,8 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
         qty: l.qty,
         amount: l.amount,
         cost: out && s ? s.cost : null,
-        uncovered: out ? (s ? s.uncovered : l.qty) : 0,
+        uncovered: out ? (s ? s.uncovered : isCount ? 0 : l.qty) : 0,
+        ...(isCount ? { countedQty: l.countedQty, expected: draftExpected ? (draftExpected.get(l.itemId) ?? 0) : l.expectedQty } : {}),
       };
     });
     const payments = row.type === 'receipt' ? docPayments(ex, row.id) : [];
@@ -140,7 +176,67 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
       payments,
       posting: row.type === 'sale' ? postingOf(ex, row.id) : null,
       lastPost: row.type === 'sale' ? lastPostOf(ex, row.warehouseId) : null,
+      ...(isCount ? { countSummary: row.status === 'posted' ? countSummary(ex, row.companyId, row.warehouseId, lines) : null } : {}),
     };
+  }
+
+  /** Склад инвентаризации: из этой компании, архивный — только уже выбранный. */
+  function checkCountWarehouse(ex: Executor, companyId: number, warehouseId: number, prev: number | null): void {
+    const wh = ex.select().from(stockWarehouses).where(and(eq(stockWarehouses.id, warehouseId), eq(stockWarehouses.companyId, companyId))).get();
+    if (!wh) throw new AppError(422, 'INVARIANT_5', 'Склад не найден в этой компании', { warehouseId: 'Склад не найден в этой компании' });
+    if (wh.archivedAt && wh.id !== prev) throw new AppError(422, 'ARCHIVED_REFERENCE', `Склад «${wh.name}» в архиве — выберите другой`);
+  }
+
+  function checkNotFuture(at: string): string {
+    const iso = new Date(at).toISOString();
+    if (dateOf(iso) > todayInTimezone(d.timezone, now())) throw new AppError(422, 'INVARIANT_6', 'Дата документа в будущем', { at: 'Дата документа в будущем' });
+    return iso;
+  }
+
+  /**
+   * Строки инвентаризации (решение 6): товары этой компании без повторов, не комплекты, архивные — только уже бывшие
+   * в документе; факт — по единице товара (ноль допустим, у «шт» и «уп» — целое).
+   */
+  function checkCountLines(ex: Executor, companyId: number, lines: readonly CountLine[], prevItems: ReadonlySet<number>): void {
+    const ids = [...new Set(lines.map((l) => l.itemId))];
+    const items = new Map(
+      ids.length === 0
+        ? []
+        : ex
+            .select()
+            .from(stockItems)
+            .where(and(eq(stockItems.companyId, companyId), inArray(stockItems.id, ids)))
+            .all()
+            .map((i) => [i.id, i]),
+    );
+    const seen = new Set<number>();
+    lines.forEach((l, i) => {
+      const item = items.get(l.itemId);
+      const field = `lines.${i}.itemId`;
+      if (!item) throw new AppError(422, 'INVARIANT_5', 'Товар не найден в этой компании', { [field]: 'Товар не найден в этой компании' });
+      if (item.isCombo) {
+        const message = 'Комплект — только в продаже: используйте его составляющие';
+        throw new AppError(422, 'VALIDATION', message, { [field]: message });
+      }
+      if (seen.has(item.id)) throw invalid({ [field]: 'Товар уже есть в инвентаризации' });
+      seen.add(item.id);
+      if (item.archivedAt && !prevItems.has(item.id)) throw new AppError(422, 'ARCHIVED_REFERENCE', `Товар «${item.name}» в архиве — выберите другой`);
+      if (l.countedQty !== null && isWholeUnit(item.unit) && l.countedQty % QTY_SCALE !== 0) throw invalid({ [`lines.${i}.countedQty`]: WHOLE_UNIT_ERROR });
+    });
+  }
+
+  function insertCountLines(tx: Executor, docId: number, lines: readonly CountLine[]): void {
+    lines.forEach((l, i) => {
+      tx.insert(stockDocLines).values({ docId, position: i, itemId: l.itemId, qty: 0, amount: null, countedQty: l.countedQty, expectedQty: null }).run();
+    });
+  }
+
+  function requireCount(ex: Executor, companyId: number, id: number, version: number): StockDocRow {
+    const current = requireRow(ex, companyId, id);
+    if (current.type !== 'count') throw new AppError(422, 'VALIDATION', 'Это не инвентаризация');
+    if (current.deletedAt) throw new AppError(409, 'VERSION_CONFLICT', 'Документ удалён — обновите страницу');
+    if (version !== current.version) throw new AppError(409, 'VERSION_CONFLICT', 'Документ изменён другим пользователем');
+    return current;
   }
 
   function draftOf(dto: StockDocDto): Draft {
@@ -415,6 +511,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
         if (current.deletedAt) throw new AppError(409, 'VERSION_CONFLICT', 'Документ удалён — обновите страницу');
         if (patch.version !== current.version) throw new AppError(409, 'VERSION_CONFLICT', 'Документ изменён другим пользователем');
         if (current.type === 'count') {
+          // у инвентаризации своё тело правки: маршрут вызывает updateCount (R15)
           throw new AppError(422, 'VALIDATION', 'Этот документ изменить нельзя');
         }
         const currentDto = dtoOf(tx, current);
@@ -468,12 +565,155 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
         const current = requireRow(tx, companyId, id);
         if (current.deletedAt) return { doc: dtoOf(tx, current), impact: NO_IMPACT };
         const dto = dtoOf(tx, current);
-        const impact = rebuild(tx, companyId, pairsOf(tx, draftOf(dto)), id, current.at, () => {
+        const markDeleted = () => {
           tx.update(stockDocs).set({ deletedAt: now().toISOString(), updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(stockDocs.id, id)).run();
-        });
+        };
+        // черновик инвентаризации в FIFO не участвует — пересчитывать нечего (решение 6)
+        let impact = NO_IMPACT;
+        if (current.type === 'count' && current.status === 'draft') markDeleted();
+        else impact = rebuild(tx, companyId, pairsOf(tx, draftOf(dto)), id, current.at, markDeleted);
         record({ companyId, userId, entity: 'stock_doc', entityId: id, action: 'delete', diff: { number: current.number, type: current.type, at: current.at, total: dto.total } });
         return { doc: dtoOf(tx, requireRow(tx, companyId, id)), impact };
       });
+    },
+
+    typeOf(companyId, id) {
+      requireCompany(db, companyId);
+      return requireRow(db, companyId, id).type as StockDocType;
+    },
+
+    createCount(companyId, input, userId) {
+      requireCompany(db, companyId, { writable: true });
+      return mutate(
+        db,
+        audit,
+        (tx, record) => {
+          checkCountWarehouse(tx, companyId, input.warehouseId, null);
+          const at = checkNotFuture(input.at);
+          checkCountLines(tx, companyId, input.lines, new Set());
+          const t = now().toISOString();
+          const number = nextNumber(tx, companyId, 'count');
+          const row = tx
+            .insert(stockDocs)
+            .values({
+              companyId,
+              type: 'count',
+              number,
+              at,
+              warehouseId: input.warehouseId,
+              status: 'draft',
+              source: 'manual',
+              comment: input.comment ?? null,
+              createdBy: userId,
+              createdAt: t,
+              updatedAt: t,
+              version: 1,
+            })
+            .returning()
+            .get();
+          const lines: CountLine[] = [...input.lines];
+          if (input.fill) {
+            // все товары склада с ненулевым остатком на момент документа, кроме уже переданных, — по названию
+            const given = new Set(lines.map((l) => l.itemId));
+            const expected = expectedQtys(tx, companyId, input.warehouseId, { at, docId: row.id, position: -1 });
+            const ids = [...expected].filter(([itemId, qty]) => qty !== 0 && !given.has(itemId)).map(([itemId]) => itemId);
+            if (ids.length > 0) {
+              const ordered = tx
+                .select({ id: stockItems.id })
+                .from(stockItems)
+                .where(and(inArray(stockItems.id, ids), eq(stockItems.isCombo, false)))
+                .orderBy(stockItems.nameKey, stockItems.id)
+                .all();
+              for (const i of ordered) lines.push({ itemId: i.id, countedQty: null });
+            }
+          }
+          if (lines.length > STOCK_COUNT_LINES_MAX) {
+            throw new AppError(422, 'VALIDATION', `На складе больше ${STOCK_COUNT_LINES_MAX} товаров с остатком`);
+          }
+          insertCountLines(tx, row.id, lines);
+          record({ companyId, userId, entity: 'stock_doc', entityId: row.id, action: 'create', diff: { number, type: 'count', at, warehouseId: input.warehouseId, lines: lines.length } });
+          return dtoOf(tx, row);
+        },
+        { behavior: 'immediate' },
+      );
+    },
+
+    updateCount(companyId, id, patch, userId) {
+      requireCompany(db, companyId, { writable: true });
+      return mutate(
+        db,
+        audit,
+        (tx, record) => {
+          const current = requireCount(tx, companyId, id, patch.version);
+          if (current.status === 'posted') throw new AppError(422, 'VALIDATION', 'Проведённую инвентаризацию изменить нельзя — удалите её и проведите заново');
+          if (patch.warehouseId !== undefined && patch.warehouseId !== current.warehouseId) {
+            throw new AppError(422, 'VALIDATION', 'Склад инвентаризации не меняется', { warehouseId: 'Склад инвентаризации не меняется' });
+          }
+          const prevLines = tx.select().from(stockDocLines).where(eq(stockDocLines.docId, id)).orderBy(stockDocLines.position).all();
+          const prev = { at: current.at, comment: current.comment, lines: prevLines.map((l) => ({ itemId: l.itemId, countedQty: l.countedQty })) };
+          const next = {
+            at: patch.at !== undefined ? checkNotFuture(patch.at) : prev.at,
+            comment: patch.comment !== undefined ? patch.comment : prev.comment,
+            lines: patch.lines ?? prev.lines,
+          };
+          if (patch.lines !== undefined) checkCountLines(tx, companyId, patch.lines, new Set(prev.lines.map((l) => l.itemId)));
+          const changes = changedFields(prev, next);
+          if (!changes) return dtoOf(tx, current);
+          tx.update(stockDocs).set({ at: next.at, comment: next.comment, updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(stockDocs.id, id)).run();
+          if (patch.lines !== undefined) {
+            tx.delete(stockDocLines).where(eq(stockDocLines.docId, id)).run();
+            insertCountLines(tx, id, next.lines);
+          }
+          record({ companyId, userId, entity: 'stock_doc', entityId: id, action: 'update', diff: { number: current.number, type: 'count', ...changes } });
+          return dtoOf(tx, requireRow(tx, companyId, id));
+        },
+        { behavior: 'immediate' },
+      );
+    },
+
+    post(companyId, id, version, userId) {
+      requireCompany(db, companyId, { writable: true });
+      const out = run(false, (tx, record) => {
+        const current = requireCount(tx, companyId, id, version);
+        if (current.status === 'posted') throw new AppError(422, 'VALIDATION', 'Инвентаризация уже проведена');
+        const lines = tx.select().from(stockDocLines).where(eq(stockDocLines.docId, id)).orderBy(stockDocLines.position).all();
+        if (lines.length === 0) throw new AppError(422, 'VALIDATION', 'Добавьте хотя бы одну строку');
+        const blank = lines.findIndex((l) => l.countedQty === null);
+        if (blank >= 0) throw new AppError(422, 'VALIDATION', 'Проверьте заполнение полей', { [`lines.${blank}.countedQty`]: 'Внесите факт или удалите строку' });
+        // учёт — остаток строго перед документом; после проведения он зафиксирован (§7)
+        const expected = expectedQtys(
+          tx,
+          companyId,
+          current.warehouseId,
+          { at: current.at, docId: id, position: -1 },
+          lines.map((l) => l.itemId),
+        );
+        const impact = rebuild(
+          tx,
+          companyId,
+          lines.map((l) => ({ warehouseId: current.warehouseId, itemId: l.itemId })),
+          id,
+          current.at,
+          () => {
+            for (const l of lines) {
+              const e = expected.get(l.itemId) ?? 0;
+              tx.update(stockDocLines).set({ expectedQty: e, qty: Math.abs(l.countedQty! - e) }).where(eq(stockDocLines.id, l.id)).run();
+            }
+            tx.update(stockDocs).set({ status: 'posted', updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(stockDocs.id, id)).run();
+          },
+        );
+        const summary = countSummary(tx, companyId, current.warehouseId, lines);
+        record({
+          companyId,
+          userId,
+          entity: 'stock_doc',
+          entityId: id,
+          action: 'update',
+          diff: { number: current.number, type: 'count', before: { status: 'draft' }, after: { status: 'posted' }, shortage: summary.shortage, surplus: summary.surplus },
+        });
+        return { doc: dtoOf(tx, requireRow(tx, companyId, id)), impact };
+      });
+      return out.doc!;
     },
   };
   return svc;

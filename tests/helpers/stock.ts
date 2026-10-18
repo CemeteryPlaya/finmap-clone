@@ -29,6 +29,10 @@ export interface StockWorld extends OpsWorld {
   transfer(at: string, from: number, to: number, lines: [number, number][], extra?: Record<string, unknown>): Promise<any>;
   /** Комплект в штуках: parts — [составляющая, количество на один комплект (тысячные)]; возвращает id. */
   combo(name: string, parts: [number, number][], salePrice?: number): Promise<number>;
+  /** Черновик инвентаризации склада «Клуб 1»: lines — [товар, факт (тысячные) или null]. */
+  count(at: string, lines: [number, number | null][], extra?: Record<string, unknown>): Promise<any>;
+  /** Провести инвентаризацию; ошибка запроса — исключение. */
+  postCount(doc: { id: number; version: number }): Promise<any>;
 }
 
 /** Мир операций плюс склады обоих клубов, три товара, поставщик и покупатель. «Сейчас» — 2026-10-06 12:00 UTC. */
@@ -63,6 +67,8 @@ export async function stockWorld(now?: string): Promise<StockWorld> {
       doc({ type: 'writeoff', at, warehouseId: wh, reason: 'defect', lines: lines.map(([itemId, qty]) => ({ itemId, qty })), ...extra }),
     transfer: (at, from, to, lines, extra = {}) =>
       doc({ type: 'transfer', at, warehouseId: from, toWarehouseId: to, lines: lines.map(([itemId, qty]) => ({ itemId, qty })), ...extra }),
+    count: (at, lines, extra = {}) => doc({ type: 'count', at, warehouseId: wh, lines: lines.map(([itemId, countedQty]) => ({ itemId, countedQty })), ...extra }),
+    postCount: async (d) => (await w.post(`${stock}/docs/${d.id}/post`, { version: d.version })).doc,
     combo: async (name, parts, salePrice = 0) =>
       (await w.post(`${stock}/items`, { name, unit: 'pcs', salePrice, isCombo: true, parts: parts.map(([itemId, qty]) => ({ itemId, qty })) })).item.id as number,
   };

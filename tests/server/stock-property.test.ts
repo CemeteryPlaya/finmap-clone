@@ -41,12 +41,16 @@ function assertInvariants(world: StockWorld, label: string): void {
   const purchased = one<{ v: number }>(
     "SELECT COALESCE(SUM(l.amount), 0) v FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id WHERE d.type = 'receipt' AND d.deleted_at IS NULL",
   ).v;
+  // излишек инвентаризации — партия без закупки: приходует стоимость по цене последней партии склада
+  const surplus = one<{ v: number }>(
+    "SELECT COALESCE(SUM(b.cost_in), 0) v FROM stock_batches b JOIN stock_doc_lines l ON l.id = b.origin_line_id JOIN stock_docs d ON d.id = l.doc_id WHERE d.type = 'count'",
+  ).v;
   const left = one<{ v: number }>('SELECT COALESCE(SUM(cost_left), 0) v FROM stock_batches').v;
   // взятое перемещением не уходит со склада — оно стало партиями получателя
   const taken = one<{ v: number }>(
     "SELECT COALESCE(SUM(a.cost), 0) v FROM stock_allocations a JOIN stock_doc_lines l ON l.id = a.line_id JOIN stock_docs d ON d.id = l.doc_id WHERE d.type <> 'transfer'",
   ).v;
-  expect(left + taken, `${label}: стоимость склада + себестоимость = закупки`).toBe(purchased);
+  expect(left + taken, `${label}: стоимость склада + себестоимость = закупки + излишки`).toBe(purchased + surplus);
 
   const qtyIn = one<{ v: number }>('SELECT COALESCE(SUM(qty_in), 0) v FROM stock_batches').v;
   const qtyLeft = one<{ v: number }>('SELECT COALESCE(SUM(qty_left), 0) v FROM stock_batches').v;
@@ -80,10 +84,11 @@ function assertInvariants(world: StockWorld, label: string): void {
   // база равна независимому пересчёту по живым документам
   const lines = s
     .prepare(
-      `SELECT l.id lineId, l.doc_id docId, l.position position, l.qty qty, l.amount amount, l.item_id itemId, d.warehouse_id warehouseId, d.to_warehouse_id toWarehouseId, d.type type, d.at at
-         FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id WHERE d.deleted_at IS NULL`,
+      `SELECT l.id lineId, l.doc_id docId, l.position position, l.qty qty, l.amount amount, l.item_id itemId, d.warehouse_id warehouseId, d.to_warehouse_id toWarehouseId, d.type type, d.at at,
+              l.counted_qty countedQty, l.expected_qty expectedQty
+         FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id WHERE d.deleted_at IS NULL AND d.status = 'posted'`,
     )
-    .all() as { lineId: number; docId: number; position: number; qty: number; amount: number | null; itemId: number; warehouseId: number; toWarehouseId: number | null; type: string; at: string }[];
+    .all() as { lineId: number; docId: number; position: number; qty: number; amount: number | null; itemId: number; warehouseId: number; toWarehouseId: number | null; type: string; at: string; countedQty: number | null; expectedQty: number | null }[];
   // все склады товара — одним проходом: группы пересчёта независимы, их объединение даёт тот же результат
   const byItem = new Map<number, StockEvent[]>();
   const parts = s.prepare('SELECT combo_id comboId, item_id itemId, qty FROM stock_combo_parts').all() as { comboId: number; itemId: number; qty: number }[];
@@ -94,6 +99,12 @@ function assertInvariants(world: StockWorld, label: string): void {
     // строка комплекта — взятие у каждой составляющей
     if (comboItems.has(l.itemId)) {
       for (const p of parts.filter((x) => x.comboId === l.itemId)) push(p.itemId, { ...base, kind: 'out', qty: (l.qty * p.qty) / 1000 });
+      continue;
+    }
+    if (l.type === 'count') {
+      // недостача — взятие, излишек — партия; без разницы — ничего
+      const diff = l.countedQty! - l.expectedQty!;
+      if (diff !== 0) push(l.itemId, diff < 0 ? { ...base, kind: 'out', qty: -diff } : { ...base, kind: 'surplus', qty: diff });
       continue;
     }
     const ev: StockEvent =
@@ -163,13 +174,13 @@ describe('случайные последовательности докумен
               lines: lines(type === 'receipt' || type === 'sale'),
               dryRun: true,
             });
-          } else if (kind === 'patch') {
-            const doc = pick(live);
+          } else if (kind === 'patch' && live.some((x) => x.type !== 'count')) {
+            const doc = pick(live.filter((x) => x.type !== 'count'));
             probe = await world.h.req('PATCH', `${world.stock}/docs/${doc.id}`, { version: doc.version, at: at(), ...(doc.type === 'transfer' ? {} : { warehouseId: pick(warehouses) }), lines: lines(doc.type === 'receipt' || doc.type === 'sale'), dryRun: true });
-          } else {
+          } else if (kind === 'delete') {
             const doc = pick(live);
             probe = await world.h.req('DELETE', `${world.stock}/docs/${doc.id}?dryRun=1`);
-          }
+          } else continue;
           expect([200, 422], `${label}: dryRun ${kind}: ${probe.body}`).toContain(probe.statusCode);
           if (probe.statusCode === 200) expect(probe.json().doc, `${label}: dryRun без документа`).toBeNull();
           expect(rowCounts(world), `${label}: dryRun ${kind} ничего не записал`).toEqual(counts);
@@ -187,8 +198,20 @@ describe('случайные последовательности докумен
         } else if (roll < 0.75) {
           res = await world.h.req('POST', `${world.stock}/docs`, { type: 'transfer', at: at(), ...route(), lines: lines(false) });
           if (res.statusCode === 201) live.push({ ...(res.json().doc as { id: number; version: number }), type: 'transfer' });
-        } else if (live.length > 0 && roll < 0.9) {
+        } else if (roll < 0.8) {
+          const draft = await world.h.req('POST', `${world.stock}/docs`, {
+            type: 'count',
+            at: at(),
+            warehouseId: pick(warehouses),
+            lines: [...new Set(Array.from({ length: 1 + Math.floor(rand() * 2) }, () => pick(items)))].map((itemId) => ({ itemId, countedQty: Math.floor(rand() * 6) * 1000 })),
+          });
+          expect(draft.statusCode, `${label}: черновик ${draft.body}`).toBe(201);
+          const d = draft.json().doc as { id: number; version: number };
+          res = await world.h.req('POST', `${world.stock}/docs/${d.id}/post`, { version: d.version });
+          if (res.statusCode === 200) live.push({ id: d.id, version: d.version + 1, type: 'count' });
+        } else if (live.length > 0 && roll < 0.92) {
           const doc = pick(live);
+          if (doc.type === 'count') continue;
           const withAmount = doc.type === 'receipt' || doc.type === 'sale';
           // иногда документ переезжает на другой склад
           const move = doc.type !== 'transfer' && rand() < 0.3 ? { warehouseId: pick(warehouses) } : {};

@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   stockBalanceSchema,
+  stockCountCreateSchema,
+  stockCountPostSchema,
+  stockCountUpdateSchema,
   stockDocCreateSchema,
   stockDocListSchema,
   stockDocUpdateSchema,
@@ -14,6 +17,7 @@ import {
   stockWarehouseUpdateSchema,
 } from '../../../shared/schemas/stock';
 import type { Db } from '../../db/client';
+import { AppError } from '../../errors';
 import { parseId } from '../../http/params';
 import type { StockBalanceService } from './balance';
 import type { StockCatalogService } from './catalog';
@@ -110,14 +114,33 @@ export function registerStockRoutes(app: FastifyInstance, deps: { db: Db; catalo
   app.get<P>(`${BASE}/docs/:id`, async (req) => ({ doc: docs.get(parseId(req.params.cid), parseId(req.params.id)) }));
 
   app.post<C>(`${BASE}/docs`, async (req, reply) => {
+    // инвентаризация — своё тело: черновик со строками «товар — факт» (§7)
+    const raw = req.body as { type?: unknown; dryRun?: unknown } | null;
+    if (raw?.type === 'count') {
+      // черновик в FIFO не участвует: пробного расчёта у инвентаризации нет
+      if (raw.dryRun === true) throw new AppError(400, 'VALIDATION', 'Проверьте заполнение полей', { dryRun: 'У инвентаризации нет пробного расчёта' });
+      const doc = docs.createCount(parseId(req.params.cid), stockCountCreateSchema.parse(req.body), req.user!.id);
+      return reply.status(201).send({ doc, impact: { sales: 0, writeoffs: 0, since: null } });
+    }
     const body = stockDocCreateSchema.parse(req.body);
     const out = docs.create(parseId(req.params.cid), body, req.user!.id);
     return reply.status(body.dryRun ? 200 : 201).send(out);
   });
 
+  // схема тела — по типу документа (R15): у инвентаризации своя
   app.patch<P>(`${BASE}/docs/:id`, async (req) => {
-    const body = stockDocUpdateSchema.parse(req.body);
-    return docs.update(parseId(req.params.cid), parseId(req.params.id), body, req.user!.id);
+    const cid = parseId(req.params.cid);
+    const id = parseId(req.params.id);
+    if (docs.typeOf(cid, id) === 'count') {
+      return { doc: docs.updateCount(cid, id, stockCountUpdateSchema.parse(req.body), req.user!.id), impact: { sales: 0, writeoffs: 0, since: null } };
+    }
+    return docs.update(cid, id, stockDocUpdateSchema.parse(req.body), req.user!.id);
+  });
+
+  // «Провести» инвентаризацию
+  app.post<P>(`${BASE}/docs/:id/post`, async (req) => {
+    const { version } = stockCountPostSchema.parse(req.body);
+    return { doc: docs.post(parseId(req.params.cid), parseId(req.params.id), version, req.user!.id) };
   });
 
   // ?dryRun=1 — только последствия, документ остаётся

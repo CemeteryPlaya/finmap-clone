@@ -131,6 +131,40 @@ export const stockDocUpdateSchema = z.object({
   dryRun: z.boolean().default(false),
 });
 
+/** Строк в инвентаризации больше, чем в других документах: считается весь бар (R11). */
+export const STOCK_COUNT_LINES_MAX = 1000;
+/** Строка инвентаризации: товар и факт (тысячные доли; null — ещё не посчитан, 0 — пусто). */
+const countLines = z
+  .array(
+    z.object({
+      itemId: id,
+      countedQty: z.number().int('Количество — целое число тысячных долей').min(0, 'Количество не меньше нуля').max(QTY_MAX, 'Слишком большое количество').nullable(),
+    }),
+  )
+  .max(STOCK_COUNT_LINES_MAX, `Не больше ${STOCK_COUNT_LINES_MAX} строк`);
+
+/** Новая инвентаризация (§7): черновик; `fill` — добавить все товары склада с ненулевым остатком на дату. */
+export const stockCountCreateSchema = z.object({
+  type: z.literal('count'),
+  at: paidAt,
+  warehouseId: id,
+  comment: docComment.optional(),
+  lines: countLines.default([]),
+  fill: z.boolean().default(false),
+});
+
+/** Правка черновика инвентаризации: склад не меняется. */
+export const stockCountUpdateSchema = z.object({
+  version: z.number().int().min(1),
+  at: paidAt.optional(),
+  warehouseId: id.optional(),
+  comment: docComment.optional(),
+  lines: countLines.optional(),
+});
+
+/** «Провести» инвентаризацию: версия, которую видел клиент. */
+export const stockCountPostSchema = z.object({ version: z.number().int().min(1) });
+
 export const stockDocListSchema = z.object({
   type: z.enum(STOCK_DOC_TYPES).optional(),
   warehouse: z.coerce.number().int().positive().optional(),
@@ -154,3 +188,5 @@ export type StockItemUpdate = z.output<typeof stockItemUpdateSchema>;
 export type StockDocCreate = z.output<typeof stockDocCreateSchema>;
 export type StockDocUpdate = z.output<typeof stockDocUpdateSchema>;
 export type StockDocList = z.output<typeof stockDocListSchema>;
+export type StockCountCreate = z.output<typeof stockCountCreateSchema>;
+export type StockCountUpdate = z.output<typeof stockCountUpdateSchema>;
