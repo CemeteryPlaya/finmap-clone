@@ -375,11 +375,19 @@ export function createAnalyticsService(d: {
         .map((r) => [r.part, r]),
     );
     const template = templateDefaults(companyId);
+    // удалённая категория (отмена импорта, удаление из справочника) не остаётся в сохранённой части: иначе следующее
+    // «Сохранить» упало бы на «Неизвестная категория», которую в окне не видно
+    const kindOf = new Map(dicts(companyId).categories.map((c) => [c.id, c.kind]));
     const out = {} as Record<IndicatorPart, IndicatorPartView>;
     for (const part of INDICATOR_PARTS) {
       const row = saved.get(part);
       out[part] = row
-        ? { allCategories: row.allCategories, categoryIds: JSON.parse(row.categoryIds) as number[], includeStock: row.includeStock, isDefault: false }
+        ? {
+            allCategories: row.allCategories,
+            categoryIds: (JSON.parse(row.categoryIds) as number[]).filter((id) => kindOf.get(id) === PART_KIND[part]),
+            includeStock: row.includeStock,
+            isDefault: false,
+          }
         : { ...defaultPart(part, template), isDefault: true };
     }
     return out;
@@ -902,14 +910,16 @@ export function createAnalyticsService(d: {
       const own = new Set(all.filter((c) => c.kind === kind).map((c) => c.id));
       const ids = input.allCategories ? [] : [...new Set(input.categoryIds)];
       if (ids.some((id) => !own.has(id))) throw invalid('categoryIds', kind === 'income' ? 'Неизвестная категория дохода' : 'Неизвестная категория расхода');
+      // инвестиции, дивиденды, займы и кредиты не входят в «Прибыль», значит и в показатели (§5.1)
+      const excluded = pnlExcludedCategories(all);
+      if (ids.some((id) => excluded.has(id))) throw invalid('categoryIds', 'Инвестиции, дивиденды, займы и кредиты в показатели не входят');
       // у «Выручки» склада нет: флажок — только у частей расходов
       const next: IndicatorPartView = { allCategories: input.allCategories, categoryIds: ids, includeStock: kind === 'expense' && input.includeStock, isDefault: false };
       const before = partViews(companyId)[part];
+      const sorted = (xs: readonly number[]) => JSON.stringify([...xs].sort((a, b) => a - b));
+      // та же действующая настройка (в том числе умолчание) — без записи и без строки истории (§17.9)
       const same =
-        !before.isDefault &&
-        before.allCategories === next.allCategories &&
-        before.includeStock === next.includeStock &&
-        JSON.stringify(before.categoryIds) === JSON.stringify(next.categoryIds);
+        before.allCategories === next.allCategories && before.includeStock === next.includeStock && sorted(before.categoryIds) === sorted(next.categoryIds);
       if (same) return partViews(companyId);
       const names = new Map(all.map((c) => [c.id, c.name]));
       mutate(db, audit, (tx, record) => {

@@ -122,7 +122,6 @@ export function togglePart(cfg: PartConfig, key: string): PartConfig {
 /** Черновик отличается от сохранённой настройки: части без изменений не отправляются. */
 export function partChanged(saved: PartView, draft: PartConfig): boolean {
   return (
-    saved.isDefault ||
     saved.allCategories !== draft.allCategories ||
     saved.includeStock !== draft.includeStock ||
     JSON.stringify([...saved.categoryIds].sort((a, b) => a - b)) !== JSON.stringify([...draft.categoryIds].sort((a, b) => a - b))

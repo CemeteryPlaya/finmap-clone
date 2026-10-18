@@ -168,7 +168,12 @@ describe('«Финансовые показатели»: настройка ча
     expect(parts.cogs).toEqual({ allCategories: false, categoryIds: [q.supply], includeStock: false, isDefault: false });
     await put('cogs', { allCategories: false, categoryIds: [q.supply], includeStock: false });
     // «Выручка»: склада нет — флажок не сохраняется
-    expect((await put('revenue', { allCategories: true, categoryIds: [], includeStock: true })).revenue).toEqual({ allCategories: true, categoryIds: [], includeStock: false, isDefault: false });
+    expect((await put('revenue', { allCategories: false, categoryIds: [q.s.income], includeStock: true })).revenue).toEqual({
+      allCategories: false,
+      categoryIds: [q.s.income],
+      includeStock: false,
+      isDefault: false,
+    });
     expect(w.h.auditCount('indicator_part', 'update')).toBe(2);
     const reset = await w.h.req('DELETE', `${base()}/indicators/parts/cogs`);
     expect(reset.statusCode, reset.body).toBe(200);
@@ -181,10 +186,48 @@ describe('«Финансовые показатели»: настройка ча
     )).entries;
     expect(history.map((e) => [e.action, e.diff.part, e.diff.before.text, e.diff.after.text])).toEqual([
       ['reset', 'cogs', 'Закуп бара', 'Категорий нет, себестоимость склада (FIFO)'],
-      ['update', 'revenue', 'Все категории дохода', 'Все категории дохода'],
+      ['update', 'revenue', 'Все категории дохода', expect.any(String)],
       ['update', 'cogs', 'Категорий нет, себестоимость склада (FIFO)', 'Закуп бара'],
     ]);
     expect(history[0]!.userName).toBe('Тест');
+  });
+
+  it('то же, что умолчание, не сохраняется и не пишет историю; порядок id не важен (§17.9)', async () => {
+    const q = await quarter();
+    // «Выручка» по умолчанию — все категории дохода: такой же PUT ничего не меняет
+    expect((await put('revenue', { allCategories: true, categoryIds: [], includeStock: false })).revenue.isDefault).toBe(true);
+    const other = (await q.s.post(`/api/v1/companies/${q.s.cid}/categories`, { kind: 'expense', name: 'Расходники' })).category.id as number;
+    await put('variable', { allCategories: false, categoryIds: [q.supply, other], includeStock: true });
+    await put('variable', { allCategories: false, categoryIds: [other, q.supply], includeStock: true });
+    expect(w.h.auditCount('indicator_part')).toBe(1);
+  });
+
+  it('удалённая категория выпадает из сохранённой части, и следующее «Сохранить» проходит', async () => {
+    const q = await quarter();
+    const unused = (await q.s.post(`/api/v1/companies/${q.s.cid}/categories`, { kind: 'expense', name: 'Химчистка' })).category.id as number;
+    await put('variable', { allCategories: false, categoryIds: [q.supply, unused], includeStock: true });
+    const del = await w.h.req('DELETE', `/api/v1/companies/${q.s.cid}/categories/${unused}`);
+    expect(del.statusCode, del.body).toBeLessThan(300);
+    expect((await indicators()).parts.variable.categoryIds).toEqual([q.supply]);
+    expect((await put('variable', { allCategories: false, categoryIds: [q.supply], includeStock: false })).variable).toEqual({
+      allCategories: false,
+      categoryIds: [q.supply],
+      includeStock: false,
+      isDefault: false,
+    });
+  });
+
+  it('инвестиции, дивиденды, займы и кредиты в показатели не входят — 400', async () => {
+    const q = await quarter();
+    const tree = (await w.h.req('GET', `/api/v1/companies/${q.s.cid}/categories`)).json() as Record<'income' | 'expense', { id: number; systemKey: string | null }[]>;
+    const investment = tree.income.find((x) => x.systemKey === 'investment')!.id;
+    const dividends = tree.expense.find((x) => x.systemKey === 'dividends')!.id;
+    for (const [part, id] of [['revenue', investment], ['operating', dividends]] as const) {
+      const res = await w.h.req('PUT', `${base()}/indicators/parts/${part}`, { allCategories: false, categoryIds: [id], includeStock: false });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.fields).toEqual({ categoryIds: 'Инвестиции, дивиденды, займы и кредиты в показатели не входят' });
+    }
+    expect(w.h.auditCount('indicator_part')).toBe(0);
   });
 
   it('400 — чужая или не того вида категория, неверное тело; 404 — неизвестная часть; архивная компания — только чтение', async () => {

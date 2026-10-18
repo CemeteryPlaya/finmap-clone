@@ -1,3 +1,4 @@
+import { PART_LABEL, type IndicatorPart } from '../../shared/report-indicators';
 import type { ImportUndoResult } from '../../shared/schemas/imports';
 import { undoResultText } from './import-history';
 import { createdParts, formatCount, operationsText } from './import-panel';
@@ -84,7 +85,9 @@ export function diffRows(diff: Record<string, unknown> | null, entity?: string):
   if (typeof before !== 'object' || before === null || typeof after !== 'object' || after === null) return null;
   const b = before as Record<string, unknown>;
   const a = after as Record<string, unknown>;
-  const value = (field: string, v: unknown) => (entity === 'operation' && field === 'type' && typeof v === 'string' && OPERATION_TYPE_LABELS[v]) || show(v);
+  // часть финансового показателя: одна строка «Настройка» с текстом части, а не служебные поля (§8.2)
+  if (entity === 'indicator_part') return [{ field: 'Настройка', before: show(b.text), after: show(a.text) }];
+  const value =(field: string, v: unknown) => (entity === 'operation' && field === 'type' && typeof v === 'string' && OPERATION_TYPE_LABELS[v]) || show(v);
   const fields = [...new Set([...Object.keys(b), ...Object.keys(a)])];
   return fields.map((field) => ({ field, before: value(field, b[field]), after: value(field, a[field]) }));
 }
@@ -132,6 +135,10 @@ const isKeptAccount = (v: unknown) =>
 
 /** Что изменилось, кроме сущности и номера: у импорта — имя файла («Импорт №5 · выгрузка.xlsx», §6.5 спецификации импорта). */
 export function auditSubject(e: { entity: string; diff: Record<string, unknown> | null }): string | null {
+  if (e.entity === 'indicator_part') {
+    const part = e.diff?.part;
+    return typeof part === 'string' && Object.hasOwn(PART_LABEL, part) ? PART_LABEL[part as IndicatorPart] : null;
+  }
   return e.entity === 'import' && typeof e.diff?.fileName === 'string' ? e.diff.fileName : null;
 }
 

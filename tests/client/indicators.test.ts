@@ -58,12 +58,13 @@ describe('«Финансовые показатели»: выбор катего
     expect(togglePart(one, ALL_KEY)).toEqual(all);
   });
 
-  it('изменённые части: порядок id не важен; умолчание сохраняется всегда', () => {
+  it('изменённые части: порядок id не важен; нетронутое умолчание не отправляется (§17.9)', () => {
     const saved = { allCategories: false, categoryIds: [11, 12], includeStock: true, isDefault: false };
     expect(partChanged(saved, { allCategories: false, categoryIds: [12, 11], includeStock: true })).toBe(false);
     expect(partChanged(saved, { allCategories: false, categoryIds: [11], includeStock: true })).toBe(true);
     expect(partChanged(saved, { allCategories: false, categoryIds: [11, 12], includeStock: false })).toBe(true);
-    expect(partChanged({ ...saved, isDefault: true }, saved)).toBe(true);
+    expect(partChanged({ ...saved, isDefault: true }, saved)).toBe(false);
+    expect(partChanged({ ...saved, isDefault: true }, { ...saved, categoryIds: [11] })).toBe(true);
   });
 });
 

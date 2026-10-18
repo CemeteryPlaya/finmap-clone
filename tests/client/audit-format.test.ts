@@ -80,6 +80,15 @@ describe('audit-format', () => {
     };
     expect(auditSubject({ entity: 'import', diff })).toBe('выгрузка.xlsx');
     expect(auditSubject({ entity: 'tag', diff: { name: 'x', fileName: 'y' } })).toBeNull();
+    // часть финансового показателя: название части рядом с сущностью, в подробностях — одна строка «Настройка»
+    const part = {
+      part: 'variable',
+      before: { allCategories: false, categories: [], includeStock: true, isDefault: true, text: 'Категорий нет, себестоимость склада (FIFO)' },
+      after: { allCategories: false, categories: ['Закуп бара'], includeStock: false, isDefault: false, text: 'Закуп бара' },
+    };
+    expect(auditSubject({ entity: 'indicator_part', diff: part })).toBe('Переменные расходы');
+    expect(auditSubject({ entity: 'indicator_part', diff: { part: 'toString' } })).toBeNull();
+    expect(diffRows(part, 'indicator_part')).toEqual([{ field: 'Настройка', before: 'Категорий нет, себестоимость склада (FIFO)', after: 'Закуп бара' }]);
     expect(importDetails({ entity: 'import', action: 'create', diff })).toEqual([
       { label: 'Строк в файле', value: '1\u202F234' },
       { label: 'Добавлено', value: '1\u202F234 операции (доходов 700, расходов 500, переводов 34)' },
