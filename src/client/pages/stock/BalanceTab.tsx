@@ -159,7 +159,7 @@ export function BalanceTab() {
                               </thead>
                               <tbody>
                                 {b.batches.map((batch) => (
-                                  <tr key={batch.lineId}>
+                                  <tr key={batch.key}>
                                     <td className={tdClass}>{formatDateRu(todayInTimezone(tz, new Date(batch.at)))}</td>
                                     <td className={tdClass}>{batch.docNumber}</td>
                                     <td className={`${tdClass} max-md:hidden`}>{batch.counterpartyId === null ? '—' : (supplier.get(batch.counterpartyId) ?? '…')}</td>

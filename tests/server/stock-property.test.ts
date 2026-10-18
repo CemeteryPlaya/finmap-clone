@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { runFifo, type FifoEvent } from '../../src/shared/stock-fifo';
+import { runStock, type StockEvent } from '../../src/shared/stock-fifo';
 import { stockWorld, type StockWorld } from '../helpers/stock';
 
 let w: StockWorld | null = null;
@@ -42,7 +42,10 @@ function assertInvariants(world: StockWorld, label: string): void {
     "SELECT COALESCE(SUM(l.amount), 0) v FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id WHERE d.type = 'receipt' AND d.deleted_at IS NULL",
   ).v;
   const left = one<{ v: number }>('SELECT COALESCE(SUM(cost_left), 0) v FROM stock_batches').v;
-  const taken = one<{ v: number }>('SELECT COALESCE(SUM(cost), 0) v FROM stock_allocations').v;
+  // взятое перемещением не уходит со склада — оно стало партиями получателя
+  const taken = one<{ v: number }>(
+    "SELECT COALESCE(SUM(a.cost), 0) v FROM stock_allocations a JOIN stock_doc_lines l ON l.id = a.line_id JOIN stock_docs d ON d.id = l.doc_id WHERE d.type <> 'transfer'",
+  ).v;
   expect(left + taken, `${label}: стоимость склада + себестоимость = закупки`).toBe(purchased);
 
   const qtyIn = one<{ v: number }>('SELECT COALESCE(SUM(qty_in), 0) v FROM stock_batches').v;
@@ -55,7 +58,7 @@ function assertInvariants(world: StockWorld, label: string): void {
   const bad = s
     .prepare(
       `SELECT l.id FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id
-        WHERE d.type IN ('sale', 'writeoff') AND d.deleted_at IS NULL
+        WHERE d.type IN ('sale', 'writeoff', 'transfer') AND d.deleted_at IS NULL
           AND l.qty <> (SELECT COALESCE(SUM(a.qty), 0) FROM stock_allocations a WHERE a.line_id = l.id)`,
     )
     .all();
@@ -76,28 +79,29 @@ function assertInvariants(world: StockWorld, label: string): void {
   // база равна независимому пересчёту по живым документам
   const lines = s
     .prepare(
-      `SELECT l.id lineId, l.doc_id docId, l.position position, l.qty qty, l.amount amount, l.item_id itemId, d.warehouse_id warehouseId, d.type type, d.at at
+      `SELECT l.id lineId, l.doc_id docId, l.position position, l.qty qty, l.amount amount, l.item_id itemId, d.warehouse_id warehouseId, d.to_warehouse_id toWarehouseId, d.type type, d.at at
          FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id WHERE d.deleted_at IS NULL`,
     )
-    .all() as { lineId: number; docId: number; position: number; qty: number; amount: number | null; itemId: number; warehouseId: number; type: string; at: string }[];
-  const pairs = new Map<string, FifoEvent[]>();
+    .all() as { lineId: number; docId: number; position: number; qty: number; amount: number | null; itemId: number; warehouseId: number; toWarehouseId: number | null; type: string; at: string }[];
+  // все склады товара — одним проходом: группы пересчёта независимы, их объединение даёт тот же результат
+  const byItem = new Map<number, StockEvent[]>();
   for (const l of lines) {
-    const key = `${l.warehouseId}:${l.itemId}`;
-    const ev: FifoEvent =
-      l.type === 'receipt'
-        ? { kind: 'in', key: l.lineId, at: l.at, docId: l.docId, position: l.position, qty: l.qty, cost: l.amount ?? 0 }
-        : { kind: 'out', key: l.lineId, at: l.at, docId: l.docId, position: l.position, qty: l.qty };
-    pairs.set(key, [...(pairs.get(key) ?? []), ev]);
+    const base = { key: l.lineId, at: l.at, docId: l.docId, position: l.position, qty: l.qty, wh: l.warehouseId };
+    const ev: StockEvent =
+      l.type === 'receipt' ? { ...base, kind: 'in', cost: l.amount ?? 0 } : l.type === 'transfer' ? { ...base, kind: 'move', to: l.toWarehouseId! } : { ...base, kind: 'out' };
+    byItem.set(l.itemId, [...(byItem.get(l.itemId) ?? []), ev]);
   }
-  for (const [key, events] of pairs) {
-    const fresh = runFifo(events);
+  for (const [item, events] of byItem) {
+    const fresh = runStock(events);
     for (const o of fresh.outs.values()) {
       const stored = s.prepare('SELECT COALESCE(SUM(cost), 0) cost, COALESCE(SUM(CASE WHEN batch_id IS NULL THEN qty END), 0) unc FROM stock_allocations WHERE line_id = ?').get(o.key) as { cost: number; unc: number };
-      expect([stored.cost, stored.unc], `${label}: строка ${o.key} пары ${key}`).toEqual([o.takes.reduce((a, t) => a + (t.cost ?? 0), 0), o.uncovered]);
+      expect([stored.cost, stored.unc], `${label}: строка ${o.key} товара ${item}`).toEqual([o.takes.reduce((a, t) => a + (t.cost ?? 0), 0), o.uncovered]);
     }
-    const [wh, item] = key.split(':').map(Number);
-    const storedLeft = (s.prepare('SELECT COALESCE(SUM(qty_left), 0) q, COALESCE(SUM(cost_left), 0) c FROM stock_batches WHERE warehouse_id = ? AND item_id = ?').get(wh, item) as { q: number; c: number });
-    expect([storedLeft.q, storedLeft.c], `${label}: остаток пары ${key}`).toEqual([fresh.batches.reduce((a, b) => a + b.qtyLeft, 0), fresh.batches.reduce((a, b) => a + b.costLeft, 0)]);
+    for (const wh of new Set(fresh.batches.map((b) => b.wh).concat(events.map((e) => e.wh)))) {
+      const storedLeft = s.prepare('SELECT COALESCE(SUM(qty_left), 0) q, COALESCE(SUM(cost_left), 0) c FROM stock_batches WHERE warehouse_id = ? AND item_id = ?').get(wh, item) as { q: number; c: number };
+      const mine = fresh.batches.filter((b) => b.wh === wh);
+      expect([storedLeft.q, storedLeft.c], `${label}: остаток склада ${wh} товара ${item}`).toEqual([mine.reduce((a, b) => a + b.qtyLeft, 0), mine.reduce((a, b) => a + b.costLeft, 0)]);
+    }
   }
 }
 
@@ -111,6 +115,11 @@ describe('случайные последовательности докумен
       const pick = <T>(list: T[]): T => list[Math.floor(rand() * list.length)]!;
       const items = [world.cola, world.chips];
       const warehouses = [world.wh, world.wh2];
+      // перемещение: со случайного склада на другой
+      const route = () => {
+        const from = pick(warehouses);
+        return { warehouseId: from, toWarehouseId: warehouses.find((x) => x !== from)! };
+      };
       const at = () => `2026-10-0${1 + Math.floor(rand() * 5)}T${String(8 + Math.floor(rand() * 10)).padStart(2, '0')}:00:00.000Z`;
       const lines = (withAmount: boolean) =>
         Array.from({ length: 1 + Math.floor(rand() * 3) }, () => ({
@@ -131,18 +140,18 @@ describe('случайные последовательности докумен
           const kind = live.length > 0 ? pick(['create', 'patch', 'delete']) : 'create';
           let probe;
           if (kind === 'create') {
-            const type = pick(['receipt', 'sale', 'writeoff']);
+            const type = pick(['receipt', 'sale', 'writeoff', 'transfer']);
             probe = await world.h.req('POST', `${world.stock}/docs`, {
               type,
               at: at(),
-              warehouseId: pick(warehouses),
+              ...(type === 'transfer' ? route() : { warehouseId: pick(warehouses) }),
               ...(type === 'writeoff' ? { reason: 'defect' } : {}),
-              lines: lines(type !== 'writeoff'),
+              lines: lines(type === 'receipt' || type === 'sale'),
               dryRun: true,
             });
           } else if (kind === 'patch') {
             const doc = pick(live);
-            probe = await world.h.req('PATCH', `${world.stock}/docs/${doc.id}`, { version: doc.version, at: at(), warehouseId: pick(warehouses), lines: lines(doc.type !== 'writeoff'), dryRun: true });
+            probe = await world.h.req('PATCH', `${world.stock}/docs/${doc.id}`, { version: doc.version, at: at(), ...(doc.type === 'transfer' ? {} : { warehouseId: pick(warehouses) }), lines: lines(doc.type === 'receipt' || doc.type === 'sale'), dryRun: true });
           } else {
             const doc = pick(live);
             probe = await world.h.req('DELETE', `${world.stock}/docs/${doc.id}?dryRun=1`);
@@ -155,17 +164,20 @@ describe('случайные последовательности докумен
         if (roll < 0.3) {
           res = await world.h.req('POST', `${world.stock}/docs`, { type: 'receipt', at: at(), warehouseId: pick(warehouses), lines: lines(true) });
           if (res.statusCode === 201) live.push({ ...(res.json().doc as { id: number; version: number }), type: 'receipt' });
-        } else if (roll < 0.55) {
+        } else if (roll < 0.5) {
           res = await world.h.req('POST', `${world.stock}/docs`, { type: 'sale', at: at(), warehouseId: pick(warehouses), lines: lines(true) });
           if (res.statusCode === 201) live.push({ ...(res.json().doc as { id: number; version: number }), type: 'sale' });
-        } else if (roll < 0.65) {
+        } else if (roll < 0.6) {
           res = await world.h.req('POST', `${world.stock}/docs`, { type: 'writeoff', at: at(), warehouseId: pick(warehouses), reason: 'defect', lines: lines(false) });
           if (res.statusCode === 201) live.push({ ...(res.json().doc as { id: number; version: number }), type: 'writeoff' });
-        } else if (live.length > 0 && roll < 0.85) {
+        } else if (roll < 0.75) {
+          res = await world.h.req('POST', `${world.stock}/docs`, { type: 'transfer', at: at(), ...route(), lines: lines(false) });
+          if (res.statusCode === 201) live.push({ ...(res.json().doc as { id: number; version: number }), type: 'transfer' });
+        } else if (live.length > 0 && roll < 0.9) {
           const doc = pick(live);
-          const withAmount = doc.type !== 'writeoff';
+          const withAmount = doc.type === 'receipt' || doc.type === 'sale';
           // иногда документ переезжает на другой склад
-          const move = rand() < 0.3 ? { warehouseId: pick(warehouses) } : {};
+          const move = doc.type !== 'transfer' && rand() < 0.3 ? { warehouseId: pick(warehouses) } : {};
           res = await world.h.req('PATCH', `${world.stock}/docs/${doc.id}`, { version: doc.version, at: at(), ...move, lines: lines(withAmount) });
           if (res.statusCode === 200) doc.version += 1;
         } else if (live.length > 0) {

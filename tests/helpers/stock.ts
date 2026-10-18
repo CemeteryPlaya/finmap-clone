@@ -25,6 +25,8 @@ export interface StockWorld extends OpsWorld {
   sale(at: string, lines: [number, number, number][], extra?: Record<string, unknown>): Promise<any>;
   /** Списание со склада «Клуб 1»: lines — [товар, количество (тысячные)]. */
   writeoff(at: string, lines: [number, number][], extra?: Record<string, unknown>): Promise<any>;
+  /** Перемещение со склада `from` на склад `to`: lines — [товар, количество (тысячные)]. */
+  transfer(at: string, from: number, to: number, lines: [number, number][], extra?: Record<string, unknown>): Promise<any>;
 }
 
 /** Мир операций плюс склады обоих клубов, три товара, поставщик и покупатель. «Сейчас» — 2026-10-06 12:00 UTC. */
@@ -57,5 +59,7 @@ export async function stockWorld(now?: string): Promise<StockWorld> {
     sale: (at, lines, extra = {}) => doc({ type: 'sale', at, warehouseId: wh, lines: lines.map(([itemId, qty, amount]) => ({ itemId, qty, amount })), ...extra }),
     writeoff: (at, lines, extra = {}) =>
       doc({ type: 'writeoff', at, warehouseId: wh, reason: 'defect', lines: lines.map(([itemId, qty]) => ({ itemId, qty })), ...extra }),
+    transfer: (at, from, to, lines, extra = {}) =>
+      doc({ type: 'transfer', at, warehouseId: from, toWarehouseId: to, lines: lines.map(([itemId, qty]) => ({ itemId, qty })), ...extra }),
   };
 }

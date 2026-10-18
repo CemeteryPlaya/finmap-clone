@@ -67,7 +67,8 @@ describe('документы: номера, создание, чтение', () 
     expect(await q('from=2026-10-02')).toEqual([`${R}-0001`, `${P}-0002`]);
     expect((await w.h.req('GET', `${w.stock}/docs?limit=2`)).json()).toMatchObject({ hasMore: true });
     expect((await w.h.req('GET', `${w.stock}/docs?limit=2&offset=2`)).json().docs).toHaveLength(1);
-    expect((await w.h.req('GET', `${w.stock}/docs?type=transfer`)).statusCode).toBe(400);
+    expect((await w.h.req('GET', `${w.stock}/docs?type=transfer`)).statusCode).toBe(200);
+    expect((await w.h.req('GET', `${w.stock}/docs?type=move`)).statusCode).toBe(400);
   });
 
   it('история: создание документа пишется один раз', async () => {

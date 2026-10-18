@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lt, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import { addDays, formatDateRu, startOfDayUtc, todayInTimezone } from '../../../shared/dates';
 import {
   STOCK_DOC_PREFIX,
@@ -17,7 +17,7 @@ import type { AuditEntry, AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import { docPayments, paidByDoc, type DocPayment } from './payments';
 import { lastPostOf, postedDocs, postingOf, type DocPosting, type LastPost } from './postings';
-import { buildPair, clearPair, storedSigs, uniquePairs, type LineSig, type Pair } from './recalc';
+import { buildGroup, clearGroup, groupsOf, storedSigs, type LineSig, type Pair } from './recalc';
 
 export type StockDocRow = typeof stockDocs.$inferSelect;
 
@@ -83,6 +83,8 @@ interface Draft {
   type: StockDocType;
   at: string;
   warehouseId: number;
+  /** Склад-получатель перемещения; у других типов — null. */
+  toWarehouseId: number | null;
   counterpartyId: number | null;
   reason: WriteoffReason | null;
   comment: string | null;
@@ -112,8 +114,9 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
 
   function dtoOf(ex: Executor, row: StockDocRow): StockDocDto {
     const lines = ex.select().from(stockDocLines).where(eq(stockDocLines.docId, row.id)).orderBy(stockDocLines.position).all();
+    const out = row.type === 'sale' || row.type === 'writeoff' || row.type === 'transfer';
     const sums = new Map<number, { cost: number | null; covered: number }>();
-    if (lines.length > 0 && (row.type === 'sale' || row.type === 'writeoff')) {
+    if (lines.length > 0 && out) {
       const rows = ex.all<{ lineId: number; cost: number | null; covered: number }>(sql`
         SELECT line_id AS lineId, SUM(cost) AS cost, COALESCE(SUM(CASE WHEN batch_id IS NOT NULL THEN qty END), 0) AS covered
           FROM stock_allocations WHERE line_id IN (${sql.join(lines.map((l) => sql`${l.id}`), sql`, `)}) GROUP BY line_id`);
@@ -121,7 +124,6 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
     }
     const dtoLines: StockDocLineDto[] = lines.map((l) => {
       const s = sums.get(l.id);
-      const out = row.type === 'sale' || row.type === 'writeoff';
       return {
         id: l.id,
         position: l.position,
@@ -145,6 +147,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
       type: dto.type as StockDocType,
       at: dto.at,
       warehouseId: dto.warehouseId,
+      toWarehouseId: dto.toWarehouseId,
       counterpartyId: dto.counterpartyId,
       reason: dto.reason,
       comment: dto.comment,
@@ -167,11 +170,27 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
       throw new AppError(422, 'INVARIANT_6', 'Дата документа в будущем', { at: 'Дата документа в будущем' });
     }
 
+    if (draft.type === 'count') throw invalid({ type: 'Инвентаризация создаётся отдельно' });
+
     if (draft.type === 'writeoff') {
       if (draft.reason === null) throw invalid({ reason: 'Укажите причину списания' });
       if (draft.counterpartyId !== null) throw invalid({ counterpartyId: 'У списания нет контрагента' });
     } else if (draft.reason !== null) {
       throw invalid({ reason: 'Причина — только у списания' });
+    }
+
+    // перемещение (решение 3 плана Склад-2): получатель — другой склад этой компании, без контрагента и сумм
+    if (draft.type === 'transfer') {
+      if (draft.toWarehouseId === null) throw invalid({ toWarehouseId: 'Выберите склад-получатель' });
+      if (draft.counterpartyId !== null) throw invalid({ counterpartyId: 'У перемещения нет контрагента' });
+      if (draft.toWarehouseId === draft.warehouseId) {
+        throw new AppError(422, 'VALIDATION', 'Склад-получатель совпадает с отправителем', { toWarehouseId: 'Склад-получатель совпадает с отправителем' });
+      }
+      const to = ex.select().from(stockWarehouses).where(and(eq(stockWarehouses.id, draft.toWarehouseId), eq(stockWarehouses.companyId, companyId))).get();
+      if (!to) throw new AppError(422, 'INVARIANT_5', 'Склад не найден в этой компании', { toWarehouseId: 'Склад не найден в этой компании' });
+      if (to.archivedAt && to.id !== prev?.toWarehouseId) throw new AppError(422, 'ARCHIVED_REFERENCE', `Склад «${to.name}» в архиве — выберите другой`);
+    } else if (draft.toWarehouseId !== null) {
+      throw invalid({ toWarehouseId: 'Склад-получатель — только у перемещения' });
     }
 
     if (draft.counterpartyId !== null) {
@@ -200,8 +219,8 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
       if (item.archivedAt && !prevItems.has(item.id)) throw new AppError(422, 'ARCHIVED_REFERENCE', `Товар «${item.name}» в архиве — выберите другой`);
       const qtyProblem = qtyError(l.qty, item.unit);
       if (qtyProblem) throw invalid({ [`lines.${i}.qty`]: qtyProblem });
-      if (draft.type === 'writeoff') {
-        if (l.amount !== null) throw invalid({ [`lines.${i}.amount`]: 'У списания нет суммы' });
+      if (draft.type === 'writeoff' || draft.type === 'transfer') {
+        if (l.amount !== null) throw invalid({ [`lines.${i}.amount`]: draft.type === 'writeoff' ? 'У списания нет суммы' : 'У перемещения нет суммы' });
       } else if (l.amount === null) {
         throw invalid({ [`lines.${i}.amount`]: 'Укажите сумму строки' });
       }
@@ -209,7 +228,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
     return draft;
   }
 
-  /** Номер по типу в компании: «П-0001», «Р-0001», «С-0001». Удалённые документы номер не освобождают. */
+  /** Номер по типу в компании: «П-0001», «Р-0001», «С-0001», «М-0001», «И-0001». Удалённые документы номер не освобождают. */
   function nextNumber(ex: Executor, companyId: number, type: StockDocType): string {
     const row = ex
       .select({ m: sql<number>`coalesce(max(cast(substr(${stockDocs.number}, 3) as integer)), 0)` })
@@ -230,18 +249,21 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
    * строки, затем пары строятся заново по всем документам. Ручное списание, которому после правки не хватает остатка,
    * откатывает всю транзакцию ответом 422 (§5.3). Возвращает, у скольких чужих продаж и списаний изменилась себестоимость (§5.4).
    */
-  function rebuild(tx: Executor, pairs: Pair[], docId: number, sinceAt: string, change: () => void): DocImpact {
-    const touched = uniquePairs(pairs);
+  function rebuild(tx: Executor, companyId: number, pairs: Pair[], docId: number, sinceAt: string, change: () => void): DocImpact {
+    // группы — до изменения строк, по старым и новым парам документа (решение 4 плана Склад-2)
+    const groups = groupsOf(tx, companyId, pairs);
     const before = new Map<number, LineSig>();
-    for (const p of touched) for (const [k, v] of storedSigs(tx, p)) before.set(k, v);
-    for (const p of touched) clearPair(tx, p);
+    for (const g of groups) for (const [k, v] of storedSigs(tx, g)) before.set(k, v);
+    for (const g of groups) clearGroup(tx, g);
     change();
-    const changed = { sale: new Set<number>(), writeoff: new Set<number>() };
-    for (const p of touched) {
-      const { result, sigs } = buildPair(tx, p);
+    // §5.4: продажи — отдельно, списания и инвентаризации — потери; перемещения в число не входят (R8)
+    const changed = { sale: new Set<number>(), loss: new Set<number>() };
+    for (const g of groups) {
+      const { result, sigs } = buildGroup(tx, companyId, g);
       for (const s of sigs.values()) {
-        if (s.type === 'writeoff' && s.uncovered > 0) {
-          const item = tx.select().from(stockItems).where(eq(stockItems.id, p.itemId)).get()!;
+        // ручное списание, перемещение и недостача требуют остатка всегда (§5.3, решения 3 и 6)
+        if (s.type !== 'sale' && s.uncovered > 0) {
+          const item = tx.select().from(stockItems).where(eq(stockItems.id, g.itemId)).get()!;
           const available = result.outs.get(s.lineId)!.available;
           throw new AppError(
             422,
@@ -252,11 +274,12 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
           );
         }
         const old = before.get(s.lineId);
-        if (s.docId !== docId && old && (old.cost !== s.cost || old.uncovered !== s.uncovered)) changed[s.type].add(s.docId);
+        if (s.type === 'transfer' || s.docId === docId || !old || (old.cost === s.cost && old.uncovered === s.uncovered)) continue;
+        (s.type === 'sale' ? changed.sale : changed.loss).add(s.docId);
       }
     }
     const sales = changed.sale.size;
-    const writeoffs = changed.writeoff.size;
+    const writeoffs = changed.loss.size;
     return sales + writeoffs === 0 ? NO_IMPACT : { sales, writeoffs, since: sinceAt };
   }
 
@@ -279,14 +302,20 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
     }
   }
 
-  const pairsOf = (draft: Pick<Draft, 'warehouseId' | 'lines'>): Pair[] => draft.lines.map((l) => ({ warehouseId: draft.warehouseId, itemId: l.itemId }));
+  /** Пары строк документа: у перемещения — обе стороны. */
+  const pairsOf = (draft: Pick<Draft, 'warehouseId' | 'toWarehouseId' | 'lines'>): Pair[] =>
+    draft.lines.flatMap((l) => [
+      { warehouseId: draft.warehouseId, itemId: l.itemId },
+      ...(draft.toWarehouseId === null ? [] : [{ warehouseId: draft.toWarehouseId, itemId: l.itemId }]),
+    ]);
 
   const svc: StockDocsService = {
     list(companyId, q) {
       requireCompany(db, companyId);
       const conds: SQL[] = [eq(stockDocs.companyId, companyId), isNull(stockDocs.deletedAt)];
       if (q.type) conds.push(eq(stockDocs.type, q.type));
-      if (q.warehouse) conds.push(eq(stockDocs.warehouseId, q.warehouse));
+      // у склада видны и входящие перемещения (R6)
+      if (q.warehouse) conds.push(or(eq(stockDocs.warehouseId, q.warehouse), eq(stockDocs.toWarehouseId, q.warehouse))!);
       if (q.from) conds.push(gte(stockDocs.at, startOfDayUtc(q.from, d.timezone)));
       if (q.to) conds.push(lt(stockDocs.at, startOfDayUtc(addDays(q.to, 1), d.timezone)));
       const rows = db
@@ -328,6 +357,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
             type: input.type,
             at: input.at,
             warehouseId: input.warehouseId,
+            toWarehouseId: input.toWarehouseId,
             counterpartyId: input.counterpartyId,
             reason: input.reason,
             comment: input.comment ?? null,
@@ -345,6 +375,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
             number,
             at: draft.at,
             warehouseId: draft.warehouseId,
+            toWarehouseId: draft.toWarehouseId,
             counterpartyId: draft.counterpartyId,
             reason: draft.reason,
             status: 'posted',
@@ -357,7 +388,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
           })
           .returning()
           .get();
-        const impact = rebuild(tx, pairsOf(draft), row.id, draft.at, () => insertLines(tx, row.id, draft.lines));
+        const impact = rebuild(tx, companyId, pairsOf(draft), row.id, draft.at, () => insertLines(tx, row.id, draft.lines));
         record({ companyId, userId, entity: 'stock_doc', entityId: row.id, action: 'create', diff: { number, ...draft } });
         return { doc: dtoOf(tx, row), impact };
       });
@@ -369,7 +400,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
         const current = requireRow(tx, companyId, id);
         if (current.deletedAt) throw new AppError(409, 'VERSION_CONFLICT', 'Документ удалён — обновите страницу');
         if (patch.version !== current.version) throw new AppError(409, 'VERSION_CONFLICT', 'Документ изменён другим пользователем');
-        if (current.type !== 'receipt' && current.type !== 'sale' && current.type !== 'writeoff') {
+        if (current.type === 'count') {
           throw new AppError(422, 'VALIDATION', 'Этот документ изменить нельзя');
         }
         const currentDto = dtoOf(tx, current);
@@ -378,6 +409,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
           ...prev,
           ...(patch.at !== undefined ? { at: patch.at } : {}),
           ...(patch.warehouseId !== undefined ? { warehouseId: patch.warehouseId } : {}),
+          ...(patch.toWarehouseId !== undefined ? { toWarehouseId: patch.toWarehouseId } : {}),
           ...(patch.counterpartyId !== undefined ? { counterpartyId: patch.counterpartyId } : {}),
           ...(patch.reason !== undefined ? { reason: patch.reason } : {}),
           ...(patch.comment !== undefined ? { comment: patch.comment } : {}),
@@ -391,12 +423,13 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
         const changes = changedFields(prev, draft);
         if (!changes) return { doc: currentDto, impact: NO_IMPACT };
         const sinceAt = draft.at < prev.at ? draft.at : prev.at;
-        const impact = rebuild(tx, [...pairsOf(prev), ...pairsOf(draft)], id, sinceAt, () => {
+        const impact = rebuild(tx, companyId, [...pairsOf(prev), ...pairsOf(draft)], id, sinceAt, () => {
           const updated = tx
             .update(stockDocs)
             .set({
               at: draft.at,
               warehouseId: draft.warehouseId,
+              toWarehouseId: draft.toWarehouseId,
               counterpartyId: draft.counterpartyId,
               reason: draft.reason,
               comment: draft.comment,
@@ -421,7 +454,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
         const current = requireRow(tx, companyId, id);
         if (current.deletedAt) return { doc: dtoOf(tx, current), impact: NO_IMPACT };
         const dto = dtoOf(tx, current);
-        const impact = rebuild(tx, pairsOf(draftOf(dto)), id, current.at, () => {
+        const impact = rebuild(tx, companyId, pairsOf(draftOf(dto)), id, current.at, () => {
           tx.update(stockDocs).set({ deletedAt: now().toISOString(), updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(stockDocs.id, id)).run();
         });
         record({ companyId, userId, entity: 'stock_doc', entityId: id, action: 'delete', diff: { number: current.number, type: current.type, at: current.at, total: dto.total } });

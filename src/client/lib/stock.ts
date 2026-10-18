@@ -69,6 +69,8 @@ export interface StockDocListItem {
   number: string;
   at: string;
   warehouseId: number;
+  /** Склад-получатель перемещения; у других типов — null. */
+  toWarehouseId: number | null;
   counterpartyId: number | null;
   reason: WriteoffReason | null;
   comment: string | null;
@@ -96,6 +98,8 @@ export interface DocImpact {
 }
 
 export interface BalanceBatch {
+  /** Уникален в ответе: у перемещения одна строка даёт несколько партий. */
+  key: string;
   lineId: number;
   docId: number;
   docNumber: string;
@@ -106,6 +110,8 @@ export interface BalanceBatch {
   costIn: number;
   qtyLeft: number;
   costLeft: number;
+  /** Излишек инвентаризации без известной цены. */
+  unknownCost: boolean;
 }
 
 export interface BalanceItem {

@@ -38,7 +38,7 @@ describe('остатки', () => {
       low: false,
     });
     expect(itemRow(b, w.cola).batches).toEqual([
-      { lineId: expect.any(Number), docId: expect.any(Number), docNumber: 'П-0002', warehouseId: w.wh, counterpartyId: w.supplier, at: D2, qtyIn: 10_000, costIn: 150_000, qtyLeft: 8000, costLeft: 120_000 },
+      { key: expect.stringMatching(/^\d+-\d+$/), lineId: expect.any(Number), docId: expect.any(Number), docNumber: 'П-0002', warehouseId: w.wh, counterpartyId: w.supplier, at: D2, qtyIn: 10_000, costIn: 150_000, qtyLeft: 8000, costLeft: 120_000, unknownCost: false },
     ]);
     expect(b.total).toBe(120_000);
     expect(r1.number).toBe('П-0001');

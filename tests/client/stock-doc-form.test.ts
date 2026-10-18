@@ -167,6 +167,7 @@ describe('draftFromDoc', () => {
       number: 'Р-0001',
       at: '2026-10-05T05:30:00.000Z',
       warehouseId: 7,
+      toWarehouseId: null,
       counterpartyId: 3,
       reason: null,
       comment: 'смена',

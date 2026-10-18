@@ -67,6 +67,8 @@ export function docTitle(type: StockDocType, number: string | null): string {
     receipt: ['Новое поступление', 'Поступление'],
     sale: ['Новая продажа', 'Продажа'],
     writeoff: ['Новое списание', 'Списание'],
+    transfer: ['Новое перемещение', 'Перемещение'],
+    count: ['Новая инвентаризация', 'Инвентаризация'],
   };
   return number === null ? names[type][0] : `${names[type][1]} ${number}`;
 }
@@ -74,7 +76,14 @@ export function docTitle(type: StockDocType, number: string | null): string {
 /** Текст главной кнопки: «Добавить поступление» / «Сохранить изменения». */
 export function docSubmitLabel(type: StockDocType, editing: boolean): string {
   if (editing) return 'Сохранить изменения';
-  return { receipt: 'Добавить поступление', sale: 'Добавить продажу', writeoff: 'Добавить списание' }[type];
+  const labels: Record<StockDocType, string> = {
+    receipt: 'Добавить поступление',
+    sale: 'Добавить продажу',
+    writeoff: 'Добавить списание',
+    transfer: 'Добавить перемещение',
+    count: 'Добавить инвентаризацию',
+  };
+  return labels[type];
 }
 
 const minorOf = (currency: string) => getCurrency(currency).minorUnits;

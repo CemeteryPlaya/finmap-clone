@@ -11,12 +11,18 @@ export const STOCK_BARCODE_MAX = 40;
 export const STOCK_DOC_LINES_MAX = 200;
 export const STOCK_COMMENT_MAX = 2000;
 
-/** Типы документов, которые доступны в плане «Склад-1»; перемещение и инвентаризация — «Склад-2». */
-export const STOCK_DOC_TYPES = ['receipt', 'sale', 'writeoff'] as const;
+/** Типы документов склада: «Склад-1» — поступление, продажа, списание; «Склад-2» — перемещение и инвентаризация. */
+export const STOCK_DOC_TYPES = ['receipt', 'sale', 'writeoff', 'transfer', 'count'] as const;
 export type StockDocType = (typeof STOCK_DOC_TYPES)[number];
-export const STOCK_DOC_TYPE_LABELS: Record<StockDocType, string> = { receipt: 'Поступление', sale: 'Продажа', writeoff: 'Списание' };
-/** Буква номера документа: «П-0001», «Р-0001», «С-0001». */
-export const STOCK_DOC_PREFIX: Record<StockDocType, string> = { receipt: 'П', sale: 'Р', writeoff: 'С' };
+export const STOCK_DOC_TYPE_LABELS: Record<StockDocType, string> = {
+  receipt: 'Поступление',
+  sale: 'Продажа',
+  writeoff: 'Списание',
+  transfer: 'Перемещение',
+  count: 'Инвентаризация',
+};
+/** Буква номера документа: «П-0001», «Р-0001», «С-0001», «М-0001», «И-0001». */
+export const STOCK_DOC_PREFIX: Record<StockDocType, string> = { receipt: 'П', sale: 'Р', writeoff: 'С', transfer: 'М', count: 'И' };
 
 export const WRITEOFF_REASONS = ['defect', 'spoiled', 'own_use', 'other'] as const;
 export type WriteoffReason = (typeof WRITEOFF_REASONS)[number];
@@ -85,6 +91,8 @@ export const stockDocCreateSchema = z.object({
   type: z.enum(STOCK_DOC_TYPES, { message: 'Неверный тип документа' }),
   at: paidAt,
   warehouseId: id,
+  /** Склад-получатель — только у перемещения. */
+  toWarehouseId: id.nullable().default(null),
   counterpartyId: id.nullable().default(null),
   reason: z.enum(WRITEOFF_REASONS, { message: 'Неверная причина списания' }).nullable().default(null),
   comment: docComment.optional(),
@@ -98,6 +106,7 @@ export const stockDocUpdateSchema = z.object({
   version: z.number().int().min(1),
   at: paidAt.optional(),
   warehouseId: id.optional(),
+  toWarehouseId: id.nullable().optional(),
   counterpartyId: id.nullable().optional(),
   reason: z.enum(WRITEOFF_REASONS, { message: 'Неверная причина списания' }).nullable().optional(),
   comment: docComment.optional(),
