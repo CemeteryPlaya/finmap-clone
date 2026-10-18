@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { compareMoment, fifoTotals, runFifo, takeCost, type FifoEvent, type FifoIn, type FifoOut } from '../../src/shared/stock-fifo';
+import {
+  compareMoment,
+  fifoTotals,
+  qtyAt,
+  runFifo,
+  runStock,
+  takeCost,
+  type FifoEvent,
+  type FifoIn,
+  type FifoOut,
+  type StockEvent,
+  type StockResult,
+} from '../../src/shared/stock-fifo';
 
 let seq = 0;
 /** Поступление: key — строка, at — «день», docId растёт сам. */
@@ -206,6 +218,165 @@ describe('runFifo: свойства на случайных последоват
       }
       // порядок входа не важен
       expect(runFifo([...events].reverse()).batches, `seed ${seed}: порядок`).toEqual(r.batches);
+    }
+  });
+});
+
+// ---- многоскладское ядро (план Склад-2, задача 1)
+
+const day = (d: number) => `2026-10-${String(d).padStart(2, '0')}T10:00:00.000Z`;
+/** События склада: docId по умолчанию — номер ключа, чтобы порядок внутри одного дня был предсказуем. */
+const sIn = (wh: number, key: number, d: number, qty: number, cost: number, docId = key): StockEvent => ({ kind: 'in', wh, key, at: day(d), docId, position: 0, qty, cost });
+const sOut = (wh: number, key: number, d: number, qty: number, docId = key): StockEvent => ({ kind: 'out', wh, key, at: day(d), docId, position: 0, qty });
+const sMove = (wh: number, to: number, key: number, d: number, qty: number, docId = key): StockEvent => ({ kind: 'move', wh, to, key, at: day(d), docId, position: 0, qty });
+const sSurplus = (wh: number, key: number, d: number, qty: number, docId = key): StockEvent => ({ kind: 'surplus', wh, key, at: day(d), docId, position: 0, qty });
+
+const left = (r: StockResult, wh: number) =>
+  r.batches.filter((b) => b.wh === wh).reduce((s, b) => ({ qty: s.qty + b.qtyLeft, cost: s.cost + b.costLeft }), { qty: 0, cost: 0 });
+
+describe('runStock (§5.2, Склад-2)', () => {
+  it('перемещение берёт партии отправителя по FIFO и создаёт у получателя партии той же стоимости', () => {
+    const r = runStock([sIn(1, 1, 1, 2000, 200), sIn(1, 2, 2, 3000, 360), sMove(1, 2, 3, 3, 4000)]);
+    expect(
+      r.batches.filter((b) => b.wh === 2).map(({ wh, originKey, qtyIn, costIn, sourceIndex, qtyLeft, costLeft }) => ({ wh, originKey, qtyIn, costIn, sourceIndex, qtyLeft, costLeft })),
+    ).toEqual([
+      { wh: 2, originKey: 3, qtyIn: 2000, costIn: 200, sourceIndex: 0, qtyLeft: 2000, costLeft: 200 },
+      { wh: 2, originKey: 3, qtyIn: 2000, costIn: 240, sourceIndex: 1, qtyLeft: 2000, costLeft: 240 },
+    ]);
+    expect(r.batches[1]).toMatchObject({ wh: 1, originKey: 2, qtyLeft: 1000, costLeft: 120 });
+    expect(r.outs.get(3)).toMatchObject({ key: 3, wh: 1, kind: 'move', uncovered: 0, available: 5000 });
+    expect(r.outs.get(3)!.takes).toEqual([
+      { batchIndex: 0, qty: 2000, cost: 200 },
+      { batchIndex: 1, qty: 2000, cost: 240 },
+    ]);
+  });
+
+  it('перемещение туда и обратно: себестоимость продажи и остатки сходятся', () => {
+    const r = runStock([sIn(1, 1, 1, 10_000, 1000), sMove(1, 2, 2, 2, 4000), sMove(2, 1, 3, 3, 1000), sOut(1, 4, 4, 7000)]);
+    const sale = r.outs.get(4)!;
+    expect(sale.uncovered).toBe(0);
+    expect(sale.takes.reduce((s, t) => s + (t.cost ?? 0), 0)).toBe(700);
+    expect(left(r, 2)).toEqual({ qty: 3000, cost: 300 });
+    expect(left(r, 1)).toEqual({ qty: 0, cost: 0 });
+    expect(r.batches.reduce((s, b) => s + b.costLeft, 0)).toBe(1000 - 700);
+    // вернувшаяся единица — партия Клуба 1 с источником в партии Клуба 2
+    const back = r.batches.find((b) => b.wh === 1 && b.originKey === 3)!;
+    expect(r.batches[back.sourceIndex!]).toMatchObject({ wh: 2, originKey: 2 });
+  });
+
+  it('перемещение без остатка оставляет непокрытое и не создаёт партий получателю', () => {
+    const r = runStock([sMove(1, 2, 1, 1, 1000)]);
+    expect(r.outs.get(1)).toMatchObject({ uncovered: 1000, available: 0 });
+    expect(r.outs.get(1)!.takes).toEqual([{ batchIndex: null, qty: 1000, cost: null }]);
+    expect(r.batches).toEqual([]);
+  });
+
+  it('излишек — по цене последней партии склада; без партий — 0 и unknownCost', () => {
+    const r = runStock([sIn(1, 1, 1, 3000, 360), sSurplus(1, 2, 2, 2000), sSurplus(2, 3, 3, 1000)]);
+    expect(r.batches.find((b) => b.originKey === 2)).toMatchObject({ wh: 1, qtyIn: 2000, costIn: 240, unknownCost: false, sourceIndex: null });
+    expect(r.batches.find((b) => b.originKey === 3)).toMatchObject({ wh: 2, qtyIn: 1000, costIn: 0, unknownCost: true });
+  });
+
+  it('излишек берёт цену последней созданной партии склада — и партии перемещения', () => {
+    const r = runStock([sIn(1, 1, 1, 1000, 100), sIn(2, 2, 2, 1000, 500), sMove(2, 1, 3, 3, 1000), sSurplus(1, 4, 4, 2000)]);
+    expect(r.batches.find((b) => b.originKey === 4)).toMatchObject({ costIn: 1000, unknownCost: false });
+  });
+
+  it('перемещение партии без цены даёт получателю партию без цены', () => {
+    const r = runStock([sSurplus(1, 1, 1, 2000), sMove(1, 2, 2, 2, 1000)]);
+    expect(r.batches.find((b) => b.wh === 2)).toMatchObject({ originKey: 2, qtyIn: 1000, costIn: 0, unknownCost: true, sourceIndex: 0 });
+  });
+
+  it('приход нулевого количества партии не создаёт и не ломает цену следующего излишка', () => {
+    const r = runStock([sIn(1, 1, 1, 1000, 300), sSurplus(1, 2, 2, 0), sSurplus(1, 3, 3, 1000)]);
+    expect(r.batches.map((b) => [b.originKey, b.costIn])).toEqual([
+      [1, 300],
+      [3, 300],
+    ]);
+  });
+
+  it('излишек после излишка без цены — тоже без цены', () => {
+    const r = runStock([sSurplus(1, 1, 1, 1000), sSurplus(1, 2, 2, 1000)]);
+    expect(r.batches.map((b) => [b.costIn, b.unknownCost])).toEqual([
+      [0, true],
+      [0, true],
+    ]);
+  });
+
+  it('продажа на складе-получателе берёт партии перемещения, нехватка — без партии', () => {
+    const r = runStock([sIn(1, 1, 1, 10_000, 100_000), sMove(1, 2, 2, 2, 4000), sOut(2, 3, 3, 5000)]);
+    expect(r.outs.get(3)!.takes).toEqual([
+      { batchIndex: 1, qty: 4000, cost: 40_000 },
+      { batchIndex: null, qty: 1000, cost: null },
+    ]);
+    expect(r.outs.get(3)).toMatchObject({ kind: 'out', wh: 2, available: 4000, uncovered: 1000 });
+  });
+
+  it('qtyAt считает события строго раньше момента', () => {
+    const events = [sIn(1, 1, 1, 5000, 500), sMove(1, 2, 2, 2, 1000), sOut(1, 3, 3, 7000), sSurplus(2, 4, 4, 500)];
+    const after = { at: day(5), docId: 0, position: 0 };
+    expect(qtyAt(events, 1, after)).toBe(-3000);
+    expect(qtyAt(events, 2, after)).toBe(1500);
+    // сам момент события не входит; тот же момент и документ с меньшей позицией — входит
+    expect(qtyAt(events, 1, { at: day(3), docId: 3, position: 0 })).toBe(4000);
+    expect(qtyAt([sIn(1, 1, 1, 1000, 0, 7), { ...sIn(1, 2, 1, 2000, 0, 7), position: 1 }], 1, { at: day(1), docId: 7, position: 1 })).toBe(1000);
+  });
+
+  it('runFifo совпадает с runStock на одном складе', () => {
+    const events: FifoEvent[] = [inn(1, 1, 10_000, 1000, 1), inn(2, 5, 10_000, 3000, 2), out(10, 6, 12_000, 3), out(11, 7, 9000, 4)];
+    const fifo = runFifo(events);
+    const stock = runStock(events.map((e) => ({ ...e, wh: 0 })));
+    expect(fifo.batches.map((b) => [b.key, b.qtyLeft, b.costLeft])).toEqual(stock.batches.map((b) => [b.originKey, b.qtyLeft, b.costLeft]));
+    for (const k of [10, 11]) {
+      expect(fifo.outs.get(k)!.takes.map((t) => [t.batchKey, t.qty, t.cost])).toEqual(
+        stock.outs.get(k)!.takes.map((t) => [t.batchIndex === null ? null : stock.batches[t.batchIndex]!.originKey, t.qty, t.cost]),
+      );
+    }
+  });
+
+  it('свойства на случайных последовательностях: деньги и количество сходятся, порядок входа не важен', () => {
+    for (let seed = 1; seed <= 200; seed++) {
+      const rand = rng(seed * 7919);
+      const n = 1 + Math.floor(rand() * 50);
+      const events: StockEvent[] = [];
+      for (let i = 0; i < n; i++) {
+        const d = 1 + Math.floor(rand() * 28);
+        const wh = 1 + Math.floor(rand() * 3);
+        const qty = (1 + Math.floor(rand() * 9)) * (rand() < 0.5 ? 1000 : 1);
+        const p = rand();
+        if (p < 0.35) events.push(sIn(wh, i + 1, d, qty, Math.floor(rand() * 100_000)));
+        else if (p < 0.6) events.push(sOut(wh, i + 1, d, qty));
+        else if (p < 0.85) events.push(sMove(wh, 1 + ((wh + Math.floor(rand() * 2)) % 3), i + 1, d, qty));
+        else events.push(sSurplus(wh, i + 1, d, qty));
+      }
+      const r = runStock(events);
+      const kindOf = new Map(events.map((e) => [e.key, e.kind]));
+      const ins = events.reduce((s, e) => s + (e.kind === 'in' ? e.cost : 0), 0);
+      const surplus = r.batches.filter((b) => kindOf.get(b.originKey) === 'surplus').reduce((s, b) => s + b.costIn, 0);
+      let taken = 0;
+      for (const o of r.outs.values()) if (o.kind === 'out') taken += o.takes.reduce((s, t) => s + (t.cost ?? 0), 0);
+      const costLeft = r.batches.reduce((s, b) => s + b.costLeft, 0);
+
+      expect(costLeft + taken, `seed ${seed}: деньги`).toBe(ins + surplus);
+      expect(
+        r.batches.every((b) => b.qtyLeft >= 0 && b.costLeft >= 0),
+        `seed ${seed}: остатки не отрицательны`,
+      ).toBe(true);
+      for (const o of r.outs.values()) {
+        const e = events.find((x) => x.key === o.key)!;
+        expect(o.takes.reduce((s, t) => s + t.qty, 0), `seed ${seed}: части списания`).toBe(e.qty);
+        expect(o.uncovered).toBe(o.takes.filter((t) => t.batchIndex === null).reduce((s, t) => s + t.qty, 0));
+      }
+      // перемещение: партии получателя повторяют покрытые взятия
+      for (const o of r.outs.values()) {
+        if (o.kind !== 'move') continue;
+        const made = r.batches.filter((b) => b.originKey === o.key && b.sourceIndex !== null);
+        expect(
+          made.map((b) => [b.sourceIndex, b.qtyIn, b.costIn]),
+          `seed ${seed}: партии перемещения`,
+        ).toEqual(o.takes.filter((t) => t.batchIndex !== null).map((t) => [t.batchIndex, t.qty, t.cost]));
+      }
+      expect(runStock([...events].reverse()).batches, `seed ${seed}: порядок`).toEqual(r.batches);
     }
   });
 });
