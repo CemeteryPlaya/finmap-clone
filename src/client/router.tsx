@@ -14,6 +14,7 @@ import { RequireAuth } from './pages/RequireAuth';
 import { StockIndex, StockPage } from './pages/StockPage';
 import { BalanceTab } from './pages/stock/BalanceTab';
 import { DocsTab } from './pages/stock/DocsTab';
+import { AnalyticsTab as StockAnalyticsTab } from './pages/stock/AnalyticsTab';
 import { ItemsTab } from './pages/stock/ItemsTab';
 import { CompaniesSettings } from './pages/settings/CompaniesSettings';
 import { ProjectsSettings } from './pages/settings/ProjectsSettings';
@@ -65,6 +66,7 @@ export const router = createBrowserRouter([
               { path: 'balance', element: <BalanceTab /> },
               { path: 'docs', element: <DocsTab /> },
               { path: 'items', element: <ItemsTab /> },
+              { path: 'analytics', element: <StockAnalyticsTab /> },
               { path: '*', element: <StockIndex /> },
             ],
           },

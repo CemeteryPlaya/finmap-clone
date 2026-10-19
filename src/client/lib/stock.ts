@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import type { StockDocType, WriteoffReason } from '../../shared/schemas/stock';
+import type { StockDocType, StockItemStat, StockLists, StockPrices, StockTotals, WriteoffReason } from '../../shared/schemas/stock';
 import type { StockUnit } from '../../shared/stock-qty';
 import type { PricePoint } from '../../shared/stock-price';
 import { invalidateAnalytics } from './analytics';
 import { api, type ApiError } from './api';
 import { queryClient } from './query';
+import { analyticsQuery } from './stock-analytics';
 
 /** Остатки и стоимость недорогие: обновляются при возврате на вкладку, не чаще раза в 30 с. */
 const REFRESH_ON_FOCUS = { refetchOnWindowFocus: true, staleTime: 30_000 } as const;
@@ -268,6 +269,34 @@ export function useUnpaid(companyId: number, supplierId: number | null, operatio
     enabled: supplierId !== null,
     staleTime: 0,
     gcTime: 0,
+  });
+}
+
+/** «Аналитика» склада (§8): строки по товарам и итоги за период; warehouse null — все склады. */
+export function useStockAnalytics(companyId: number, warehouse: number | null, range: { from: string; to: string }) {
+  const q = analyticsQuery(range, warehouse);
+  return useQuery<{ rows: StockItemStat[]; totals: StockTotals }, ApiError>({
+    queryKey: ['stock', companyId, 'analytics', 'items', q],
+    queryFn: () => api<{ rows: StockItemStat[]; totals: StockTotals }>(`${base(companyId)}/analytics/items?${q}`),
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** Списки «Мало», «Без движения 30 дней», «Нет партии». */
+export function useStockLists(companyId: number, warehouse: number | null) {
+  return useQuery<StockLists, ApiError>({
+    queryKey: ['stock', companyId, 'analytics', 'lists', warehouse],
+    queryFn: () => api<StockLists>(`${base(companyId)}/analytics/lists${warehouse === null ? '' : `?warehouse=${warehouse}`}`),
+  });
+}
+
+/** «Динамика цен» товара за период. */
+export function useStockPrices(companyId: number, itemId: number | null, warehouse: number | null, range: { from: string; to: string }) {
+  const q = analyticsQuery(range, warehouse);
+  return useQuery<StockPrices, ApiError>({
+    queryKey: ['stock', companyId, 'analytics', 'prices', itemId, q],
+    queryFn: () => api<StockPrices>(`${base(companyId)}/analytics/prices/${itemId}?${q}`),
+    enabled: itemId !== null,
   });
 }
 

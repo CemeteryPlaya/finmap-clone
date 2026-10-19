@@ -3,11 +3,12 @@ import { formatQty, UNIT_LABELS, type StockUnit } from '../../shared/stock-qty';
 import type { PricePoint } from '../../shared/stock-price';
 import type { BalanceItem, StockGroup, StockItem, StockWarehouse } from './stock';
 
-/** Подвкладки экрана «Склад» (§4 спецификации «Склад»); «Аналитика» появится в плане «Склад-3». */
+/** Подвкладки экрана «Склад» (§4 спецификации «Склад»); «Аналитика» — план «Склад-3». */
 export const STOCK_TABS = [
   { path: 'balance', label: 'Остатки' },
   { path: 'docs', label: 'Документы' },
   { path: 'items', label: 'Товары' },
+  { path: 'analytics', label: 'Аналитика' },
 ] as const;
 export type StockTabPath = (typeof STOCK_TABS)[number]['path'];
 
