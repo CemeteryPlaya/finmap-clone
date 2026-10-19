@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { batchQtyAt, qtyAt, runStock, type FifoMoment, type StockEvent } from '../../../shared/stock-fifo';
+import { compareMoment, runStock, type FifoMoment, type StockEvent } from '../../../shared/stock-fifo';
 import type { Executor } from '../../db/client';
 import { eventOf, loadGroupEvents, loadRows, transferClosure } from './events';
 
@@ -28,8 +28,12 @@ export function expectedQtys(ex: Executor, companyId: number, warehouseId: numbe
   }
   const out = new Map<number, CountBasis>();
   for (const [itemId, events] of byItem) {
-    const expected = batchQtyAt(events, warehouseId, moment);
-    out.set(itemId, { expected, deficit: Math.max(0, expected - qtyAt(events, warehouseId, moment)) });
+    // один проход до момента документа: учёт — остаток партий склада, долг — непокрытое продаж этого склада (как «Остатки»)
+    const r = runStock(events.filter((e) => compareMoment(e, moment) < 0));
+    const expected = r.batches.reduce((s, b) => s + (b.wh === warehouseId ? b.qtyLeft : 0), 0);
+    let deficit = 0;
+    for (const o of r.outs.values()) if (o.wh === warehouseId && o.kind === 'out') deficit += o.uncovered;
+    out.set(itemId, { expected, deficit });
   }
   return out;
 }
