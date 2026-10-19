@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useRef, useState, type FormEvent, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type MutableRefObject } from 'react';
 import { todayInTimezone } from '../../../shared/dates';
 import { UNIT_LABELS, type StockUnit } from '../../../shared/stock-qty';
 import { api, ApiError } from '../../lib/api';
@@ -61,7 +61,7 @@ export function CountForm(props: { company: Company; request: CountFormRequest; 
         />
       ) : doc.data ? (
         <CountEditor
-          key={`${doc.data.id}:${doc.data.version}`}
+          key={doc.data.id}
           company={props.company}
           timeZone={meta.data.timezone}
           items={items.data}
@@ -162,6 +162,17 @@ function CountEditor(p: {
   const posted = p.doc.status === 'posted';
   const readOnly = posted || p.company.archivedAt !== null || p.doc.deletedAt !== null;
   const [lines, setLines] = useState<CountLineDraft[]>(() => countDraftFromDoc(p.doc));
+  const summaryRef = useRef<HTMLParagraphElement>(null);
+  // свежий документ после сохранения или проведения: окно не пересоздаётся (фокус остаётся внутри и Esc работает),
+  // только учёт новых строк приходит с сервера
+  useEffect(() => {
+    const expected = new Map(p.doc.lines.map((l) => [l.itemId, l.expected ?? null]));
+    setLines((ls) => ls.map((l) => ({ ...l, expected: expected.get(l.itemId) ?? l.expected })));
+  }, [p.doc]);
+  // после проведения кнопки исчезают: фокус — на итог, чтобы он не ушёл из окна
+  useEffect(() => {
+    if (posted) summaryRef.current?.focus();
+  }, [posted]);
   /** Последнее сохранение: версия документа и снимок строк. Обновляется сразу после удачного сохранения — даже если следом
    * «Провести» не прошло, следующая попытка идёт с верной версией и без лишнего «изменён другим пользователем». */
   const [saved, setSaved] = useState(() => ({ version: p.doc.version, snapshot: countSnapshot(countDraftFromDoc(p.doc)) }));
@@ -295,6 +306,7 @@ function CountEditor(p: {
   };
   const signed = (diff: number, unit: StockUnit) => (diff > 0 ? `+${qtyWithUnit(diff, unit)}` : diff < 0 ? `\u2212${qtyWithUnit(-diff, unit)}` : '0');
 
+  // кнопки при запросе — aria-disabled, не disabled: заблокированная кнопка теряет фокус, и Esc перестаёт закрывать окно
   return (
     <div className="grid gap-4">
       <p className="text-sm text-muted">
@@ -302,7 +314,7 @@ function CountEditor(p: {
       </p>
       {p.doc.deletedAt && <p className={`${noticeClass} mb-0`}>Документ удалён.</p>}
       {posted && p.doc.countSummary && (
-        <p role="status" className="rounded-xl bg-field px-4 py-3 font-medium">
+        <p ref={summaryRef} tabIndex={-1} role="status" className="rounded-xl bg-field px-4 py-3 font-medium outline-none">
           {countSummaryText(p.doc.countSummary, p.company.baseCurrency)}
         </p>
       )}
@@ -348,7 +360,7 @@ function CountEditor(p: {
                             aria-invalid={error ? true : undefined}
                             value={l.counted}
                             onChange={(t) => setCounted(l.key, index, t)}
-                            className={`${inputClass} w-28 text-right`}
+                            className={`${inputClass} w-28! text-right`}
                           />
                           {error && (
                             <p role="alert" className="mt-1 text-xs text-expense-strong">
@@ -422,15 +434,15 @@ function CountEditor(p: {
         <div className="flex flex-wrap items-center gap-2">
           {!posted && (
             <>
-              <button type="button" disabled={pending} onClick={() => void save()} className={btnSecondary}>
+              <button type="button" aria-disabled={pending || undefined} onClick={() => void save()} className={`${btnSecondary} aria-disabled:opacity-50`}>
                 Сохранить черновик
               </button>
-              <button type="button" disabled={pending} onClick={() => void post()} className="h-12 rounded-xl bg-income px-6 font-semibold text-ink hover:brightness-105 disabled:opacity-50">
+              <button type="button" aria-disabled={pending || undefined} onClick={() => void post()} className="h-12 rounded-xl bg-income px-6 font-semibold text-ink hover:brightness-105 aria-disabled:opacity-50">
                 Провести
               </button>
             </>
           )}
-          <button type="button" disabled={pending} onClick={() => void askDelete()} className={`${btnDanger} ml-auto`}>
+          <button type="button" aria-disabled={pending || undefined} onClick={() => void askDelete()} className={`${btnDanger} ml-auto aria-disabled:opacity-50`}>
             Удалить документ
           </button>
         </div>

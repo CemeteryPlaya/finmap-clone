@@ -166,6 +166,18 @@ const seedStock = async (p: Page) => {
   });
   await post(`${base}/stock/docs`, { type: 'sale', at: '2026-10-09T10:00:00.000Z', warehouseId: warehouse, lines: [{ itemId: cola, qty: 6000, amount: 300_000 }] });
 };
+/** Второй склад (план Склад-2, перемещение): у второго неархивного проекта, если его ещё нет. */
+const seedSecondWarehouse = async (p: Page) => {
+  const { cid, headers } = apiOf(p);
+  const base = `/api/v1/companies/${cid}`;
+  const get = async (url: string) => (await (await p.request.get(url)).json()) as any;
+  const warehouses = (await get(`${base}/stock/warehouses`)).warehouses as { projectId: number }[];
+  if (warehouses.length > 1) return;
+  const project = (await get(`${base}/projects`)).projects.find((x: { id: number; archivedAt: string | null }) => !x.archivedAt && !warehouses.some((w) => w.projectId === x.id));
+  if (!project) throw new Error('Для второго склада нужен второй проект демо-компании');
+  const res = await p.request.post(`${base}/stock/warehouses`, { headers, data: { projectId: project.id, name: `Бар ${project.name}` } });
+  if (!res.ok()) throw new Error(`Второй склад: ${res.status()} ${await res.text()}`);
+};
 const stockTable = (p: Page) => p.getByRole('main').getByRole('table', { name: 'Остатки' });
 /** Таблица «Денег» (план А-1) дождалась данных демо-компании: строка «Поступления» на месте. */
 const cashflowReady = (p: Page) => p.getByRole('main').getByRole('table', { name: 'Деньги' }).getByRole('rowheader', { name: 'Поступления' }).waitFor();
@@ -574,6 +586,66 @@ const SCENARIOS: Scenario[] = [
       await p.getByRole('navigation', { name: 'Разделы', exact: true }).getByRole('button', { name: 'Ещё', exact: true }).click();
       await p.getByRole('dialog', { name: 'Ещё', exact: true }).getByRole('link', { name: 'Склад' }).click();
       await stockTable(p).getByRole('row').filter({ hasText: 'Кола 0,5' }).first().waitFor();
+    },
+  },
+  // «Склад-2»: перемещение, инвентаризация, комплект, импорт каталога. Пар в Finmap нет — имена m59–m62 заглушки, как у cm11/cm12
+  {
+    ours: 'c59-stock-transfer-form.png',
+    finmap: 'm59-stock-transfer.png',
+    path: 'stock/docs',
+    act: async (p) => {
+      await seedStock(p);
+      await seedSecondWarehouse(p);
+      await p.reload();
+      await p.getByRole('main').getByRole('button', { name: '+ Перемещение' }).click();
+      const form = p.getByRole('dialog', { name: 'Новое перемещение' });
+      await form.getByLabel('Куда', { exact: true }).selectOption({ index: 1 });
+      await form.getByRole('group', { name: 'Строка 1' }).waitFor();
+    },
+  },
+  {
+    ours: 'c60-stock-count.png',
+    finmap: 'm60-stock-count.png',
+    path: 'stock/docs',
+    act: async (p) => {
+      await seedStock(p);
+      await p.reload();
+      await p.getByRole('main').getByRole('button', { name: '+ Инвентаризация' }).click();
+      await p.getByRole('dialog', { name: 'Новая инвентаризация' }).getByRole('button', { name: 'Начать инвентаризацию' }).click();
+      const table = p.getByRole('table', { name: 'Строки инвентаризации' });
+      await table.getByRole('row').filter({ hasText: 'Кола 0,5' }).waitFor();
+      await p.getByLabel('Факт: Кола 0,5, шт').fill('17');
+    },
+  },
+  {
+    ours: 'c61-stock-combo.png',
+    finmap: 'm61-stock-combo.png',
+    path: 'stock/items',
+    act: async (p) => {
+      await seedStock(p);
+      await p.reload();
+      await p.getByRole('main').getByRole('button', { name: '+ Товар' }).click();
+      const dialog = p.getByRole('dialog', { name: 'Новый товар' });
+      await dialog.getByLabel('Название товара').fill('Чипсы + кола');
+      await dialog.getByLabel(/^Комплект/).check();
+      await dialog.getByRole('group', { name: 'Составляющая 1' }).getByLabel('Товар').selectOption({ label: 'Чипсы' });
+      await dialog.getByRole('button', { name: '+ Составляющая' }).click();
+      await dialog.getByRole('group', { name: 'Составляющая 2' }).getByLabel('Товар').selectOption({ label: 'Кола 0,5' });
+    },
+  },
+  {
+    ours: 'c62-stock-import.png',
+    finmap: 'm62-stock-import.png',
+    path: 'stock/items',
+    act: async (p) => {
+      await seedStock(p);
+      await p.reload();
+      await p.getByRole('main').getByRole('button', { name: 'Импорт из Excel' }).click();
+      const dialog = p.getByRole('dialog', { name: 'Импорт товаров из Excel' });
+      const csv = 'Название;Группа;Единица;Цена продажи\nСок;Напитки;л;450\nЖвачка;;;150\nВода;;ящ;300\n';
+      await dialog.getByLabel('Файл', { exact: true }).setInputFiles({ name: 'каталог.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
+      await dialog.getByRole('button', { name: 'Проверить' }).click();
+      await dialog.getByRole('region', { name: 'Проверка файла' }).waitFor();
     },
   },
   // «Аналитика» (план А-1): карточки, «Деньги» таблицей, операции ячейки; на телефоне — карточки и окно «Фильтры»
