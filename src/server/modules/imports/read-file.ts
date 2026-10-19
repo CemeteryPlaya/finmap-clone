@@ -1,4 +1,4 @@
-import { readCsv } from './csv';
+import { readCsv, type CsvHeaders } from './csv';
 import { fileError } from './errors';
 import { readXlsx, type SheetData } from './xlsx-read';
 
@@ -25,7 +25,7 @@ export function detectImportFile(data: Buffer, name: string): ImportFileKind {
   throw fileError('F2', 'Нужен файл .xlsx или .csv');
 }
 
-/** Строки первого листа XLSX или CSV. */
-export function readImportFile(data: Buffer, name: string): SheetData {
-  return detectImportFile(data, name) === 'xlsx' ? readXlsx(data) : readCsv(data);
+/** Строки первого листа XLSX или CSV; `headers` — заголовки, по которым CSV выбирает разделитель (по умолчанию — журнала). */
+export function readImportFile(data: Buffer, name: string, headers?: CsvHeaders): SheetData {
+  return detectImportFile(data, name) === 'xlsx' ? readXlsx(data) : readCsv(data, headers);
 }

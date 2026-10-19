@@ -101,21 +101,32 @@ export function parseCsv(text: string, delimiter: string, limit = Infinity, stri
   return records;
 }
 
-/** Разделитель, при котором в первых 10 записях распознано больше всего заголовков §2.1 (равенство — «;», TAB, «,»). */
-export function chooseDelimiter(text: string): { delimiter: string; header: boolean } {
+/**
+ * Какие заголовки ищет читатель CSV (R1 плана Склад-2): сколько известных колонок в строке (выбор разделителя) и строка ли
+ * это заголовков (проверка кодировки cp1251). По умолчанию — заголовки выгрузки журнала §2.1.
+ */
+export interface CsvHeaders {
+  count(values: string[]): number;
+  isHeader(values: string[]): boolean;
+}
+
+export const JOURNAL_CSV_HEADERS: CsvHeaders = { count: countKnownHeaders, isHeader: isHeaderRow };
+
+/** Разделитель, при котором в первых 10 записях распознано больше всего заголовков (равенство — «;», TAB, «,»). */
+export function chooseDelimiter(text: string, headers: CsvHeaders = JOURNAL_CSV_HEADERS): { delimiter: string; header: boolean } {
   let best: { delimiter: string; score: number; header: boolean } = { delimiter: ';', score: -1, header: false };
   for (const delimiter of DELIMITERS) {
     const head = parseCsv(text, delimiter, HEADER_SEARCH);
-    const score = Math.max(0, ...head.map(countKnownHeaders));
-    if (score > best.score) best = { delimiter, score, header: head.some(isHeaderRow) };
+    const score = Math.max(0, ...head.map((v) => headers.count(v)));
+    if (score > best.score) best = { delimiter, score, header: head.some((v) => headers.isHeader(v)) };
   }
   return { delimiter: best.delimiter, header: best.header };
 }
 
 /** CSV → строки ячеек: номер строки — номер записи с 1; пустые значения не хранятся; поле длиннее 32 767 символов — ячейка-ошибка. */
-export function readCsv(data: Buffer): SheetData {
+export function readCsv(data: Buffer, headers: CsvHeaders = JOURNAL_CSV_HEADERS): SheetData {
   const { text, encoding } = decodeCsv(data);
-  const { delimiter, header } = chooseDelimiter(text);
+  const { delimiter, header } = chooseDelimiter(text, headers);
   // cp1251 — догадка: если и в ней заголовков нет, файл в другой кодировке
   if (encoding === 'windows-1251' && !header) throw fileError('F8', 'Не удалось прочитать CSV: сохраните его в UTF-8');
   const rows: SheetRow[] = [];

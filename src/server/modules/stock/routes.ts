@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  STOCK_IMPORT_MAX_BYTES,
   stockBalanceSchema,
   stockCountCreateSchema,
   stockCountPostSchema,
@@ -18,7 +19,9 @@ import {
 } from '../../../shared/schemas/stock';
 import type { Db } from '../../db/client';
 import { AppError } from '../../errors';
-import { parseId } from '../../http/params';
+import { headerFileName, parseId } from '../../http/params';
+import { readSessionToken } from '../auth/plugin';
+import type { StockImportService } from './import';
 import type { StockBalanceService } from './balance';
 import type { StockCatalogService } from './catalog';
 import type { StockDocsService } from './docs';
@@ -30,8 +33,40 @@ type C = { Params: { cid: string } };
 type P = { Params: { cid: string; id: string } };
 const BASE = '/api/v1/companies/:cid/stock';
 
-export function registerStockRoutes(app: FastifyInstance, deps: { db: Db; catalog: StockCatalogService; warehouses: StockWarehousesService; docs: StockDocsService; balance: StockBalanceService; postings: StockPostingsService }): void {
-  const { db, catalog, warehouses, docs, balance, postings } = deps;
+export function registerStockRoutes(
+  app: FastifyInstance,
+  deps: {
+    db: Db;
+    catalog: StockCatalogService;
+    warehouses: StockWarehousesService;
+    docs: StockDocsService;
+    balance: StockBalanceService;
+    postings: StockPostingsService;
+    imports: StockImportService;
+  },
+): void {
+  const { db, catalog, warehouses, docs, balance, postings, imports } = deps;
+
+  // ---- импорт каталога и поступлений (§9.1): байты файла, отдельная область с пределом 5 МБ
+  app.register(async (scope) => {
+    scope.removeAllContentTypeParsers();
+    scope.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: STOCK_IMPORT_MAX_BYTES }, (_req, body, done) => done(null, body));
+    // без куки сессии тело не читаем: полная проверка сеанса — как у всех маршрутов
+    scope.addHook('onRequest', async (req) => {
+      if (req.method === 'POST' && !readSessionToken(req)) throw new AppError(401, 'UNAUTHORIZED', 'Требуется вход');
+    });
+    scope.post<{ Params: { cid: string; kind: string } }>(`${BASE}/import/:kind`, { bodyLimit: STOCK_IMPORT_MAX_BYTES }, async (req, reply) => {
+      const kind = z.enum(['items', 'receipts']).safeParse(req.params.kind);
+      if (!kind.success) throw new AppError(404, 'NOT_FOUND', 'Неизвестный вид импорта');
+      if (!Buffer.isBuffer(req.body)) throw new AppError(400, 'VALIDATION', 'Проверьте файл', { file: 'Нет файла' });
+      const q = z.object({ commit: z.enum(['0', '1']).default('0'), warehouse: z.coerce.number().int().positive().optional() }).parse(req.query);
+      const result = imports.run(parseId(req.params.cid), req.user!.id, kind.data, { name: headerFileName(req.headers['x-file-name']), data: req.body }, {
+        warehouseId: q.warehouse,
+        commit: q.commit === '1',
+      });
+      return reply.status(result.committed ? 201 : 200).send(result);
+    });
+  });
 
   // ---- группы товаров
   app.get<C>(`${BASE}/groups`, async (req) => ({ groups: catalog.groups(parseId(req.params.cid)) }));

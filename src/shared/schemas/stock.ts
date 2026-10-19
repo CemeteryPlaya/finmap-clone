@@ -165,6 +165,35 @@ export const stockCountUpdateSchema = z.object({
 /** «Провести» инвентаризацию: версия, которую видел клиент. */
 export const stockCountPostSchema = z.object({ version: z.number().int().min(1) });
 
+/** Импорт склада (§9.1): файл не больше 5 МБ и 5 000 строк данных. */
+export const STOCK_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
+export const STOCK_IMPORT_MAX_ROWS = 5000;
+export type StockImportKind = 'items' | 'receipts';
+
+export interface StockImportIssue {
+  /** Номер строки Excel; 0 — ошибка файла целиком. */
+  row: number;
+  /** Столбец по-русски, как в заголовке файла. */
+  field: string;
+  message: string;
+}
+
+/** Ответ проверки и записи импорта склада. */
+export interface StockImportResult {
+  rows: number;
+  /** Не больше 100; всего — errorsTotal. */
+  errors: StockImportIssue[];
+  errorsTotal: number;
+  create: { items: number; groups: number; suppliers: number };
+  /** Что будет создано (до 100 названий в списке) — видны опечатки (R10). */
+  names: { items: string[]; groups: string[]; suppliers: string[] };
+  skip: { items: number };
+  docs: number;
+  lines: number;
+  total: number;
+  committed: boolean;
+}
+
 export const stockDocListSchema = z.object({
   type: z.enum(STOCK_DOC_TYPES).optional(),
   warehouse: z.coerce.number().int().positive().optional(),

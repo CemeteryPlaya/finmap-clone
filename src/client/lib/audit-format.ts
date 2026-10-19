@@ -21,6 +21,7 @@ export const ENTITY_LABELS: Record<string, string> = {
   stock_group: 'Группа товаров',
   stock_warehouse: 'Склад',
   stock_doc: 'Документ склада',
+  stock_import: 'Импорт склада',
   indicator_part: 'Финансовый показатель',
 };
 
@@ -55,6 +56,7 @@ export const COMPANY_ENTITIES = [
   'stock_group',
   'stock_warehouse',
   'stock_doc',
+  'stock_import',
   'indicator_part',
 ] as const;
 
