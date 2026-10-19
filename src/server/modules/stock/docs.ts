@@ -168,7 +168,14 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
         amount: l.amount,
         cost: out && s ? s.cost : null,
         uncovered: out ? (s ? s.uncovered : isCount ? 0 : l.qty) : 0,
-        ...(isCount ? { countedQty: l.countedQty, expected: draftExpected ? (draftExpected.get(l.itemId) ?? 0) : l.expectedQty } : {}),
+        ...(isCount
+          ? {
+              countedQty: l.countedQty,
+              expected: draftExpected ? (draftExpected.get(l.itemId)?.expected ?? 0) : l.expectedQty,
+              // долг «Нет партии» на момент черновика: учёт его не включает, закрывает поступление задним числом
+              ...(draftExpected ? { deficit: draftExpected.get(l.itemId)?.deficit ?? 0 } : {}),
+            }
+          : {}),
       };
     });
     const payments = row.type === 'receipt' ? docPayments(ex, row.id) : [];
@@ -616,7 +623,8 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
             // все товары склада с ненулевым остатком на момент документа, кроме уже переданных, — по названию
             const given = new Set(lines.map((l) => l.itemId));
             const expected = expectedQtys(tx, companyId, input.warehouseId, { at, docId: row.id, position: -1 });
-            const ids = [...expected].filter(([itemId, qty]) => qty !== 0 && !given.has(itemId)).map(([itemId]) => itemId);
+            // с остатком партий или с долгом «Нет партии» (§7: «ненулевым или отрицательным остатком»)
+            const ids = [...expected].filter(([itemId, b]) => (b.expected !== 0 || b.deficit > 0) && !given.has(itemId)).map(([itemId]) => itemId);
             if (ids.length > 0) {
               const ordered = tx
                 .select({ id: stockItems.id })
@@ -676,6 +684,8 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
       const out = run(false, (tx, record) => {
         const current = requireCount(tx, companyId, id, version);
         if (current.status === 'posted') throw new AppError(422, 'VALIDATION', 'Инвентаризация уже проведена');
+        // склад могли отправить в архив, пока черновик лежал
+        checkCountWarehouse(tx, companyId, current.warehouseId, null);
         const lines = tx.select().from(stockDocLines).where(eq(stockDocLines.docId, id)).orderBy(stockDocLines.position).all();
         if (lines.length === 0) throw new AppError(422, 'VALIDATION', 'Добавьте хотя бы одну строку');
         const blank = lines.findIndex((l) => l.countedQty === null);
@@ -696,7 +706,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
           current.at,
           () => {
             for (const l of lines) {
-              const e = expected.get(l.itemId) ?? 0;
+              const e = expected.get(l.itemId)?.expected ?? 0;
               tx.update(stockDocLines).set({ expectedQty: e, qty: Math.abs(l.countedQty! - e) }).where(eq(stockDocLines.id, l.id)).run();
             }
             tx.update(stockDocs).set({ status: 'posted', updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(stockDocs.id, id)).run();

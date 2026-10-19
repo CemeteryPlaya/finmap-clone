@@ -62,8 +62,10 @@ export interface StockDocLine {
   uncovered: number;
   /** Только у инвентаризации: факт (null — не посчитан). */
   countedQty?: number | null;
-  /** Только у инвентаризации: учёт на момент документа. */
+  /** Только у инвентаризации: учёт на момент документа — остаток партий. */
   expected?: number | null;
+  /** Только у черновика инвентаризации: долг «Нет партии» на момент документа (в учёт не входит). */
+  deficit?: number;
 }
 
 export interface DocPayment {

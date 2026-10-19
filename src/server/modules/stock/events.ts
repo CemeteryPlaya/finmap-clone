@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import type { StockDocType } from '../../../shared/schemas/stock';
 import type { StockEvent } from '../../../shared/stock-fifo';
 import type { Executor } from '../../db/client';
@@ -63,8 +63,11 @@ export function transferClosure(ex: Executor, companyId: number, warehouseIds: r
  * Строки проведённых неудалённых документов на складах `warehouseIds` (замкнутых по перемещениям): по одному товару
  * или по всем; `before` — только документы раньше этого момента (остатки на дату).
  */
-export function loadRows(ex: Executor, companyId: number, warehouseIds: readonly number[], opts: { itemId?: number; before?: string } = {}): GroupRow[] {
+export function loadRows(ex: Executor, companyId: number, warehouseIds: readonly number[], opts: { itemId?: number; itemIds?: readonly number[]; before?: string } = {}): GroupRow[] {
   if (warehouseIds.length === 0) return [];
+  if (opts.itemIds !== undefined && opts.itemIds.length === 0) return [];
+  const only = (column: SQL) =>
+    opts.itemId !== undefined ? sql`AND ${column} = ${opts.itemId}` : opts.itemIds !== undefined ? sql`AND ${column} IN (${ids(opts.itemIds)})` : sql.empty();
   const scope = sql`d.company_id = ${companyId} AND d.warehouse_id IN (${ids(warehouseIds)}) AND d.deleted_at IS NULL AND d.status = 'posted'
     ${opts.before ? sql`AND d.at < ${opts.before}` : sql.empty()}`;
   return ex.all<GroupRow>(sql`
@@ -73,12 +76,12 @@ export function loadRows(ex: Executor, companyId: number, warehouseIds: readonly
            l.item_id AS itemId, l.qty AS qty, l.amount AS amount, l.counted_qty AS countedQty, l.expected_qty AS expectedQty,
            NULL AS comboItemId
       FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id JOIN stock_items i ON i.id = l.item_id
-     WHERE ${scope} AND i.is_combo = 0 ${opts.itemId === undefined ? sql.empty() : sql`AND l.item_id = ${opts.itemId}`}
+     WHERE ${scope} AND i.is_combo = 0 ${only(sql`l.item_id`)}
     UNION ALL
     SELECT l.id, d.id, d.number, d.type, d.at, l.position, d.warehouse_id, d.to_warehouse_id, d.counterparty_id,
            p.item_id, (l.qty * p.qty) / 1000, NULL, NULL, NULL, l.item_id
       FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id JOIN stock_combo_parts p ON p.combo_id = l.item_id
-     WHERE ${scope} AND d.type = 'sale' ${opts.itemId === undefined ? sql.empty() : sql`AND p.item_id = ${opts.itemId}`}`);
+     WHERE ${scope} AND d.type = 'sale' ${only(sql`p.item_id`)}`);
 }
 
 /**

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  batchQtyAt,
   compareMoment,
   fifoTotals,
   qtyAt,
@@ -320,6 +321,20 @@ describe('runStock (§5.2, Склад-2)', () => {
     // сам момент события не входит; тот же момент и документ с меньшей позицией — входит
     expect(qtyAt(events, 1, { at: day(3), docId: 3, position: 0 })).toBe(4000);
     expect(qtyAt([sIn(1, 1, 1, 1000, 0, 7), { ...sIn(1, 2, 1, 2000, 0, 7), position: 1 }], 1, { at: day(1), docId: 7, position: 1 })).toBe(1000);
+  });
+
+  it('batchQtyAt — остаток партий склада перед моментом, без долга «Нет партии»', () => {
+    // поступление 10, продажа 12: партий 0, долг 2 (qtyAt даёт −2)
+    const events = [sIn(1, 1, 1, 10_000, 1000), sOut(1, 2, 2, 12_000)];
+    const after = { at: day(5), docId: 0, position: 0 };
+    expect(qtyAt(events, 1, after)).toBe(-2000);
+    expect(batchQtyAt(events, 1, after)).toBe(0);
+    // продажа без партии раньше поступления: долг остаётся, а партия поступления цела
+    const late = [sOut(1, 1, 1, 2000), sIn(1, 2, 2, 3000, 300), sMove(1, 2, 3, 3, 1000)];
+    expect(batchQtyAt(late, 1, after)).toBe(2000);
+    expect(batchQtyAt(late, 2, after)).toBe(1000);
+    // событие в сам момент не входит
+    expect(batchQtyAt(late, 1, { at: day(2), docId: 2, position: 0 })).toBe(0);
   });
 
   it('runFifo совпадает с runStock на одном складе', () => {

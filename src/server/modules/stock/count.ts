@@ -1,24 +1,36 @@
 import { sql } from 'drizzle-orm';
-import { qtyAt, runStock, type FifoMoment } from '../../../shared/stock-fifo';
+import { batchQtyAt, qtyAt, runStock, type FifoMoment, type StockEvent } from '../../../shared/stock-fifo';
 import type { Executor } from '../../db/client';
 import { eventOf, loadGroupEvents, loadRows, transferClosure } from './events';
 
+/** Основа строки инвентаризации: учёт и долг «Нет партии» на момент документа. */
+export interface CountBasis {
+  /** Учёт — остаток партий склада перед документом: что должно лежать на полке. */
+  expected: number;
+  /** Проданное без партии до документа: долг закрывает поступление задним числом, не инвентаризация. */
+  deficit: number;
+}
+
 /**
- * Учёт инвентаризации (§7, решение 7): остаток склада строго перед моментом документа по каждому товару — один запрос
- * по складам, связанным перемещениями. Без `itemIds` — все товары с движением; товары без движения в ответ не попадают.
+ * Учёт инвентаризации (§7, решение финального ревью): остаток партий склада строго перед моментом документа по каждому
+ * товару — один запрос по складам, связанным перемещениями, и только по нужным товарам. Без `itemIds` — все товары
+ * с движением; товары без движения в ответ не попадают.
  */
-export function expectedQtys(ex: Executor, companyId: number, warehouseId: number, moment: FifoMoment, itemIds?: readonly number[]): Map<number, number> {
-  const rows = loadRows(ex, companyId, transferClosure(ex, companyId, [warehouseId]));
-  const wanted = itemIds ? new Set(itemIds) : null;
-  const byItem = new Map<number, ReturnType<typeof eventOf>[]>();
+export function expectedQtys(ex: Executor, companyId: number, warehouseId: number, moment: FifoMoment, itemIds?: readonly number[]): Map<number, CountBasis> {
+  const rows = loadRows(ex, companyId, transferClosure(ex, companyId, [warehouseId]), itemIds === undefined ? {} : { itemIds });
+  const byItem = new Map<number, StockEvent[]>();
   for (const r of rows) {
-    if (wanted && !wanted.has(r.itemId)) continue;
+    const e = eventOf(r);
+    if (e === null) continue;
     const list = byItem.get(r.itemId);
-    if (list) list.push(eventOf(r));
-    else byItem.set(r.itemId, [eventOf(r)]);
+    if (list) list.push(e);
+    else byItem.set(r.itemId, [e]);
   }
-  const out = new Map<number, number>();
-  for (const [itemId, events] of byItem) out.set(itemId, qtyAt(events.filter((e) => e !== null), warehouseId, moment));
+  const out = new Map<number, CountBasis>();
+  for (const [itemId, events] of byItem) {
+    const expected = batchQtyAt(events, warehouseId, moment);
+    out.set(itemId, { expected, deficit: Math.max(0, expected - qtyAt(events, warehouseId, moment)) });
+  }
   return out;
 }
 

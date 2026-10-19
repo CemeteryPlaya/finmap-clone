@@ -192,6 +192,8 @@ function CountEditor(p: {
   };
   const warehouseName = p.warehouses.find((w) => w.id === p.doc.warehouseId)?.name ?? '…';
   const used = new Set(lines.map((l) => l.itemId));
+  // долг «Нет партии» в учёт не входит: его закрывает поступление задним числом, а не инвентаризация
+  const debtOf = new Map(p.doc.lines.map((l) => [l.itemId, l.deficit ?? 0]));
   const addable = p.items.filter((i) => !i.isCombo && !i.archivedAt && !used.has(i.id));
 
   const failed = (e: unknown) => {
@@ -349,7 +351,14 @@ function CountEditor(p: {
                 return (
                   <tr key={l.key} className="border-b border-field">
                     <td className={tdClass}>{item?.name ?? '…'}</td>
-                    <td className={`${tdClass} text-right tabular-nums`}>{l.expected === null ? '—' : qtyWithUnit(l.expected, unit)}</td>
+                    <td className={`${tdClass} text-right tabular-nums`}>
+                      {l.expected === null ? '—' : qtyWithUnit(l.expected, unit)}
+                      {(debtOf.get(l.itemId) ?? 0) > 0 && (
+                        <span className="block text-xs text-expense-strong" title="Продано без партии: оприходуйте недостающее поступлением задним числом">
+                          нет партии: {qtyWithUnit(debtOf.get(l.itemId)!, unit)}
+                        </span>
+                      )}
+                    </td>
                     <td className={`${tdClass} text-right`}>
                       {readOnly ? (
                         <span className="tabular-nums">{l.counted === '' ? '—' : `${l.counted} ${UNIT_LABELS[unit]}`}</span>

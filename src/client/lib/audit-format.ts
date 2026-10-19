@@ -141,7 +141,7 @@ export function auditSubject(e: { entity: string; diff: Record<string, unknown> 
     const part = e.diff?.part;
     return typeof part === 'string' && Object.hasOwn(PART_LABEL, part) ? PART_LABEL[part as IndicatorPart] : null;
   }
-  return e.entity === 'import' && typeof e.diff?.fileName === 'string' ? e.diff.fileName : null;
+  return (e.entity === 'import' || e.entity === 'stock_import') && typeof e.diff?.fileName === 'string' ? e.diff.fileName : null;
 }
 
 /**

@@ -32,10 +32,11 @@ describe('инвентаризация (§7, Склад-2)', () => {
     const allocations = count(w, 'stock_allocations');
     const draft = await w.count(D3, [], { fill: true });
     expect(draft).toMatchObject({ number: `${I}-0001`, type: 'count', status: 'draft', warehouseId: w.wh, countSummary: null });
-    // по названию: «Кола 0,5», «Чипсы»; сиропа нет — остаток 0
-    expect(draft.lines.map((l: any) => [l.itemId, l.expected, l.countedQty, l.qty])).toEqual([
-      [w.cola, -2000, null, 0],
-      [w.chips, 5000, null, 0],
+    // по названию: «Кола 0,5», «Чипсы»; сиропа нет — остаток 0. У колы партий нет, но есть долг «Нет партии» 2 шт:
+    // учёт — остаток партий (0), долг — отдельно
+    expect(draft.lines.map((l: any) => [l.itemId, l.expected, l.deficit, l.countedQty, l.qty])).toEqual([
+      [w.cola, 0, 2000, null, 0],
+      [w.chips, 5000, 0, null, 0],
     ]);
     expect([count(w, 'stock_batches'), count(w, 'stock_allocations')]).toEqual([batches, allocations]);
     expect(await balanceOf(w, w.cola)).toMatchObject({ qty: -2000 });
@@ -66,6 +67,29 @@ describe('инвентаризация (§7, Склад-2)', () => {
     expect(await balanceOf(w, w.chips)).toMatchObject({ qty: 7000, cost: 35_000 });
     const history = w.h.t.sqlite.prepare("SELECT diff FROM audit_log WHERE entity = 'stock_doc' AND action = 'update' ORDER BY id DESC LIMIT 1").get() as { diff: string };
     expect(JSON.parse(history.diff)).toMatchObject({ number: `${I}-0001`, type: 'count', before: { status: 'draft' }, after: { status: 'posted' }, shortage: 24_000, surplus: 10_000 });
+  });
+
+  it('инвентаризация при долге «Нет партии»: стоимость не завышается, поздняя закупка не считается дважды (финальное ревью)', async () => {
+    const w = await world();
+    await w.receipt(D1, [[w.cola, 10_000, 1000]]);
+    await w.sale(D2, [[w.cola, 12_000, 60_000]]);
+    // полка пуста — факт 0; учёт — остаток партий 0, разницы нет
+    const posted = await w.postCount(await w.count(D3, [[w.cola, 0]]));
+    expect(posted.lines[0]).toMatchObject({ expected: 0, countedQty: 0, qty: 0 });
+    expect(posted.countSummary).toEqual({ shortage: 0, surplus: 0, unknownCost: 0 });
+    const cola = async () => ((await w.h.req('GET', `${w.stock}/balance?warehouse=${w.wh}`)).json().items as any[]).find((i) => i.itemId === w.cola);
+    expect(await cola()).toMatchObject({ qty: -2000, cost: 0, deficit: 2000 });
+    // недостающее поступление задним числом закрывает долг; остаток — 0, стоимость — 0, без двойного учёта
+    await w.receipt('2026-10-01T09:00:00.000Z', [[w.cola, 2000, 200]]);
+    expect(await cola()).toMatchObject({ qty: 0, cost: 0, deficit: 0 });
+  });
+
+  it('проведение черновика на складе, ушедшем в архив, — 422', async () => {
+    const w = await world();
+    const draft = await w.count(D2, [[w.cola, 0]]);
+    expect((await w.h.req('POST', `${w.stock}/warehouses/${w.wh}/archive`)).statusCode).toBe(200);
+    const res = await w.h.req('POST', `${w.stock}/docs/${draft.id}/post`, { version: draft.version });
+    expect([res.statusCode, res.json().error.code]).toEqual([422, 'ARCHIVED_REFERENCE']);
   });
 
   it('излишек товара без партий — 0 и «цена неизвестна» (R7)', async () => {

@@ -8,7 +8,7 @@ import { alertClass, btnPrimary, btnSecondary, noticeClass, phoneFullScreenModal
 
 const COLUMNS: Record<StockImportKind, string> = {
   items: '«Название» (обязательно), «Группа», «Единица» (шт, л, кг, уп), «Штрихкод», «Цена продажи»',
-  receipts: '«Дата» и «Товар» (обязательно), «Поставщик», «Количество», «Сумма» или «Цена»',
+  receipts: '«Дата», «Товар», «Количество» и «Сумма» или «Цена» (обязательно), «Поставщик» (по желанию)',
 };
 
 /**
