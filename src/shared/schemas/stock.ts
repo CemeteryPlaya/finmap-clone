@@ -194,6 +194,76 @@ export interface StockImportResult {
   committed: boolean;
 }
 
+// ——— аналитика склада (§8, план Склад-3)
+
+const reportDate = z.string().refine(isValidDate, 'Неверная дата');
+const warehouseQuery = z.coerce.number().int().positive().optional();
+
+/** Период и склад аналитики: без склада — все склады компании, архивные тоже. */
+export const stockAnalyticsSchema = z
+  .object({ from: reportDate, to: reportDate, warehouse: warehouseQuery })
+  .refine((v) => v.from <= v.to, { path: ['from'], message: 'Начало периода позже конца' });
+
+/** Списки «Мало», «Без движения N дней», «Нет партии». */
+export const stockListsSchema = z.object({
+  warehouse: warehouseQuery,
+  days: z.coerce.number().int('От 1 до 365').min(1, 'От 1 до 365').max(365, 'От 1 до 365').default(30),
+});
+
+/** Строка аналитики по товару за период. Деньги — минимальные единицы, количества — тысячные доли. */
+export interface StockItemStat {
+  itemId: number;
+  groupId: number | null;
+  isCombo: boolean;
+  soldQty: number;
+  revenue: number;
+  /** Себестоимость продаж по партиям. */
+  cost: number;
+  profit: number;
+  /** Маржа в сотых долях процента; null — выручки нет. */
+  marginBp: number | null;
+  /** Списано и недостача инвентаризаций. */
+  lossQty: number;
+  lossCost: number;
+  /** За единицу; null — продаж (закупок) за период нет. */
+  avgSalePrice: number | null;
+  avgPurchasePrice: number | null;
+  /** Продано без партии (у комплекта — в единицах составляющих). */
+  noBatchQty: number;
+}
+
+export interface StockTotals {
+  revenue: number;
+  cost: number;
+  profit: number;
+  losses: number;
+  /** Излишки инвентаризаций. */
+  surplus: number;
+  /** Сумма поступлений за период. */
+  purchased: number;
+  /** Стоимость склада на конец дня перед началом периода и на конец периода. */
+  valueStart: number;
+  valueEnd: number;
+  valueChange: number;
+}
+
+export interface StockLists {
+  low: { itemId: number; qty: number; minQty: number }[];
+  /** Остаток есть, а последнее движение (продажа, без продаж — поступление) раньше, чем N дней назад. */
+  stale: { itemId: number; qty: number; lastMoveAt: string | null }[];
+  noBatch: { itemId: number; qty: number; since: string }[];
+}
+
+export interface StockPrices {
+  /** Поступления за период: цена закупки за единицу. */
+  purchases: { at: string; docId: number; docNumber: string; unitCost: number }[];
+  /** Вся история цены продажи. */
+  salePrices: { validFrom: string; price: number }[];
+  /** Маржа в каждой точке закупки и смены цены за период. */
+  margins: { at: string; marginBp: number | null }[];
+  hint: string | null;
+}
+
 export const stockDocListSchema = z.object({
   type: z.enum(STOCK_DOC_TYPES).optional(),
   warehouse: z.coerce.number().int().positive().optional(),

@@ -2,7 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   STOCK_IMPORT_MAX_BYTES,
+  stockAnalyticsSchema,
   stockBalanceSchema,
+  stockListsSchema,
   stockCountCreateSchema,
   stockCountPostSchema,
   stockCountUpdateSchema,
@@ -21,6 +23,9 @@ import type { Db } from '../../db/client';
 import { AppError } from '../../errors';
 import { headerFileName, parseId } from '../../http/params';
 import { readSessionToken } from '../auth/plugin';
+import { contentDisposition } from '../../http/content-disposition';
+import { XLSX_MIME } from '../../http/xlsx';
+import type { StockAnalyticsService } from './analytics';
 import type { StockImportService } from './import';
 import type { StockBalanceService } from './balance';
 import type { StockCatalogService } from './catalog';
@@ -43,9 +48,23 @@ export function registerStockRoutes(
     balance: StockBalanceService;
     postings: StockPostingsService;
     imports: StockImportService;
+    analytics: StockAnalyticsService;
   },
 ): void {
-  const { db, catalog, warehouses, docs, balance, postings, imports } = deps;
+  const { db, catalog, warehouses, docs, balance, postings, imports, analytics } = deps;
+
+  // ---- аналитика склада (§8, план Склад-3)
+  app.get<C>(`${BASE}/analytics/items`, async (req) => analytics.items(parseId(req.params.cid), stockAnalyticsSchema.parse(req.query)));
+  app.get<C>(`${BASE}/analytics/lists`, async (req) => analytics.lists(parseId(req.params.cid), stockListsSchema.parse(req.query)));
+  app.get<P>(`${BASE}/analytics/prices/:id`, async (req) => analytics.prices(parseId(req.params.cid), parseId(req.params.id), stockAnalyticsSchema.parse(req.query)));
+  app.get<C>(`${BASE}/analytics/export.xlsx`, async (req, reply) => {
+    const file = analytics.exportXlsx(parseId(req.params.cid), stockAnalyticsSchema.parse(req.query));
+    reply.header('Content-Type', XLSX_MIME);
+    reply.header('Content-Disposition', contentDisposition(file.fileName));
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('Cache-Control', 'private, no-store');
+    return reply.send(file.data);
+  });
 
   // ---- импорт каталога и поступлений (§9.1): байты файла, отдельная область с пределом 5 МБ
   app.register(async (scope) => {
