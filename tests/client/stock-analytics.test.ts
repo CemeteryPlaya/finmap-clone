@@ -106,6 +106,14 @@ describe('«Динамика цен»: график (§8)', () => {
   it('без истории цены и закупок — пустой график без ошибок', () => {
     const c = priceChart({ purchases: [], salePrices: [], margins: [], hint: null }, range, 'KZT', 'Asia/Almaty', 600, 200);
     expect(c.purchasePoints).toEqual([]);
-    expect(c.salePath).toBe('M0.0 200.0 L600.0 200.0');
+    expect(c.salePath).toBe('');
+  });
+
+  it('цена появилась внутри периода — линия начинается с её даты, а не с нуля в начале', () => {
+    const c = priceChart({ ...prices, salePrices: [{ validFrom: '2026-08-10', price: 60_000 }] }, range, 'KZT', 'Asia/Almaty', 600, 200);
+    const nums = c.salePath.match(/-?\d+(\.\d+)?/g)!.map(Number);
+    expect(c.salePath.startsWith('M0.0')).toBe(false);
+    expect(nums[0]).toBeGreaterThan(0);
+    expect(nums.at(-2)).toBe(600);
   });
 });

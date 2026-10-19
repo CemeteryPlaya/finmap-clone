@@ -648,6 +648,39 @@ const SCENARIOS: Scenario[] = [
       await dialog.getByRole('region', { name: 'Проверка файла' }).waitFor();
     },
   },
+  // «Склад-3»: «Аналитика» склада, «Динамика цен», телефон. Пар в Finmap нет — имена m63, m64, m13 заглушки
+  {
+    ours: 'c63-stock-analytics.png',
+    finmap: 'm63-stock-analytics.png',
+    path: 'stock/analytics',
+    act: async (p) => {
+      await seedStock(p);
+      await p.reload();
+      await p.getByRole('main').getByRole('table', { name: 'Аналитика по товарам' }).getByRole('row').filter({ hasText: 'Кола 0,5' }).first().waitFor();
+    },
+  },
+  {
+    ours: 'c64-stock-price-dynamics.png',
+    finmap: 'm64-stock-prices.png',
+    path: 'stock/analytics',
+    act: async (p) => {
+      await seedStock(p);
+      await p.reload();
+      await p.getByRole('main').getByRole('button', { name: 'Динамика цен: Кола 0,5' }).click();
+      await p.getByRole('dialog', { name: 'Динамика цен: Кола 0,5' }).getByRole('table', { name: 'История цены продажи' }).waitFor();
+    },
+  },
+  {
+    ours: 'cm13-stock-analytics.png',
+    finmap: 'm13-stock-analytics.png',
+    phone: true,
+    path: 'stock/analytics',
+    act: async (p) => {
+      await seedStock(p);
+      await p.reload();
+      await p.getByRole('main').getByRole('table', { name: 'Аналитика по товарам' }).getByRole('row').filter({ hasText: 'Кола 0,5' }).first().waitFor();
+    },
+  },
   // «Аналитика» (план А-1): карточки, «Деньги» таблицей, операции ячейки; на телефоне — карточки и окно «Фильтры»
   { ours: 'c47-analytics-index.png', finmap: 'analytics/00-analytic-index.png', path: 'analytics' },
   {

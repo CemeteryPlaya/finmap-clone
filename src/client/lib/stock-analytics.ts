@@ -95,12 +95,15 @@ export function priceChart(p: StockPrices, range: { from: string; to: string }, 
   const scale = niceScale([...p.purchases.map((x) => x.unitCost), startPrice, ...changes.map((c) => c.price)]);
   const y = (v: number) => yOf(scale, v, height);
 
-  const steps: { x: number; y: number }[] = [{ x: 0, y: y(startPrice) }];
+  // линия цены продажи — с той даты, когда цена появилась: до неё «0» читался бы как настоящая цена
+  const known = p.salePrices.some((s) => s.validFrom <= range.from);
+  const steps: { x: number; y: number }[] = known ? [{ x: 0, y: y(startPrice) }] : [];
   for (const c of changes) {
     const x = xOf(Date.parse(startOfDayUtc(c.validFrom, timeZone)));
-    steps.push({ x, y: steps[steps.length - 1]!.y }, { x, y: y(c.price) });
+    if (steps.length > 0) steps.push({ x, y: steps[steps.length - 1]!.y });
+    steps.push({ x, y: y(c.price) });
   }
-  steps.push({ x: width, y: steps[steps.length - 1]!.y });
+  if (steps.length > 0) steps.push({ x: width, y: steps[steps.length - 1]!.y });
 
   return {
     purchasePoints: p.purchases.map((x) => ({
