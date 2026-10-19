@@ -5,19 +5,20 @@ import { STOCK_BARCODE_MAX, STOCK_ITEM_NAME_MAX } from '../../../shared/schemas/
 import { STOCK_UNITS, UNIT_LABELS, type StockUnit } from '../../../shared/stock-qty';
 import { api, type ApiError } from '../../lib/api';
 import { invalidateStock, type StockGroup, type StockItem } from '../../lib/stock';
-import { emptyItemForm, itemBody, itemFormOf, type ItemForm } from '../../lib/stock-item-form';
+import { emptyItemForm, itemBody, itemFormOf, newPartDraft, type ItemForm, type PartDraft } from '../../lib/stock-item-form';
 import { useEntityActions } from '../../lib/settings-mutations';
 import { useHeldWhile } from '../../lib/use-edited';
 import { formatMoney, MONEY_SCREEN } from '../../../shared/money';
 import { ArchivedNote, EntityActions } from '../EntityActions';
 import { Field } from '../Field';
-import { alertClass, btnPrimary, btnSecondary, btnSmall, inputClass } from '../ui';
+import { alertClass, btnIcon, btnPrimary, btnSecondary, btnSmall, inputClass } from '../ui';
 import { NumberInput } from './NumberInput';
 
 /**
  * Окно товара (§4.3 спецификации «Склад»): название, группа, единица, штрихкод, минимальный остаток; цену продажи у нового
  * товара — здесь, у существующего — «Изменить цену» (дата начала и новая цена, история сохраняется). Архив вместо удаления,
- * если по товару есть документы (сервер отвечает 422).
+ * если по товару есть документы (сервер отвечает 422). Комплект (план «Склад-2») — флажок при создании и состав
+ * «товар — количество»; состав меняется, пока по комплекту нет документов.
  */
 export function ItemEditor(props: {
   companyId: number;
@@ -25,6 +26,8 @@ export function ItemEditor(props: {
   item: StockItem | null;
   gone: boolean;
   groups: StockGroup[];
+  /** Каталог: составляющие комплекта и их единицы. */
+  items: StockItem[];
   readOnly: boolean;
   onChangePrice: (item: StockItem) => void;
   onDone: () => void;
@@ -54,7 +57,12 @@ export function ItemEditor(props: {
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const r = itemBody(form, minorUnits, !fresh);
+    const r = itemBody(
+      form,
+      minorUnits,
+      !fresh,
+      new Map(props.items.map((i) => [i.id, i.unit])),
+    );
     if (!r.ok) {
       setErrors(r.errors);
       return;
@@ -64,6 +72,17 @@ export function ItemEditor(props: {
 
   if (props.gone && !busy) return <p className="text-muted">Товар не найден — возможно, его удалили.</p>;
   const unitProblem = errors.unit;
+  const setPart = (key: number, patch: Partial<PartDraft>, field: 'itemId' | 'qty') => {
+    const index = form.parts.findIndex((p) => p.key === key);
+    setForm((f) => ({ ...f, parts: f.parts.map((p) => (p.key === key ? { ...p, ...patch } : p)) }));
+    // смена товара меняет и единицу: прежняя ошибка количества уже не про эту строку
+    const cleared = field === 'itemId' ? [`parts.${index}.itemId`, `parts.${index}.qty`] : [`parts.${index}.qty`];
+    setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !cleared.includes(k) && k !== 'parts')));
+  };
+  // составляющие — товары, не комплекты; архивные — только уже выбранные
+  const partOptions = (selected: number | null) => props.items.filter((i) => !i.isCombo && i.id !== fresh?.id && (!i.archivedAt || i.id === selected));
+  const unitOf = new Map(props.items.map((i) => [i.id, i.unit]));
+  const nameOf = new Map(props.items.map((i) => [i.id, i.name]));
   return (
     <>
       {item?.archivedAt ? (
@@ -105,6 +124,80 @@ export function ItemEditor(props: {
               </select>
             )}
           </Field>
+          {!fresh && !props.readOnly && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.isCombo}
+                onChange={(e) => {
+                  const isCombo = e.target.checked;
+                  setForm((f) => ({ ...f, isCombo, parts: isCombo && f.parts.length === 0 ? [newPartDraft()] : f.parts }));
+                  setErrors((er) => Object.fromEntries(Object.entries(er).filter(([k]) => !k.startsWith('parts') && k !== 'unit')));
+                }}
+              />
+              Комплект — продаётся набором, списывает свои составляющие
+            </label>
+          )}
+          {form.isCombo && (
+            <fieldset className="grid gap-2 rounded-xl border border-field p-3">
+              <legend className="px-1 text-sm font-semibold">Состав комплекта</legend>
+              {form.partsLocked || props.readOnly ? (
+                <>
+                  <ul className="text-sm">
+                    {form.parts.map((p) => (
+                      <li key={p.key}>
+                        {(p.itemId !== null && nameOf.get(p.itemId)) || '…'} × {p.qty} {p.itemId !== null ? UNIT_LABELS[unitOf.get(p.itemId) ?? 'pcs'] : ''}
+                      </li>
+                    ))}
+                  </ul>
+                  {form.partsLocked && <p className="text-xs text-muted">По комплекту есть документы — состав изменить нельзя. Новый состав — новый комплект.</p>}
+                </>
+              ) : (
+                <>
+                  {form.parts.map((p, i) => (
+                    <div key={p.key} role="group" aria-label={`Составляющая ${i + 1}`} className="grid grid-cols-[minmax(0,1fr)_7rem_auto] items-start gap-2">
+                      <Field label="Товар" error={errors[`parts.${i}.itemId`]}>
+                        {(c) => (
+                          <select {...c} value={p.itemId ?? ''} onChange={(e) => setPart(p.key, { itemId: e.target.value === '' ? null : Number(e.target.value) }, 'itemId')} className={inputClass}>
+                            <option value="">Выберите товар</option>
+                            {partOptions(p.itemId).map((o) => (
+                              <option key={o.id} value={o.id}>
+                                {o.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </Field>
+                      <Field label={`Кол-во, ${UNIT_LABELS[(p.itemId !== null && unitOf.get(p.itemId)) || 'pcs']}`} error={errors[`parts.${i}.qty`]}>
+                        {(c) => <NumberInput {...c} value={p.qty} onChange={(t) => setPart(p.key, { qty: t }, 'qty')} className={inputClass} />}
+                      </Field>
+                      <button
+                        type="button"
+                        aria-label={`Убрать составляющую ${i + 1}`}
+                        title="Убрать составляющую"
+                        onClick={() => {
+                          // ошибки состава — по номеру строки: после удаления номера сдвигаются
+                          setForm((f) => ({ ...f, parts: f.parts.filter((x) => x.key !== p.key) }));
+                          setErrors((er) => Object.fromEntries(Object.entries(er).filter(([k]) => !k.startsWith('parts'))));
+                        }}
+                        className={`${btnIcon} mt-7`}
+                      >
+                        <span aria-hidden="true">✕</span>
+                      </button>
+                    </div>
+                  ))}
+                  {errors.parts && (
+                    <p role="alert" className="text-sm text-expense-strong">
+                      {errors.parts}
+                    </p>
+                  )}
+                  <button type="button" onClick={() => setForm((f) => ({ ...f, parts: [...f.parts, newPartDraft()] }))} className={`${btnSmall} justify-self-start`}>
+                    + Составляющая
+                  </button>
+                </>
+              )}
+            </fieldset>
+          )}
           <Field label="Штрихкод" error={errors.barcode}>
             {(c) => <input {...c} value={form.barcode} maxLength={STOCK_BARCODE_MAX} onChange={(e) => edit('barcode', e.target.value)} disabled={props.readOnly} className={inputClass} />}
           </Field>

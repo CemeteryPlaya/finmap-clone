@@ -26,6 +26,8 @@ export interface DocLineDraft {
 export interface DocDraft {
   type: StockDocType;
   warehouseId: number | null;
+  /** Склад-получатель перемещения; у других типов не уходит в запрос. */
+  toWarehouseId: number | null;
   counterpartyId: number | null;
   reason: WriteoffReason | null;
   paidDate: string;
@@ -50,6 +52,7 @@ export function emptyDocDraft(type: StockDocType, today: string, warehouseId: nu
   return {
     type,
     warehouseId,
+    toWarehouseId: null,
     counterpartyId: null,
     reason: type === 'writeoff' ? 'defect' : null,
     paidDate: today,
@@ -180,6 +183,7 @@ export interface DocBody {
   type: StockDocType;
   at: string;
   warehouseId: number;
+  toWarehouseId: number | null;
   counterpartyId: number | null;
   reason: WriteoffReason | null;
   comment: string | null;
@@ -208,6 +212,11 @@ export function buildDocBody(draft: DocDraft, ctx: DocContext): DocBuild {
   const mu = minorOf(ctx.currency);
   if (draft.warehouseId === null) errors.warehouseId = 'Выберите склад';
   if (draft.type === 'writeoff' && draft.reason === null) errors.reason = 'Укажите причину списания';
+  const transfer = draft.type === 'transfer';
+  if (transfer && draft.toWarehouseId === null) errors.toWarehouseId = 'Выберите склад-получатель';
+  else if (transfer && draft.toWarehouseId === draft.warehouseId) errors.toWarehouseId = 'Склад-получатель совпадает с отправителем';
+  // у списания и перемещения сумм нет
+  const withAmounts = draft.type !== 'writeoff' && !transfer;
 
   const filled = draft.lines.map((l, index) => ({ l, index })).filter(({ l }) => !isBlankLine(l));
   if (filled.length === 0) errors.lines = 'Добавьте хотя бы одну строку';
@@ -221,7 +230,7 @@ export function buildDocBody(draft: DocDraft, ctx: DocContext): DocBuild {
     const q = parseQty(l.qty, item.unit);
     if (!q.ok) errors[`lines.${index}.qty`] = q.error;
     let amount: number | null = null;
-    if (draft.type !== 'writeoff') {
+    if (withAmounts) {
       const a = parseAmountText(l.amount, mu);
       if (!a.ok) errors[`lines.${index}.amount`] = l.amount.trim() === '' ? 'Укажите сумму' : a.error;
       else if (a.minor < 0) errors[`lines.${index}.amount`] = 'Сумма не меньше нуля';
@@ -248,7 +257,8 @@ export function buildDocBody(draft: DocDraft, ctx: DocContext): DocBuild {
       type: draft.type,
       at: original ?? paidAtFor(date, ctx.timeOfDayFrom, ctx.now, ctx.timeZone, time ?? undefined),
       warehouseId: draft.warehouseId!,
-      counterpartyId: draft.type === 'writeoff' ? null : draft.counterpartyId,
+      toWarehouseId: transfer ? draft.toWarehouseId : null,
+      counterpartyId: withAmounts ? draft.counterpartyId : null,
       reason: draft.type === 'writeoff' ? draft.reason : null,
       comment: comment || null,
       lines,
@@ -262,6 +272,7 @@ export function draftFromDoc(doc: StockDoc, items: ReadonlyMap<number, ItemInfo>
   return {
     type: doc.type,
     warehouseId: doc.warehouseId,
+    toWarehouseId: doc.toWarehouseId,
     counterpartyId: doc.counterpartyId,
     reason: doc.reason,
     paidDate: dayOf(doc.at, timeZone),

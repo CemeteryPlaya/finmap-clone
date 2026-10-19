@@ -3,7 +3,9 @@ import { useOutletContext } from 'react-router';
 import { formatDateTime } from '../../../shared/dates';
 import { formatMoney, MONEY_SCREEN } from '../../../shared/money';
 import { STOCK_DOC_TYPE_LABELS, STOCK_DOC_TYPES, WRITEOFF_REASON_LABELS, type StockDocType } from '../../../shared/schemas/stock';
+import { CountForm, type CountFormRequest } from '../../components/stock/CountForm';
 import { DocForm, type DocFormRequest } from '../../components/stock/DocForm';
+import { StockImportDialog } from '../../components/stock/StockImportDialog';
 import { paymentLabel } from '../../lib/stock-doc-form';
 import { Pending, StaleNotice } from '../../components/QueryState';
 import { btnPrimary, btnSecondary, inputClass, noticeClass } from '../../components/ui';
@@ -20,11 +22,18 @@ const CREATE: { type: StockDocType; label: string }[] = [
   { type: 'receipt', label: '+ Поступление' },
   { type: 'sale', label: '+ Продажа' },
   { type: 'writeoff', label: '+ Списание' },
+  { type: 'transfer', label: '+ Перемещение' },
+  { type: 'count', label: '+ Инвентаризация' },
 ];
+
+/** Открытое окно: документ (форма), инвентаризация или импорт поступлений. */
+type OpenKind = { kind: 'doc'; request: DocFormRequest } | { kind: 'count'; request: CountFormRequest } | { kind: 'import' };
+type Open = { key: number } & OpenKind;
 
 /**
  * «Документы» (§4.2 спецификации «Склад»): список по складу и типу — номер, тип, дата, склад, контрагент, сумма;
- * кнопки «+ Поступление», «+ Продажа», «+ Списание» открывают форму; щелчок по номеру — правка.
+ * кнопки «+ Поступление», «+ Продажа», «+ Списание», «+ Перемещение» открывают форму, «+ Инвентаризация» — своё окно;
+ * «Импорт поступлений» — из Excel или CSV на склад из адреса; щелчок по номеру — правка.
  */
 export function DocsTab() {
   const { company, warehouse, warehouses } = useOutletContext<StockOutletContext>();
@@ -32,12 +41,29 @@ export function DocsTab() {
   const counterparties = useCounterparties(company.id);
   const [type, setType] = useState<StockDocType | null>(null);
   const [limit, setLimit] = useState(PAGE);
-  const [form, setForm] = useState<{ key: number; request: DocFormRequest } | null>(null);
+  const [form, setForm] = useState<Open | null>(null);
   const docs = useStockDocs(company.id, { type, warehouse, limit });
   const readOnly = company.archivedAt !== null;
 
   // открытая форма не размонтируется, если список ещё грузится или его обновление не удалось (R13): она вне ветки «загрузка»
-  const formNode = form && <DocForm key={form.key} company={company} request={form.request} onClose={() => setForm(null)} />;
+  const close = () => setForm(null);
+  const formNode =
+    form &&
+    (form.kind === 'doc' ? (
+      <DocForm key={form.key} company={company} request={form.request} onClose={close} />
+    ) : form.kind === 'count' ? (
+      <CountForm key={form.key} company={company} request={form.request} onClose={close} />
+    ) : (
+      <StockImportDialog
+        key={form.key}
+        companyId={company.id}
+        kind="receipts"
+        warehouse={warehouse}
+        warehouseName={warehouses.find((w) => w.id === warehouse)?.name ?? null}
+        currency={company.baseCurrency}
+        onClose={close}
+      />
+    ));
   if (!docs.data || !meta.data) {
     return (
       <div>
@@ -50,7 +76,9 @@ export function DocsTab() {
   const counterpartyName = new Map((counterparties.data ?? []).map((c) => [c.id, c.name]));
   const money = (minor: number) => formatMoney(minor, company.baseCurrency, MONEY_SCREEN);
   const canCreate = !readOnly && warehouses.some((w) => !w.archivedAt);
-  const open = (request: DocFormRequest) => setForm((f) => ({ key: (f?.key ?? 0) + 1, request }));
+  const show = (next: OpenKind) => setForm((f) => ({ key: (f?.key ?? 0) + 1, ...next }));
+  const create = (t: StockDocType) => (t === 'count' ? show({ kind: 'count', request: { kind: 'create', warehouse } }) : show({ kind: 'doc', request: { kind: 'create', type: t, warehouse } }));
+  const edit = (id: number, t: StockDocType) => (t === 'count' ? show({ kind: 'count', request: { kind: 'edit', id } }) : show({ kind: 'doc', request: { kind: 'edit', id } }));
 
   return (
     <div>
@@ -59,10 +87,15 @@ export function DocsTab() {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         {canCreate &&
           CREATE.map((c) => (
-            <button key={c.type} type="button" aria-haspopup="dialog" onClick={() => open({ kind: 'create', type: c.type, warehouse })} className={c.type === 'receipt' ? btnPrimary : btnSecondary}>
+            <button key={c.type} type="button" aria-haspopup="dialog" onClick={() => create(c.type)} className={c.type === 'receipt' ? btnPrimary : btnSecondary}>
               {c.label}
             </button>
           ))}
+        {canCreate && warehouse !== null && (
+          <button type="button" aria-haspopup="dialog" onClick={() => show({ kind: 'import' })} className={btnSecondary}>
+            Импорт поступлений
+          </button>
+        )}
         <select
           aria-label="Тип документов"
           value={type ?? ''}
@@ -100,13 +133,13 @@ export function DocsTab() {
                   Склад
                 </th>
                 <th scope="col" className={`${thClass} max-md:hidden`}>
-                  Контрагент
+                  Контрагент / склады
                 </th>
                 <th scope="col" className={`${thClass} text-right`}>
                   Сумма
                 </th>
                 <th scope="col" className={`${thClass} max-md:hidden`}>
-                  Оплата / журнал
+                  Оплата / статус
                 </th>
               </tr>
             </thead>
@@ -118,7 +151,7 @@ export function DocsTab() {
                       type="button"
                       aria-haspopup="dialog"
                       aria-label={`Открыть ${STOCK_DOC_TYPE_LABELS[d.type as StockDocType].toLowerCase()} ${d.number}`}
-                      onClick={() => open({ kind: 'edit', id: d.id })}
+                      onClick={() => edit(d.id, d.type)}
                       className="rounded font-medium tabular-nums hover:underline focus-visible:outline-2 focus-visible:outline-focus"
                     >
                       {d.number}
@@ -128,11 +161,29 @@ export function DocsTab() {
                   <td className={`${tdClass} tabular-nums`}>{formatDateTime(d.at, meta.data.timezone)}</td>
                   <td className={`${tdClass} max-md:hidden`}>{warehouseName.get(d.warehouseId) ?? '…'}</td>
                   <td className={`${tdClass} max-md:hidden`}>
-                    {d.type === 'writeoff' ? (d.reason ? WRITEOFF_REASON_LABELS[d.reason] : '') : d.counterpartyId === null ? '—' : (counterpartyName.get(d.counterpartyId) ?? '…')}
+                    {d.type === 'writeoff'
+                      ? d.reason
+                        ? WRITEOFF_REASON_LABELS[d.reason]
+                        : ''
+                      : d.type === 'transfer'
+                        ? `${warehouseName.get(d.warehouseId) ?? '…'} → ${d.toWarehouseId === null ? '…' : (warehouseName.get(d.toWarehouseId) ?? '…')}`
+                        : d.type === 'count'
+                          ? ''
+                          : d.counterpartyId === null
+                            ? '—'
+                            : (counterpartyName.get(d.counterpartyId) ?? '…')}
                   </td>
-                  <td className={`${tdClass} text-right tabular-nums`}>{d.type === 'writeoff' ? '—' : money(d.total)}</td>
+                  <td className={`${tdClass} text-right tabular-nums`}>{d.type === 'receipt' || d.type === 'sale' ? money(d.total) : '—'}</td>
                   <td className={`${tdClass} max-md:hidden`}>
-                    {d.type === 'receipt' ? paymentLabel(d.total, d.paid, company.baseCurrency) : d.type === 'sale' && d.posted ? 'В журнале' : ''}
+                    {d.type === 'receipt'
+                      ? paymentLabel(d.total, d.paid, company.baseCurrency)
+                      : d.type === 'sale' && d.posted
+                        ? 'В журнале'
+                        : d.type === 'count'
+                          ? d.status === 'draft'
+                            ? 'Черновик'
+                            : 'Проведена'
+                          : ''}
                   </td>
                 </tr>
               ))}

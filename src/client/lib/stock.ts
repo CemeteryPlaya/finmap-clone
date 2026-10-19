@@ -33,6 +33,10 @@ export interface StockItem {
   createdAt: string;
   archivedAt: string | null;
   prices: PricePoint[];
+  /** Состав комплекта: составляющая и её количество на один комплект (тысячные доли её единицы). */
+  parts: { itemId: number; qty: number }[];
+  /** По товару есть документы: у комплекта состав уже не меняется. */
+  hasDocs: boolean;
 }
 
 export interface StockWarehouse {
@@ -55,6 +59,10 @@ export interface StockDocLine {
   cost: number | null;
   /** Сколько из строки не нашло партии («Нет партии»). */
   uncovered: number;
+  /** Только у инвентаризации: факт (null — не посчитан). */
+  countedQty?: number | null;
+  /** Только у инвентаризации: учёт на момент документа. */
+  expected?: number | null;
 }
 
 export interface DocPayment {
@@ -75,6 +83,8 @@ export interface StockDocListItem {
   reason: WriteoffReason | null;
   comment: string | null;
   version: number;
+  /** Черновик бывает только у инвентаризации. */
+  status: 'draft' | 'posted';
   total: number;
   linesCount: number;
   paid: number;
@@ -87,6 +97,15 @@ export interface StockDoc extends StockDocListItem {
   posting: { operationId: number; amount: number } | null;
   lastPost: { accountId: number; categoryId: number | null } | null;
   deletedAt: string | null;
+  /** Только у проведённой инвентаризации: «Недостача на X, излишек на Y». */
+  countSummary?: CountSummary | null;
+}
+
+export interface CountSummary {
+  shortage: number;
+  surplus: number;
+  /** Строк излишка без известной цены. */
+  unknownCost: number;
 }
 
 /** Чем документ меняет чужие проведённые документы (§5.4 спецификации «Склад»). */

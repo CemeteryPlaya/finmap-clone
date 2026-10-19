@@ -60,8 +60,9 @@ interface SaveResult {
 const errorText = (e: unknown) => (e instanceof ApiError ? e.message : 'Ошибка сервера');
 
 /**
- * Форма документа «Поступление», «Продажа», «Списание» (§4.2 спецификации «Склад»): дата и время, склад, поставщик или
- * покупатель, причина списания; строки «товар, количество, цена, сумма» (цена и сумма связаны); итог. Перед записью
+ * Форма документа «Поступление», «Продажа», «Списание», «Перемещение» (§4.2 спецификации «Склад»): дата и время, склад
+ * (у перемещения — «Откуда» и «Куда»), поставщик или покупатель, причина списания; строки «товар, количество, цена, сумма»
+ * (цена и сумма связаны; у списания и перемещения — без сумм); итог. Перед записью
  * сервер считает последствия (`dryRun`): если изменится себестоимость уже проведённых продаж — окно предупреждает (§5.4).
  */
 export function DocForm(props: { company: Company; request: DocFormRequest; onClose: () => void }) {
@@ -366,13 +367,18 @@ function DocEditor(p: {
 
   const total = draftTotal(draft, p.company.baseCurrency);
   const money = (minor: number) => formatMoney(minor, p.company.baseCurrency, MONEY_SCREEN);
-  const hasAmounts = type !== 'writeoff';
+  const transfer = type === 'transfer';
+  const hasAmounts = type !== 'writeoff' && !transfer;
   /** Подсказку про единицу показываем только у первой строки без товара, чтобы она не повторялась (R16). */
   const firstEmptyKey = draft.lines.find((l) => l.itemId === null)?.key;
   const usedItems = new Set(doc?.lines.map((l) => l.itemId) ?? []);
   const itemOptions = (selected: number | null) =>
-    p.items.filter((i) => !i.archivedAt || i.id === selected || usedItems.has(i.id)).map((i) => ({ id: i.id, label: i.name, suffix: UNIT_LABELS[i.unit] }));
+    p.items
+      // комплект — только в продаже (решение 5 плана Склад-2)
+      .filter((i) => (!i.archivedAt || i.id === selected || usedItems.has(i.id)) && (!i.isCombo || type === 'sale' || i.id === selected))
+      .map((i) => ({ id: i.id, label: i.name, suffix: i.isCombo ? 'комплект' : UNIT_LABELS[i.unit] }));
   const warehouseOptions = p.warehouses.filter((w) => !w.archivedAt || w.id === draft.warehouseId);
+  const toOptions = p.warehouses.filter((w) => !w.archivedAt || w.id === draft.toWarehouseId);
   const counterpartyLabel = type === 'receipt' ? 'Поставщик' : 'Покупатель';
   const preferred = type === 'receipt' ? 'supplier' : 'client';
   const originalDay = doc ? dayOf(doc.at, p.timeZone) : null;
@@ -405,7 +411,7 @@ function DocEditor(p: {
               }
               onTimeChange={(paidTime) => set({ paidTime, paidTimeSet: true, paidDate: docDay, paidDateSet: true }, 'at')}
             />
-            <Field label="Склад" error={errors.warehouseId} floating filled={draft.warehouseId !== null}>
+            <Field label={transfer ? 'Откуда' : 'Склад'} error={errors.warehouseId} floating filled={draft.warehouseId !== null}>
               {(c) => (
                 <select
                   {...c}
@@ -423,7 +429,25 @@ function DocEditor(p: {
               )}
             </Field>
           </div>
-          {type === 'writeoff' ? (
+          {transfer ? (
+            <Field label="Куда" error={errors.toWarehouseId} floating filled={draft.toWarehouseId !== null}>
+              {(c) => (
+                <select
+                  {...c}
+                  value={draft.toWarehouseId ?? ''}
+                  onChange={(e) => set({ toWarehouseId: e.target.value === '' ? null : Number(e.target.value) }, 'toWarehouseId')}
+                  className={floatingControlClass}
+                >
+                  <option value="" disabled hidden />
+                  {toOptions.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+          ) : type === 'writeoff' ? (
             <Field label="Причина списания" error={errors.reason} floating filled>
               {(c) => (
                 <select {...c} value={draft.reason ?? ''} onChange={(e) => set({ reason: e.target.value as WriteoffReason }, 'reason')} className={floatingControlClass}>

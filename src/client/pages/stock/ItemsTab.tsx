@@ -4,9 +4,10 @@ import { formatMoney, MONEY_SCREEN } from '../../../shared/money';
 import { formatQty, UNIT_LABELS } from '../../../shared/stock-qty';
 import { ItemEditor } from '../../components/stock/ItemEditor';
 import { PriceDialog } from '../../components/stock/PriceDialog';
+import { StockImportDialog } from '../../components/stock/StockImportDialog';
 import { Modal } from '../../components/Modal';
 import { Pending, StaleNotice } from '../../components/QueryState';
-import { btnPrimary, inputClass, noticeClass } from '../../components/ui';
+import { btnPrimary, btnSecondary, inputClass, noticeClass } from '../../components/ui';
 import { useMeta } from '../../lib/query';
 import { useStockGroups, useStockItems, type StockItem } from '../../lib/stock';
 import { filterItems, itemSections } from '../../lib/stock-view';
@@ -25,6 +26,7 @@ export function ItemsTab() {
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<EditingId>(null);
   const [pricing, setPricing] = useState<StockItem | null>(null);
+  const [importing, setImporting] = useState(0);
   const readOnly = company.archivedAt !== null;
   const edited = useEditedItem(items.data, editing);
 
@@ -39,9 +41,14 @@ export function ItemsTab() {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input type="search" aria-label="Поиск товара" placeholder="Поиск" value={query} onChange={(e) => setQuery(e.target.value)} className={`${inputClass} max-w-xs`} />
         {!readOnly && (
-          <button type="button" aria-haspopup="dialog" onClick={() => setEditing('new')} className={btnPrimary}>
-            + Товар
-          </button>
+          <>
+            <button type="button" aria-haspopup="dialog" onClick={() => setEditing('new')} className={btnPrimary}>
+              + Товар
+            </button>
+            <button type="button" aria-haspopup="dialog" onClick={() => setImporting((n) => n + 1)} className={btnSecondary}>
+              Импорт из Excel
+            </button>
+          </>
         )}
       </div>
       {items.data.length === 0 ? (
@@ -83,6 +90,7 @@ export function ItemsTab() {
                       <button type="button" aria-haspopup="dialog" onClick={() => setEditing(i.id)} className="rounded text-left font-medium hover:underline focus-visible:outline-2 focus-visible:outline-focus">
                         {i.name}
                       </button>
+                      {i.isCombo && <span className="ml-2 text-xs text-muted">комплект</span>}
                       {i.archivedAt && <span className="ml-2 text-xs text-muted">в архиве</span>}
                     </td>
                     <td className={`${tdClass} max-md:hidden`}>{UNIT_LABELS[i.unit]}</td>
@@ -105,6 +113,7 @@ export function ItemsTab() {
             item={edited.item}
             gone={edited.gone}
             groups={groups.data}
+            items={items.data}
             readOnly={readOnly}
             onChangePrice={(item) => {
               setEditing(null);
@@ -114,6 +123,9 @@ export function ItemsTab() {
           />
         )}
       </Modal>
+      {importing > 0 && (
+        <StockImportDialog key={importing} companyId={company.id} kind="items" warehouse={null} warehouseName={null} currency={company.baseCurrency} onClose={() => setImporting(0)} />
+      )}
       <Modal open={pricing !== null} title={pricing ? `Цена продажи: ${pricing.name}` : 'Цена продажи'} onClose={() => setPricing(null)} className="max-w-md">
         {pricing && meta.data && (
           <PriceDialog

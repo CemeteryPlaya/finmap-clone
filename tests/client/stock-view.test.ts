@@ -28,6 +28,8 @@ const item = (id: number, name: string, over: Partial<StockItem> = {}): StockIte
   createdAt: 'x',
   archivedAt: null,
   prices: [],
+  parts: [],
+  hasDocs: false,
   ...over,
 });
 

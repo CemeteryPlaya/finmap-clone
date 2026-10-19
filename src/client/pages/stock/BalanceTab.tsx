@@ -167,7 +167,7 @@ export function BalanceTab() {
                                       {qtyWithUnit(batch.qtyLeft, unitOf.get(item.id) ?? item.unit)}
                                       {batch.qtyLeft !== batch.qtyIn && <span className="text-muted"> из {qtyWithUnit(batch.qtyIn, item.unit)}</span>}
                                     </td>
-                                    <td className={`${tdClass} text-right`}>{money(unitPrice(batch.costIn, batch.qtyIn))}</td>
+                                    <td className={`${tdClass} text-right`}>{batch.unknownCost ? <span className="text-muted">цена неизвестна</span> : money(unitPrice(batch.costIn, batch.qtyIn))}</td>
                                   </tr>
                                 ))}
                               </tbody>

@@ -107,12 +107,27 @@ describe('buildDocBody', () => {
         type: 'receipt',
         at: '2026-10-06T12:00:00.000Z',
         warehouseId: 7,
+        toWarehouseId: null,
         counterpartyId: 3,
         reason: null,
         comment: null,
         lines: [{ itemId: 1, qty: 10_000, amount: 100_000 }],
       },
     });
+  });
+
+  it('перемещение: склад-получатель обязателен и другой; без сумм, контрагента и причины (Склад-2)', () => {
+    const d = base({ type: 'transfer', toWarehouseId: 8, counterpartyId: 3, lines: [line({ itemId: 1, qty: '4', amount: '999' })] });
+    expect(buildDocBody(d, ctx())).toMatchObject({
+      ok: true,
+      body: { type: 'transfer', warehouseId: 7, toWarehouseId: 8, counterpartyId: null, reason: null, lines: [{ itemId: 1, qty: 4000, amount: null }] },
+    });
+    expect(buildDocBody({ ...d, toWarehouseId: null }, ctx())).toEqual({ ok: false, errors: { toWarehouseId: 'Выберите склад-получатель' } });
+    expect(buildDocBody({ ...d, toWarehouseId: 7 }, ctx())).toEqual({ ok: false, errors: { toWarehouseId: 'Склад-получатель совпадает с отправителем' } });
+    // у других типов получатель не уходит, даже если остался в черновике
+    expect(buildDocBody(base({ toWarehouseId: 8 }), ctx())).toMatchObject({ ok: true, body: { toWarehouseId: null } });
+    expect(docTitle('transfer', null)).toBe('Новое перемещение');
+    expect(emptyDocDraft('transfer', '2026-10-06', 7)).toMatchObject({ toWarehouseId: null, reason: null });
   });
 
   it('литры с дробью; продажа несёт контрагента; комментарий очищается', () => {
@@ -172,6 +187,7 @@ describe('draftFromDoc', () => {
       reason: null,
       comment: 'смена',
       version: 2,
+      status: 'posted',
       total: 0,
       linesCount: 1,
       paid: 0,
