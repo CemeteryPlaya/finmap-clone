@@ -203,7 +203,10 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   // пустое открытое поле: подпись остаётся крупной (Finmap 09), поднимается, когда есть значение
   const categoryBox = category.locator('xpath=..');
   await expect(categoryBox).not.toHaveAttribute('data-filled', /.*/);
-  // нажатие внутри открытого поля его не закрывает; нажатие вне поля и списка (на заголовок окна) — закрывает
+  // повторное нажатие на поле закрывает список, следующее — снова открывает; нажатие вне поля и списка (на заголовок окна) — закрывает
+  await category.click();
+  await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeHidden();
+  await expect(category).toBeFocused();
   await category.click();
   await expect(dialog.getByRole('listbox', { name: 'Категории' })).toBeVisible();
   await dialog.getByRole('heading').click();

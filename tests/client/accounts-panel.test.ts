@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountGroupKey, accountSecondary, groupAccounts, panelOrder, showGroupTitles } from '../../src/client/lib/accounts-panel';
+import { accountGroupKey, accountPanelLink, accountSecondary, groupAccounts, panelOrder, showGroupTitles } from '../../src/client/lib/accounts-panel';
 import type { Account, Project } from '../../src/client/lib/queries';
 
 const account = (id: number, projectId: number | null, archived = false): Account => ({
@@ -80,5 +80,27 @@ describe('showGroupTitles — заголовки групп в «Моих сче
     expect(showGroupTitles(groupAccounts([account(1, null), account(2, null)], []))).toBe(false);
     expect(showGroupTitles(groupAccounts([account(1, 10)], [project(10, 'Клуб 1')]))).toBe(false);
     expect(showGroupTitles(groupAccounts([account(1, null), account(2, 10)], [project(10, 'Клуб 1')]))).toBe(true);
+  });
+});
+
+describe('accountPanelLink: счёт левой панели — фильтр журнала по нажатию, повторное нажатие снимает', () => {
+  const at = (pathname: string, search = '') => ({ pathname, search });
+
+  it('счёта нет в фильтре — журнал только с ним, не выбран', () => {
+    expect(accountPanelLink(1, 5, at('/c/1/log'))).toEqual({ to: '/c/1/log?account=5', selected: false });
+    expect(accountPanelLink(1, 5, at('/c/1/log', '?account=7&sort=amount'))).toEqual({ to: '/c/1/log?account=5', selected: false });
+  });
+
+  it('не в журнале (настройки, аналитика с тем же ключом) — счёт не выбран', () => {
+    expect(accountPanelLink(1, 5, at('/c/1/analytics/statement', '?account=5'))).toEqual({ to: '/c/1/log?account=5', selected: false });
+    expect(accountPanelLink(1, 5, at('/c/2/log', '?account=5'))).toEqual({ to: '/c/1/log?account=5', selected: false });
+  });
+
+  it('счёт в фильтре — выбран, ссылка снимает только его, прочие условия остаются', () => {
+    expect(accountPanelLink(1, 5, at('/c/1/log', '?account=5'))).toEqual({ to: '/c/1/log', selected: true });
+    expect(accountPanelLink(1, 5, at('/c/1/log', '?period=month&account=5&account=7&sort=amount&order=asc'))).toEqual({
+      to: '/c/1/log?period=month&account=7&sort=amount&order=asc',
+      selected: true,
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { formatMoney, MONEY_SCREEN_BEFORE } from '../../shared/money';
+import { journalSearch, parseJournalSearch } from './journal-filter';
 import type { Account, Project } from './queries';
 
 export interface AccountGroup {
@@ -45,4 +46,17 @@ export function accountSecondary(account: Account, projects: Project[], balance:
 /** Заголовки групп «Общие» / клубы показываются, только если групп больше одной (§7.6 этапа 1.5). */
 export function showGroupTitles(groups: AccountGroup[]): boolean {
   return groups.length > 1;
+}
+
+/**
+ * Ссылка счёта в левой панели: счёт, которого нет в фильтре открытого журнала, открывает журнал с фильтром только
+ * по нему (`?account=5`); счёт, уже стоящий в фильтре, — выбран (подсвечен), и повторное нажатие снимает его
+ * из фильтра, остальные условия журнала остаются.
+ */
+export function accountPanelLink(companyId: number, accountId: number, location: { pathname: string; search: string }): { to: string; selected: boolean } {
+  const journal = `/c/${companyId}/log`;
+  const state = location.pathname === journal ? parseJournalSearch(new URLSearchParams(location.search)) : null;
+  if (!state?.accountIds.includes(accountId)) return { to: `${journal}?account=${accountId}`, selected: false };
+  const rest = journalSearch({ ...state, accountIds: state.accountIds.filter((id) => id !== accountId) }).toString();
+  return { to: rest ? `${journal}?${rest}` : journal, selected: true };
 }

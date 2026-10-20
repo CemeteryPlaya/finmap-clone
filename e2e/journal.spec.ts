@@ -165,6 +165,15 @@ test('клик по счёту в левой панели фильтрует ж�
   await page.reload();
   await expect(bodyRows(page).first()).toContainText(/\+1\s₸/);
   await expect(table(page).getByRole('columnheader', { name: /Дата/ })).not.toHaveAttribute('aria-sort', /.+/);
+
+  // счёт в фильтре подсвечен; повторное нажатие снимает фильтр по нему, сортировка остаётся
+  const kaspiLink = panel(page).getByRole('link', { name: /^Kaspi/ });
+  await expect(kaspiLink).toHaveAttribute('aria-current', 'true');
+  await expect(panel(page).getByRole('link', { name: /^Наличные/ })).not.toHaveAttribute('aria-current', /.*/);
+  await kaspiLink.click();
+  await expect(page).toHaveURL(new RegExp(`/c/${cid}/log\\?sort=amount&order=asc$`));
+  await expect(kaspiLink).not.toHaveAttribute('aria-current', /.*/);
+  await expect(bodyRows(page)).toHaveCount(50);
 });
 
 test('тулбар: поиск с паузой, период, сумма от/до в базовой валюте, выгрузка по фильтру, сброс; фильтр переживает перезагрузку', async ({ page }) => {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { formatMoney, MONEY_SCREEN_BEFORE } from '../../shared/money';
-import { groupAccounts, showGroupTitles } from '../lib/accounts-panel';
+import { accountPanelLink, groupAccounts, showGroupTitles } from '../lib/accounts-panel';
 import { focusHeadingSoon, isPlainLeftClick, pathOf } from '../lib/focus-heading';
 import { refreshOperations } from '../lib/journal-mutations';
 import { useIsMobile } from '../lib/media';
@@ -40,6 +40,7 @@ function AccountsSummary({ company, onNavigate }: { company: Company; onNavigate
   const total = balances.data?.total;
   const failed = balances.error ?? accounts.error ?? projects.error;
   const writable = company.archivedAt === null;
+  const location = useLocation();
   // только обычное нажатие левой кнопкой: Ctrl/Shift/средняя кнопка открывают ссылку отдельно, страница остаётся
   const click = (to: string) => (e: MouseEvent) => {
     if (onNavigate && isPlainLeftClick(e)) onNavigate(pathOf(to));
@@ -112,9 +113,16 @@ function AccountsSummary({ company, onNavigate }: { company: Company; onNavigate
           {titles && <h3 className="mb-1 truncate px-2 text-xs font-semibold text-muted">{g.title}</h3>}
           {g.items.map((a) => {
             const balance = balanceOf.get(a.id);
-            const to = `/c/${company.id}/log?account=${a.id}`;
+            // счёт в фильтре журнала подсвечен; повторное нажатие снимает его из фильтра
+            const { to, selected } = accountPanelLink(company.id, a.id, location);
             return (
-              <Link key={a.id} to={to} onClick={click(to)} className="flex items-baseline justify-between gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-field">
+              <Link
+                key={a.id}
+                to={to}
+                onClick={click(to)}
+                aria-current={selected ? 'true' : undefined}
+                className={`flex items-baseline justify-between gap-2 rounded-lg px-2 py-1.5 text-sm ${selected ? 'bg-income-soft font-semibold' : 'hover:bg-field'}`}
+              >
                 <span className="truncate">{a.name}</span>
                 <span className={`shrink-0 tabular-nums ${balance !== undefined && balance < 0 ? 'text-expense-strong' : ''}`}>
                   {balance === undefined ? '…' : formatMoney(balance, a.currency, MONEY_SCREEN_BEFORE)}
