@@ -17,7 +17,7 @@ const ALLOWED = new Set(['db/tx.ts', 'db/raw.ts', 'db/client.ts', 'db/migrate.ts
 
 const PENDING = new Set<string>([]);
 
-const SYNC_DB = /(?<!job)\.(all|get|run)\(\)|\b(db|tx|ex)\.(all|get|run)\b|\bsqlite\.|\.transaction\(/;
+const SYNC_DB = /(?<!job)\.(all|get|run)\(\)|\b(db|tx|ex)\.(all|get|run)\b|\bsqlite\.(prepare|exec|pragma|backup|function)\b|\.transaction\(/;
 
 function walk(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
