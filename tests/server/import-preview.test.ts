@@ -38,7 +38,7 @@ describe('предпросмотр: счета, движение, остатки
       fr({ paidAt: at('2026-10-03', '12:00:00'), amount: 5000, to: 'Банк-2' }),
       fr({ paidAt: at('2026-10-04', '08:30:00'), amount: 1000, from: 'Банк-2', to: '\u004Bасса' }), // латинская K
     ];
-    const { preview: p, plan } = preview(rows);
+    const { preview: p, plan } = await preview(rows);
     expect(p.counts).toEqual({ income: 2, expense: 1, transfer: 1, add: 4, duplicates: 0, skippedFuture: 0 });
     expect(p.period).toEqual({ from: '2026-09-20', to: '2026-10-04' });
     expect(p.accounts).toEqual([
@@ -75,7 +75,7 @@ describe('предпросмотр: счета, движение, остатки
       [5, 'transfer', { key: 'банк-2' }, { id: w.kzt }, 100_000, 100_000, 100_000, '1'],
     ]);
 
-    const modes = preview(rows, [
+    const modes = await preview(rows, [
       { key: 'банк-2', kind: 'new', name: ' Банк  2 ', currency: 'USD', balance: { mode: 'current', amount: 1_000_000 } },
       { key: 'касса', kind: 'existing', accountId: w.kzt, targetBalance: 900_000 },
     ]);
@@ -87,7 +87,7 @@ describe('предпросмотр: счета, движение, остатки
     expect(modes.plan.accountChanges).toEqual([
       { accountId: w.kzt, before: { startingBalance: 0, openedAt: '2026-10-01' }, after: { startingBalance: 900_000 - (20_000 + 1_000_000 - 250_000 + 47_512_000), openedAt: '2026-09-20' } },
     ]);
-    const start = preview(rows, [{ key: 'банк-2', kind: 'new', name: 'Банк-2', currency: 'KZT', balance: { mode: 'start', amount: 50_000 } }]);
+    const start = await preview(rows, [{ key: 'банк-2', kind: 'new', name: 'Банк-2', currency: 'KZT', balance: { mode: 'start', amount: 50_000 } }]);
     expect(start.plan.accounts[0]!.startingBalance).toBe(50_000);
     expect(start.plan.accounts[0]!.computedStart).toBe(false);
   });
@@ -102,7 +102,7 @@ describe('предпросмотр: счета, движение, остатки
       fr({ paidAt: at('2026-10-02'), amount: 100, to: 'Сейф' }),
       fr({ paidAt: at('2026-10-02'), amount: 100, to: 'Банк' }),
     ];
-    const a = preview(rows);
+    const a = await preview(rows);
     expect(a.preview.accounts.map((x) => [x.key, x.mapping?.kind ?? null, x.archivedHint, x.errors])).toEqual([
       ['касса', null, false, [{ code: 'A1', message: 'Выберите счёт для «Касса» — подходит несколько' }]],
       ['сейф', 'new', true, []],
@@ -111,7 +111,7 @@ describe('предпросмотр: счета, движение, остатки
     expect(a.preview.counts.add).toBe(2); // строки счёта без выбора не считаются
     expect(a.preview.canImport).toBe(false);
 
-    const b = preview(rows, [
+    const b = await preview(rows, [
       { key: 'касса', kind: 'existing', accountId: 999_999 },
       { key: 'сейф', kind: 'existing', accountId: safe },
       { key: 'банк', kind: 'new', name: '\u200B', currency: 'EUR', balance: null },
@@ -121,7 +121,7 @@ describe('предпросмотр: счета, движение, остатки
       ['A5: Счёт «Сейф» в архиве — выберите другой'],
       ['A3: Название счёта: от 1 до 120 символов', 'A2: Неизвестная валюта'],
     ]);
-    const c = preview(rows, [
+    const c = await preview(rows, [
       { key: 'касса', kind: 'existing', accountId: w.kzt, targetBalance: -Number.MAX_SAFE_INTEGER },
       { key: 'банк', kind: 'new', name: 'Банк', currency: 'KZT', balance: { mode: 'current', amount: -Number.MAX_SAFE_INTEGER } },
     ]);
@@ -137,7 +137,7 @@ describe('предпросмотр: счета, движение, остатки
 describe('предпросмотр: суммы и валюты (§4.2)', () => {
   it('счёт USD без F — курс на дату; с F — F и производный курс; нет курса — R16; перевод KZT → USD; W9 и W10; хвосты float', async () => {
     w = await opsWorld();
-    const { preview: p, plan } = preview([
+    const { preview: p, plan } = await preview([
       fr({ paidAt: at('2026-10-05', '10:00:00'), amount: 1, from: 'Валютный' }),
       fr({ paidAt: at('2026-10-05', '11:00:00'), amount: 1, baseAmount: 480, from: 'Валютный' }),
       fr({ paidAt: at('2026-10-05', '12:00:00'), amount: 475.12, from: 'Касса', to: 'Валютный' }),
@@ -184,7 +184,7 @@ describe('предпросмотр: дубликаты (§5.5)', () => {
     expect((await w.h.req('DELETE', `${w.ops}/${gone}`)).statusCode).toBe(200);
     await w.post(w.ops, { type: 'transfer', paidAt: '2026-10-04T07:00:00Z', accountId: w.kzt, amount: 1000, toAccountId: bank });
 
-    const { preview: p } = preview([
+    const { preview: p } = await preview([
       fr({ paidAt: at('2026-10-03', '22:07:30'), amount: 85, from: 'Касса', category: 'Зарплата', counterparty: 'Сотрудник А' }),
       fr({ paidAt: at('2026-10-03', '22:07:00'), amount: 85, from: 'Касса', category: 'Зарплата', counterparty: 'Сотрудник Б' }),
       fr({ paidAt: at('2026-10-03', '22:07:00'), amount: 85, from: 'Касса', category: 'Зарплата', counterparty: 'Сотрудник А' }),
@@ -208,9 +208,9 @@ describe('предпросмотр: дубликаты (§5.5)', () => {
       "INSERT INTO imports (company_id, user_id, file_name, file_size, file_sha256, status, counts, created, account_changes, created_at) VALUES (?, 1, 'f', 1, ?, ?, '{}', '{}', '[]', '2026-10-06T12:00:00.000Z')",
     );
     ins.run(w.cid, 'sha-old', 'undone');
-    expect(preview(rows, [], 'sha-old').preview.warnings).toEqual([]);
+    expect((await preview(rows, [], 'sha-old')).preview.warnings).toEqual([]);
     ins.run(w.cid, 'sha-old', 'done');
-    const { preview: p } = preview(rows, [], 'sha-old');
+    const { preview: p } = await preview(rows, [], 'sha-old');
     expect(p.counts).toMatchObject({ add: 0, duplicates: 1 });
     expect(p.canImport).toBe(false);
     expect(p.warnings).toEqual([
@@ -222,7 +222,7 @@ describe('предпросмотр: дубликаты (§5.5)', () => {
 describe('предпросмотр: «Будет создано», ошибки строк (§5.3)', () => {
   it('новые категории с родителем, контрагенты с типом, проекты, теги; ошибки строк блокируют импорт', async () => {
     w = await opsWorld();
-    const { preview: p } = preview([
+    const { preview: p } = await preview([
       fr({ paidAt: at('2026-10-05'), amount: 100, from: 'Касса', category: 'Зарплата', subcategory: 'Бармены', counterparty: 'Сотрудник В', project: 'Клуб 3', tags: 'Смена, Ночь' }),
       fr({ paidAt: at('2026-10-05'), amount: 100, to: 'Касса', category: 'Кухня', counterparty: 'Гость' }),
       fr({ paidAt: at('2026-10-05'), amount: 'сто', to: 'Касса' }),
@@ -263,7 +263,7 @@ describe('предпросмотр: правки по ревью', () => {
         { key: 'касса', kind: 'existing', accountId: w.kzt, targetBalance: 100_000 },
         { key: 'касса клуба', kind: 'existing', accountId: w.kzt, targetBalance: target2 },
       ]);
-    const one = both(null);
+    const one = await both(null);
     expect(one.preview.accounts.map((a) => [a.key, a.existing?.newOpenedAt, a.errors])).toEqual([
       ['касса', '2026-09-10', []],
       ['касса клуба', '2026-09-10', []],
@@ -274,9 +274,9 @@ describe('предпросмотр: правки по ревью', () => {
     ]);
     expect(one.plan.rows.every((r) => r.paidAt >= '2026-09-09T19:00:00.000Z')).toBe(true);
     expect(one.preview.canImport).toBe(true);
-    expect(both(100_000).preview.canImport).toBe(true);
+    expect((await both(100_000)).preview.canImport).toBe(true);
 
-    const conflict = both(200_000);
+    const conflict = await both(200_000);
     expect(conflict.preview.accounts.map((a) => a.errors.map((e) => e.code))).toEqual([['A4'], ['A4']]);
     expect(conflict.preview.accounts[0]!.errors[0]!.message).toBe('Этот счёт выбран для нескольких названий с разными «Остатками после импорта» — оставьте одно значение');
     expect(conflict.plan.accountChanges).toEqual([]);
@@ -289,7 +289,7 @@ describe('предпросмотр: правки по ревью', () => {
 
   it('новый счёт только с ошибкой названия (A3): его строки не считаются ни в «будет добавлено», ни в периоде, ни в движении', async () => {
     w = await opsWorld();
-    const { preview: p, plan } = preview(
+    const { preview: p, plan } = await preview(
       [fr({ paidAt: at('2026-10-02', '10:00:00'), amount: 100, to: 'Касса' }), fr({ paidAt: at('2026-09-01', '10:00:00'), amount: 70, to: 'Банк' })],
       [{ key: 'банк', kind: 'new', name: '   ', currency: 'KZT', balance: null }],
     );
@@ -306,7 +306,7 @@ describe('предпросмотр: правки по ревью', () => {
     const old = (await w.post(`/api/v1/companies/${w.cid}/accounts`, { name: 'Старая касса', currency: 'KZT', openedAt: '2024-01-01' })).account.id as number;
     await w.post(w.ops, { type: 'expense', paidAt: '2024-02-29T17:30:00Z', accountId: old, amount: 1000 }); // 23:30 по UTC+6
     await w.post(w.ops, { type: 'expense', paidAt: '2024-02-29T19:30:00Z', accountId: old, amount: 2000 }); // 00:30 01.03, уже UTC+5
-    const { preview: p, plan } = preview([
+    const { preview: p, plan } = await preview([
       fr({ paidAt: at('2024-02-29', '23:30:00'), amount: 10, from: 'Старая касса' }),
       fr({ paidAt: at('2024-03-01', '00:30:00'), amount: 20, from: 'Старая касса' }),
       fr({ paidAt: at('2024-02-29', '22:30:00'), amount: 10, from: 'Старая касса' }),
@@ -320,7 +320,7 @@ describe('предпросмотр: правки по ревью', () => {
 describe('предпросмотр: перенесено из ревью задачи 4 (решение 5, §4.2, §4.4, §4.9)', () => {
   it('сумма E: не безопасное целое — R07 (и после пересчёта по курсу), округлилась до нуля — R06 без W10, лишние знаки — W10', async () => {
     w = await opsWorld();
-    const { preview: p, plan } = preview([
+    const { preview: p, plan } = await preview([
       fr({ paidAt: at('2026-10-05', '09:00:00'), amount: '90071992547409,92', from: 'Касса' }),
       fr({ paidAt: at('2026-10-05', '10:00:00'), amount: '90071992547409,91', to: 'Касса' }), // ровно MAX_SAFE_INTEGER — можно
       fr({ paidAt: at('2026-10-05', '11:00:00'), amount: '0,001', from: 'Касса' }),
@@ -349,12 +349,12 @@ describe('предпросмотр: перенесено из ревью зад�
     // в тестовой базе только KZT и USD; KWD — три знака после запятой
     w.h.t.sqlite.prepare("INSERT INTO currencies (code, name, symbol, minor_units) VALUES ('KWD', 'Кувейтский динар', 'KD', 3)").run();
     const rows = [fr({ paidAt: at('2026-10-05', '10:00:00'), amount: '1,001', baseAmount: 1000, to: 'Динар' })];
-    const kwd = preview(rows, [{ key: 'динар', kind: 'new', name: 'Динар', currency: 'KWD', balance: null }]);
+    const kwd = await preview(rows, [{ key: 'динар', kind: 'new', name: 'Динар', currency: 'KWD', balance: null }]);
     expect(kwd.plan.rows.map((r) => [r.amount, r.baseAmount, r.rate])).toEqual([[1001, 100_000, '999.000999']]);
     expect(kwd.preview.warnings).toEqual([]);
     expect(kwd.preview.canImport).toBe(true);
 
-    const kzt = preview(rows);
+    const kzt = await preview(rows);
     expect(kzt.plan.rows.map((r) => [r.amount, r.baseAmount, r.rate])).toEqual([[100, 100, '1']]);
     expect(kzt.preview.warnings.map((g) => [g.code, g.rows])).toEqual([
       ['W10', [2]],
@@ -365,7 +365,7 @@ describe('предпросмотр: перенесено из ревью зад�
 
   it('название нового счёта — repairName первого появления: двойники в кириллическом слове исправлены, латинское слово не тронуто', async () => {
     w = await opsWorld();
-    const { preview: p, plan } = preview([
+    const { preview: p, plan } = await preview([
       fr({ paidAt: at('2026-10-05', '10:00:00'), amount: 10, to: '\u0411\u0061\u043D\u043A Kaspi' }), // «Б\u0061нк»: латинская a
       fr({ paidAt: at('2026-10-05', '11:00:00'), amount: 5, from: 'БАНК KASPI' }),
     ]);
@@ -384,7 +384,7 @@ describe('предпросмотр: перенесено из ревью зад�
 describe('предпросмотр: правки по ревью задачи 6', () => {
   it('название счёта в файле длиннее 120 символов — ошибка строки R13, карточки нет: ответ мал и при 32 000 символах (R4)', async () => {
     w = await opsWorld();
-    const { preview: p, plan } = preview([
+    const { preview: p, plan } = await preview([
       fr({ paidAt: at('2026-10-05', '10:00:00'), amount: 10, to: 'я'.repeat(32_000) }),
       // перевод с длинным «На счет»: строка с ошибкой — и «Касса» без карточки
       fr({ paidAt: at('2026-10-05', '10:00:00'), amount: 10, from: 'Касса', to: 'я'.repeat(ACCOUNT_NAME_MAX + 1) }),
@@ -402,7 +402,7 @@ describe('предпросмотр: правки по ревью задачи 6'
     const rows = [fr({ paidAt: at('2026-10-05', '10:00:00'), amount: 10, to: 'Банк' }), fr({ paidAt: at('2026-10-05', '11:00:00'), amount: 10, to: 'Сейф' })];
     const long = `Счёт ${'я'.repeat(200)}`;
     const emoji = `${'я'.repeat(ACCOUNT_NAME_MAX - 1)}${String.fromCodePoint(0x1f600)}хвост`; // суррогатная пара на границе
-    const { preview: p } = preview(rows, [
+    const { preview: p } = await preview(rows, [
       { key: 'банк', kind: 'new', name: long, currency: 'KZT', balance: null },
       { key: 'сейф', kind: 'new', name: emoji, currency: 'KZT', balance: null },
     ]);
@@ -412,7 +412,7 @@ describe('предпросмотр: правки по ревью задачи 6'
     expect((p.accounts[1]!.mapping as { name: string }).name.length).toBe(ACCOUNT_NAME_MAX + 2);
     expect(p.counts.add).toBe(0);
 
-    const again = preview(rows, p.accounts.map((a) => a.mapping!));
+    const again = await preview(rows, p.accounts.map((a) => a.mapping!));
     expect(again.preview.accounts.map((a) => a.errors.map((e) => e.code))).toEqual([['A3'], ['A3']]);
     expect(again.preview.canImport).toBe(false);
   });
@@ -422,7 +422,7 @@ describe('предпросмотр: правки по ревью задачи 6'
     w.h.t.sqlite.prepare("INSERT INTO currencies (code, name, symbol, minor_units) VALUES ('UZS', 'Узбекский сум', 'сўм', 2)").run();
     await w.post('/api/v1/rates/manual', { date: '2026-10-01', currency: 'UZS', rate: '0.04' });
     const sum = { key: 'сумовой', kind: 'new', name: 'Сумовой', currency: 'UZS', balance: null } as const;
-    const { preview: p, plan } = preview(
+    const { preview: p, plan } = await preview(
       [
         fr({ paidAt: at('2026-10-05', '10:00:00'), amount: '0,01', from: 'Касса', to: 'Валютный' }),
         fr({ paidAt: at('2026-10-05', '11:00:00'), amount: '0,01', from: 'Сумовой', to: 'Касса' }),
@@ -441,7 +441,7 @@ describe('предпросмотр: правки по ревью задачи 6'
     w = await opsWorld();
     await w.post(w.ops, { type: 'income', paidAt: '2026-10-05T05:00:00Z', accountId: w.kzt, amount: 20000 }); // остаток «Кассы» 200 ₸
     const MAX = '90071992547409,91'; // Number.MAX_SAFE_INTEGER тиын
-    const { preview: p, plan } = preview(
+    const { preview: p, plan } = await preview(
       [
         // «Касса»: движение = MAX, но с имеющимися 200 ₸ остаток больше MAX
         fr({ paidAt: at('2026-10-05', '10:00:00'), amount: MAX, to: 'Касса' }),
@@ -482,7 +482,7 @@ describe('предпросмотр: финальные правки (I3, M2, M6)
     await w.post(w.ops, { type: 'income', paidAt: '2026-10-05T05:00:00Z', accountId: w.kzt, amount: 10000 }); // 10:00 по Алматы
     const dup = fr({ paidAt: at('2026-10-05', '10:00:00'), amount: 100, to: 'Касса', project: 'Старый проект', tags: 'Старый тег' });
     const fresh = fr({ paidAt: at('2026-10-05', '11:00:00'), amount: 50, to: 'Касса' });
-    const a = preview([dup, fresh]);
+    const a = await preview([dup, fresh]);
     expect(a.preview.counts).toMatchObject({ add: 1, duplicates: 1 });
     expect(a.preview.create.tags).toEqual({ total: 0, items: [] });
     expect(a.preview.create.projects).toEqual({ total: 0, items: [] });
@@ -492,7 +492,7 @@ describe('предпросмотр: финальные правки (I3, M2, M6)
 
     // тот же тег у добавляемой строки — создаётся: одна строка и её написание (дубликат не считается);
     // строка с R16 не создаёт ни категории, ни контрагента, ни проекта, ни тега
-    const b = preview([
+    const b = await preview([
       dup,
       fresh,
       fr({ paidAt: at('2026-10-05', '12:00:00'), amount: 30, to: 'Касса', tags: 'старый ТЕГ' }),
@@ -538,7 +538,7 @@ describe('предпросмотр: финальные правки (I3, M2, M6)
       tags: ['Архив 1', 'Архив 2', 'Архив 3'],
       comment: null,
     }));
-    const { preview: p } = buildPreview(deps(), { token: 'тест', companyId: w.cid, file: FILE, parsed: { headerRow: 1, total: rows.length, rows, future: [], issues: [] } }, []);
+    const { preview: p } = await buildPreview(deps(), { token: 'тест', companyId: w.cid, file: FILE, parsed: { headerRow: 1, total: rows.length, rows, future: [], issues: [] } }, []);
     expect(p.errors.total).toBe(150_000);
     expect(p.errors.byCode.map((g) => [g.code, g.message, g.count])).toEqual([
       ['R17', 'Тег «Архив 1» в архиве — верните из архива', 50_000],
@@ -563,7 +563,7 @@ describe('предпросмотр: финальные правки (I3, M2, M6)
       ),
       { ...CTX, baseCurrency: 'USD' },
     );
-    const { preview: p } = buildPreview(deps(), { token: 'тест', companyId: cid, file: FILE, parsed }, [{ key: 'касса', kind: 'new', name: 'Касса', currency: 'KZT', balance: null }]);
+    const { preview: p } = await buildPreview(deps(), { token: 'тест', companyId: cid, file: FILE, parsed }, [{ key: 'касса', kind: 'new', name: 'Касса', currency: 'KZT', balance: null }]);
     expect(p.errors.byCode).toEqual([
       { code: 'R16', message: 'Нет курса USD на 01.09.2026 — заполните «Сумму в валюте компании» или добавьте курс на дату', count: 2, rows: [2, 4] },
     ]);

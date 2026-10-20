@@ -22,10 +22,10 @@ export function chunks<T>(items: readonly T[], size = IN_CHUNK): T[][] {
 }
 
 /** Операции импортов, которые удалит отмена: всего и изменённых после импорта; импорта без операций в ответе нет. */
-export function pendingCounts(ex: Executor, importIds: readonly number[]): Map<number, ImportPending> {
+export async function pendingCounts(ex: Executor, importIds: readonly number[]): Promise<Map<number, ImportPending>> {
   const out = new Map<number, ImportPending>();
   for (const part of chunks(importIds)) {
-    const rows = ex
+    const rows = await ex
       .select({
         importId: operations.importId,
         operations: sql<number>`count(*)`,
@@ -33,9 +33,8 @@ export function pendingCounts(ex: Executor, importIds: readonly number[]): Map<n
       })
       .from(operations)
       .where(inArray(operations.importId, part))
-      .groupBy(operations.importId)
-      .all();
-    for (const r of rows) if (r.importId !== null) out.set(r.importId, { operations: r.operations, edited: r.edited });
+      .groupBy(operations.importId);
+    for (const r of rows) if (r.importId !== null) out.set(r.importId, { operations: Number(r.operations), edited: Number(r.edited) });
   }
   return out;
 }
@@ -58,18 +57,17 @@ function toItem(row: ImportRow, userName: string | null, undoneByName: string | 
 }
 
 /** Записи импортов компании с именами пользователей и pending у неотменённых; новые сверху. */
-function select(ex: Executor, conds: SQL[], limit: number): ImportListItem[] {
+async function select(ex: Executor, conds: SQL[], limit: number): Promise<ImportListItem[]> {
   const undoneBy = alias(users, 'undone_by_user');
-  const rows = ex
+  const rows = await ex
     .select({ i: imports, userName: users.name, undoneByName: undoneBy.name })
     .from(imports)
     .leftJoin(users, eq(users.id, imports.userId))
     .leftJoin(undoneBy, eq(undoneBy.id, imports.undoneBy))
     .where(and(...conds))
     .orderBy(desc(imports.id))
-    .limit(limit)
-    .all();
-  const pending = pendingCounts(
+    .limit(limit);
+  const pending = await pendingCounts(
     ex,
     rows.filter((r) => r.i.status === 'done').map((r) => r.i.id),
   );
@@ -80,15 +78,15 @@ function select(ex: Executor, conds: SQL[], limit: number): ImportListItem[] {
  * Список «Импорты» (§7.2): страница по beforeId; nextBeforeId — id последней записи страницы, если за ней есть ещё
  * (читается limit + 1 запись: полная последняя страница не даёт лишнего пустого запроса).
  */
-export function listImports(ex: Executor, companyId: number, q: ImportListQuery): ImportListPage {
+export async function listImports(ex: Executor, companyId: number, q: ImportListQuery): Promise<ImportListPage> {
   const conds: SQL[] = [eq(imports.companyId, companyId)];
   if (q.beforeId !== undefined) conds.push(lt(imports.id, q.beforeId));
-  const rows = select(ex, conds, q.limit + 1);
+  const rows = await select(ex, conds, q.limit + 1);
   const items = rows.slice(0, q.limit);
   return { items, nextBeforeId: rows.length > q.limit ? items.at(-1)!.id : null };
 }
 
 /** Одна запись импорта компании; null — нет такой. */
-export function importItem(ex: Executor, companyId: number, id: number): ImportListItem | null {
-  return select(ex, [eq(imports.companyId, companyId), eq(imports.id, id)], 1)[0] ?? null;
+export async function importItem(ex: Executor, companyId: number, id: number): Promise<ImportListItem | null> {
+  return (await select(ex, [eq(imports.companyId, companyId), eq(imports.id, id)], 1))[0] ?? null;
 }

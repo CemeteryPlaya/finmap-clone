@@ -8,6 +8,7 @@ import { ACCOUNT_NAME_MAX } from '../../../shared/schemas/accounts';
 import type { AccountMapping, ImportCreateItem, ImportPreview, ImportPreviewAccount } from '../../../shared/schemas/imports';
 import { cleanName } from '../../../shared/text';
 import type { Db } from '../../db/client';
+import { first, rows as sqlRows } from '../../db/raw';
 import { accounts, currencies, imports, users } from '../../db/schema';
 import { AppError } from '../../errors';
 import { createLedgerBalances } from '../balances/service';
@@ -151,21 +152,21 @@ export function previewRevision(content: Omit<ImportPreview, 'token' | 'revision
   return crypto.createHash('sha256').update(JSON.stringify(content)).digest('hex').slice(0, 16);
 }
 
-export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: AccountMapping[]): { preview: ImportPreview; plan: ImportPlan } {
+export async function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: AccountMapping[]): Promise<{ preview: ImportPreview; plan: ImportPlan }> {
   const { db, timezone } = deps;
   const companyId = src.companyId;
-  const company = requireCompany(db, companyId);
+  const company = await requireCompany(db, companyId);
   const base = company.baseCurrency;
   const baseUnits = getCurrency(base).minorUnits;
   const today = todayInTimezone(timezone, deps.now());
   const issues: RowIssue[] = [...src.parsed.issues];
 
   // ——— счета из файла (§5.4)
-  const companyAccounts = db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.orderIndex), asc(accounts.id)).all();
+  const companyAccounts = await db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(asc(accounts.orderIndex), asc(accounts.id));
   const accountsByKey = new Map<string, AccountRow[]>();
   for (const a of companyAccounts) accountsByKey.set(nameKey(a.name), [...(accountsByKey.get(nameKey(a.name)) ?? []), a]);
-  const known = new Set(db.select({ code: currencies.code }).from(currencies).all().map((c) => c.code));
-  const balances = new Map(createLedgerBalances(db).companyBalances(companyId).map((b) => [b.accountId, b.balance]));
+  const known = new Set((await db.select({ code: currencies.code }).from(currencies)).map((c) => c.code));
+  const balances = new Map((await createLedgerBalances(db).companyBalances(companyId)).map((b) => [b.accountId, b.balance]));
   const requestedByKey = new Map(requested.map((m) => [m.key, m]));
   const states = new Map<string, AccountState>();
 
@@ -208,7 +209,7 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
   }
 
   // ——— справочники (§4.5–§4.8)
-  const dictionaries = loadDictionaries(db, companyId);
+  const dictionaries = await loadDictionaries(db, companyId);
   const matched = matchDictionaries(dictionaries, src.parsed.rows);
   // циклом, а не push(...): R17 бывает на каждый тег каждой строки, а сотни тысяч аргументов переполняют стек
   for (const i of matched.issues) issues.push(i);
@@ -325,7 +326,7 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
       ids.map((x) => sql`${x}`),
       sql`, `,
     );
-    const recs = db.all<{
+    const recs = await sqlRows<{
       id: number;
       type: string;
       accountId: number;
@@ -335,13 +336,16 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
       counterpartyId: number | null;
       lineAmount: number | null;
       categoryId: number | null;
-    }>(sql`
+    }>(
+      db,
+      sql`
       SELECT o.id AS id, o.type AS type, o.account_id AS accountId, o.to_account_id AS toAccountId, o.paid_at AS paidAt,
              o.amount AS amount, o.counterparty_id AS counterpartyId, l.amount AS lineAmount, l.category_id AS categoryId
         FROM operations o LEFT JOIN operation_lines l ON l.operation_id = o.id
        WHERE o.company_id = ${companyId} AND o.deleted_at IS NULL AND o.status = 'actual'
          AND (o.account_id IN (${list}) OR o.to_account_id IN (${list}))
-         AND o.paid_at >= ${from} AND o.paid_at < ${until}`);
+         AND o.paid_at >= ${from} AND o.paid_at < ${until}`,
+    );
     const seenTransfers = new Set<number>();
     for (const r of recs) {
       let k: string;
@@ -500,13 +504,14 @@ export function buildPreview(deps: PreviewDeps, src: PreviewSource, requested: A
   const created = matchDictionaries(dictionaries, counted.map((x) => x.src));
 
   // ——— W8: этот файл уже импортирован и не отменён
-  const prior = db
-    .select({ createdAt: imports.createdAt, userName: users.name })
-    .from(imports)
-    .innerJoin(users, eq(users.id, imports.userId))
-    .where(and(eq(imports.companyId, companyId), eq(imports.fileSha256, src.file.sha256), eq(imports.status, 'done')))
-    .orderBy(desc(imports.id))
-    .get();
+  const prior = await first(
+    db
+      .select({ createdAt: imports.createdAt, userName: users.name })
+      .from(imports)
+      .innerJoin(users, eq(users.id, imports.userId))
+      .where(and(eq(imports.companyId, companyId), eq(imports.fileSha256, src.file.sha256), eq(imports.status, 'done')))
+      .orderBy(desc(imports.id)),
+  );
   if (prior) issues.push({ code: 'W8', message: M.W8(formatDateTime(prior.createdAt, timezone), prior.userName), row: 0 });
 
   const rowErrors = issues.filter(isRowError);

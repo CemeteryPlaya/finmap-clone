@@ -19,9 +19,10 @@ import { foldCase } from '../../../shared/search';
 import { isWholeUnit, QTY_MAX, WHOLE_UNIT_ERROR, type StockUnit } from '../../../shared/stock-qty';
 import { cleanName } from '../../../shared/text';
 import type { Db, Executor } from '../../db/client';
+import { exec, first, one } from '../../db/raw';
 import { companies, counterparties, stockDocLines, stockDocs, stockItemGroups, stockItemPrices, stockItems, stockWarehouses } from '../../db/schema';
 import { AppError } from '../../errors';
-import { mutate } from '../audit/mutate';
+import { mutateAsync } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import type { CsvHeaders } from '../imports/csv';
@@ -35,7 +36,7 @@ import { buildGroup, clearGroup, groupsOf, type Pair } from './recalc';
 const LIST_MAX = 100;
 
 export interface StockImportService {
-  run(companyId: number, userId: number, kind: StockImportKind, file: { name: string; data: Buffer }, opts: { warehouseId?: number; commit: boolean }): StockImportResult;
+  run(companyId: number, userId: number, kind: StockImportKind, file: { name: string; data: Buffer }, opts: { warehouseId?: number; commit: boolean }): Promise<StockImportResult>;
 }
 
 // ——— заголовки
@@ -124,8 +125,8 @@ export function createStockImportService(d: { db: Db; audit: AuditService; timez
   const now = d.now ?? (() => new Date());
   const today = () => todayInTimezone(d.timezone, now());
 
-  function minorUnitsOf(companyId: number): number {
-    const c = db.select({ currency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)).get();
+  async function minorUnitsOf(companyId: number): Promise<number> {
+    const c = await first(db.select({ currency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)));
     return CURRENCIES.find((x) => x.code === c?.currency)?.minorUnits ?? 2;
   }
 
@@ -202,10 +203,10 @@ export function createStockImportService(d: { db: Db; audit: AuditService; timez
     if (r.errors.length < LIST_MAX) r.errors.push(issue);
   };
 
-  function catalog(companyId: number, data: Parsed<ItemField>[], minor: number) {
+  async function catalog(companyId: number, data: Parsed<ItemField>[], minor: number) {
     const result = emptyResult(data.length);
-    const items = new Map(db.select().from(stockItems).where(eq(stockItems.companyId, companyId)).all().map((i) => [i.nameKey, i]));
-    const groups = new Map(db.select().from(stockItemGroups).where(eq(stockItemGroups.companyId, companyId)).all().map((g) => [g.nameKey, g]));
+    const items = new Map((await db.select().from(stockItems).where(eq(stockItems.companyId, companyId))).map((i) => [i.nameKey, i]));
+    const groups = new Map((await db.select().from(stockItemGroups).where(eq(stockItemGroups.companyId, companyId))).map((g) => [g.nameKey, g]));
     const seen = new Map<string, number>();
     const newGroups = new Map<string, string>();
     const plan: { name: string; groupKey: string | null; unit: StockUnit; barcode: string | null; price: number }[] = [];
@@ -218,8 +219,8 @@ export function createStockImportService(d: { db: Db; audit: AuditService; timez
           return v;
         });
         const key = stockNameKey(name);
-        const first = seen.get(key);
-        if (first !== undefined) throw Object.assign(new RowError(ITEM_COLUMNS.name), { message: `Товар «${name}» уже есть в файле (строка ${first})` });
+        const earlier = seen.get(key);
+        if (earlier !== undefined) throw Object.assign(new RowError(ITEM_COLUMNS.name), { message: `Товар «${name}» уже есть в файле (строка ${earlier})` });
         seen.set(key, r.row);
         const groupName = field(ITEM_COLUMNS.group, () => {
           const v = cleanName(r.text('group'));
@@ -260,16 +261,16 @@ export function createStockImportService(d: { db: Db; audit: AuditService; timez
     result.create = { items: plan.length, groups: newGroups.size, suppliers: 0 };
     return {
       result,
-      write(tx: Executor, userId: number) {
+      async write(tx: Executor, userId: number) {
         const t = now().toISOString();
         const groupIds = new Map([...groups].map(([k, g]) => [k, g.id]));
-        let order = tx.get<{ m: number }>(sql`SELECT COALESCE(MAX(order_index), -1) AS m FROM stock_item_groups WHERE company_id = ${companyId}`)!.m;
+        let order = Number((await one<{ m: number }>(tx, sql`SELECT COALESCE(MAX(order_index), -1) AS m FROM stock_item_groups WHERE company_id = ${companyId}`))!.m);
         for (const [key, name] of newGroups) {
-          const row = tx.insert(stockItemGroups).values({ companyId, name, nameKey: key, orderIndex: ++order, createdAt: t }).returning({ id: stockItemGroups.id }).get();
-          groupIds.set(key, row.id);
+          const [row] = await tx.insert(stockItemGroups).values({ companyId, name, nameKey: key, orderIndex: ++order, createdAt: t }).returning({ id: stockItemGroups.id });
+          groupIds.set(key, row!.id);
         }
         for (const p of plan) {
-          const row = tx
+          const [row] = await tx
             .insert(stockItems)
             .values({
               companyId,
@@ -281,20 +282,19 @@ export function createStockImportService(d: { db: Db; audit: AuditService; timez
               salePrice: p.price,
               createdAt: t,
             })
-            .returning({ id: stockItems.id })
-            .get();
-          if (p.price > 0) tx.insert(stockItemPrices).values({ itemId: row.id, price: p.price, validFrom: today(), createdBy: userId, createdAt: t }).run();
+            .returning({ id: stockItems.id });
+          if (p.price > 0) await tx.insert(stockItemPrices).values({ itemId: row!.id, price: p.price, validFrom: today(), createdBy: userId, createdAt: t });
         }
       },
     };
   }
 
-  function receipts(companyId: number, warehouseId: number, data: Parsed<ReceiptField>[], date1904: boolean, minor: number, hash: string) {
+  async function receipts(companyId: number, warehouseId: number, data: Parsed<ReceiptField>[], date1904: boolean, minor: number, hash: string) {
     const result = emptyResult(data.length);
-    const items = new Map(db.select().from(stockItems).where(eq(stockItems.companyId, companyId)).all().map((i) => [i.nameKey, i]));
+    const items = new Map((await db.select().from(stockItems).where(eq(stockItems.companyId, companyId))).map((i) => [i.nameKey, i]));
     // поставщик — по названию среди контрагентов любого типа: первый неархивный, иначе архивный (R10)
     const suppliers = new Map<string, { id: number; name: string; archived: boolean }>();
-    for (const c of db.select().from(counterparties).where(eq(counterparties.companyId, companyId)).orderBy(counterparties.id).all()) {
+    for (const c of await db.select().from(counterparties).where(eq(counterparties.companyId, companyId)).orderBy(counterparties.id)) {
       const key = stockNameKey(c.name);
       const known = suppliers.get(key);
       if (!known || (known.archived && !c.archivedAt)) suppliers.set(key, { id: c.id, name: c.name, archived: c.archivedAt !== null });
@@ -306,8 +306,13 @@ export function createStockImportService(d: { db: Db; audit: AuditService; timez
     const docs: { at: string; supplierKey: string | null; firstRow: number; lines: Line[] }[] = [];
     const open = new Map<string, (typeof docs)[number]>();
 
-    const loaded = db.get<{ n: number }>(sql`
-      SELECT COUNT(*) AS n FROM stock_docs WHERE company_id = ${companyId} AND source = 'import' AND deleted_at IS NULL AND source_ref LIKE ${`${hash}:%`}`)!.n;
+    const loaded = Number(
+      (await one<{ n: number }>(
+        db,
+        sql`
+      SELECT COUNT(*) AS n FROM stock_docs WHERE company_id = ${companyId} AND source = 'import' AND deleted_at IS NULL AND source_ref LIKE ${`${hash}:%`}`,
+      ))!.n,
+    );
     if (loaded > 0) addError(result, { row: 0, field: 'Файл', message: 'Этот файл уже загружен' });
 
     for (const r of data) {
@@ -382,29 +387,37 @@ export function createStockImportService(d: { db: Db; audit: AuditService; timez
     result.create = { items: newItems.size, groups: 0, suppliers: newSuppliers.size };
     return {
       result,
-      write(tx: Executor, userId: number) {
+      async write(tx: Executor, userId: number) {
         const t = now().toISOString();
         const itemIds = new Map([...items].map(([k, i]) => [k, i.id]));
         for (const [key, name] of newItems) {
-          const row = tx.insert(stockItems).values({ companyId, name, nameKey: key, unit: 'pcs', createdAt: t }).returning({ id: stockItems.id }).get();
-          itemIds.set(key, row.id);
+          const [row] = await tx.insert(stockItems).values({ companyId, name, nameKey: key, unit: 'pcs', createdAt: t }).returning({ id: stockItems.id });
+          itemIds.set(key, row!.id);
         }
         const supplierIds = new Map([...suppliers].map(([k, s]) => [k, s.id]));
-        let order = tx.get<{ m: number }>(sql`SELECT COALESCE(MAX(order_index), -1) AS m FROM counterparties WHERE company_id = ${companyId}`)!.m;
+        let order = Number((await one<{ m: number }>(tx, sql`SELECT COALESCE(MAX(order_index), -1) AS m FROM counterparties WHERE company_id = ${companyId}`))!.m);
         for (const [key, name] of newSuppliers) {
-          const row = tx.insert(counterparties).values({ companyId, type: 'supplier', name, orderIndex: ++order, createdAt: t }).returning({ id: counterparties.id }).get();
-          supplierIds.set(key, row.id);
+          const [row] = await tx.insert(counterparties).values({ companyId, type: 'supplier', name, orderIndex: ++order, createdAt: t }).returning({ id: counterparties.id });
+          supplierIds.set(key, row!.id);
         }
         // удалённые документы прежней загрузки этого файла не мешают уникальности источника (R10)
-        tx.run(sql`
+        await exec(
+          tx,
+          sql`
           UPDATE stock_docs SET source_ref = source_ref || ':deleted:' || id
            WHERE company_id = ${companyId} AND source = 'import' AND deleted_at IS NOT NULL AND source_ref LIKE ${`${hash}:%`}
-             AND source_ref NOT LIKE '%:deleted:%'`);
-        let number = tx.get<{ m: number }>(sql`
-          SELECT COALESCE(MAX(CAST(SUBSTR(number, 3) AS INTEGER)), 0) AS m FROM stock_docs WHERE company_id = ${companyId} AND type = 'receipt'`)!.m;
+             AND source_ref NOT LIKE '%:deleted:%'`,
+        );
+        let number = Number(
+          (await one<{ m: number }>(
+            tx,
+            sql`
+          SELECT COALESCE(MAX(CAST(SUBSTR(number, 3) AS INTEGER)), 0) AS m FROM stock_docs WHERE company_id = ${companyId} AND type = 'receipt'`,
+          ))!.m,
+        );
         const pairs: Pair[] = [];
         for (const doc of docs) {
-          const row = tx
+          const [row] = await tx
             .insert(stockDocs)
             .values({
               companyId,
@@ -421,40 +434,39 @@ export function createStockImportService(d: { db: Db; audit: AuditService; timez
               updatedAt: t,
               version: 1,
             })
-            .returning({ id: stockDocs.id })
-            .get();
-          doc.lines.forEach((l, i) => {
+            .returning({ id: stockDocs.id });
+          for (const [i, l] of doc.lines.entries()) {
             const itemId = itemIds.get(l.itemKey)!;
-            tx.insert(stockDocLines).values({ docId: row.id, position: i, itemId, qty: l.qty, amount: l.amount }).run();
+            await tx.insert(stockDocLines).values({ docId: row!.id, position: i, itemId, qty: l.qty, amount: l.amount });
             pairs.push({ warehouseId, itemId });
-          });
+          }
         }
         // один пересчёт всех затронутых групп: поступления только добавляют партии
-        for (const g of groupsOf(tx, companyId, pairs)) {
-          clearGroup(tx, g);
-          buildGroup(tx, companyId, g);
+        for (const g of await groupsOf(tx, companyId, pairs)) {
+          await clearGroup(tx, g);
+          await buildGroup(tx, companyId, g);
         }
       },
     };
   }
 
   return {
-    run(companyId, userId, kind, file, opts) {
-      requireCompany(db, companyId, opts.commit ? { writable: true } : undefined);
+    async run(companyId, userId, kind, file, opts) {
+      await requireCompany(db, companyId, opts.commit ? { writable: true } : undefined);
       let warehouseId = 0;
       if (kind === 'receipts') {
         if (opts.warehouseId === undefined) throw new AppError(400, 'VALIDATION', 'Проверьте заполнение полей', { warehouse: 'Выберите склад' });
-        const wh = db.select().from(stockWarehouses).where(and(eq(stockWarehouses.id, opts.warehouseId), eq(stockWarehouses.companyId, companyId))).get();
+        const wh = await first(db.select().from(stockWarehouses).where(and(eq(stockWarehouses.id, opts.warehouseId), eq(stockWarehouses.companyId, companyId))));
         if (!wh) throw new AppError(422, 'INVARIANT_5', 'Склад не найден в этой компании', { warehouse: 'Склад не найден в этой компании' });
         if (wh.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', `Склад «${wh.name}» в архиве — выберите другой`);
         warehouseId = wh.id;
       }
-      const minor = minorUnitsOf(companyId);
+      const minor = await minorUnitsOf(companyId);
       const sheet = readImportFile(file.data, file.name, kind === 'items' ? ITEMS.csv : RECEIPTS.csv);
       const plan =
         kind === 'items'
-          ? catalog(companyId, sheetRows(sheet.rows, ITEMS), minor)
-          : receipts(
+          ? await catalog(companyId, sheetRows(sheet.rows, ITEMS), minor)
+          : await receipts(
               companyId,
               warehouseId,
               sheetRows(sheet.rows, RECEIPTS),
@@ -466,13 +478,13 @@ export function createStockImportService(d: { db: Db; audit: AuditService; timez
       if (plan.result.errorsTotal > 0) {
         throw new AppError(422, 'IMPORT_INVALID', 'В файле есть ошибки — исправьте их и загрузите снова', undefined, { ...plan.result });
       }
-      mutate(
+      await mutateAsync(
         db,
         audit,
-        (tx, record) => {
-          plan.write(tx, userId);
+        async (tx, record) => {
+          await plan.write(tx, userId);
           const r = plan.result;
-          record({
+          await record({
             companyId,
             userId,
             entity: 'stock_import',

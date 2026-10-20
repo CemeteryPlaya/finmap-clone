@@ -1,5 +1,7 @@
 import { asc, count, eq } from 'drizzle-orm';
 import type { Db } from '../../src/server/db/client';
+import { first } from '../../src/server/db/raw';
+import { withTx } from '../../src/server/db/tx';
 import { categories as categoriesTable, companies as companiesTable, exchangeRates, users } from '../../src/server/db/schema';
 import { createAccountsService, type AccountRow } from '../../src/server/modules/accounts/service';
 import { createAuditService } from '../../src/server/modules/audit/service';
@@ -50,19 +52,19 @@ interface Ctx {
  * Демо-набор §10 через настоящие сервисы (те же инварианты и история): 3 компании, 5 проектов, 8 счетов,
  * не меньше 60 категорий, 150 контрагентов, `operations` операций за 2 года. Только в пустую базу.
  */
-export function seedDemo(d: { db: Db; timezone: string; now: Date; operations?: number }): DemoResult {
+export async function seedDemo(d: { db: Db; timezone: string; now: Date; operations?: number }): Promise<DemoResult> {
   const { db } = d;
-  const user = db.select({ id: users.id }).from(users).orderBy(asc(users.id)).limit(1).get();
+  const user = await first(db.select({ id: users.id }).from(users).orderBy(asc(users.id)).limit(1));
   if (!user) throw new Error('Сначала создайте пользователя: npm run user:add');
-  if ((db.select({ n: count() }).from(companiesTable).get()?.n ?? 0) > 0) {
+  if (Number((await first(db.select({ n: count() }).from(companiesTable)))?.n ?? 0) > 0) {
     throw new Error('Демо-набор заливается только в пустую базу: в ней уже есть компании');
   }
   // всё или ничего: сбой посередине не оставляет полубазу, которую повторный запуск уже не примет.
-  // Транзакции сервисов внутри становятся точками сохранения (better-sqlite3).
-  return db.transaction(() => fill(d, user.id));
+  // Транзакции сервисов внутри становятся точками сохранения.
+  return withTx(db, () => fill(d, user.id));
 }
 
-function fill(d: { db: Db; timezone: string; now: Date; operations?: number }, uid: number): DemoResult {
+async function fill(d: { db: Db; timezone: string; now: Date; operations?: number }, uid: number): Promise<DemoResult> {
   const { db, timezone: tz } = d;
   const total = d.operations ?? 10_000;
   const now = () => d.now;
@@ -85,47 +87,45 @@ function fill(d: { db: Db; timezone: string; now: Date; operations?: number }, u
 
   // курсы USD к тенге на каждый день истории (и неделю до неё): «волна» около 475. Источник nbrk — так выглядят
   // курсы из фикстур (§4.3): без записей в истории и не в списке ручных курсов
-  db.transaction((tx) => {
+  await withTx(db, async (tx) => {
     for (let i = -7; i <= 730; i++) {
-      tx.insert(exchangeRates)
-        .values({
-          date: addDays(start, i),
-          currency: 'USD',
-          rateToKzt: (475 + 15 * Math.sin(i / 45)).toFixed(2),
-          source: 'nbrk',
-          createdBy: null, // createdBy — только у ручных курсов
-          fetchedAt: d.now.toISOString(),
-        })
-        .run();
+      await tx.insert(exchangeRates).values({
+        date: addDays(start, i),
+        currency: 'USD',
+        rateToKzt: (475 + 15 * Math.sin(i / 45)).toFixed(2),
+        source: 'nbrk',
+        createdBy: null, // createdBy — только у ручных курсов
+        fetchedAt: d.now.toISOString(),
+      });
     }
   });
 
   // компании и проекты
-  const c1 = companies.create({ name: 'ТОО «Демо Клубы»', baseCurrency: 'KZT' }, uid);
-  const c2 = companies.create({ name: 'ИП «Демо Бар»', baseCurrency: 'KZT' }, uid);
-  const c3 = companies.create({ name: 'Demo Ltd', baseCurrency: 'USD' }, uid);
-  projects.create(c1.id, { name: 'Клуб на Абая', templateKey: 'computer-club', templateParams: { pcCount: 40 } }, uid);
-  projects.create(c1.id, { name: 'Клуб на Сатпаева', templateKey: 'computer-club', templateParams: { pcCount: 25, consoleCount: 4 } }, uid);
-  projects.create(c1.id, { name: 'Склад', templateKey: 'general', templateParams: {} }, uid);
-  const bar = projects.create(c2.id, { name: 'Бар', templateKey: 'general', templateParams: {} }, uid).project;
-  projects.create(c3.id, { name: 'Офис', templateKey: 'general', templateParams: {} }, uid);
+  const c1 = await companies.create({ name: 'ТОО «Демо Клубы»', baseCurrency: 'KZT' }, uid);
+  const c2 = await companies.create({ name: 'ИП «Демо Бар»', baseCurrency: 'KZT' }, uid);
+  const c3 = await companies.create({ name: 'Demo Ltd', baseCurrency: 'USD' }, uid);
+  await projects.create(c1.id, { name: 'Клуб на Абая', templateKey: 'computer-club', templateParams: { pcCount: 40 } }, uid);
+  await projects.create(c1.id, { name: 'Клуб на Сатпаева', templateKey: 'computer-club', templateParams: { pcCount: 25, consoleCount: 4 } }, uid);
+  await projects.create(c1.id, { name: 'Склад', templateKey: 'general', templateParams: {} }, uid);
+  const bar = (await projects.create(c2.id, { name: 'Бар', templateKey: 'general', templateParams: {} }, uid)).project;
+  await projects.create(c3.id, { name: 'Офис', templateKey: 'general', templateParams: {} }, uid);
 
   // счета: шаблонные открыты «сегодня» — переносим открытие на начало истории; всего 8
-  for (const a of accounts.list(c1.id)) accounts.update(c1.id, a.id, { openedAt: start, startingBalance: 1_000_000_00 }, uid);
-  accounts.add(c1.id, { name: 'Валютный USD', currency: 'USD', openedAt: start, startingBalance: 5_000_00 }, uid);
-  accounts.add(c2.id, { name: 'Касса бара', currency: 'KZT', openedAt: start, projectId: bar.id, startingBalance: 200_000_00 }, uid);
-  accounts.add(c2.id, { name: 'Kaspi бара', currency: 'KZT', openedAt: start, projectId: bar.id, startingBalance: 500_000_00 }, uid);
-  accounts.add(c3.id, { name: 'Счёт USD', currency: 'USD', openedAt: start, startingBalance: 10_000_00 }, uid);
+  for (const a of await accounts.list(c1.id)) await accounts.update(c1.id, a.id, { openedAt: start, startingBalance: 1_000_000_00 }, uid);
+  await accounts.add(c1.id, { name: 'Валютный USD', currency: 'USD', openedAt: start, startingBalance: 5_000_00 }, uid);
+  await accounts.add(c2.id, { name: 'Касса бара', currency: 'KZT', openedAt: start, projectId: bar.id, startingBalance: 200_000_00 }, uid);
+  await accounts.add(c2.id, { name: 'Kaspi бара', currency: 'KZT', openedAt: start, projectId: bar.id, startingBalance: 500_000_00 }, uid);
+  await accounts.add(c3.id, { name: 'Счёт USD', currency: 'USD', openedAt: start, startingBalance: 10_000_00 }, uid);
 
   // категории: шаблон клуба уже дал свои; добавляем категории бару и офису, затем добираем до 60
-  categories.add(c2.id, { kind: 'income', name: 'Выручка бара', parentId: null }, uid);
+  await categories.add(c2.id, { kind: 'income', name: 'Выручка бара', parentId: null }, uid);
   for (const name of ['Закупка напитков', 'Закупка закусок', 'Аренда', 'Коммунальные услуги']) {
-    categories.add(c2.id, { kind: 'expense', name, parentId: null }, uid);
+    await categories.add(c2.id, { kind: 'expense', name, parentId: null }, uid);
   }
-  categories.add(c3.id, { kind: 'income', name: 'Услуги', parentId: null }, uid);
-  for (const name of ['Хостинг', 'Связь', 'Бухгалтерия']) categories.add(c3.id, { kind: 'expense', name, parentId: null }, uid);
-  const categoryCount = () => db.select({ n: count() }).from(categoriesTable).get()?.n ?? 0;
-  for (let i = 1; categoryCount() < 60; i++) categories.add(c3.id, { kind: 'expense', name: `Прочие расходы ${i}`, parentId: null }, uid);
+  await categories.add(c3.id, { kind: 'income', name: 'Услуги', parentId: null }, uid);
+  for (const name of ['Хостинг', 'Связь', 'Бухгалтерия']) await categories.add(c3.id, { kind: 'expense', name, parentId: null }, uid);
+  const categoryCount = async () => Number((await first(db.select({ n: count() }).from(categoriesTable)))?.n ?? 0);
+  for (let i = 1; (await categoryCount()) < 60; i++) await categories.add(c3.id, { kind: 'expense', name: `Прочие расходы ${i}`, parentId: null }, uid);
 
   // контрагенты: 100 / 30 / 20
   for (const [companyId, n] of [
@@ -135,22 +135,22 @@ function fill(d: { db: Db; timezone: string; now: Date; operations?: number }, u
   ] as const) {
     for (let i = 1; i <= n; i++) {
       const type = COUNTERPARTY_TYPES[i % COUNTERPARTY_TYPES.length]!;
-      counterparties.add(companyId, { type, name: `${COUNTERPARTY_TYPE_SINGULAR[type]} ${String(i).padStart(3, '0')}` }, uid);
+      await counterparties.add(companyId, { type, name: `${COUNTERPARTY_TYPE_SINGULAR[type]} ${String(i).padStart(3, '0')}` }, uid);
     }
   }
 
-  const ctx = (companyId: number): Ctx => {
-    const cats = db.select().from(categoriesTable).where(eq(categoriesTable.companyId, companyId)).all();
+  const ctx = async (companyId: number): Promise<Ctx> => {
+    const cats = await db.select().from(categoriesTable).where(eq(categoriesTable.companyId, companyId));
     return {
       companyId,
-      accounts: accounts.list(companyId),
+      accounts: await accounts.list(companyId),
       income: cats.filter((c) => c.kind === 'income').map((c) => c.id),
       expense: cats.filter((c) => c.kind === 'expense').map((c) => c.id),
-      projects: projects.list(companyId).map((p) => p.id),
-      counterparties: counterparties.list(companyId).map((c) => c.id),
+      projects: (await projects.list(companyId)).map((p) => p.id),
+      counterparties: (await counterparties.list(companyId)).map((c) => c.id),
     };
   };
-  const ctxs = [ctx(c1.id), ctx(c2.id), ctx(c3.id)];
+  const ctxs = [await ctx(c1.id), await ctx(c2.id), await ctx(c3.id)];
 
   // операции: 70 % / 20 % / 10 % по компаниям; ~10 % переводов, ~50 % доходов, ~40 % расходов (балансы растут);
   // ~15 % разбитых, ~1 % удалённых
@@ -194,15 +194,15 @@ function fill(d: { db: Db; timezone: string; now: Date; operations?: number }, u
         tagIds: [],
       };
     }
-    const op = operations.create(c.companyId, input, uid);
-    if (random() < 0.01) operations.remove(c.companyId, op.id, uid);
+    const op = await operations.create(c.companyId, input, uid);
+    if (random() < 0.01) await operations.remove(c.companyId, op.id, uid);
   }
 
   return {
     companies: 3,
     projects: ctxs.reduce((s, x) => s + x.projects.length, 0),
     accounts: ctxs.reduce((s, x) => s + x.accounts.length, 0),
-    categories: categoryCount(),
+    categories: await categoryCount(),
     counterparties: ctxs.reduce((s, x) => s + x.counterparties.length, 0),
     operations: total,
   };

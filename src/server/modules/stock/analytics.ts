@@ -5,6 +5,7 @@ import type { StockItemStat, StockLists, StockPrices, StockTotals } from '../../
 import { formatQty } from '../../../shared/stock-qty';
 import { priceAt } from '../../../shared/stock-price';
 import type { Db } from '../../db/client';
+import { first, rows as sqlRows } from '../../db/raw';
 import { companies, stockItemGroups, stockItemPrices, stockItems, stockWarehouses } from '../../db/schema';
 import { AppError } from '../../errors';
 import { exportFileName } from '../../http/export-name';
@@ -20,10 +21,10 @@ export interface StockAnalyticsQuery {
 }
 
 export interface StockAnalyticsService {
-  items(companyId: number, q: StockAnalyticsQuery): { rows: StockItemStat[]; totals: StockTotals };
-  lists(companyId: number, q: { warehouse?: number; days: number }): StockLists;
-  prices(companyId: number, itemId: number, q: StockAnalyticsQuery): StockPrices;
-  exportXlsx(companyId: number, q: StockAnalyticsQuery): { fileName: string; data: Buffer };
+  items(companyId: number, q: StockAnalyticsQuery): Promise<{ rows: StockItemStat[]; totals: StockTotals }>;
+  lists(companyId: number, q: { warehouse?: number; days: number }): Promise<StockLists>;
+  prices(companyId: number, itemId: number, q: StockAnalyticsQuery): Promise<StockPrices>;
+  exportXlsx(companyId: number, q: StockAnalyticsQuery): Promise<{ fileName: string; data: Buffer }>;
 }
 
 /** n / d с округлением половины от нуля; d > 0. Через bigint: суммы × 10 000 не помещаются в безопасное целое. */
@@ -51,9 +52,9 @@ export function createStockAnalyticsService(d: { db: Db; balance: StockBalanceSe
   const now = d.now ?? (() => new Date());
   const tz = d.timezone;
 
-  function checkWarehouse(companyId: number, warehouse: number | undefined): void {
+  async function checkWarehouse(companyId: number, warehouse: number | undefined): Promise<void> {
     if (warehouse === undefined) return;
-    const wh = db.select().from(stockWarehouses).where(and(eq(stockWarehouses.id, warehouse), eq(stockWarehouses.companyId, companyId))).get();
+    const wh = await first(db.select().from(stockWarehouses).where(and(eq(stockWarehouses.id, warehouse), eq(stockWarehouses.companyId, companyId))));
     if (!wh) throw new AppError(422, 'INVARIANT_5', 'Склад не найден в этой компании', { warehouse: 'Склад не найден в этой компании' });
   }
 
@@ -65,49 +66,61 @@ export function createStockAnalyticsService(d: { db: Db; balance: StockBalanceSe
 
   const byItem = (rows: (ItemSums & { itemId: number })[]) => new Map(rows.map((r) => [r.itemId, r]));
 
-  function items(companyId: number, q: StockAnalyticsQuery): { rows: StockItemStat[]; totals: StockTotals } {
-    requireCompany(db, companyId);
-    checkWarehouse(companyId, q.warehouse);
+  async function items(companyId: number, q: StockAnalyticsQuery): Promise<{ rows: StockItemStat[]; totals: StockTotals }> {
+    await requireCompany(db, companyId);
+    await checkWarehouse(companyId, q.warehouse);
     const where = scope(companyId, q);
     // продажи: себестоимость и непокрытое строки — по её списаниям (у строки комплекта — по всем составляющим)
     const sales = byItem(
-      db.all<ItemSums & { itemId: number }>(sql`
+      await sqlRows<ItemSums & { itemId: number }>(
+        db,
+        sql`
         SELECT l.item_id AS itemId, COALESCE(SUM(l.qty), 0) AS qty, COALESCE(SUM(l.amount), 0) AS amount,
                COALESCE(SUM((SELECT SUM(a.cost) FROM stock_allocations a WHERE a.line_id = l.id)), 0) AS cost,
                COALESCE(SUM((SELECT SUM(a.qty) FROM stock_allocations a WHERE a.line_id = l.id AND a.batch_id IS NULL)), 0) AS noBatch
           FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id
          WHERE ${where} AND d.type = 'sale'
-         GROUP BY l.item_id`),
+         GROUP BY l.item_id`,
+      ),
     );
     // потери — списания и недостачи инвентаризаций: количество — взятое, а не строка (у инвентаризации строка — разница)
     const losses = byItem(
-      db.all<ItemSums & { itemId: number }>(sql`
+      await sqlRows<ItemSums & { itemId: number }>(
+        db,
+        sql`
         SELECT l.item_id AS itemId, COALESCE(SUM(a.qty), 0) AS qty, 0 AS amount, COALESCE(SUM(a.cost), 0) AS cost, 0 AS noBatch
           FROM stock_allocations a JOIN stock_doc_lines l ON l.id = a.line_id JOIN stock_docs d ON d.id = l.doc_id
          WHERE ${where} AND d.type IN ('writeoff', 'count')
-         GROUP BY l.item_id`),
+         GROUP BY l.item_id`,
+      ),
     );
     const purchases = byItem(
-      db.all<ItemSums & { itemId: number }>(sql`
+      await sqlRows<ItemSums & { itemId: number }>(
+        db,
+        sql`
         SELECT l.item_id AS itemId, COALESCE(SUM(l.qty), 0) AS qty, COALESCE(SUM(l.amount), 0) AS amount, 0 AS cost, 0 AS noBatch
           FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id
          WHERE ${where} AND d.type = 'receipt'
-         GROUP BY l.item_id`),
+         GROUP BY l.item_id`,
+      ),
     );
     // излишки инвентаризаций — по товарам: товар только с излишком за период тоже получает строку
     const surplusByItem = new Map(
-      db
-        .all<{ itemId: number; v: number }>(sql`
+      (
+        await sqlRows<{ itemId: number; v: number }>(
+          db,
+          sql`
           SELECT l.item_id AS itemId, COALESCE(SUM(b.cost_in), 0) AS v
             FROM stock_batches b JOIN stock_doc_lines l ON l.id = b.origin_line_id JOIN stock_docs d ON d.id = l.doc_id
            WHERE ${where} AND d.type = 'count' AND b.source_batch_id IS NULL
-           GROUP BY l.item_id`)
-        .map((r) => [r.itemId, r.v]),
+           GROUP BY l.item_id`,
+        )
+      ).map((r) => [r.itemId, Number(r.v)]),
     );
     const surplus = [...surplusByItem.values()].reduce((a, v) => a + v, 0);
 
     const ids = new Set([...sales.keys(), ...losses.keys(), ...purchases.keys(), ...surplusByItem.keys()]);
-    const catalog = db.select().from(stockItems).where(eq(stockItems.companyId, companyId)).orderBy(asc(stockItems.nameKey), asc(stockItems.id)).all();
+    const catalog = await db.select().from(stockItems).where(eq(stockItems.companyId, companyId)).orderBy(asc(stockItems.nameKey), asc(stockItems.id));
     const rows: StockItemStat[] = [];
     for (const item of catalog) {
       if (!ids.has(item.id)) continue;
@@ -135,9 +148,9 @@ export function createStockAnalyticsService(d: { db: Db; balance: StockBalanceSe
     }
     const sum = (f: (r: StockItemStat) => number) => rows.reduce((a, r) => a + f(r), 0);
     // стоимость — по тем же складам, что и строки: без склада — все, архивные тоже (R4)
-    const valueAt = (day: string) => d.balance.balance(companyId, { warehouse: q.warehouse, at: day, archived: true }).total;
-    const valueStart = valueAt(addDays(q.from, -1));
-    const valueEnd = valueAt(q.to);
+    const valueAt = async (day: string) => (await d.balance.balance(companyId, { warehouse: q.warehouse, at: day, archived: true })).total;
+    const valueStart = await valueAt(addDays(q.from, -1));
+    const valueEnd = await valueAt(q.to);
     const totals: StockTotals = {
       revenue: sum((r) => r.revenue),
       cost: sum((r) => r.cost),
@@ -155,11 +168,11 @@ export function createStockAnalyticsService(d: { db: Db; balance: StockBalanceSe
   return {
     items,
 
-    lists(companyId, q) {
-      requireCompany(db, companyId);
-      checkWarehouse(companyId, q.warehouse);
-      const balance = d.balance.balance(companyId, { warehouse: q.warehouse });
-      const minQty = new Map(db.select({ id: stockItems.id, minQty: stockItems.minQty }).from(stockItems).where(eq(stockItems.companyId, companyId)).all().map((i) => [i.id, i.minQty]));
+    async lists(companyId, q) {
+      await requireCompany(db, companyId);
+      await checkWarehouse(companyId, q.warehouse);
+      const balance = await d.balance.balance(companyId, { warehouse: q.warehouse });
+      const minQty = new Map((await db.select({ id: stockItems.id, minQty: stockItems.minQty }).from(stockItems).where(eq(stockItems.companyId, companyId))).map((i) => [i.id, i.minQty]));
       // последнее движение товара на складах отбора: продажа (и в составе комплекта), без продаж — приход (поступление
       // или перемещение на склад)
       const inScope = (column: SQL) =>
@@ -167,7 +180,9 @@ export function createStockAnalyticsService(d: { db: Db; balance: StockBalanceSe
           ? sql`${column} IN (SELECT id FROM stock_warehouses WHERE company_id = ${companyId} AND archived_at IS NULL)`
           : sql`${column} = ${q.warehouse}`;
       const live = sql`d.company_id = ${companyId} AND d.deleted_at IS NULL AND d.status = 'posted'`;
-      const moves = db.all<{ itemId: number; kind: 'sale' | 'in'; at: string }>(sql`
+      const moves = await sqlRows<{ itemId: number; kind: 'sale' | 'in'; at: string }>(
+        db,
+        sql`
         SELECT l.item_id AS itemId, 'sale' AS kind, MAX(d.at) AS at
           FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id
          WHERE ${live} AND d.type = 'sale' AND ${inScope(sql`d.warehouse_id`)} GROUP BY l.item_id
@@ -179,7 +194,8 @@ export function createStockAnalyticsService(d: { db: Db; balance: StockBalanceSe
         SELECT l.item_id, 'in', MAX(d.at)
           FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id
          WHERE ${live} AND ((d.type = 'receipt' AND ${inScope(sql`d.warehouse_id`)}) OR (d.type = 'transfer' AND ${inScope(sql`d.to_warehouse_id`)}))
-         GROUP BY l.item_id`);
+         GROUP BY l.item_id`,
+      );
       const lastSale = new Map<number, string>();
       const lastIn = new Map<number, string>();
       for (const m of moves) {
@@ -200,29 +216,31 @@ export function createStockAnalyticsService(d: { db: Db; balance: StockBalanceSe
       return out;
     },
 
-    prices(companyId, itemId, q) {
-      requireCompany(db, companyId);
-      checkWarehouse(companyId, q.warehouse);
-      const item = db.select().from(stockItems).where(and(eq(stockItems.id, itemId), eq(stockItems.companyId, companyId))).get();
+    async prices(companyId, itemId, q) {
+      await requireCompany(db, companyId);
+      await checkWarehouse(companyId, q.warehouse);
+      const item = await first(db.select().from(stockItems).where(and(eq(stockItems.id, itemId), eq(stockItems.companyId, companyId))));
       if (!item) throw new AppError(404, 'NOT_FOUND', 'Товар не найден');
       const start = startOfDayUtc(q.from, tz);
       const end = startOfDayUtc(addDays(q.to, 1), tz);
       // все закупки до конца периода: последняя цена закупки на дату и подсказка смотрят и раньше периода
-      const all = db
-        .all<{ at: string; docId: number; docNumber: string; qty: number; amount: number }>(sql`
+      const all = (
+        await sqlRows<{ at: string; docId: number; docNumber: string; qty: number; amount: number }>(
+          db,
+          sql`
           SELECT d.at AS at, d.id AS docId, d.number AS docNumber, l.qty AS qty, l.amount AS amount
             FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id
            WHERE d.company_id = ${companyId} AND d.deleted_at IS NULL AND d.status = 'posted' AND d.type = 'receipt'
              AND l.item_id = ${itemId} AND d.at < ${end}
              ${q.warehouse === undefined ? sql.empty() : sql`AND d.warehouse_id = ${q.warehouse}`}
-           ORDER BY d.at, d.id, l.position`)
-        .map((r) => ({ at: r.at, docId: r.docId, docNumber: r.docNumber, unitCost: roundDiv(BigInt(r.amount ?? 0) * 1000n, BigInt(r.qty)) }));
-      const salePrices = db
+           ORDER BY d.at, d.id, l.position`,
+        )
+      ).map((r) => ({ at: r.at, docId: r.docId, docNumber: r.docNumber, unitCost: roundDiv(BigInt(r.amount ?? 0) * 1000n, BigInt(r.qty)) }));
+      const salePrices = await db
         .select({ validFrom: stockItemPrices.validFrom, price: stockItemPrices.price })
         .from(stockItemPrices)
         .where(eq(stockItemPrices.itemId, itemId))
-        .orderBy(asc(stockItemPrices.validFrom))
-        .all();
+        .orderBy(asc(stockItemPrices.validFrom));
       const purchases = all.filter((p) => p.at >= start);
       const dayOf = (iso: string) => todayInTimezone(tz, new Date(iso));
       const lastCostAt = (iso: string) => {
@@ -249,13 +267,13 @@ export function createStockAnalyticsService(d: { db: Db; balance: StockBalanceSe
       return { purchases, salePrices, margins, hint };
     },
 
-    exportXlsx(companyId, q) {
-      const { rows, totals } = items(companyId, q);
-      const company = db.select().from(companies).where(eq(companies.id, companyId)).get()!;
+    async exportXlsx(companyId, q) {
+      const { rows, totals } = await items(companyId, q);
+      const company = (await first(db.select().from(companies).where(eq(companies.id, companyId))))!;
       const units = getCurrency(company.baseCurrency).minorUnits;
-      const catalog = new Map(db.select().from(stockItems).where(eq(stockItems.companyId, companyId)).all().map((i) => [i.id, i]));
-      const groups = new Map(db.select().from(stockItemGroups).where(eq(stockItemGroups.companyId, companyId)).all().map((g) => [g.id, g.name]));
-      const warehouse = q.warehouse === undefined ? null : db.select().from(stockWarehouses).where(eq(stockWarehouses.id, q.warehouse)).get();
+      const catalog = new Map((await db.select().from(stockItems).where(eq(stockItems.companyId, companyId))).map((i) => [i.id, i]));
+      const groups = new Map((await db.select().from(stockItemGroups).where(eq(stockItemGroups.companyId, companyId))).map((g) => [g.id, g.name]));
+      const warehouse = q.warehouse === undefined ? null : await first(db.select().from(stockWarehouses).where(eq(stockWarehouses.id, q.warehouse)));
       const text = (value: string, bold = false): XlsxCell => ({ kind: 'text', value, bold });
       const money = (v: number | null, bold = false): XlsxCell => (v === null ? null : { kind: 'number', value: minorToDecimal(v, units), decimals: units, bold });
       const qty = (v: number): XlsxCell => ({ kind: 'number', value: formatQty(v).replace(/\u202F/g, '').replace(',', '.'), decimals: 3 });

@@ -3,6 +3,7 @@ import { addDays, startOfDayUtc, todayInTimezone } from '../../../shared/dates';
 import { runStock, type StockEvent } from '../../../shared/stock-fifo';
 import { priceAt } from '../../../shared/stock-price';
 import type { Db } from '../../db/client';
+import { rows as sqlRows } from '../../db/raw';
 import { stockItemPrices, stockItems } from '../../db/schema';
 import { requireCompany } from '../companies/guard';
 import { eventOf, loadRows, transferClosure, type GroupRow } from './events';
@@ -71,9 +72,9 @@ export interface StockBalanceService {
    * Остатки по товарам и партиям на конец дня `at` (без даты — сейчас), по складу или по всем неархивным (`archived` —
    * и по архивным, для аналитики: R4).
    */
-  balance(companyId: number, q: { warehouse?: number; at?: string; archived?: boolean }): BalanceResult;
+  balance(companyId: number, q: { warehouse?: number; at?: string; archived?: boolean }): Promise<BalanceResult>;
   /** Стоимость неархивных складов — для левой панели; в «Всего на счетах» не входит. */
-  value(companyId: number): { warehouses: WarehouseValue[]; total: number };
+  value(companyId: number): Promise<{ warehouses: WarehouseValue[]; total: number }>;
 }
 
 export function createStockBalanceService(d: { db: Db; timezone: string; now?: () => Date }): StockBalanceService {
@@ -81,18 +82,18 @@ export function createStockBalanceService(d: { db: Db; timezone: string; now?: (
   const now = d.now ?? (() => new Date());
 
   return {
-    balance(companyId, q) {
-      requireCompany(db, companyId);
+    async balance(companyId, q) {
+      await requireCompany(db, companyId);
       const bound = q.at ? startOfDayUtc(addDays(q.at, 1), d.timezone) : null;
       const day = q.at ?? todayInTimezone(d.timezone, now());
       const shown = q.warehouse
         ? [q.warehouse]
-        : db
-            .all<{ id: number }>(sql`SELECT id FROM stock_warehouses WHERE company_id = ${companyId} ${q.archived ? sql.empty() : sql`AND archived_at IS NULL`}`)
-            .map((r) => r.id);
+        : (
+            await sqlRows<{ id: number }>(db, sql`SELECT id FROM stock_warehouses WHERE company_id = ${companyId} ${q.archived ? sql.empty() : sql`AND archived_at IS NULL`}`)
+          ).map((r) => r.id);
       const target = new Set(shown);
       // склады, связанные перемещениями, считаются вместе: партии получателя зависят от партий отправителя (решение 4)
-      const rows = loadRows(db, companyId, transferClosure(db, companyId, shown), { before: bound ?? undefined });
+      const rows = await loadRows(db, companyId, await transferClosure(db, companyId, shown), { before: bound ?? undefined });
       const rowsByItem = new Map<number, GroupRow[]>();
       for (const r of rows) {
         const list = rowsByItem.get(r.itemId);
@@ -137,17 +138,16 @@ export function createStockBalanceService(d: { db: Db; timezone: string; now?: (
       }
 
       const prices = new Map<number, { price: number; validFrom: string }[]>();
-      for (const p of db
+      for (const p of await db
         .select({ itemId: stockItemPrices.itemId, price: stockItemPrices.price, validFrom: stockItemPrices.validFrom })
         .from(stockItemPrices)
         .innerJoin(stockItems, eq(stockItems.id, stockItemPrices.itemId))
-        .where(eq(stockItems.companyId, companyId))
-        .all()) {
+        .where(eq(stockItems.companyId, companyId))) {
         prices.set(p.itemId, [...(prices.get(p.itemId) ?? []), { price: p.price, validFrom: p.validFrom }]);
       }
 
       const items: BalanceItem[] = [];
-      for (const item of db.select().from(stockItems).where(eq(stockItems.companyId, companyId)).orderBy(asc(stockItems.nameKey), asc(stockItems.id)).all()) {
+      for (const item of await db.select().from(stockItems).where(eq(stockItems.companyId, companyId)).orderBy(asc(stockItems.nameKey), asc(stockItems.id))) {
         // у комплекта своего остатка нет (решение 5)
         if (item.isCombo) continue;
         const acc = byItem.get(item.id) ?? { qtyLeft: 0, deficit: 0, deficitAt: null, cost: 0, batches: [] };
@@ -173,9 +173,11 @@ export function createStockBalanceService(d: { db: Db; timezone: string; now?: (
       return { warehouseId: q.warehouse ?? null, at: q.at ?? null, items, total: items.reduce((s, i) => s + i.cost, 0) };
     },
 
-    value(companyId) {
-      requireCompany(db, companyId);
-      const rows = db.all<Omit<WarehouseValue, 'hasDeficit'> & { hasDeficit: number }>(sql`
+    async value(companyId) {
+      await requireCompany(db, companyId);
+      const rows = await sqlRows<Omit<WarehouseValue, 'hasDeficit'> & { hasDeficit: number }>(
+        db,
+        sql`
         SELECT w.id AS warehouseId, w.project_id AS projectId, w.name AS name,
                COALESCE((SELECT SUM(b.cost_left) FROM stock_batches b WHERE b.warehouse_id = w.id), 0) AS value,
                EXISTS (
@@ -185,8 +187,9 @@ export function createStockBalanceService(d: { db: Db; timezone: string; now?: (
                ) AS hasDeficit
           FROM stock_warehouses w
          WHERE w.company_id = ${companyId} AND w.archived_at IS NULL
-         ORDER BY w.id`);
-      const warehouses = rows.map((r) => ({ ...r, hasDeficit: r.hasDeficit === 1 }));
+         ORDER BY w.id`,
+      );
+      const warehouses = rows.map((r) => ({ ...r, value: Number(r.value), hasDeficit: Boolean(r.hasDeficit) }));
       return { warehouses, total: warehouses.reduce((s, w) => s + w.value, 0) };
     },
   };

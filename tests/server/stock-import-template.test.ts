@@ -80,7 +80,7 @@ describe('шаблоны импорта склада (спецификация 2
     // «Единица» — только из списка: других единиц импорт не знает
     expect(v[1]!.attrs).toMatchObject({ type: 'list', errorStyle: 'stop', error: 'Выберите значение из списка' });
 
-    const book = stockTemplateSheets(s.h.t.db, s.cid, 'items', TODAY);
+    const book = await stockTemplateSheets(s.h.t.db, s.cid, 'items', TODAY);
     expect(book.map((x) => x.name)).toEqual(['Товары', 'Как заполнять', 'Списки']);
     expect(book[1]!.columns.map((c) => c.header)).toEqual(['Правила']);
     expect(book[1]!.rows[0]).toEqual([{ kind: 'text', value: 'Заполняйте первый лист «Товары». Строки 2–3 — примеры: замените или удалите их.' }]);
@@ -100,7 +100,7 @@ describe('шаблоны импорта склада (спецификация 2
     expect(rows[0]).toEqual(['Дата', 'Поставщик', 'Товар', 'Количество', 'Сумма', 'Цена']);
     // «сегодня» сервиса — по APP_TIMEZONE: пример — вчерашней датой
     expect(rows[1]![0]).toBe(String(excelDate('2026-10-05')));
-    const book = stockTemplateSheets(s.h.t.db, s.cid, 'receipts', TODAY);
+    const book = await stockTemplateSheets(s.h.t.db, s.cid, 'receipts', TODAY);
     expect(book.map((x) => x.name)).toEqual(['Поступления', 'Как заполнять', 'Списки']);
     const [first, second] = book[0]!.rows;
     expect(first![0]).toEqual({ kind: 'date', value: excelDate('2026-10-05') });
@@ -136,9 +136,9 @@ describe('шаблоны импорта склада (спецификация 2
     const project = (await h.req('POST', `/api/v1/companies/${cid}/projects`, { name: 'Клуб 1', templateKey: 'general' })).json().project.id as number;
     const wh = (await h.req('POST', `/api/v1/companies/${cid}/stock/warehouses`, { projectId: project, name: 'Бар Клуб 1' })).json().warehouse.id as number;
     const empty = { h, cid, stock: `/api/v1/companies/${cid}/stock`, wh } as unknown as StockWorld;
-    const items = stockTemplateSheets(h.t.db, cid, 'items', TODAY);
+    const items = await stockTemplateSheets(h.t.db, cid, 'items', TODAY);
     expect(items[0]!.validations).toEqual([{ column: 2, fromRow: 2, toRow: 5001, source: "'Списки'!$B$2:$B$5", strict: true }]);
-    expect(stockTemplateSheets(h.t.db, cid, 'receipts', TODAY)[0]!.validations).toEqual([]);
+    expect((await stockTemplateSheets(h.t.db, cid, 'receipts', TODAY))[0]!.validations).toEqual([]);
     for (const [kind, query] of [
       ['items', 'commit=0'],
       ['receipts', `warehouse=${wh}&commit=0`],
@@ -158,7 +158,7 @@ describe('шаблоны импорта склада (спецификация 2
     expect(res.statusCode).toBe(404);
     await s.post(`/api/v1/companies/${s.cid}/counterparties`, { type: 'supplier', name: 'поставщик а' });
     await s.post(`/api/v1/companies/${s.cid}/counterparties`, { type: 'supplier', name: 'Алма' });
-    const lists = stockTemplateSheets(s.h.t.db, s.cid, 'receipts', TODAY)[2]!;
+    const lists = (await stockTemplateSheets(s.h.t.db, s.cid, 'receipts', TODAY))[2]!;
     expect(listColumn(lists.rows, 1)).toEqual(['Алма', 'Поставщик А']);
   });
 });

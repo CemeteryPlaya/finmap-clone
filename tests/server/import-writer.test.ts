@@ -1,3 +1,4 @@
+import { withTx } from '../../src/server/db/tx';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createAuditService } from '../../src/server/modules/audit/service';
 import { createLedgerBalances } from '../../src/server/modules/balances/service';
@@ -52,12 +53,12 @@ describe('низкоуровневое создание справочников
     w = await opsWorld();
     const s = services();
     const auditBefore = one('SELECT COUNT(*) n FROM audit_log').n;
-    const made = w.h.t.db.transaction((tx) => {
-      const top = s.categories.createIn(tx, { companyId: w.cid, kind: 'expense', parentId: null, name: '  Связь  ' });
-      const child = s.categories.createIn(tx, { companyId: w.cid, kind: 'expense', parentId: top.id, name: 'Интернет' });
-      const cp = s.counterparties.createIn(tx, { companyId: w.cid, type: 'employee', name: 'Сотрудник А' });
-      const project = s.projects.createIn(tx, { companyId: w.cid, name: 'Клуб 3' });
-      const tag = s.tags.createIn(tx, { companyId: w.cid, name: 'Ночь' });
+    const made = await withTx(w.h.t.db, async (tx) => {
+      const top = await s.categories.createIn(tx, { companyId: w.cid, kind: 'expense', parentId: null, name: '  Связь  ' });
+      const child = await s.categories.createIn(tx, { companyId: w.cid, kind: 'expense', parentId: top.id, name: 'Интернет' });
+      const cp = await s.counterparties.createIn(tx, { companyId: w.cid, type: 'employee', name: 'Сотрудник А' });
+      const project = await s.projects.createIn(tx, { companyId: w.cid, name: 'Клуб 3' });
+      const tag = await s.tags.createIn(tx, { companyId: w.cid, name: 'Ночь' });
       return { top, child, cp, project, tag };
     });
     expect(made.top).toMatchObject({ kind: 'expense', parentId: null, name: 'Связь', systemKey: null });
@@ -94,8 +95,8 @@ describe('низкоуровневое создание справочников
   it('add() по-прежнему пишет историю создания (переписан на createIn)', async () => {
     w = await opsWorld();
     const s = services();
-    const cp = s.counterparties.add(w.cid, { type: 'supplier', name: 'Поставщик', comment: 'к' }, adminId());
-    const tag = s.tags.add(w.cid, 'Утро', adminId());
+    const cp = await s.counterparties.add(w.cid, { type: 'supplier', name: 'Поставщик', comment: 'к' }, adminId());
+    const tag = await s.tags.add(w.cid, 'Утро', adminId());
     expect(all("SELECT entity, entity_id AS eid, diff FROM audit_log WHERE action = 'create' AND entity IN ('counterparty', 'tag') ORDER BY audit_log.id DESC LIMIT 2")).toEqual([
       { entity: 'tag', eid: tag.id, diff: JSON.stringify({ name: 'Утро' }) },
       { entity: 'counterparty', eid: cp.id, diff: JSON.stringify({ type: 'supplier', name: 'Поставщик', comment: 'к' }) },

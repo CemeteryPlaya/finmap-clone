@@ -160,7 +160,7 @@ describe('перемещение (§5.2, Склад-2)', () => {
     await w.transfer(D3, wh3, w.wh2, [[w.cola, 1000]]);
     const sale = await w.doc({ type: 'sale', at: D4, warehouseId: w.wh2, lines: [{ itemId: w.cola, qty: 1000, amount: 50_000 }] });
     expect(sale.lines[0]).toMatchObject({ cost: 10_000, uncovered: 0 });
-    expect(groupsOf(w.h.t.db, w.cid, [{ warehouseId: w.wh2, itemId: w.cola }])).toEqual([{ itemId: w.cola, warehouseIds: [w.wh, w.wh2, wh3].sort((a, b) => a - b) }]);
+    expect(await groupsOf(w.h.t.db, w.cid, [{ warehouseId: w.wh2, itemId: w.cola }])).toEqual([{ itemId: w.cola, warehouseIds: [w.wh, w.wh2, wh3].sort((a, b) => a - b) }]);
     // правка первого звена задним числом доходит до продажи на конце цепочки
     const first = (await w.h.req('GET', `${w.stock}/docs/${t.id}`)).json().doc;
     await w.h.req('PATCH', `${w.stock}/docs/${first.id}`, { version: first.version, lines: [{ itemId: w.cola, qty: 1000 }] });
@@ -174,10 +174,10 @@ describe('перемещение (§5.2, Склад-2)', () => {
     const w = await world();
     await w.receipt(D1, [[w.cola, 10_000, 100_000], [w.chips, 1000, 1000]]);
     const db = w.h.t.db;
-    expect(groupsOf(db, w.cid, [{ warehouseId: w.wh, itemId: w.cola }])).toEqual([{ itemId: w.cola, warehouseIds: [w.wh] }]);
+    expect(await groupsOf(db, w.cid, [{ warehouseId: w.wh, itemId: w.cola }])).toEqual([{ itemId: w.cola, warehouseIds: [w.wh] }]);
     await w.transfer(D2, w.wh, w.wh2, [[w.cola, 1000]]);
-    expect(groupsOf(db, w.cid, [{ warehouseId: w.wh2, itemId: w.cola }])).toEqual([{ itemId: w.cola, warehouseIds: [w.wh, w.wh2].sort((a, b) => a - b) }]);
+    expect(await groupsOf(db, w.cid, [{ warehouseId: w.wh2, itemId: w.cola }])).toEqual([{ itemId: w.cola, warehouseIds: [w.wh, w.wh2].sort((a, b) => a - b) }]);
     // у чипсов перемещений нет — группа прежняя
-    expect(groupsOf(db, w.cid, [{ warehouseId: w.wh, itemId: w.chips }])).toEqual([{ itemId: w.chips, warehouseIds: [w.wh] }]);
+    expect(await groupsOf(db, w.cid, [{ warehouseId: w.wh, itemId: w.chips }])).toEqual([{ itemId: w.chips, warehouseIds: [w.wh] }]);
   });
 });

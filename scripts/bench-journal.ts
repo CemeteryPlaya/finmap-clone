@@ -77,7 +77,7 @@ if (fresh) {
   await createUsersService(seeded.db, createAuditService(seeded.db)).create({ login: LOGIN, name: 'Замер', password: PASSWORD }, null);
   console.log(`Заливаю демо-набор в ${dir} (около 45 с)…`);
   const started = Date.now();
-  seedDemo({ db: seeded.db, timezone: config.timezone, now: NOW });
+  await seedDemo({ db: seeded.db, timezone: config.timezone, now: NOW });
   seeded.sqlite.close();
   fs.writeFileSync(markerFile, 'Демо-копия для npm run bench:journal. Создана замером; без этого файла замер не станет её использовать.\n');
   console.log(`Готово за ${((Date.now() - started) / 1000).toFixed(1)} с.`);

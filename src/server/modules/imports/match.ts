@@ -43,32 +43,28 @@ export interface Dictionaries {
   tags: NamedEntry[];
 }
 
-export function loadDictionaries(ex: Executor, companyId: number): Dictionaries {
+export async function loadDictionaries(ex: Executor, companyId: number): Promise<Dictionaries> {
   return {
-    categories: ex
+    categories: await ex
       .select({ id: categories.id, kind: categories.kind, parentId: categories.parentId, name: categories.name, systemKey: categories.systemKey, archivedAt: categories.archivedAt })
       .from(categories)
       .where(eq(categories.companyId, companyId))
-      .orderBy(asc(categories.orderIndex), asc(categories.id))
-      .all(),
-    counterparties: ex
+      .orderBy(asc(categories.orderIndex), asc(categories.id)),
+    counterparties: await ex
       .select({ id: counterparties.id, type: counterparties.type, name: counterparties.name, archivedAt: counterparties.archivedAt })
       .from(counterparties)
       .where(eq(counterparties.companyId, companyId))
-      .orderBy(asc(counterparties.orderIndex), asc(counterparties.id))
-      .all(),
-    projects: ex
+      .orderBy(asc(counterparties.orderIndex), asc(counterparties.id)),
+    projects: await ex
       .select({ id: projects.id, name: projects.name, archivedAt: projects.archivedAt })
       .from(projects)
       .where(eq(projects.companyId, companyId))
-      .orderBy(asc(projects.orderIndex), asc(projects.id))
-      .all(),
-    tags: ex
+      .orderBy(asc(projects.orderIndex), asc(projects.id)),
+    tags: await ex
       .select({ id: tags.id, name: tags.name, archivedAt: tags.archivedAt })
       .from(tags)
       .where(eq(tags.companyId, companyId))
-      .orderBy(asc(tags.orderIndex), asc(tags.id))
-      .all(),
+      .orderBy(asc(tags.orderIndex), asc(tags.id)),
   };
 }
 

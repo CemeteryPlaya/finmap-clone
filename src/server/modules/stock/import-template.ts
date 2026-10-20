@@ -64,16 +64,16 @@ function listsOf(lists: { header: string; values: string[]; target: number; stri
 }
 
 /** Листы шаблона: данные, «Как заполнять», скрытые «Списки». today — сегодня по APP_TIMEZONE (примеры поступлений — вчера). */
-export function stockTemplateSheets(ex: Executor, companyId: number, kind: StockImportKind, today: string): XlsxSheet[] {
+export async function stockTemplateSheets(ex: Executor, companyId: number, kind: StockImportKind, today: string): Promise<XlsxSheet[]> {
   const rules: XlsxSheet = { name: 'Как заполнять', columns: [{ header: 'Правила', width: 110 }], rows: STOCK_TEMPLATE_RULES[kind].map((r) => [text(r)]) };
   if (kind === 'items') {
-    const groups = ex
-      .select({ name: stockItemGroups.name })
-      .from(stockItemGroups)
-      .where(and(eq(stockItemGroups.companyId, companyId), isNull(stockItemGroups.archivedAt)))
-      .orderBy(asc(stockItemGroups.nameKey))
-      .all()
-      .map((g) => g.name);
+    const groups = (
+      await ex
+        .select({ name: stockItemGroups.name })
+        .from(stockItemGroups)
+        .where(and(eq(stockItemGroups.companyId, companyId), isNull(stockItemGroups.archivedAt)))
+        .orderBy(asc(stockItemGroups.nameKey))
+    ).map((g) => g.name);
     const units = STOCK_UNITS.map((u) => UNIT_LABELS[u]);
     const { sheet, validations } = listsOf([
       { header: ITEM_COLUMNS.group, values: groups, target: 1 },
@@ -97,21 +97,20 @@ export function stockTemplateSheets(ex: Executor, companyId: number, kind: Stock
     };
     return [data, rules, sheet];
   }
-  const items = ex
-    .select({ name: stockItems.name })
-    .from(stockItems)
-    .where(and(eq(stockItems.companyId, companyId), isNull(stockItems.archivedAt), eq(stockItems.isCombo, false)))
-    .orderBy(asc(stockItems.nameKey))
-    .all()
-    .map((i) => i.name);
+  const items = (
+    await ex
+      .select({ name: stockItems.name })
+      .from(stockItems)
+      .where(and(eq(stockItems.companyId, companyId), isNull(stockItems.archivedAt), eq(stockItems.isCombo, false)))
+      .orderBy(asc(stockItems.nameKey))
+  ).map((i) => i.name);
   // у контрагентов имя не уникально и ключа имени нет: порядок и повторы — по stockNameKey, как сопоставляет импорт
   const byKey = new Map<string, string>();
-  for (const c of ex
+  for (const c of await ex
     .select({ name: counterparties.name })
     .from(counterparties)
     .where(and(eq(counterparties.companyId, companyId), eq(counterparties.type, 'supplier'), isNull(counterparties.archivedAt)))
-    .orderBy(asc(counterparties.id))
-    .all()) {
+    .orderBy(asc(counterparties.id))) {
     const key = stockNameKey(c.name);
     if (!byKey.has(key)) byKey.set(key, c.name);
   }
@@ -142,15 +141,15 @@ export function stockTemplateSheets(ex: Executor, companyId: number, kind: Stock
 
 export interface StockTemplateService {
   /** Файл шаблона по текущим данным компании; нет компании — 404. */
-  template(companyId: number, kind: StockImportKind): { fileName: string; data: Buffer };
+  template(companyId: number, kind: StockImportKind): Promise<{ fileName: string; data: Buffer }>;
 }
 
 export function createStockTemplateService(d: { db: Db; timezone: string; now?: () => Date }): StockTemplateService {
   const now = d.now ?? (() => new Date());
   return {
-    template(companyId, kind) {
-      requireCompany(d.db, companyId);
-      const sheets = stockTemplateSheets(d.db, companyId, kind, todayInTimezone(d.timezone, now()));
+    async template(companyId, kind) {
+      await requireCompany(d.db, companyId);
+      const sheets = await stockTemplateSheets(d.db, companyId, kind, todayInTimezone(d.timezone, now()));
       return { fileName: STOCK_TEMPLATE_FILE[kind], data: buildXlsx(sheets, { strings: 'shared' }) };
     },
   };

@@ -298,7 +298,7 @@ describe('круг: перевод между валютами (§4.2, §8.2)', 
 describe('круг на демо-наборе (§11.2)', () => {
   it('демо-компания → «Excel» → новая компания: операций столько, сколько строк; балансы счетов в базовой валюте и итоги по категориям совпадают', async () => {
     const h = await createApi(NOW);
-    seedDemo({ db: h.t.db, timezone: 'Asia/Almaty', now: new Date(NOW), operations: 300 });
+    await seedDemo({ db: h.t.db, timezone: 'Asia/Almaty', now: new Date(NOW), operations: 300 });
     w = { h } as OpsWorld;
     const source = (h.t.sqlite.prepare('SELECT id FROM companies ORDER BY id LIMIT 1').get() as { id: number }).id;
     const file = await exportFile(source);

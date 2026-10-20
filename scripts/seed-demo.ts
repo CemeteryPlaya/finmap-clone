@@ -40,7 +40,7 @@ try {
   });
   seedCurrencies(db);
   const started = Date.now();
-  const r = seedDemo({ db, timezone: config.timezone, now, operations: count });
+  const r = await seedDemo({ db, timezone: config.timezone, now, operations: count });
   console.log(
     `Готово за ${((Date.now() - started) / 1000).toFixed(1)} с: компаний ${r.companies}, проектов ${r.projects}, счетов ${r.accounts}, ` +
       `категорий ${r.categories}, контрагентов ${r.counterparties}, операций ${r.operations}.`,

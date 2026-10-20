@@ -953,7 +953,7 @@ try {
     runMigrations(db);
     seedCurrencies(db);
     await createUsersService(db, createAuditService(db)).create({ login: LOGIN, name: 'Владелец', password: PASSWORD }, null);
-    seedDemo({ db, timezone: config.timezone, now: NOW, operations: 400 });
+    await seedDemo({ db, timezone: config.timezone, now: NOW, operations: 400 });
   } finally {
     sqlite.close();
   }

@@ -35,7 +35,7 @@ export function registerImportsRoutes(app: FastifyInstance, deps: { imports: Imp
   app.post<C>(BASE, async (req, reply) => {
     const companyId = parseId(req.params.cid);
     const started = performance.now();
-    const result = imports.commit(companyId, req.user!.id, importCommitSchema.parse(req.body));
+    const result = await imports.commit(companyId, req.user!.id, importCommitSchema.parse(req.body));
     // итог — без содержимого файла (§6.5)
     req.log.info(
       { companyId, userId: req.user!.id, importId: result.import.id, rows: result.counts.rows, added: result.counts.added, ms: Math.round(performance.now() - started) },
@@ -51,7 +51,7 @@ export function registerImportsRoutes(app: FastifyInstance, deps: { imports: Imp
     const companyId = parseId(req.params.cid);
     const importId = parseId(req.params.id);
     const started = performance.now();
-    const result = imports.undo(companyId, req.user!.id, importId, importUndoSchema.parse(req.body));
+    const result = await imports.undo(companyId, req.user!.id, importId, importUndoSchema.parse(req.body));
     // итог — числа, без названий (§6.5)
     req.log.info(
       { companyId, userId: req.user!.id, importId, deleted: result.result.deleted.operations, kept: result.result.kept.operations, ms: Math.round(performance.now() - started) },

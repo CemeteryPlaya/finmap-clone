@@ -13,9 +13,10 @@ import {
 } from '../../../shared/schemas/stock';
 import { formatQty, isWholeUnit, qtyError, QTY_SCALE, UNIT_LABELS, WHOLE_UNIT_ERROR } from '../../../shared/stock-qty';
 import type { Db, Executor } from '../../db/client';
+import { first, rows as sqlRows } from '../../db/raw';
 import { counterparties, stockComboParts, stockDocLines, stockDocs, stockItems, stockWarehouses } from '../../db/schema';
 import { AppError } from '../../errors';
-import { changedFields, mutate } from '../audit/mutate';
+import { changedFields, mutateAsync } from '../audit/mutate';
 import type { AuditEntry, AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import { docPayments, paidByDoc, type DocPayment } from './payments';
@@ -81,20 +82,20 @@ export interface DocSaveResult {
 }
 
 export interface StockDocsService {
-  list(companyId: number, q: StockDocList): { docs: StockDocListItem[]; hasMore: boolean };
-  get(companyId: number, id: number): StockDocDto;
-  create(companyId: number, input: StockDocCreate, userId: number): DocSaveResult;
-  update(companyId: number, id: number, patch: StockDocUpdate, userId: number): DocSaveResult;
+  list(companyId: number, q: StockDocList): Promise<{ docs: StockDocListItem[]; hasMore: boolean }>;
+  get(companyId: number, id: number): Promise<StockDocDto>;
+  create(companyId: number, input: StockDocCreate, userId: number): Promise<DocSaveResult>;
+  update(companyId: number, id: number, patch: StockDocUpdate, userId: number): Promise<DocSaveResult>;
   /** Мягкое удаление: остатки пересчитываются так, будто документа не было. */
-  remove(companyId: number, id: number, userId: number, opts?: { dryRun?: boolean }): DocSaveResult;
+  remove(companyId: number, id: number, userId: number, opts?: { dryRun?: boolean }): Promise<DocSaveResult>;
   /** Тип документа — маршрут правки выбирает по нему схему тела (R15). */
-  typeOf(companyId: number, id: number): StockDocType;
+  typeOf(companyId: number, id: number): Promise<StockDocType>;
   /** Новая инвентаризация — черновик (§7, решение 6). */
-  createCount(companyId: number, input: StockCountCreate, userId: number): StockDocDto;
+  createCount(companyId: number, input: StockCountCreate, userId: number): Promise<StockDocDto>;
   /** Правка черновика инвентаризации. */
-  updateCount(companyId: number, id: number, patch: StockCountUpdate, userId: number): StockDocDto;
+  updateCount(companyId: number, id: number, patch: StockCountUpdate, userId: number): Promise<StockDocDto>;
   /** «Провести» инвентаризацию: учёт фиксируется, разница — недостача или излишек. */
-  post(companyId: number, id: number, version: number, userId: number): StockDocDto;
+  post(companyId: number, id: number, version: number, userId: number): Promise<StockDocDto>;
 }
 
 /** Строка черновика инвентаризации. */
@@ -130,19 +131,19 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
   const now = d.now ?? (() => new Date());
   const dateOf = (iso: string) => todayInTimezone(d.timezone, new Date(iso));
 
-  function requireRow(ex: Executor, companyId: number, id: number): StockDocRow {
-    const row = ex.select().from(stockDocs).where(and(eq(stockDocs.id, id), eq(stockDocs.companyId, companyId))).get();
+  async function requireRow(ex: Executor, companyId: number, id: number): Promise<StockDocRow> {
+    const row = await first(ex.select().from(stockDocs).where(and(eq(stockDocs.id, id), eq(stockDocs.companyId, companyId))));
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Документ не найден');
     return row;
   }
 
-  function dtoOf(ex: Executor, row: StockDocRow): StockDocDto {
-    const lines = ex.select().from(stockDocLines).where(eq(stockDocLines.docId, row.id)).orderBy(stockDocLines.position).all();
+  async function dtoOf(ex: Executor, row: StockDocRow): Promise<StockDocDto> {
+    const lines = await ex.select().from(stockDocLines).where(eq(stockDocLines.docId, row.id)).orderBy(stockDocLines.position);
     const out = row.type === 'sale' || row.type === 'writeoff' || row.type === 'transfer' || row.type === 'count';
     const isCount = row.type === 'count';
     const draftExpected =
       isCount && row.status === 'draft' && lines.length > 0
-        ? expectedQtys(
+        ? await expectedQtys(
             ex,
             row.companyId,
             row.warehouseId,
@@ -153,10 +154,13 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
     // непокрытое — списания строки без партии (R2): у строки комплекта — в единицах составляющих
     const sums = new Map<number, { cost: number | null; uncovered: number }>();
     if (lines.length > 0 && out) {
-      const rows = ex.all<{ lineId: number; cost: number | null; uncovered: number }>(sql`
+      const rows = await sqlRows<{ lineId: number; cost: number | null; uncovered: number }>(
+        ex,
+        sql`
         SELECT line_id AS lineId, SUM(cost) AS cost, COALESCE(SUM(CASE WHEN batch_id IS NULL THEN qty END), 0) AS uncovered
-          FROM stock_allocations WHERE line_id IN (${sql.join(lines.map((l) => sql`${l.id}`), sql`, `)}) GROUP BY line_id`);
-      for (const r of rows) sums.set(r.lineId, { cost: r.cost, uncovered: r.uncovered });
+          FROM stock_allocations WHERE line_id IN (${sql.join(lines.map((l) => sql`${l.id}`), sql`, `)}) GROUP BY line_id`,
+      );
+      for (const r of rows) sums.set(r.lineId, { cost: r.cost === null ? null : Number(r.cost), uncovered: Number(r.uncovered) });
     }
     const dtoLines: StockDocLineDto[] = lines.map((l) => {
       const s = sums.get(l.id);
@@ -178,18 +182,18 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
           : {}),
       };
     });
-    const payments = row.type === 'receipt' ? docPayments(ex, row.id) : [];
+    const payments = row.type === 'receipt' ? await docPayments(ex, row.id) : [];
     return { ...row, lines: dtoLines, total: dtoLines.reduce((s, l) => s + (l.amount ?? 0), 0), paid: payments.reduce((s, p) => s + p.amount, 0),
       payments,
-      posting: row.type === 'sale' ? postingOf(ex, row.id) : null,
-      lastPost: row.type === 'sale' ? lastPostOf(ex, row.warehouseId) : null,
-      ...(isCount ? { countSummary: row.status === 'posted' ? countSummary(ex, row.companyId, row.warehouseId, lines) : null } : {}),
+      posting: row.type === 'sale' ? await postingOf(ex, row.id) : null,
+      lastPost: row.type === 'sale' ? await lastPostOf(ex, row.warehouseId) : null,
+      ...(isCount ? { countSummary: row.status === 'posted' ? await countSummary(ex, row.companyId, row.warehouseId, lines) : null } : {}),
     };
   }
 
   /** Склад инвентаризации: из этой компании, архивный — только уже выбранный. */
-  function checkCountWarehouse(ex: Executor, companyId: number, warehouseId: number, prev: number | null): void {
-    const wh = ex.select().from(stockWarehouses).where(and(eq(stockWarehouses.id, warehouseId), eq(stockWarehouses.companyId, companyId))).get();
+  async function checkCountWarehouse(ex: Executor, companyId: number, warehouseId: number, prev: number | null): Promise<void> {
+    const wh = await first(ex.select().from(stockWarehouses).where(and(eq(stockWarehouses.id, warehouseId), eq(stockWarehouses.companyId, companyId))));
     if (!wh) throw new AppError(422, 'INVARIANT_5', 'Склад не найден в этой компании', { warehouseId: 'Склад не найден в этой компании' });
     if (wh.archivedAt && wh.id !== prev) throw new AppError(422, 'ARCHIVED_REFERENCE', `Склад «${wh.name}» в архиве — выберите другой`);
   }
@@ -204,17 +208,10 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
    * Строки инвентаризации (решение 6): товары этой компании без повторов, не комплекты, архивные — только уже бывшие
    * в документе; факт — по единице товара (ноль допустим, у «шт» и «уп» — целое).
    */
-  function checkCountLines(ex: Executor, companyId: number, lines: readonly CountLine[], prevItems: ReadonlySet<number>): void {
+  async function checkCountLines(ex: Executor, companyId: number, lines: readonly CountLine[], prevItems: ReadonlySet<number>): Promise<void> {
     const ids = [...new Set(lines.map((l) => l.itemId))];
     const items = new Map(
-      ids.length === 0
-        ? []
-        : ex
-            .select()
-            .from(stockItems)
-            .where(and(eq(stockItems.companyId, companyId), inArray(stockItems.id, ids)))
-            .all()
-            .map((i) => [i.id, i]),
+      ids.length === 0 ? [] : (await ex.select().from(stockItems).where(and(eq(stockItems.companyId, companyId), inArray(stockItems.id, ids)))).map((i) => [i.id, i]),
     );
     const seen = new Set<number>();
     lines.forEach((l, i) => {
@@ -232,14 +229,14 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
     });
   }
 
-  function insertCountLines(tx: Executor, docId: number, lines: readonly CountLine[]): void {
-    lines.forEach((l, i) => {
-      tx.insert(stockDocLines).values({ docId, position: i, itemId: l.itemId, qty: 0, amount: null, countedQty: l.countedQty, expectedQty: null }).run();
-    });
+  async function insertCountLines(tx: Executor, docId: number, lines: readonly CountLine[]): Promise<void> {
+    for (const [i, l] of lines.entries()) {
+      await tx.insert(stockDocLines).values({ docId, position: i, itemId: l.itemId, qty: 0, amount: null, countedQty: l.countedQty, expectedQty: null });
+    }
   }
 
-  function requireCount(ex: Executor, companyId: number, id: number, version: number): StockDocRow {
-    const current = requireRow(ex, companyId, id);
+  async function requireCount(ex: Executor, companyId: number, id: number, version: number): Promise<StockDocRow> {
+    const current = await requireRow(ex, companyId, id);
     if (current.type !== 'count') throw new AppError(422, 'VALIDATION', 'Это не инвентаризация');
     if (current.deletedAt) throw new AppError(409, 'VERSION_CONFLICT', 'Документ удалён — обновите страницу');
     if (version !== current.version) throw new AppError(409, 'VERSION_CONFLICT', 'Документ изменён другим пользователем');
@@ -263,10 +260,10 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
    * Правила документа (§10): склад, контрагент и товары — из этой компании; архивные — только уже выбранные в этом документе;
    * количество — по единице товара; суммы — у поступления и продажи, причина — у списания; дата не в будущем.
    */
-  function check(ex: Executor, companyId: number, input: Draft, prev: Draft | null): Draft {
+  async function check(ex: Executor, companyId: number, input: Draft, prev: Draft | null): Promise<Draft> {
     const draft: Draft = { ...input, at: new Date(input.at).toISOString(), lines: input.lines.map((l) => ({ ...l })) };
 
-    const wh = ex.select().from(stockWarehouses).where(and(eq(stockWarehouses.id, draft.warehouseId), eq(stockWarehouses.companyId, companyId))).get();
+    const wh = await first(ex.select().from(stockWarehouses).where(and(eq(stockWarehouses.id, draft.warehouseId), eq(stockWarehouses.companyId, companyId))));
     if (!wh) throw new AppError(422, 'INVARIANT_5', 'Склад не найден в этой компании', { warehouseId: 'Склад не найден в этой компании' });
     if (wh.archivedAt && wh.id !== prev?.warehouseId) throw new AppError(422, 'ARCHIVED_REFERENCE', `Склад «${wh.name}» в архиве — выберите другой`);
 
@@ -290,7 +287,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
       if (draft.toWarehouseId === draft.warehouseId) {
         throw new AppError(422, 'VALIDATION', 'Склад-получатель совпадает с отправителем', { toWarehouseId: 'Склад-получатель совпадает с отправителем' });
       }
-      const to = ex.select().from(stockWarehouses).where(and(eq(stockWarehouses.id, draft.toWarehouseId), eq(stockWarehouses.companyId, companyId))).get();
+      const to = await first(ex.select().from(stockWarehouses).where(and(eq(stockWarehouses.id, draft.toWarehouseId), eq(stockWarehouses.companyId, companyId))));
       if (!to) throw new AppError(422, 'INVARIANT_5', 'Склад не найден в этой компании', { toWarehouseId: 'Склад не найден в этой компании' });
       if (to.archivedAt && to.id !== prev?.toWarehouseId) throw new AppError(422, 'ARCHIVED_REFERENCE', `Склад «${to.name}» в архиве — выберите другой`);
     } else if (draft.toWarehouseId !== null) {
@@ -298,24 +295,13 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
     }
 
     if (draft.counterpartyId !== null) {
-      const cp = ex
-        .select()
-        .from(counterparties)
-        .where(and(eq(counterparties.id, draft.counterpartyId), eq(counterparties.companyId, companyId)))
-        .get();
+      const cp = await first(ex.select().from(counterparties).where(and(eq(counterparties.id, draft.counterpartyId), eq(counterparties.companyId, companyId))));
       if (!cp) throw new AppError(422, 'INVARIANT_5', 'Контрагент не найден в этой компании', { counterpartyId: 'Контрагент не найден в этой компании' });
       if (cp.archivedAt && cp.id !== prev?.counterpartyId) throw new AppError(422, 'ARCHIVED_REFERENCE', `Контрагент «${cp.name}» в архиве — выберите другого`);
     }
 
     const ids = [...new Set(draft.lines.map((l) => l.itemId))];
-    const items = new Map(
-      ex
-        .select()
-        .from(stockItems)
-        .where(and(eq(stockItems.companyId, companyId), inArray(stockItems.id, ids)))
-        .all()
-        .map((i) => [i.id, i]),
-    );
+    const items = new Map((await ex.select().from(stockItems).where(and(eq(stockItems.companyId, companyId), inArray(stockItems.id, ids)))).map((i) => [i.id, i]));
     const prevItems = new Set(prev?.lines.map((l) => l.itemId) ?? []);
     draft.lines.forEach((l, i) => {
       const item = items.get(l.itemId);
@@ -338,19 +324,18 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
   }
 
   /** Номер по типу в компании: «П-0001», «Р-0001», «С-0001», «М-0001», «И-0001». Удалённые документы номер не освобождают. */
-  function nextNumber(ex: Executor, companyId: number, type: StockDocType): string {
-    const row = ex
-      .select({ m: sql<number>`coalesce(max(cast(substr(${stockDocs.number}, 3) as integer)), 0)` })
-      .from(stockDocs)
-      .where(and(eq(stockDocs.companyId, companyId), eq(stockDocs.type, type)))
-      .get();
-    return `${STOCK_DOC_PREFIX[type]}-${String((row?.m ?? 0) + 1).padStart(4, '0')}`;
+  async function nextNumber(ex: Executor, companyId: number, type: StockDocType): Promise<string> {
+    const row = await first(
+      ex
+        .select({ m: sql<number>`coalesce(max(cast(substr(${stockDocs.number}, 3) as integer)), 0)` })
+        .from(stockDocs)
+        .where(and(eq(stockDocs.companyId, companyId), eq(stockDocs.type, type))),
+    );
+    return `${STOCK_DOC_PREFIX[type]}-${String(Number(row?.m ?? 0) + 1).padStart(4, '0')}`;
   }
 
-  function insertLines(tx: Executor, docId: number, lines: Draft['lines']): void {
-    lines.forEach((l, i) => {
-      tx.insert(stockDocLines).values({ docId, position: i, itemId: l.itemId, qty: l.qty, amount: l.amount }).run();
-    });
+  async function insertLines(tx: Executor, docId: number, lines: Draft['lines']): Promise<void> {
+    for (const [i, l] of lines.entries()) await tx.insert(stockDocLines).values({ docId, position: i, itemId: l.itemId, qty: l.qty, amount: l.amount });
   }
 
   /**
@@ -358,21 +343,21 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
    * строки, затем пары строятся заново по всем документам. Ручное списание, которому после правки не хватает остатка,
    * откатывает всю транзакцию ответом 422 (§5.3). Возвращает, у скольких чужих продаж и списаний изменилась себестоимость (§5.4).
    */
-  function rebuild(tx: Executor, companyId: number, pairs: Pair[], docId: number, sinceAt: string, change: () => void): DocImpact {
+  async function rebuild(tx: Executor, companyId: number, pairs: Pair[], docId: number, sinceAt: string, change: () => Promise<void>): Promise<DocImpact> {
     // группы — до изменения строк, по старым и новым парам документа (решение 4 плана Склад-2)
-    const groups = groupsOf(tx, companyId, pairs);
+    const groups = await groupsOf(tx, companyId, pairs);
     const before = new Map<string, LineSig>();
-    for (const g of groups) for (const [k, v] of storedSigs(tx, g)) before.set(k, v);
-    for (const g of groups) clearGroup(tx, g);
-    change();
+    for (const g of groups) for (const [k, v] of await storedSigs(tx, g)) before.set(k, v);
+    for (const g of groups) await clearGroup(tx, g);
+    await change();
     // §5.4: продажи — отдельно, списания и инвентаризации — потери; перемещения в число не входят (R8)
     const changed = { sale: new Set<number>(), loss: new Set<number>() };
     for (const g of groups) {
-      const { result, sigs } = buildGroup(tx, companyId, g);
+      const { result, sigs } = await buildGroup(tx, companyId, g);
       for (const s of sigs.values()) {
         // ручное списание, перемещение и недостача требуют остатка всегда (§5.3, решения 3 и 6)
         if (s.type !== 'sale' && s.uncovered > 0) {
-          const item = tx.select().from(stockItems).where(eq(stockItems.id, g.itemId)).get()!;
+          const item = (await first(tx.select().from(stockItems).where(eq(stockItems.id, g.itemId))))!;
           const available = result.outs.get(s.lineId)!.available;
           throw new AppError(
             422,
@@ -393,13 +378,13 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
   }
 
   /** Транзакция записи; пробный расчёт откатывается исключением DryRun. */
-  function run(dryRun: boolean, fn: (tx: Executor, record: (entry: AuditEntry) => void) => DocSaveResult): DocSaveResult {
+  async function run(dryRun: boolean, fn: (tx: Executor, record: (entry: AuditEntry) => Promise<number>) => Promise<DocSaveResult>): Promise<DocSaveResult> {
     try {
-      return mutate(
+      return await mutateAsync(
         db,
         audit,
-        (tx, record) => {
-          const out = fn(tx, record);
+        async (tx, record) => {
+          const out = await fn(tx, record);
           if (dryRun) throw new DryRun(out.impact);
           return out;
         },
@@ -412,11 +397,11 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
   }
 
   /** Пары строк документа: у перемещения — обе стороны, у строки комплекта — пары его составляющих. */
-  function pairsOf(ex: Executor, draft: Pick<Draft, 'warehouseId' | 'toWarehouseId' | 'lines'>): Pair[] {
+  async function pairsOf(ex: Executor, draft: Pick<Draft, 'warehouseId' | 'toWarehouseId' | 'lines'>): Promise<Pair[]> {
     const ids = [...new Set(draft.lines.map((l) => l.itemId))];
     const parts = new Map<number, number[]>();
     if (ids.length > 0) {
-      for (const p of ex.select().from(stockComboParts).where(inArray(stockComboParts.comboId, ids)).all()) {
+      for (const p of await ex.select().from(stockComboParts).where(inArray(stockComboParts.comboId, ids))) {
         const list = parts.get(p.comboId);
         if (list) list.push(p.itemId);
         else parts.set(p.comboId, [p.itemId]);
@@ -427,47 +412,49 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
   }
 
   const svc: StockDocsService = {
-    list(companyId, q) {
-      requireCompany(db, companyId);
+    async list(companyId, q) {
+      await requireCompany(db, companyId);
       const conds: SQL[] = [eq(stockDocs.companyId, companyId), isNull(stockDocs.deletedAt)];
       if (q.type) conds.push(eq(stockDocs.type, q.type));
       // у склада видны и входящие перемещения (R6)
       if (q.warehouse) conds.push(or(eq(stockDocs.warehouseId, q.warehouse), eq(stockDocs.toWarehouseId, q.warehouse))!);
       if (q.from) conds.push(gte(stockDocs.at, startOfDayUtc(q.from, d.timezone)));
       if (q.to) conds.push(lt(stockDocs.at, startOfDayUtc(addDays(q.to, 1), d.timezone)));
-      const rows = db
+      const rows = await db
         .select()
         .from(stockDocs)
         .where(and(...conds))
         .orderBy(desc(stockDocs.at), desc(stockDocs.id))
         .limit(q.limit + 1)
-        .offset(q.offset)
-        .all();
+        .offset(q.offset);
       const page = rows.slice(0, q.limit);
       const totals = new Map<number, { total: number; n: number }>();
       if (page.length > 0) {
-        const agg = db.all<{ docId: number; total: number; n: number }>(sql`
+        const agg = await sqlRows<{ docId: number; total: number; n: number }>(
+          db,
+          sql`
           SELECT doc_id AS docId, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS n
-            FROM stock_doc_lines WHERE doc_id IN (${sql.join(page.map((r) => sql`${r.id}`), sql`, `)}) GROUP BY doc_id`);
-        for (const a of agg) totals.set(a.docId, { total: a.total, n: a.n });
+            FROM stock_doc_lines WHERE doc_id IN (${sql.join(page.map((r) => sql`${r.id}`), sql`, `)}) GROUP BY doc_id`,
+        );
+        for (const a of agg) totals.set(a.docId, { total: Number(a.total), n: Number(a.n) });
       }
-      const paid = paidByDoc(db, page.filter((r) => r.type === 'receipt').map((r) => r.id));
-      const posted = postedDocs(db, page.filter((r) => r.type === 'sale').map((r) => r.id));
+      const paid = await paidByDoc(db, page.filter((r) => r.type === 'receipt').map((r) => r.id));
+      const posted = await postedDocs(db, page.filter((r) => r.type === 'sale').map((r) => r.id));
       return {
         docs: page.map((r) => ({ ...r, total: totals.get(r.id)?.total ?? 0, linesCount: totals.get(r.id)?.n ?? 0, paid: paid.get(r.id) ?? 0, posted: posted.has(r.id) })),
         hasMore: rows.length > q.limit,
       };
     },
 
-    get(companyId, id) {
-      requireCompany(db, companyId);
-      return dtoOf(db, requireRow(db, companyId, id));
+    async get(companyId, id) {
+      await requireCompany(db, companyId);
+      return dtoOf(db, await requireRow(db, companyId, id));
     },
 
-    create(companyId, input, userId) {
-      requireCompany(db, companyId, { writable: true });
-      return run(input.dryRun, (tx, record) => {
-        const draft = check(
+    async create(companyId, input, userId) {
+      await requireCompany(db, companyId, { writable: true });
+      return run(input.dryRun, async (tx, record) => {
+        const draft = await check(
           tx,
           companyId,
           {
@@ -483,8 +470,8 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
           null,
         );
         const t = now().toISOString();
-        const number = nextNumber(tx, companyId, draft.type);
-        const row = tx
+        const number = await nextNumber(tx, companyId, draft.type);
+        const [row] = await tx
           .insert(stockDocs)
           .values({
             companyId,
@@ -503,25 +490,25 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
             updatedAt: t,
             version: 1,
           })
-          .returning()
-          .get();
-        const impact = rebuild(tx, companyId, pairsOf(tx, draft), row.id, draft.at, () => insertLines(tx, row.id, draft.lines));
-        record({ companyId, userId, entity: 'stock_doc', entityId: row.id, action: 'create', diff: { number, ...draft } });
-        return { doc: dtoOf(tx, row), impact };
+          .returning();
+        if (!row) throw new Error('stock_docs: вставка не вернула строку');
+        const impact = await rebuild(tx, companyId, await pairsOf(tx, draft), row.id, draft.at, () => insertLines(tx, row.id, draft.lines));
+        await record({ companyId, userId, entity: 'stock_doc', entityId: row.id, action: 'create', diff: { number, ...draft } });
+        return { doc: await dtoOf(tx, row), impact };
       });
     },
 
-    update(companyId, id, patch, userId) {
-      requireCompany(db, companyId, { writable: true });
-      return run(patch.dryRun, (tx, record) => {
-        const current = requireRow(tx, companyId, id);
+    async update(companyId, id, patch, userId) {
+      await requireCompany(db, companyId, { writable: true });
+      return run(patch.dryRun, async (tx, record) => {
+        const current = await requireRow(tx, companyId, id);
         if (current.deletedAt) throw new AppError(409, 'VERSION_CONFLICT', 'Документ удалён — обновите страницу');
         if (patch.version !== current.version) throw new AppError(409, 'VERSION_CONFLICT', 'Документ изменён другим пользователем');
         if (current.type === 'count') {
           // у инвентаризации своё тело правки: маршрут вызывает updateCount (R15)
           throw new AppError(422, 'VALIDATION', 'Этот документ изменить нельзя');
         }
-        const currentDto = dtoOf(tx, current);
+        const currentDto = await dtoOf(tx, current);
         const prev = draftOf(currentDto);
         const next: Draft = {
           ...prev,
@@ -533,16 +520,16 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
           ...(patch.comment !== undefined ? { comment: patch.comment } : {}),
           ...(patch.lines !== undefined ? { lines: patch.lines } : {}),
         };
-        const draft = check(tx, companyId, next, prev);
+        const draft = await check(tx, companyId, next, prev);
         // поставщика поступления с оплатами менять нельзя: оплаты проведены расходами на прежнего контрагента (удалённые расходы не считаются)
-        if (draft.counterpartyId !== prev.counterpartyId && docPayments(tx, id).length > 0) {
+        if (draft.counterpartyId !== prev.counterpartyId && (await docPayments(tx, id)).length > 0) {
           throw new AppError(422, 'STOCK_DOC_HAS_PAYMENTS', 'У поступления есть оплаты — сначала снимите их в расходах');
         }
         const changes = changedFields(prev, draft);
         if (!changes) return { doc: currentDto, impact: NO_IMPACT };
         const sinceAt = draft.at < prev.at ? draft.at : prev.at;
-        const impact = rebuild(tx, companyId, [...pairsOf(tx, prev), ...pairsOf(tx, draft)], id, sinceAt, () => {
-          const updated = tx
+        const impact = await rebuild(tx, companyId, [...(await pairsOf(tx, prev)), ...(await pairsOf(tx, draft))], id, sinceAt, async () => {
+          const [updated] = await tx
             .update(stockDocs)
             .set({
               at: draft.at,
@@ -555,52 +542,51 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
               version: current.version + 1,
             })
             .where(and(eq(stockDocs.id, id), eq(stockDocs.version, current.version)))
-            .returning({ id: stockDocs.id })
-            .get();
+            .returning({ id: stockDocs.id });
           if (!updated) throw new AppError(409, 'VERSION_CONFLICT', 'Документ изменён другим пользователем');
-          tx.delete(stockDocLines).where(eq(stockDocLines.docId, id)).run();
-          insertLines(tx, id, draft.lines);
+          await tx.delete(stockDocLines).where(eq(stockDocLines.docId, id));
+          await insertLines(tx, id, draft.lines);
         });
-        record({ companyId, userId, entity: 'stock_doc', entityId: id, action: 'update', diff: { number: current.number, type: current.type, ...changes } });
-        return { doc: dtoOf(tx, requireRow(tx, companyId, id)), impact };
+        await record({ companyId, userId, entity: 'stock_doc', entityId: id, action: 'update', diff: { number: current.number, type: current.type, ...changes } });
+        return { doc: await dtoOf(tx, await requireRow(tx, companyId, id)), impact };
       });
     },
 
-    remove(companyId, id, userId, opts = {}) {
-      requireCompany(db, companyId, { writable: true });
-      return run(opts.dryRun === true, (tx, record) => {
-        const current = requireRow(tx, companyId, id);
-        if (current.deletedAt) return { doc: dtoOf(tx, current), impact: NO_IMPACT };
-        const dto = dtoOf(tx, current);
-        const markDeleted = () => {
-          tx.update(stockDocs).set({ deletedAt: now().toISOString(), updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(stockDocs.id, id)).run();
+    async remove(companyId, id, userId, opts = {}) {
+      await requireCompany(db, companyId, { writable: true });
+      return run(opts.dryRun === true, async (tx, record) => {
+        const current = await requireRow(tx, companyId, id);
+        if (current.deletedAt) return { doc: await dtoOf(tx, current), impact: NO_IMPACT };
+        const dto = await dtoOf(tx, current);
+        const markDeleted = async () => {
+          await tx.update(stockDocs).set({ deletedAt: now().toISOString(), updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(stockDocs.id, id));
         };
         // черновик инвентаризации в FIFO не участвует — пересчитывать нечего (решение 6)
         let impact = NO_IMPACT;
-        if (current.type === 'count' && current.status === 'draft') markDeleted();
-        else impact = rebuild(tx, companyId, pairsOf(tx, draftOf(dto)), id, current.at, markDeleted);
-        record({ companyId, userId, entity: 'stock_doc', entityId: id, action: 'delete', diff: { number: current.number, type: current.type, at: current.at, total: dto.total } });
-        return { doc: dtoOf(tx, requireRow(tx, companyId, id)), impact };
+        if (current.type === 'count' && current.status === 'draft') await markDeleted();
+        else impact = await rebuild(tx, companyId, await pairsOf(tx, draftOf(dto)), id, current.at, markDeleted);
+        await record({ companyId, userId, entity: 'stock_doc', entityId: id, action: 'delete', diff: { number: current.number, type: current.type, at: current.at, total: dto.total } });
+        return { doc: await dtoOf(tx, await requireRow(tx, companyId, id)), impact };
       });
     },
 
-    typeOf(companyId, id) {
-      requireCompany(db, companyId);
-      return requireRow(db, companyId, id).type as StockDocType;
+    async typeOf(companyId, id) {
+      await requireCompany(db, companyId);
+      return (await requireRow(db, companyId, id)).type as StockDocType;
     },
 
-    createCount(companyId, input, userId) {
-      requireCompany(db, companyId, { writable: true });
-      return mutate(
+    async createCount(companyId, input, userId) {
+      await requireCompany(db, companyId, { writable: true });
+      return mutateAsync(
         db,
         audit,
-        (tx, record) => {
-          checkCountWarehouse(tx, companyId, input.warehouseId, null);
+        async (tx, record) => {
+          await checkCountWarehouse(tx, companyId, input.warehouseId, null);
           const at = checkNotFuture(input.at);
-          checkCountLines(tx, companyId, input.lines, new Set());
+          await checkCountLines(tx, companyId, input.lines, new Set());
           const t = now().toISOString();
-          const number = nextNumber(tx, companyId, 'count');
-          const row = tx
+          const number = await nextNumber(tx, companyId, 'count');
+          const [row] = await tx
             .insert(stockDocs)
             .values({
               companyId,
@@ -616,104 +602,103 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
               updatedAt: t,
               version: 1,
             })
-            .returning()
-            .get();
+            .returning();
+          if (!row) throw new Error('stock_docs: вставка не вернула строку');
           const lines: CountLine[] = [...input.lines];
           if (input.fill) {
             // все товары склада с ненулевым остатком на момент документа, кроме уже переданных, — по названию
             const given = new Set(lines.map((l) => l.itemId));
-            const expected = expectedQtys(tx, companyId, input.warehouseId, { at, docId: row.id, position: -1 });
+            const expected = await expectedQtys(tx, companyId, input.warehouseId, { at, docId: row.id, position: -1 });
             // с остатком партий или с долгом «Нет партии» (§7: «ненулевым или отрицательным остатком»)
             const ids = [...expected].filter(([itemId, b]) => (b.expected !== 0 || b.deficit > 0) && !given.has(itemId)).map(([itemId]) => itemId);
             if (ids.length > 0) {
-              const ordered = tx
+              const ordered = await tx
                 .select({ id: stockItems.id })
                 .from(stockItems)
                 .where(and(inArray(stockItems.id, ids), eq(stockItems.isCombo, false)))
-                .orderBy(stockItems.nameKey, stockItems.id)
-                .all();
+                .orderBy(stockItems.nameKey, stockItems.id);
               for (const i of ordered) lines.push({ itemId: i.id, countedQty: null });
             }
           }
           if (lines.length > STOCK_COUNT_LINES_MAX) {
             throw new AppError(422, 'VALIDATION', `На складе больше ${STOCK_COUNT_LINES_MAX} товаров с остатком`);
           }
-          insertCountLines(tx, row.id, lines);
-          record({ companyId, userId, entity: 'stock_doc', entityId: row.id, action: 'create', diff: { number, type: 'count', at, warehouseId: input.warehouseId, lines: lines.length } });
+          await insertCountLines(tx, row.id, lines);
+          await record({ companyId, userId, entity: 'stock_doc', entityId: row.id, action: 'create', diff: { number, type: 'count', at, warehouseId: input.warehouseId, lines: lines.length } });
           return dtoOf(tx, row);
         },
         { behavior: 'immediate' },
       );
     },
 
-    updateCount(companyId, id, patch, userId) {
-      requireCompany(db, companyId, { writable: true });
-      return mutate(
+    async updateCount(companyId, id, patch, userId) {
+      await requireCompany(db, companyId, { writable: true });
+      return mutateAsync(
         db,
         audit,
-        (tx, record) => {
-          const current = requireCount(tx, companyId, id, patch.version);
+        async (tx, record) => {
+          const current = await requireCount(tx, companyId, id, patch.version);
           if (current.status === 'posted') throw new AppError(422, 'VALIDATION', 'Проведённую инвентаризацию изменить нельзя — удалите её и проведите заново');
           if (patch.warehouseId !== undefined && patch.warehouseId !== current.warehouseId) {
             throw new AppError(422, 'VALIDATION', 'Склад инвентаризации не меняется', { warehouseId: 'Склад инвентаризации не меняется' });
           }
-          const prevLines = tx.select().from(stockDocLines).where(eq(stockDocLines.docId, id)).orderBy(stockDocLines.position).all();
+          const prevLines = await tx.select().from(stockDocLines).where(eq(stockDocLines.docId, id)).orderBy(stockDocLines.position);
           const prev = { at: current.at, comment: current.comment, lines: prevLines.map((l) => ({ itemId: l.itemId, countedQty: l.countedQty })) };
           const next = {
             at: patch.at !== undefined ? checkNotFuture(patch.at) : prev.at,
             comment: patch.comment !== undefined ? patch.comment : prev.comment,
             lines: patch.lines ?? prev.lines,
           };
-          if (patch.lines !== undefined) checkCountLines(tx, companyId, patch.lines, new Set(prev.lines.map((l) => l.itemId)));
+          if (patch.lines !== undefined) await checkCountLines(tx, companyId, patch.lines, new Set(prev.lines.map((l) => l.itemId)));
           const changes = changedFields(prev, next);
           if (!changes) return dtoOf(tx, current);
-          tx.update(stockDocs).set({ at: next.at, comment: next.comment, updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(stockDocs.id, id)).run();
+          await tx.update(stockDocs).set({ at: next.at, comment: next.comment, updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(stockDocs.id, id));
           if (patch.lines !== undefined) {
-            tx.delete(stockDocLines).where(eq(stockDocLines.docId, id)).run();
-            insertCountLines(tx, id, next.lines);
+            await tx.delete(stockDocLines).where(eq(stockDocLines.docId, id));
+            await insertCountLines(tx, id, next.lines);
           }
-          record({ companyId, userId, entity: 'stock_doc', entityId: id, action: 'update', diff: { number: current.number, type: 'count', ...changes } });
-          return dtoOf(tx, requireRow(tx, companyId, id));
+          await record({ companyId, userId, entity: 'stock_doc', entityId: id, action: 'update', diff: { number: current.number, type: 'count', ...changes } });
+          return dtoOf(tx, await requireRow(tx, companyId, id));
         },
         { behavior: 'immediate' },
       );
     },
 
-    post(companyId, id, version, userId) {
-      requireCompany(db, companyId, { writable: true });
-      const out = run(false, (tx, record) => {
-        const current = requireCount(tx, companyId, id, version);
+    async post(companyId, id, version, userId) {
+      await requireCompany(db, companyId, { writable: true });
+      const out = await run(false, async (tx, record) => {
+        const current = await requireCount(tx, companyId, id, version);
         if (current.status === 'posted') throw new AppError(422, 'VALIDATION', 'Инвентаризация уже проведена');
         // склад могли отправить в архив, пока черновик лежал
-        checkCountWarehouse(tx, companyId, current.warehouseId, null);
-        const lines = tx.select().from(stockDocLines).where(eq(stockDocLines.docId, id)).orderBy(stockDocLines.position).all();
+        await checkCountWarehouse(tx, companyId, current.warehouseId, null);
+        const lines = await tx.select().from(stockDocLines).where(eq(stockDocLines.docId, id)).orderBy(stockDocLines.position);
         if (lines.length === 0) throw new AppError(422, 'VALIDATION', 'Добавьте хотя бы одну строку');
         const blank = lines.findIndex((l) => l.countedQty === null);
         if (blank >= 0) throw new AppError(422, 'VALIDATION', 'Проверьте заполнение полей', { [`lines.${blank}.countedQty`]: 'Внесите факт или удалите строку' });
         // учёт — остаток строго перед документом; после проведения он зафиксирован (§7)
-        const expected = expectedQtys(
+        const expected = await expectedQtys(
           tx,
           companyId,
           current.warehouseId,
           { at: current.at, docId: id, position: -1 },
           lines.map((l) => l.itemId),
         );
-        const impact = rebuild(
+        const impact = await rebuild(
           tx,
           companyId,
           lines.map((l) => ({ warehouseId: current.warehouseId, itemId: l.itemId })),
           id,
           current.at,
-          () => {
+          async () => {
             for (const l of lines) {
               const e = expected.get(l.itemId)?.expected ?? 0;
-              tx.update(stockDocLines).set({ expectedQty: e, qty: Math.abs(l.countedQty! - e) }).where(eq(stockDocLines.id, l.id)).run();
+              await tx.update(stockDocLines).set({ expectedQty: e, qty: Math.abs(l.countedQty! - e) }).where(eq(stockDocLines.id, l.id));
             }
-            tx.update(stockDocs).set({ status: 'posted', updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(stockDocs.id, id)).run();
+            await tx.update(stockDocs).set({ status: 'posted', updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(stockDocs.id, id));
           },
         );
-        const summary = countSummary(tx, companyId, current.warehouseId, lines);
-        record({
+        const summary = await countSummary(tx, companyId, current.warehouseId, lines);
+        await record({
           companyId,
           userId,
           entity: 'stock_doc',
@@ -721,7 +706,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
           action: 'update',
           diff: { number: current.number, type: 'count', before: { status: 'draft' }, after: { status: 'posted' }, shortage: summary.shortage, surplus: summary.surplus },
         });
-        return { doc: dtoOf(tx, requireRow(tx, companyId, id)), impact };
+        return { doc: await dtoOf(tx, await requireRow(tx, companyId, id)), impact };
       });
       return out.doc!;
     },

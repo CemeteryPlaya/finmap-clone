@@ -23,7 +23,7 @@ interface Item {
 describe('журнал на демо-наборе (§10, §12)', () => {
   it('курсор проходит все операции ровно по разу в порядке (paidAt, id); остатки после операции = независимый пересчёт в JS; выгрузка — все строки', async () => {
     h = await createApi(NOW);
-    seedDemo({ db: h.t.db, timezone: 'Asia/Almaty', now: new Date(NOW), operations: 300 });
+    await seedDemo({ db: h.t.db, timezone: 'Asia/Almaty', now: new Date(NOW), operations: 300 });
     const s = h.t.sqlite;
     const cid = (s.prepare('SELECT id FROM companies ORDER BY id LIMIT 1').get() as { id: number }).id;
     const ops = `/api/v1/companies/${cid}/operations`;

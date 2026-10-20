@@ -391,11 +391,11 @@ describe('атомарность записи (§6.4 п. 5)', () => {
       tags: createTagsService({ db, audit }),
       writer: failing,
     });
-    const p = imports.upload(w.cid, adminId(), { name: 'выгрузка.xlsx', data: finmapLikeXlsx(FILE) });
+    const p = await imports.upload(w.cid, adminId(), { name: 'выгрузка.xlsx', data: finmapLikeXlsx(FILE) });
     const mappings: AccountMapping[] = [{ key: 'банк-2', kind: 'new', name: 'Банк-2', currency: 'KZT', balance: { mode: 'current', amount: 1 } }];
-    const q = imports.preview(w.cid, adminId(), { token: p.token, accounts: mappings });
+    const q = await imports.preview(w.cid, adminId(), { token: p.token, accounts: mappings });
     const before = tableCounts();
-    expect(() => imports.commit(w.cid, adminId(), { token: q.token, accounts: mappings, revision: q.revision })).toThrow('сбой записи');
+    await expect(imports.commit(w.cid, adminId(), { token: q.token, accounts: mappings, revision: q.revision })).rejects.toThrow('сбой записи');
     expect(written).toBe(2);
     expect(tableCounts()).toEqual(before);
   });
@@ -525,13 +525,13 @@ describe('гонки между проверкой и записью', () => {
         },
       };
       const imports = importsServiceWith(cache);
-      const p = imports.upload(w.cid, adminId(), { name: 'выгрузка.xlsx', data: finmapLikeXlsx(FILE) });
+      const p = await imports.upload(w.cid, adminId(), { name: 'выгрузка.xlsx', data: finmapLikeXlsx(FILE) });
       expect(p.canImport).toBe(true);
       const before = tableCounts();
       archiveOnGet = true;
       let err: unknown;
       try {
-        imports.commit(w.cid, adminId(), { token: p.token, accounts: [], revision: p.revision });
+        await imports.commit(w.cid, adminId(), { token: p.token, accounts: [], revision: p.revision });
       } catch (e) {
         err = e;
       }

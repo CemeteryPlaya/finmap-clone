@@ -43,9 +43,9 @@ describe('seed:demo', () => {
     expect(xs.every((x) => x >= 0 && x < 1)).toBe(true);
   });
 
-  it('состав по §10, доли разбиений и переводов, SQL-баланс = пересчёт в JS (§12)', () => {
+  it('состав по §10, доли разбиений и переводов, SQL-баланс = пересчёт в JS (§12)', async () => {
     const t = freshDb();
-    const r = seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 500 });
+    const r = await seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 500 });
     expect(r).toMatchObject({ companies: 3, projects: 5, accounts: 8, counterparties: 150, operations: 500 });
     expect(r.categories).toBeGreaterThanOrEqual(60);
     const n = (sql: string) => (t.sqlite.prepare(sql).get() as { n: number }).n;
@@ -66,34 +66,34 @@ describe('seed:demo', () => {
     }
   });
 
-  it('детерминированность: два запуска на пустых базах с одной датой дают одинаковые данные; по непустой базе — отказ без записей (Review Focus 4)', () => {
+  it('детерминированность: два запуска на пустых базах с одной датой дают одинаковые данные; по непустой базе — отказ без записей (Review Focus 4)', async () => {
     const a = freshDb();
     const b = freshDb();
-    seedDemo({ db: a.db, timezone: 'Asia/Almaty', now: NOW, operations: 300 });
-    seedDemo({ db: b.db, timezone: 'Asia/Almaty', now: NOW, operations: 300 });
+    await seedDemo({ db: a.db, timezone: 'Asia/Almaty', now: NOW, operations: 300 });
+    await seedDemo({ db: b.db, timezone: 'Asia/Almaty', now: NOW, operations: 300 });
     const digest = (t: ReturnType<typeof createTestDb>) =>
       JSON.stringify(t.sqlite.prepare('SELECT type, paid_at, account_id, amount, to_amount, base_amount FROM operations ORDER BY id').all());
     expect(digest(a)).toBe(digest(b));
 
     const before = (a.sqlite.prepare('SELECT COUNT(*) n FROM operations').get() as { n: number }).n;
-    expect(() => seedDemo({ db: a.db, timezone: 'Asia/Almaty', now: NOW, operations: 10 })).toThrow('Демо-набор заливается только в пустую базу');
+    await expect(seedDemo({ db: a.db, timezone: 'Asia/Almaty', now: NOW, operations: 10 })).rejects.toThrow('Демо-набор заливается только в пустую базу');
     expect((a.sqlite.prepare('SELECT COUNT(*) n FROM operations').get() as { n: number }).n).toBe(before);
   });
 
-  it('сбой посередине откатывает всё: база пуста и пригодна для повторного запуска', () => {
+  it('сбой посередине откатывает всё: база пуста и пригодна для повторного запуска', async () => {
     const t = freshDb();
     t.sqlite.exec("CREATE TEMP TRIGGER stop_ops BEFORE INSERT ON operations WHEN (SELECT COUNT(*) FROM operations) >= 20 BEGIN SELECT RAISE(ABORT, 'stop'); END");
-    expect(() => seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 50 })).toThrow('stop');
+    await expect(seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 50 })).rejects.toThrow('stop');
     t.sqlite.exec('DROP TRIGGER stop_ops');
     const n = (table: string) => (t.sqlite.prepare(`SELECT COUNT(*) n FROM ${table}`).get() as { n: number }).n;
     expect([n('companies'), n('operations'), n('exchange_rates'), n('audit_log')]).toEqual([0, 0, 0, 0]);
-    expect(seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 50 }).operations).toBe(50);
+    expect((await seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 50 })).operations).toBe(50);
   });
 
-  it('без пользователя — понятная ошибка', () => {
+  it('без пользователя — понятная ошибка', async () => {
     const t = createTestDb();
     dbs.push(t);
     seedCurrencies(t.db);
-    expect(() => seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 10 })).toThrow('Сначала создайте пользователя');
+    await expect(seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 10 })).rejects.toThrow('Сначала создайте пользователя');
   });
 });

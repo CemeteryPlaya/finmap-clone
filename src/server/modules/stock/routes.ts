@@ -59,7 +59,7 @@ export function registerStockRoutes(
   app.get<{ Params: { cid: string; kind: string } }>(`${BASE}/import/:kind/template.xlsx`, async (req, reply) => {
     const kind = z.enum(['items', 'receipts']).safeParse(req.params.kind);
     if (!kind.success) throw new AppError(404, 'NOT_FOUND', 'Неизвестный вид импорта');
-    const file = templates.template(parseId(req.params.cid), kind.data);
+    const file = await templates.template(parseId(req.params.cid), kind.data);
     reply.header('Content-Type', XLSX_MIME);
     reply.header('Content-Disposition', contentDisposition(file.fileName));
     reply.header('X-Content-Type-Options', 'nosniff');
@@ -68,11 +68,11 @@ export function registerStockRoutes(
   });
 
   // ---- аналитика склада (§8, план Склад-3)
-  app.get<C>(`${BASE}/analytics/items`, async (req) => analytics.items(parseId(req.params.cid), stockAnalyticsSchema.parse(req.query)));
-  app.get<C>(`${BASE}/analytics/lists`, async (req) => analytics.lists(parseId(req.params.cid), stockListsSchema.parse(req.query)));
-  app.get<P>(`${BASE}/analytics/prices/:id`, async (req) => analytics.prices(parseId(req.params.cid), parseId(req.params.id), stockAnalyticsSchema.parse(req.query)));
+  app.get<C>(`${BASE}/analytics/items`, async (req) => await analytics.items(parseId(req.params.cid), stockAnalyticsSchema.parse(req.query)));
+  app.get<C>(`${BASE}/analytics/lists`, async (req) => await analytics.lists(parseId(req.params.cid), stockListsSchema.parse(req.query)));
+  app.get<P>(`${BASE}/analytics/prices/:id`, async (req) => await analytics.prices(parseId(req.params.cid), parseId(req.params.id), stockAnalyticsSchema.parse(req.query)));
   app.get<C>(`${BASE}/analytics/export.xlsx`, async (req, reply) => {
-    const file = analytics.exportXlsx(parseId(req.params.cid), stockAnalyticsSchema.parse(req.query));
+    const file = await analytics.exportXlsx(parseId(req.params.cid), stockAnalyticsSchema.parse(req.query));
     reply.header('Content-Type', XLSX_MIME);
     reply.header('Content-Disposition', contentDisposition(file.fileName));
     reply.header('X-Content-Type-Options', 'nosniff');
@@ -93,7 +93,7 @@ export function registerStockRoutes(
       if (!kind.success) throw new AppError(404, 'NOT_FOUND', 'Неизвестный вид импорта');
       if (!Buffer.isBuffer(req.body)) throw new AppError(400, 'VALIDATION', 'Проверьте файл', { file: 'Нет файла' });
       const q = z.object({ commit: z.enum(['0', '1']).default('0'), warehouse: z.coerce.number().int().positive().optional() }).parse(req.query);
-      const result = imports.run(parseId(req.params.cid), req.user!.id, kind.data, { name: headerFileName(req.headers['x-file-name']), data: req.body }, {
+      const result = await imports.run(parseId(req.params.cid), req.user!.id, kind.data, { name: headerFileName(req.headers['x-file-name']), data: req.body }, {
         warehouseId: q.warehouse,
         commit: q.commit === '1',
       });
@@ -102,84 +102,84 @@ export function registerStockRoutes(
   });
 
   // ---- группы товаров
-  app.get<C>(`${BASE}/groups`, async (req) => ({ groups: catalog.groups(parseId(req.params.cid)) }));
+  app.get<C>(`${BASE}/groups`, async (req) => ({ groups: await catalog.groups(parseId(req.params.cid)) }));
 
   app.post<C>(`${BASE}/groups`, async (req, reply) => {
     const { name } = stockGroupSchema.parse(req.body);
-    return reply.status(201).send({ group: catalog.addGroup(parseId(req.params.cid), name, req.user!.id) });
+    return reply.status(201).send({ group: await catalog.addGroup(parseId(req.params.cid), name, req.user!.id) });
   });
 
   app.patch<P>(`${BASE}/groups/:id`, async (req) => {
     const { name } = stockGroupSchema.parse(req.body);
-    return { group: catalog.renameGroup(parseId(req.params.cid), parseId(req.params.id), name, req.user!.id) };
+    return { group: await catalog.renameGroup(parseId(req.params.cid), parseId(req.params.id), name, req.user!.id) };
   });
 
   app.post<P>(`${BASE}/groups/:id/archive`, async (req) => ({
-    group: catalog.archiveGroup(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
+    group: await catalog.archiveGroup(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
   }));
 
   app.post<P>(`${BASE}/groups/:id/unarchive`, async (req) => ({
-    group: catalog.unarchiveGroup(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
+    group: await catalog.unarchiveGroup(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
   }));
 
   // ---- товары
-  app.get<C>(`${BASE}/items`, async (req) => ({ items: catalog.items(parseId(req.params.cid)) }));
+  app.get<C>(`${BASE}/items`, async (req) => ({ items: await catalog.items(parseId(req.params.cid)) }));
 
   app.post<C>(`${BASE}/items`, async (req, reply) => {
     const body = stockItemCreateSchema.parse(req.body);
-    return reply.status(201).send({ item: catalog.addItem(parseId(req.params.cid), body, req.user!.id) });
+    return reply.status(201).send({ item: await catalog.addItem(parseId(req.params.cid), body, req.user!.id) });
   });
 
-  app.get<P>(`${BASE}/items/:id`, async (req) => ({ item: catalog.item(parseId(req.params.cid), parseId(req.params.id)) }));
+  app.get<P>(`${BASE}/items/:id`, async (req) => ({ item: await catalog.item(parseId(req.params.cid), parseId(req.params.id)) }));
 
   app.patch<P>(`${BASE}/items/:id`, async (req) => {
     const body = stockItemUpdateSchema.parse(req.body);
-    return { item: catalog.updateItem(parseId(req.params.cid), parseId(req.params.id), body, req.user!.id) };
+    return { item: await catalog.updateItem(parseId(req.params.cid), parseId(req.params.id), body, req.user!.id) };
   });
 
   app.post<P>(`${BASE}/items/:id/price`, async (req) => {
     const body = stockPriceSchema.parse(req.body);
-    return { item: catalog.setPrice(parseId(req.params.cid), parseId(req.params.id), body, req.user!.id) };
+    return { item: await catalog.setPrice(parseId(req.params.cid), parseId(req.params.id), body, req.user!.id) };
   });
 
   app.post<P>(`${BASE}/items/:id/archive`, async (req) => ({
-    item: catalog.archiveItem(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
+    item: await catalog.archiveItem(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
   }));
 
   app.post<P>(`${BASE}/items/:id/unarchive`, async (req) => ({
-    item: catalog.unarchiveItem(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
+    item: await catalog.unarchiveItem(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
   }));
 
   app.delete<P>(`${BASE}/items/:id`, async (req, reply) => {
-    catalog.removeItem(parseId(req.params.cid), parseId(req.params.id), req.user!.id);
+    await catalog.removeItem(parseId(req.params.cid), parseId(req.params.id), req.user!.id);
     return reply.status(204).send();
   });
 
   // ---- склады
-  app.get<C>(`${BASE}/warehouses`, async (req) => ({ warehouses: warehouses.list(parseId(req.params.cid)) }));
+  app.get<C>(`${BASE}/warehouses`, async (req) => ({ warehouses: await warehouses.list(parseId(req.params.cid)) }));
 
   app.post<C>(`${BASE}/warehouses`, async (req, reply) => {
     const body = stockWarehouseCreateSchema.parse(req.body);
-    return reply.status(201).send({ warehouse: warehouses.create(parseId(req.params.cid), body, req.user!.id) });
+    return reply.status(201).send({ warehouse: await warehouses.create(parseId(req.params.cid), body, req.user!.id) });
   });
 
   app.patch<P>(`${BASE}/warehouses/:id`, async (req) => {
     const { name } = stockWarehouseUpdateSchema.parse(req.body);
-    return { warehouse: warehouses.rename(parseId(req.params.cid), parseId(req.params.id), name, req.user!.id) };
+    return { warehouse: await warehouses.rename(parseId(req.params.cid), parseId(req.params.id), name, req.user!.id) };
   });
 
   app.post<P>(`${BASE}/warehouses/:id/archive`, async (req) => ({
-    warehouse: warehouses.archive(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
+    warehouse: await warehouses.archive(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
   }));
 
   app.post<P>(`${BASE}/warehouses/:id/unarchive`, async (req) => ({
-    warehouse: warehouses.unarchive(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
+    warehouse: await warehouses.unarchive(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
   }));
 
   // ---- документы
-  app.get<C>(`${BASE}/docs`, async (req) => docs.list(parseId(req.params.cid), stockDocListSchema.parse(req.query)));
+  app.get<C>(`${BASE}/docs`, async (req) => await docs.list(parseId(req.params.cid), stockDocListSchema.parse(req.query)));
 
-  app.get<P>(`${BASE}/docs/:id`, async (req) => ({ doc: docs.get(parseId(req.params.cid), parseId(req.params.id)) }));
+  app.get<P>(`${BASE}/docs/:id`, async (req) => ({ doc: await docs.get(parseId(req.params.cid), parseId(req.params.id)) }));
 
   app.post<C>(`${BASE}/docs`, async (req, reply) => {
     // инвентаризация — своё тело: черновик со строками «товар — факт» (§7)
@@ -187,11 +187,11 @@ export function registerStockRoutes(
     if (raw?.type === 'count') {
       // черновик в FIFO не участвует: пробного расчёта у инвентаризации нет
       if (raw.dryRun === true) throw new AppError(400, 'VALIDATION', 'Проверьте заполнение полей', { dryRun: 'У инвентаризации нет пробного расчёта' });
-      const doc = docs.createCount(parseId(req.params.cid), stockCountCreateSchema.parse(req.body), req.user!.id);
+      const doc = await docs.createCount(parseId(req.params.cid), stockCountCreateSchema.parse(req.body), req.user!.id);
       return reply.status(201).send({ doc, impact: { sales: 0, writeoffs: 0, since: null } });
     }
     const body = stockDocCreateSchema.parse(req.body);
-    const out = docs.create(parseId(req.params.cid), body, req.user!.id);
+    const out = await docs.create(parseId(req.params.cid), body, req.user!.id);
     return reply.status(body.dryRun ? 200 : 201).send(out);
   });
 
@@ -199,30 +199,30 @@ export function registerStockRoutes(
   app.patch<P>(`${BASE}/docs/:id`, async (req) => {
     const cid = parseId(req.params.cid);
     const id = parseId(req.params.id);
-    if (docs.typeOf(cid, id) === 'count') {
-      return { doc: docs.updateCount(cid, id, stockCountUpdateSchema.parse(req.body), req.user!.id), impact: { sales: 0, writeoffs: 0, since: null } };
+    if ((await docs.typeOf(cid, id)) === 'count') {
+      return { doc: await docs.updateCount(cid, id, stockCountUpdateSchema.parse(req.body), req.user!.id), impact: { sales: 0, writeoffs: 0, since: null } };
     }
-    return docs.update(cid, id, stockDocUpdateSchema.parse(req.body), req.user!.id);
+    return await docs.update(cid, id, stockDocUpdateSchema.parse(req.body), req.user!.id);
   });
 
   // «Провести» инвентаризацию
   app.post<P>(`${BASE}/docs/:id/post`, async (req) => {
     const { version } = stockCountPostSchema.parse(req.body);
-    return { doc: docs.post(parseId(req.params.cid), parseId(req.params.id), version, req.user!.id) };
+    return { doc: await docs.post(parseId(req.params.cid), parseId(req.params.id), version, req.user!.id) };
   });
 
   // ?dryRun=1 — только последствия, документ остаётся
   app.delete<P>(`${BASE}/docs/:id`, async (req) => {
     const { dryRun } = z.object({ dryRun: z.enum(['1', '0']).optional() }).parse(req.query);
-    return docs.remove(parseId(req.params.cid), parseId(req.params.id), req.user!.id, { dryRun: dryRun === '1' });
+    return await docs.remove(parseId(req.params.cid), parseId(req.params.id), req.user!.id, { dryRun: dryRun === '1' });
   });
 
   // продажа → доход журнала (§6.3)
   app.post<P>(`${BASE}/docs/:id/journal`, async (req, reply) => {
     const cid = parseId(req.params.cid);
     const id = parseId(req.params.id);
-    const { operationId } = postings.post(cid, id, stockJournalSchema.parse(req.body), req.user!.id);
-    return reply.status(201).send({ operationId, doc: docs.get(cid, id) });
+    const { operationId } = await postings.post(cid, id, stockJournalSchema.parse(req.body), req.user!.id);
+    return reply.status(201).send({ operationId, doc: await docs.get(cid, id) });
   });
 
   // ---- оплата закупок: поступления поставщика с долгом (§6.1)
@@ -232,7 +232,7 @@ export function registerStockRoutes(
   });
 
   // ---- остатки и стоимость
-  app.get<C>(`${BASE}/balance`, async (req) => balance.balance(parseId(req.params.cid), stockBalanceSchema.parse(req.query)));
+  app.get<C>(`${BASE}/balance`, async (req) => await balance.balance(parseId(req.params.cid), stockBalanceSchema.parse(req.query)));
 
-  app.get<C>(`${BASE}/value`, async (req) => balance.value(parseId(req.params.cid)));
+  app.get<C>(`${BASE}/value`, async (req) => await balance.value(parseId(req.params.cid)));
 }

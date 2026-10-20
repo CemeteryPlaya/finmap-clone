@@ -574,7 +574,7 @@ describe('POST …/imports/:id/undo — отмена (§7.3 спецификац
     });
     const before = fullState();
 
-    expect(() => imports.undo(w.cid, adminId(), r.import.id, { includeEdited: true, edited: 1 })).toThrow('сбой истории');
+    await expect(imports.undo(w.cid, adminId(), r.import.id, { includeEdited: true, edited: 1 })).rejects.toThrow('сбой истории');
     expect(written).toEqual([
       'operation delete',
       'category delete',

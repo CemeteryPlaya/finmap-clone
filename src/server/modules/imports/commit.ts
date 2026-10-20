@@ -54,9 +54,14 @@ export interface ImportCreatedIds {
  * операции, история (§6.5). Любое исключение откатывает всё. Ссылка плана на новый элемент без созданного элемента —
  * внутренняя ошибка (план строится вместе со справочниками, этого не бывает).
  */
-export function writeImport(tx: Executor, deps: ImportWriterDeps, input: ImportWriteInput, record: (entry: AuditEntry) => void): ImportRecord {
+export async function writeImport(
+  tx: Executor,
+  deps: ImportWriterDeps,
+  input: ImportWriteInput,
+  record: (entry: AuditEntry) => number | Promise<number>,
+): Promise<ImportRecord> {
   const { companyId, userId, at, plan, file, counts } = input;
-  const { id: importId } = tx
+  const [inserted] = await tx
     .insert(imports)
     .values({
       companyId,
@@ -70,26 +75,27 @@ export function writeImport(tx: Executor, deps: ImportWriterDeps, input: ImportW
       accountChanges: '[]',
       createdAt: at,
     })
-    .returning({ id: imports.id })
-    .get();
+    .returning({ id: imports.id });
+  const importId = inserted!.id;
   const created: ImportCreatedIds = { accounts: [], categories: [], counterparties: [], projects: [], tags: [], computedStarts: {} };
-  const audit = (entity: string, entityId: number, action: 'create' | 'update', diff: Record<string, unknown>) =>
-    record({ companyId, userId, entity, entityId, action, diff: { ...diff, importId } });
+  const audit = async (entity: string, entityId: number, action: 'create' | 'update', diff: Record<string, unknown>) => {
+    await record({ companyId, userId, entity, entityId, action, diff: { ...diff, importId } });
+  };
 
   // новые счета: стартовый баланс и дата открытия — из плана (§5.4)
   const accountIds = new Map<string, number>();
   for (const a of plan.accounts) {
-    const row = deps.accounts.create(tx, { companyId, name: a.name, currency: a.currency, startingBalance: a.startingBalance, openedAt: a.openedAt });
+    const row = await deps.accounts.create(tx, { companyId, name: a.name, currency: a.currency, startingBalance: a.startingBalance, openedAt: a.openedAt });
     accountIds.set(a.key, row.id);
     created.accounts.push(row.id);
     if (a.computedStart) created.computedStarts[String(row.id)] = row.startingBalance;
-    audit('account', row.id, 'create', { name: row.name, currency: row.currency, startingBalance: row.startingBalance, openedAt: row.openedAt, projectId: row.projectId });
+    await audit('account', row.id, 'create', { name: row.name, currency: row.currency, startingBalance: row.startingBalance, openedAt: row.openedAt, projectId: row.projectId });
   }
   // существующие счета: перенос даты открытия и новый стартовый баланс; прежние значения — в account_changes
   for (const c of plan.accountChanges) {
-    tx.update(accounts).set(c.after).where(eq(accounts.id, c.accountId)).run();
+    await tx.update(accounts).set(c.after).where(eq(accounts.id, c.accountId));
     const changes = changedFields(c.before, c.after);
-    if (changes) audit('account', c.accountId, 'update', changes);
+    if (changes) await audit('account', c.accountId, 'update', changes);
   }
 
   const resolve = (r: Ref, made: Map<string, number>, what: string): number => {
@@ -102,31 +108,31 @@ export function writeImport(tx: Executor, deps: ImportWriterDeps, input: ImportW
   const categoryIds = new Map<string, number>();
   for (const c of plan.categories) {
     const parentId = c.parent ? resolve(c.parent, categoryIds, 'категория') : null;
-    const row = deps.categories.createIn(tx, { companyId, kind: c.kind, parentId, name: c.name });
+    const row = await deps.categories.createIn(tx, { companyId, kind: c.kind, parentId, name: c.name });
     categoryIds.set(c.key, row.id);
     created.categories.push(row.id);
-    audit('category', row.id, 'create', { kind: row.kind, name: row.name, parentId: row.parentId });
+    await audit('category', row.id, 'create', { kind: row.kind, name: row.name, parentId: row.parentId });
   }
   const counterpartyIds = new Map<string, number>();
   for (const c of plan.counterparties) {
-    const row = deps.counterparties.createIn(tx, { companyId, type: c.type, name: c.name });
+    const row = await deps.counterparties.createIn(tx, { companyId, type: c.type, name: c.name });
     counterpartyIds.set(c.key, row.id);
     created.counterparties.push(row.id);
-    audit('counterparty', row.id, 'create', { type: row.type, name: row.name, comment: row.comment });
+    await audit('counterparty', row.id, 'create', { type: row.type, name: row.name, comment: row.comment });
   }
   const projectIds = new Map<string, number>();
   for (const p of plan.projects) {
-    const row = deps.projects.createIn(tx, { companyId, name: p.name });
+    const row = await deps.projects.createIn(tx, { companyId, name: p.name });
     projectIds.set(p.key, row.id);
     created.projects.push(row.id);
-    audit('project', row.id, 'create', { name: row.name, templateKey: row.templateKey, templateParams: row.templateParams, applied: { categories: 0, accounts: 0 } });
+    await audit('project', row.id, 'create', { name: row.name, templateKey: row.templateKey, templateParams: row.templateParams, applied: { categories: 0, accounts: 0 } });
   }
   const tagIds = new Map<string, number>();
   for (const t of plan.tags) {
-    const row = deps.tags.createIn(tx, { companyId, name: t.name });
+    const row = await deps.tags.createIn(tx, { companyId, name: t.name });
     tagIds.set(t.key, row.id);
     created.tags.push(row.id);
-    audit('tag', row.id, 'create', { name: row.name });
+    await audit('tag', row.id, 'create', { name: row.name });
   }
 
   // операции — по (paidAt, номер строки): id растут по времени (§6.4 п. 3.5)
@@ -146,7 +152,7 @@ export function writeImport(tx: Executor, deps: ImportWriterDeps, input: ImportW
     projectId: r.project ? resolve(r.project, projectIds, 'проект') : null,
     tagIds: r.tags.map((t) => resolve(t, tagIds, 'тег')),
   }));
-  deps.writer.insertImported(tx, { companyId, importId, userId, at, rows });
+  await deps.writer.insertImported(tx, { companyId, importId, userId, at, rows });
 
   // одна запись истории на импорт; у операций своих записей нет (§6.5)
   const createdCounts: ImportCreatedCounts = {
@@ -156,10 +162,10 @@ export function writeImport(tx: Executor, deps: ImportWriterDeps, input: ImportW
     projects: created.projects.length,
     tags: created.tags.length,
   };
-  record({ companyId, userId, entity: 'import', entityId: importId, action: 'create', diff: { fileName: file.name, counts, created: createdCounts } });
-  tx.update(imports)
+  await record({ companyId, userId, entity: 'import', entityId: importId, action: 'create', diff: { fileName: file.name, counts, created: createdCounts } });
+  await tx
+    .update(imports)
     .set({ created: JSON.stringify(created), accountChanges: JSON.stringify(plan.accountChanges) })
-    .where(eq(imports.id, importId))
-    .run();
+    .where(eq(imports.id, importId));
   return { id: importId, fileName: file.name, fileSize: file.size, status: 'done', createdAt: at, counts, created: createdCounts };
 }

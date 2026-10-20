@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { compareMoment, runStock, type FifoMoment, type StockEvent } from '../../../shared/stock-fifo';
 import type { Executor } from '../../db/client';
+import { one, rows as sqlRows } from '../../db/raw';
 import { eventOf, loadGroupEvents, loadRows, transferClosure } from './events';
 
 /** Основа строки инвентаризации: учёт и долг «Нет партии» на момент документа. */
@@ -16,8 +17,14 @@ export interface CountBasis {
  * товару — один запрос по складам, связанным перемещениями, и только по нужным товарам. Без `itemIds` — все товары
  * с движением; товары без движения в ответ не попадают.
  */
-export function expectedQtys(ex: Executor, companyId: number, warehouseId: number, moment: FifoMoment, itemIds?: readonly number[]): Map<number, CountBasis> {
-  const rows = loadRows(ex, companyId, transferClosure(ex, companyId, [warehouseId]), itemIds === undefined ? {} : { itemIds });
+export async function expectedQtys(
+  ex: Executor,
+  companyId: number,
+  warehouseId: number,
+  moment: FifoMoment,
+  itemIds?: readonly number[],
+): Promise<Map<number, CountBasis>> {
+  const rows = await loadRows(ex, companyId, await transferClosure(ex, companyId, [warehouseId]), itemIds === undefined ? {} : { itemIds });
   const byItem = new Map<number, StockEvent[]>();
   for (const r of rows) {
     const e = eventOf(r);
@@ -51,19 +58,22 @@ export interface CountSummary {
  * Итог проведённой инвентаризации (R7): недостача и излишек — из таблиц; «цена неизвестна» в базе не хранится, поэтому
  * проход `runStock` нужен только по товарам, у которых партия излишка вышла по нулевой цене.
  */
-export function countSummary(ex: Executor, companyId: number, warehouseId: number, lines: readonly { id: number; itemId: number }[]): CountSummary {
+export async function countSummary(ex: Executor, companyId: number, warehouseId: number, lines: readonly { id: number; itemId: number }[]): Promise<CountSummary> {
   if (lines.length === 0) return { shortage: 0, surplus: 0, unknownCost: 0 };
   const ids = sql.join(
     lines.map((l) => sql`${l.id}`),
     sql`, `,
   );
-  const shortage = ex.get<{ v: number }>(sql`SELECT COALESCE(SUM(cost), 0) AS v FROM stock_allocations WHERE line_id IN (${ids})`)!.v;
-  const batches = ex.all<{ lineId: number; costIn: number }>(sql`
-    SELECT origin_line_id AS lineId, cost_in AS costIn FROM stock_batches WHERE origin_line_id IN (${ids}) AND source_batch_id IS NULL`);
+  const shortage = Number((await one<{ v: number }>(ex, sql`SELECT COALESCE(SUM(cost), 0) AS v FROM stock_allocations WHERE line_id IN (${ids})`))!.v);
+  const batches = await sqlRows<{ lineId: number; costIn: number }>(
+    ex,
+    sql`
+    SELECT origin_line_id AS lineId, cost_in AS costIn FROM stock_batches WHERE origin_line_id IN (${ids}) AND source_batch_id IS NULL`,
+  );
   let unknownCost = 0;
   for (const b of batches.filter((x) => x.costIn === 0)) {
     const itemId = lines.find((l) => l.id === b.lineId)!.itemId;
-    const { events } = loadGroupEvents(ex, companyId, itemId, transferClosure(ex, companyId, [warehouseId], itemId));
+    const { events } = await loadGroupEvents(ex, companyId, itemId, await transferClosure(ex, companyId, [warehouseId], itemId));
     if (runStock(events).batches.some((x) => x.originKey === b.lineId && x.unknownCost)) unknownCost++;
   }
   return { shortage, surplus: batches.reduce((s, b) => s + b.costIn, 0), unknownCost };
