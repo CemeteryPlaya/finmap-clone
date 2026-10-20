@@ -812,6 +812,22 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // выбор одной категории в «Деньгах» (план 2026-10-20, задача 5): плашка и график только по ней. Пары в Finmap нет — m66 заглушка
+    ours: 'c66-analytics-category.png',
+    finmap: 'm66-analytics-category.png',
+    path: 'analytics/cashflow',
+    act: async (p) => {
+      await chartReady(p, 'Деньги');
+      const legend = p.getByRole('main').getByRole('list', { name: 'Легенда: Списания', exact: true });
+      await legend.getByRole('button').first().click();
+      await p.getByRole('main').getByText('Категория:').waitFor();
+      // новый отчёт пришёл (у категории с подкатегориями кольцо — по подкатегориям, нажатой кнопки там нет);
+      // ждём строки списка «Списания» — поступлений по расходной категории нет
+      await p.waitForFunction(() => !document.querySelector('main [aria-busy="true"]'));
+      await p.locator('section[data-report-operations]').nth(1).locator('tbody tr, li').first().waitFor();
+    },
+  },
+  {
     // вкладка «Импорты» (§7 спецификации импорта) — пара к Finmap 24 «История действий» (там снимок c24-history):
     // отменённый импорт и импорт с «Отменить». Сценарий последний: импорт меняет данные демо-компании
     ours: 'c24-history-imports.png',

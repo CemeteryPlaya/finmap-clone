@@ -63,9 +63,10 @@ export function useReportSettings(company: Company, opts: { stock: boolean; norm
       counterparties: new Map(counterparties.data.map((c) => [c.id, c.name])),
     };
   }, [accounts.data, categories.data, projects.data, counterparties.data]);
-  const update = (next: ReportUrlState) => {
+  // push — выбор категории нажатием (план 2026-10-20, решение 9): запись в истории браузера, «Назад» снимает выбор
+  const update = (next: ReportUrlState, opts: { push?: boolean } = {}) => {
     setNotice('');
-    setParams(reportSearch(next), { replace: true });
+    setParams(reportSearch(next), { replace: !opts.push });
   };
   return {
     state,

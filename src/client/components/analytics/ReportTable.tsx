@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent } from 'react';
 import type { ReportColumn, ReportData, ReportRow } from '../../lib/analytics';
 import { cellTitle, columnHint, isDrillRow, moneyText, nextCell, percentText, ROW_HELP, rowLabel, tableLines, type CellMove, type LineTone, type TableLine } from '../../lib/report-table';
+import { rowCategoryId, type CategoryFocusProps } from '../../lib/report-focus';
 import { HelpButton } from '../HelpButton';
 import { ChevronIcon } from '../icons';
 
@@ -30,6 +31,8 @@ export const cellKey = (rowId: string, col: string) => `${rowId}|${col}`;
  * Пока показан прежний отчёт (busy), ячейки не открываются: aria-disabled, щелчок и Enter с пробелом игнорируются (R8).
  * Кнопки ячеек — одна точка Tab (roving tabindex, R1): стрелки, Home и End двигают фокус между ними, Enter и пробел
  * открывают список. Точка Tab — ячейка, на которой был фокус, иначе открытая ячейка, иначе первая.
+ * С focus (план 2026-10-20, решение 10) название строки категории — кнопка выбора категории (aria-pressed), раскрытие
+ * подкатегорий — отдельная кнопка-шеврон «Подкатегории «…»».
  */
 export function ReportTable(props: {
   caption: string;
@@ -41,6 +44,7 @@ export function ReportTable(props: {
   /** Ячейка с открытым списком операций. */
   active: { row: string; col: string } | null;
   onCell: (row: ReportRow, column: ReportColumn | null) => void;
+  focus?: CategoryFocusProps;
 }) {
   const { columns, meta } = props.data;
   const lines = tableLines(props.data.rows, props.expanded);
@@ -72,6 +76,37 @@ export function ReportTable(props: {
   const renderLabel = (line: TableLine) => {
     const label = rowLabel(line.row);
     const help = ROW_HELP[line.row.id];
+    const focus = props.focus;
+    const categoryId = focus?.canSelect(line.row.id) ? rowCategoryId(line.row.id) : null;
+    if (focus && categoryId !== null) {
+      return (
+        <span className="flex items-center gap-1.5" style={{ paddingLeft: `${line.depth * 1.25}rem` }}>
+          <button
+            type="button"
+            aria-pressed={focus.selected === categoryId}
+            title={`Только «${line.row.label}»`}
+            aria-disabled={props.busy || undefined}
+            onClick={() => !props.busy && focus.onSelect(categoryId)}
+            className="rounded text-left hover:underline focus-visible:outline-2 focus-visible:outline-focus aria-pressed:text-income"
+          >
+            {label}
+          </button>
+          {line.expandable && (
+            <button
+              type="button"
+              aria-label={`Подкатегории «${line.row.label}»`}
+              title={`Подкатегории «${line.row.label}»`}
+              aria-expanded={line.expanded}
+              onClick={() => props.onToggle(line.row.id)}
+              className="inline-flex items-center justify-center rounded p-0.5 hover:bg-field focus-visible:outline-2 focus-visible:outline-focus max-md:size-11"
+            >
+              <ChevronIcon up={line.expanded} />
+            </button>
+          )}
+          {help && <HelpButton about={line.row.label} text={help} />}
+        </span>
+      );
+    }
     return (
       <span className="flex items-center gap-1.5" style={{ paddingLeft: `${line.depth * 1.25}rem` }}>
         {line.expandable ? (

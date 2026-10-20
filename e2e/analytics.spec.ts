@@ -789,3 +789,84 @@ test('«Деньги»: pct=1 в виде «график» не даёт «Сб�
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(main(page).getByRole('button', { name: /^Фильтры/ })).toHaveText('Фильтры · 1');
 });
+
+test('«Деньги»: нажатие на категорию оставляет только её; повторное, «×» и «Назад» снимают; сегмент стека; таблица и подкатегории (план 2026-10-20)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Категория ${Date.now()}`);
+  const s = await cashflowSetup(page, cid);
+  // вторая операция «Аренды» и «Зарплата → Администраторы» (системная «Зарплата» есть у каждой компании)
+  await apiPost(page, `${s.base}/operations`, { type: 'expense', paidAt: minutesAgo(15), accountId: s.account, amount: 50_000, lines: [{ categoryId: s.rent, amount: 50_000 }] });
+  const tree = (await (await page.request.get(`${s.base}/categories`)).json()) as { expense: { id: number; name: string }[] };
+  const salary = tree.expense.find((c) => c.name === 'Зарплата')!.id;
+  const admins = (await apiPost(page, `${s.base}/categories`, { kind: 'expense', name: 'Администраторы', parentId: salary })).category.id as number;
+  await apiPost(page, `${s.base}/operations`, { type: 'expense', paidAt: minutesAgo(10), accountId: s.account, amount: 30_000, lines: [{ categoryId: admins, amount: 30_000 }] });
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto(`/c/${cid}/analytics/cashflow`);
+  const legend = main(page).getByRole('list', { name: 'Легенда: Списания', exact: true });
+  const chip = main(page).getByText(/^Категория:/);
+  await expect(legend.getByRole('listitem')).toHaveCount(2);
+
+  // строка легенды кольца с клавиатуры: в адресе cat, плашка, в кольце и в списке операций — только «Аренда»;
+  // кнопка не исчезает, пока грузится новый отчёт, — фокус остаётся на ней
+  await legend.getByRole('button', { name: 'Аренда' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(new RegExp(`[?&]cat=${s.rent}$`));
+  await expect(chip).toHaveText('Категория: Аренда');
+  await expect(legend.getByRole('listitem')).toHaveText([/^Аренда/]);
+  await expect(legend.getByRole('button', { name: 'Аренда' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(legend.getByRole('button', { name: 'Аренда' })).toBeFocused();
+  const list = (name: string) => main(page).locator('section[data-report-operations]').filter({ has: page.getByRole('heading', { level: 3, name, exact: true }) });
+  await expect(list('Списания').getByRole('table', { name: 'Операции' }).locator('tbody tr')).toHaveCount(2);
+  // повторное нажатие снимает выбор
+  await legend.getByRole('button', { name: 'Аренда' }).click();
+  await expect(page).not.toHaveURL(/cat=/);
+  await expect(chip).toHaveCount(0);
+  // «Назад» в браузере снимает выбор, «Вперёд» возвращает
+  await legend.getByRole('button', { name: 'Аренда' }).click();
+  await expect(chip).toBeVisible();
+  await page.goBack();
+  await expect(chip).toHaveCount(0);
+  await page.goForward();
+  await expect(chip).toHaveText('Категория: Аренда');
+  // «×» плашки снимает выбор
+  await main(page).getByRole('button', { name: 'Снять выбор категории' }).click();
+  await expect(chip).toHaveCount(0);
+
+  // сегмент стека — щелчком мышью; колонка вне сегментов и Enter — выбор колонки, а не категории (R4, R18)
+  const segment = main(page).locator(`[data-segment="expense:category:${salary}"]`).first();
+  // координаты щелчка — в окне: стек ниже первого экрана
+  await segment.scrollIntoViewIfNeeded();
+  const box = (await segment.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(chip).toHaveText('Категория: Зарплата');
+  await main(page).getByRole('button', { name: 'Снять выбор категории' }).click();
+  await expect(chip).toHaveCount(0);
+  const columns = main(page).getByRole('group', { name: 'Списания по категориям: колонки' });
+  // колонка того же месяца, что сегмент
+  const index = await columns.getByRole('button').evaluateAll((els, x) => els.findIndex((el) => el.getBoundingClientRect().left <= x && x <= el.getBoundingClientRect().right), box.x + box.width / 2);
+  const column = columns.getByRole('button').nth(index);
+  await column.scrollIntoViewIfNeeded();
+  const top = (await column.boundingBox())!;
+  await page.mouse.click(top.x + 4, top.y + 4);
+  await expect(column).toHaveAttribute('aria-pressed', 'true');
+  await expect(chip).toHaveCount(0);
+  // Enter на колонке — всегда колонка (R18): выбор снимается, категория не выбирается
+  await column.focus();
+  await page.keyboard.press('Enter');
+  await expect(column).toHaveAttribute('aria-pressed', 'false');
+  await expect(chip).toHaveCount(0);
+
+  // таблица: шеврон раскрывает подкатегории, не выбирая; название выбирает категорию
+  await page.goto(`/c/${cid}/analytics/cashflow?view=table`);
+  const expand = report(page).getByRole('button', { name: 'Подкатегории «Зарплата»' });
+  await expand.click();
+  await expect(expand).toHaveAttribute('aria-expanded', 'true');
+  await expect(page).not.toHaveURL(/cat=/);
+  await expect(reportRow(page, 'Администраторы')).toHaveCount(1);
+  await report(page).getByRole('button', { name: 'Зарплата', exact: true }).click();
+  await expect(chip).toHaveText('Категория: Зарплата');
+  await expect(reportRow(page, 'Аренда')).toHaveCount(0);
+  // график по выбранной «Зарплате» — её подкатегории (решение 11)
+  await page.goto(`/c/${cid}/analytics/cashflow?cat=${salary}`);
+  await expect(legend.getByRole('listitem')).toHaveText([/^Администраторы/]);
+});

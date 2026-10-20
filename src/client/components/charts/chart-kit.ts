@@ -28,3 +28,15 @@ export function useWidth<T extends HTMLElement>(): [RefObject<T | null>, number]
 
 /** Отступы области построения: слева — подписи оси, снизу — подписи колонок. */
 export const PLOT = { height: 240, left: 64, right: 8, top: 12, bottom: 28 } as const;
+
+/**
+ * Выбор категории нажатием на часть графика (спецификация 2026-10-19, часть 3): selected — id выбранной строки разреза,
+ * can — можно ли выбрать строку (категория, а не «Прочие» или служебная строка), onPick — нажатие.
+ */
+export interface ChartPick {
+  selected: string | null;
+  can: (rowId: string) => boolean;
+  onPick: (rowId: string) => void;
+  /** Показан прежний отчёт: кнопки остаются на месте (фокус не теряется), но aria-disabled и нажатие не действует. */
+  busy?: boolean;
+}

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useOutletContext } from 'react-router';
 import { projectsCellTitle, type ProjectsCol } from '../../../shared/report-projects';
+import { CategoryFocus } from '../../components/analytics/CategoryFocus';
 import { ChangedMark, ChoiceMenu } from '../../components/analytics/ChoiceMenu';
 import { projectsCellKey, ProjectsTable } from '../../components/analytics/ProjectsTable';
 import { ReportFilterDialog } from '../../components/analytics/ReportFilterDialog';
@@ -14,6 +15,7 @@ import { useProjectsReport } from '../../lib/analytics';
 import { periodLabel } from '../../lib/journal-filter';
 import { useIsMobile } from '../../lib/media';
 import type { Company } from '../../lib/queries';
+import { focusLabel, rowCategoryId, toggleFocus, type CategoryFocusProps } from '../../lib/report-focus';
 import { useReportSettings } from '../../lib/report-settings';
 import { noBatchText, projectsListMissesStock, STOCK_LIST_NOTE } from '../../lib/report-table';
 import {
@@ -88,6 +90,19 @@ function ProjectsScreen({ company }: { company: Company }) {
   const range = reportRange(state, today);
   const changed = changedControls(state, range);
   const phoneCount = phoneReportCount(state, range);
+  // выбор одной категории нажатием (спецификация 2026-10-19, часть 3): категория из справочника; на прежнем отчёте кнопки aria-disabled
+  const focus: CategoryFocusProps = {
+    selected: state.focusCategoryId,
+    canSelect: (rowId) => {
+      const id = rowCategoryId(rowId);
+      return state.mode === 'categories' && id !== null && lookups.categories.has(id);
+    },
+    onSelect: (id) => update(toggleFocus(state, id), { push: true }),
+  };
+  const focusChip = state.focusCategoryId !== null && (
+    <CategoryFocus label={focusLabel(filterData.categories, state.focusCategoryId) ?? '…'} onClear={() => update({ ...state, focusCategoryId: null }, { push: true })} />
+  );
+
   const refresh = (size: string) => <RefreshButton size={size} spinning={report.isFetching} onClick={() => void report.refetch()} />;
   const excel = (size: string) => <ExcelLink size={size} href={projectsExcelHref(company.id, state, today)} />;
   const closeCell = () => {
@@ -186,11 +201,13 @@ function ProjectsScreen({ company }: { company: Company }) {
           {notice}
         </p>
       )}
+      {focusChip}
       <StaleNotice queries={report.data ? [report] : []} />
       {!report.data ? (
         <ReportLoading error={report.error} onRetry={() => void report.refetch()} />
       ) : (
         <ProjectsTable
+          focus={focus}
           data={report.data}
           busy={report.isPlaceholderData}
           active={cell}

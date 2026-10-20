@@ -1,12 +1,13 @@
 import { formatMoney, MONEY_SCREEN_BEFORE } from '../../../shared/money';
-import { compactMoney, labelEvery, niceScale, stackColumn, stackExtent, yOf, type StackSeries } from '../../lib/charts';
+import { compactMoney, labelEvery, niceScale, segmentAt, stackColumn, stackExtent, yOf, type StackSeries } from '../../lib/charts';
 import { ChartColumns } from './ChartColumns';
-import { bgOf, fillOf, PLOT, useWidth } from './chart-kit';
+import { bgOf, fillOf, PLOT, useWidth, type ChartPick } from './chart-kit';
 
 /**
  * Стек по колонкам шага (§4.2 спецификации «Аналитика»): «Поступления по категориям» и т. п. Части — ряды кольца, цвета
  * как в кольце; положительные значения — вверх от нуля, отрицательные — вниз. Колонки — кнопки поверх (подсказка с
- * частями колонки, выбор колонки), легенда под графиком.
+ * частями колонки, выбор колонки), легенда под графиком. С pick (план 2026-10-20, решение 10, R4): щелчок мышью по
+ * сегменту и кнопка легенды выбирают категорию ряда; щелчок по колонке вне сегментов и клавиатура — колонку.
  */
 export function StackedBars(props: {
   title: string;
@@ -16,8 +17,10 @@ export function StackedBars(props: {
   selected: number | null;
   onSelect: (index: number) => void;
   busy?: boolean;
+  pick?: ChartPick;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
+  const pick = props.pick;
   const money = (v: number) => formatMoney(v, props.currency, MONEY_SCREEN_BEFORE);
   const n = props.columns.length;
   const plotW = Math.max(0, width - PLOT.left - PLOT.right);
@@ -53,7 +56,7 @@ export function StackedBars(props: {
                     const top = y(Math.max(seg.from, seg.to));
                     const bottom = y(Math.min(seg.from, seg.to));
                     // зазор цвета карточки между частями
-                    return <rect key={seg.id} x={center(i) - barW / 2} y={top} width={barW} height={Math.max(0, bottom - top)} strokeWidth={1} className={`${fillOf(seg.color)} stroke-card`} />;
+                    return <rect key={seg.id} data-segment={seg.id} x={center(i) - barW / 2} y={top} width={barW} height={Math.max(0, bottom - top)} strokeWidth={1} className={`${fillOf(seg.color)} stroke-card`} />;
                   })}
                   {i % every === 0 && (
                     <text x={center(i)} y={PLOT.height - 8} textAnchor="middle" className="fill-muted text-[11px]">
@@ -78,6 +81,18 @@ export function StackedBars(props: {
               selected={props.selected}
               onSelect={props.onSelect}
               busy={props.busy}
+              pick={
+                pick
+                  ? (i, x, y) => {
+                      // щелчок по самому столбцу (не рядом в колонке): значение под курсором → сегмент
+                      if (Math.abs(x - step / 2) > barW / 2) return false;
+                      const id = segmentAt(props.series, i, scale.max - (y / plotH) * (scale.max - scale.min));
+                      if (id === null || !pick.can(id)) return false;
+                      pick.onPick(id);
+                      return true;
+                    }
+                  : undefined
+              }
             />
           </>
         )}
@@ -86,8 +101,23 @@ export function StackedBars(props: {
         <ul aria-label={`Легенда: ${props.title}`} className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-ink">
           {props.series.map((s) => (
             <li key={s.id} className="flex items-center gap-2">
-              <span aria-hidden="true" className={`size-3 rounded-sm ${bgOf(s.color)}`} />
-              {s.label}
+              {pick?.can(s.id) ? (
+                <button
+                  type="button"
+                  aria-pressed={pick.selected === s.id}
+                  aria-disabled={pick.busy || undefined}
+                  onClick={() => pick.onPick(s.id)}
+                  className="inline-flex items-center gap-2 rounded-md px-1 hover:bg-field focus-visible:outline-2 focus-visible:outline-focus aria-pressed:bg-income-soft aria-pressed:font-semibold"
+                >
+                  <span aria-hidden="true" className={`size-3 rounded-sm ${bgOf(s.color)}`} />
+                  {s.label}
+                </button>
+              ) : (
+                <>
+                  <span aria-hidden="true" className={`size-3 rounded-sm ${bgOf(s.color)}`} />
+                  {s.label}
+                </>
+              )}
             </li>
           ))}
         </ul>

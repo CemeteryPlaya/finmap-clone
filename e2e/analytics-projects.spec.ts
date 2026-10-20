@@ -260,3 +260,26 @@ test('«Проекты»: панель в самом длинном состоя
   // центры по вертикали совпадают (перенос на вторую строку сдвинул бы их на высоту кнопки)
   expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(6);
 });
+
+test('«Проекты с категориями»: название категории выбирает её, «Доходы» по-прежнему открывают операции (план 2026-10-20)', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Проекты категория ${Date.now()}`);
+  await projectsSetup(page, cid);
+  await page.goto(`/c/${cid}/analytics/projects?mode=categories`);
+  await expect(table(page).getByRole('rowheader', { name: 'Всего', exact: true })).toBeVisible();
+  await expect(row(page, 'Аренда').first()).toBeVisible();
+
+  const bar = row(page, 'Бар').first().getByRole('button', { name: 'Бар', exact: true });
+  await bar.click();
+  await expect(page).toHaveURL(/[?&]cat=\d+/);
+  await expect(main(page).getByText(/^Категория:/)).toHaveText('Категория: Бар');
+  await expect(row(page, 'Аренда')).toHaveCount(0);
+  await expect(row(page, 'Бар').first().getByRole('button', { name: 'Бар', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  // «Доходы» строки категории открывают её операции, как раньше
+  await row(page, 'Бар').first().getByRole('button').nth(1).click();
+  await expect(main(page).getByRole('heading', { level: 2 })).toBeFocused();
+  // повторное нажатие на название снимает выбор
+  await row(page, 'Бар').first().getByRole('button', { name: 'Бар', exact: true }).click();
+  await expect(main(page).getByText(/^Категория:/)).toHaveCount(0);
+  await expect(row(page, 'Аренда').first()).toBeVisible();
+});

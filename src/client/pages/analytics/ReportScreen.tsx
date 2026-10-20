@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { ChangedMark, ChoiceMenu } from '../../components/analytics/ChoiceMenu';
+import { CategoryFocus } from '../../components/analytics/CategoryFocus';
 import { ReportCharts } from '../../components/analytics/ReportCharts';
 import { ReportFilterDialog } from '../../components/analytics/ReportFilterDialog';
 import { DEAL_ORDER_NOTE, ReportOperations } from '../../components/analytics/ReportOperations';
@@ -19,6 +20,7 @@ import { periodLabel } from '../../lib/journal-filter';
 import { useIsMobile } from '../../lib/media';
 import { PNL_BANNER_PREF, pnlBannerHidden } from '../../lib/preferences';
 import { savePreference, usePreferences, type Company } from '../../lib/queries';
+import { focusLabel, rowCategoryId, toggleFocus, type CategoryFocusProps } from '../../lib/report-focus';
 import { useReportSettings } from '../../lib/report-settings';
 import { cellTitle, DEFAULT_EXPANDED, listMissesStock, noBatchText, STOCK_LIST_NOTE } from '../../lib/report-table';
 import {
@@ -158,6 +160,18 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
       </section>
     );
   }
+  // выбор одной категории нажатием (спецификация 2026-10-19, часть 3): категория из справочника; на прежнем отчёте кнопки aria-disabled
+  const focus: CategoryFocusProps = {
+    selected: state.focusCategoryId,
+    canSelect: (rowId) => {
+      const id = rowCategoryId(rowId);
+      return state.by === 'category' && id !== null && lookups.categories.has(id);
+    },
+    onSelect: (id) => update(toggleFocus(state, id), { push: true }),
+  };
+  const focusChip = state.focusCategoryId !== null && (
+    <CategoryFocus label={focusLabel(filterData.categories, state.focusCategoryId) ?? '…'} onClear={() => update({ ...state, focusCategoryId: null }, { push: true })} />
+  );
   const closeCell = () => {
     const key = cell && cellKey(cell.row, cell.col);
     setCell(null);
@@ -305,11 +319,13 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
           {notice}
         </p>
       )}
+      {focusChip}
       <StaleNotice queries={report.data ? [report] : []} />
       {!report.data ? (
         <ReportLoading error={report.error} onRetry={() => void report.refetch()} />
       ) : table ? (
         <ReportTable
+          focus={focus}
           caption={config.title}
           data={report.data}
           percent={state.percent}
@@ -329,6 +345,7 @@ export function ReportScreen({ company, config }: { company: Company; config: Re
       ) : (
         <div aria-busy={report.isPlaceholderData} className={report.isPlaceholderData ? 'opacity-60' : ''}>
           <ReportCharts
+            focus={focus}
             title={config.title}
             data={report.data}
             names={config.names}

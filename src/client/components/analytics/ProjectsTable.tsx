@@ -12,6 +12,7 @@ import {
   type ProjectsCol,
 } from '../../../shared/report-projects';
 import type { ProjectsData } from '../../lib/analytics';
+import { rowCategoryId, type CategoryFocusProps } from '../../lib/report-focus';
 import { moneyText, nextCell, type CellMove } from '../../lib/report-table';
 
 const MOVES: readonly string[] = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'] satisfies CellMove[];
@@ -30,7 +31,8 @@ const cellClass = 'px-3 py-2 text-right align-middle whitespace-nowrap tabular-n
  * в «Проектах с категориями» категории идут с отступом под проектом; «Всего» — выделена. Щелчок по строке, названию или
  * «Прибыли» — все операции строки, по «Доходам» и «Расходам» — их операции (§2.5); строки склада не раскрываются.
  * Кнопки ячеек — одна точка Tab (стрелки, Home и End, как у таблицы отчёта); пока показан прежний отчёт (busy), ячейки не
- * открываются.
+ * открываются. С focus (план 2026-10-20, решение 10) название строки категории и щелчок по ней выбирают категорию
+ * (aria-pressed) вместо списка всех операций строки; «Доходы» и «Расходы» по-прежнему открывают свои операции.
  */
 export function ProjectsTable(props: {
   data: ProjectsData;
@@ -38,7 +40,11 @@ export function ProjectsTable(props: {
   /** Ячейка с открытым списком операций. */
   active: { row: string; col: ProjectsCol } | null;
   onCell: (row: ProjectRow, parent: ProjectRow | null, col: ProjectsCol) => void;
+  focus?: CategoryFocusProps;
 }) {
+  const focus = props.focus;
+  /** Категория строки, которую можно выбрать нажатием; иначе null. */
+  const focusOf = (row: ProjectRow) => (focus?.canSelect(row.id) ? rowCategoryId(row.id) : null);
   const { currency } = props.data.meta;
   const lines = projectLines(props.data.rows, props.data.total);
   const [focused, setFocused] = useState<string | null>(null);
@@ -62,19 +68,24 @@ export function ProjectsTable(props: {
   };
 
   const open = (line: (typeof lines)[number], col: ProjectsCol) => {
-    if (!props.busy) props.onCell(line.row, line.parent, col);
+    if (props.busy) return;
+    const categoryId = col === 'total' ? focusOf(line.row) : null;
+    if (focus && categoryId !== null) focus.onSelect(categoryId);
+    else props.onCell(line.row, line.parent, col);
   };
   // у названия имя кнопки — само название (оно же имя заголовка строки), «Операции: …» — подсказкой; у сумм — «Доходы: …: ₸ …»
   const button = (line: (typeof lines)[number], col: ProjectsCol, content: ReactNode, spoken: string, align: 'left' | 'right') => {
     const key = projectsCellKey(line.row.id, col);
     if (!positions.has(key)) return content;
+    const categoryId = col === 'total' ? focusOf(line.row) : null;
     return (
       <button
         type="button"
         data-cell={key}
         tabIndex={key === stop ? 0 : -1}
         aria-label={col === 'total' ? undefined : spoken}
-        title={col === 'total' ? spoken : undefined}
+        title={col === 'total' ? (categoryId !== null ? `Только «${line.row.label}»` : spoken) : undefined}
+        aria-pressed={categoryId !== null ? focus?.selected === categoryId : undefined}
         aria-current={key === activeKey ? 'true' : undefined}
         aria-disabled={props.busy || undefined}
         onFocus={() => setFocused(key)}

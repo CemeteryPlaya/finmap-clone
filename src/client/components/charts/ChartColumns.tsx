@@ -28,6 +28,11 @@ export function ChartColumns(props: {
   onSelect: (index: number) => void;
   /** Показан прежний отчёт, пока грузится новый: колонки не выбираются (как ячейки таблицы). */
   busy?: boolean;
+  /**
+   * Щелчок мышью по точке колонки (x и y — от левого верхнего угла колонки): true — щелчок ушёл в выбор категории сегмента стека
+   * (план 2026-10-20, R4), колонка не выбирается. Enter и пробел (detail = 0) всегда выбирают колонку (R18).
+   */
+  pick?: (index: number, x: number, y: number) => boolean;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [focus, setFocus] = useState<number | null>(null);
@@ -86,7 +91,11 @@ export function ChartColumns(props: {
             setLast(i);
           }}
           onBlur={() => setFocus(null)}
-          onClick={() => !props.busy && props.onSelect(i)}
+          onClick={(e) => {
+            if (props.busy) return;
+            if (e.detail > 0 && props.pick?.(i, e.clientX - e.currentTarget.getBoundingClientRect().left, e.clientY - e.currentTarget.getBoundingClientRect().top)) return;
+            props.onSelect(i);
+          }}
           className="absolute top-0 h-full rounded-sm hover:bg-ink/5 focus-visible:outline-2 focus-visible:outline-focus aria-pressed:ring-1 aria-pressed:ring-income"
           style={{ left: i * step, width: step }}
         />
