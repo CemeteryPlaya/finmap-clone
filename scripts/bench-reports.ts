@@ -2,10 +2,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildApp } from '../src/server/app';
-import { loadConfig } from '../src/server/config';
-import { openDb } from '../src/server/db/client';
-import { runMigrations } from '../src/server/db/migrate';
+import { sql } from 'drizzle-orm';
+import { type DbConfig, loadConfig } from '../src/server/config';
+import { openDatabase } from '../src/server/db/client';
+import { migrateDatabase } from '../src/server/db/migrate';
+import { one } from '../src/server/db/raw';
+import { operationLines, operations, stockDocPayments } from '../src/server/db/schema';
 import { seedCurrencies } from '../src/server/db/seed';
+import { withTx } from '../src/server/db/tx';
 import { createAuditService } from '../src/server/modules/audit/service';
 import { createUsersService } from '../src/server/modules/users/service';
 
@@ -15,6 +19,8 @@ import { createUsersService } from '../src/server/modules/users/service';
 // (продажи, списания, «Нет партии») и оплаты закупок. Строки операций пишутся прямо в базу одной транзакцией — так
 // быстрее, чем через API; отчёты идут через app.inject. npm run bench:reports. Всё — во временной папке, которая
 // удаляется в конце; папка данных приложения не трогается. Код выхода 1 — бюджет нарушен или замер не удался.
+// npm run bench:reports -- --pg <postgres://…|pglite> — тот же замер на Postgres (план 2026-10-20-vercel-postgres, задача 12):
+// база должна быть пустой (отдельная ветка Neon) — замер её заполняет и не чистит.
 
 const NOW = new Date('2027-01-15T06:00:00.000Z');
 const LOGIN = 'bench';
@@ -38,15 +44,25 @@ function rng(seed: number) {
   };
 }
 
+const pgAt = process.argv.indexOf('--pg');
+const pgUrl = pgAt >= 0 ? process.argv[pgAt + 1] : undefined;
+if (pgAt >= 0 && !pgUrl) {
+  console.log('Ошибка замера: после --pg нужен адрес пустой базы postgres://… или pglite');
+  process.exit(1);
+}
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'finmap-bench-reports-'));
 const config = loadConfig({ SESSION_SECRET: 'b'.repeat(40), DATA_DIR: dir, RATES_SOURCE: 'fixtures' });
-const { sqlite, db } = openDb(config.dbPath);
+const dbConfig: DbConfig = pgUrl === undefined ? { kind: 'sqlite', path: config.dbPath } : pgUrl === 'pglite' ? { kind: 'pglite' } : { kind: 'neon', url: pgUrl };
+const opened = await openDatabase(dbConfig);
+const { sqlite, db } = opened;
 let app: Awaited<ReturnType<typeof buildApp>> | null = null;
 let failed = false;
 let over = false;
+const count = async (table: string) => (await one<{ n: number }>(db, sql`SELECT COUNT(*) AS n FROM ${sql.raw(table)}`))!.n;
 
 try {
-  runMigrations(db);
+  await migrateDatabase(opened);
+  if ((await count('users')) > 0) throw new Error('база не пустая: замер заполняет её сам — укажите пустую базу (ветку Neon)');
   await seedCurrencies(db);
   const user = await createUsersService(db, createAuditService(db)).create({ login: LOGIN, name: 'Замер', password: PASSWORD }, null);
   app = await buildApp({ config, db, sqlite, logger: false, now: () => NOW });
@@ -118,45 +134,67 @@ try {
     }
   }
 
-  // операции: 40 000 в год, каждая четвёртая — две строки (50 000 строк в год), 2 % — переводы без строк
-  const insertOp = sqlite.prepare(
-    `INSERT INTO operations (company_id, type, status, paid_at, accrual_date, account_id, amount, to_account_id, to_amount, rate, base_amount,
-       counterparty_id, comment, created_by, created_at, updated_at, version)
-     VALUES (?, ?, 'actual', ?, ?, ?, ?, ?, ?, '1', ?, ?, NULL, ?, ?, ?, 1)`,
-  );
-  const insertLine = sqlite.prepare('INSERT INTO operation_lines (operation_id, position, category_id, project_id, amount, base_amount) VALUES (?, ?, ?, ?, ?, ?)');
-  const insertPayment = sqlite.prepare('INSERT INTO stock_doc_payments (doc_id, operation_id, amount) VALUES (?, ?, ?)');
+  // операции: 40 000 в год, каждая четвёртая — две строки (50 000 строк в год), 2 % — переводы без строк. Пишутся пачками
+  // через Drizzle одной транзакцией — одинаково на SQLite и Postgres; id пачки идут по возрастанию в порядке строк
   const pick = <T>(xs: readonly T[]) => xs[Math.floor(random() * xs.length)]!;
   const stamp = NOW.toISOString();
+  const CHUNK = 1000;
   let lines2026 = 0;
-  const insertYears = sqlite.transaction((yearFrom: number, yearTo: number) => {
-    for (let y = yearFrom; y <= yearTo; y++) {
-      const start = Date.UTC(y, 0, 1) - 5 * 3_600_000;
-      const span = Date.UTC(y + 1, 0, 1) - Date.UTC(y, 0, 1);
-      let lines = 0;
-      for (let i = 0; lines < LINES_PER_YEAR; i++) {
-        const paid = new Date(start + Math.floor(random() * span)).toISOString();
-        const account = pick(accounts);
-        if (i % 50 === 0) {
-          insertOp.run(cid, 'transfer', paid, null, account, 500_000, account === accounts[0] ? accounts[1] : accounts[0], 500_000, 500_000, null, user.id, stamp, stamp);
-          continue;
-        }
-        const type = random() < 0.45 ? 'expense' : 'income';
-        const split = i % 4 === 0;
-        const parts = split ? [Math.floor(random() * 2_000_000) + 1000, Math.floor(random() * 2_000_000) + 1000] : [Math.floor(random() * 4_000_000) + 1000];
-        const amount = parts.reduce((s, x) => s + x, 0);
-        const accrual = i % 5 === 0 ? new Date(Date.parse(paid) + Math.floor((random() - 0.5) * 40) * 86_400_000).toISOString().slice(0, 10) : null;
-        const op = insertOp.run(cid, type, paid, accrual, account, amount, null, null, amount, random() < 0.6 ? pick(counterparties) : null, user.id, stamp, stamp).lastInsertRowid as number;
-        parts.forEach((part, position) => insertLine.run(op, position, pick(type === 'income' ? income : expense), random() < 0.8 ? pick(projects) : null, part, part));
-        if (type === 'expense' && i % 97 === 0) insertPayment.run(pick(receipts), op, Math.min(amount, 6_000_000));
-        lines += parts.length;
-      }
-      if (y === 2026) lines2026 = lines;
-    }
+  type Op = { row: typeof operations.$inferInsert; parts: { categoryId: number; projectId: number | null; amount: number }[]; payment: { docId: number; amount: number } | null };
+  const opRow = (o: Pick<Op['row'], 'type' | 'paidAt' | 'accrualDate' | 'accountId' | 'amount' | 'toAccountId' | 'toAmount' | 'counterpartyId'>): Op['row'] => ({
+    ...o,
+    companyId: cid,
+    status: 'actual',
+    rate: '1',
+    baseAmount: o.amount,
+    comment: null,
+    createdBy: user.id,
+    createdAt: stamp,
+    updatedAt: stamp,
+    version: 1,
   });
-  insertYears(2025, 2026);
+  const writeOps = async (ops: Op[]) => {
+    for (let i = 0; i < ops.length; i += CHUNK) {
+      const chunk = ops.slice(i, i + CHUNK);
+      const ids = (await db.insert(operations).values(chunk.map((o) => o.row)).returning({ id: operations.id })).map((r) => r.id).sort((a, b) => a - b);
+      const lineRows = chunk.flatMap((o, k) => o.parts.map((p, position) => ({ operationId: ids[k]!, position, ...p, baseAmount: p.amount })));
+      for (let j = 0; j < lineRows.length; j += CHUNK) await db.insert(operationLines).values(lineRows.slice(j, j + CHUNK));
+      const payments = chunk.flatMap((o, k) => (o.payment ? [{ ...o.payment, operationId: ids[k]! }] : []));
+      if (payments.length) await db.insert(stockDocPayments).values(payments);
+    }
+  };
+  const insertYears = (yearFrom: number, yearTo: number) =>
+    withTx(db, async () => {
+      for (let y = yearFrom; y <= yearTo; y++) {
+        const ops: Op[] = [];
+        const start = Date.UTC(y, 0, 1) - 5 * 3_600_000;
+        const span = Date.UTC(y + 1, 0, 1) - Date.UTC(y, 0, 1);
+        let lines = 0;
+        for (let i = 0; lines < LINES_PER_YEAR; i++) {
+          const paidAt = new Date(start + Math.floor(random() * span)).toISOString();
+          const accountId = pick(accounts);
+          if (i % 50 === 0) {
+            const to = accountId === accounts[0] ? accounts[1]! : accounts[0]!;
+            ops.push({ row: opRow({ type: 'transfer', paidAt, accrualDate: null, accountId, amount: 500_000, toAccountId: to, toAmount: 500_000, counterpartyId: null }), parts: [], payment: null });
+            continue;
+          }
+          const type = random() < 0.45 ? 'expense' : 'income';
+          const split = i % 4 === 0;
+          const parts = split ? [Math.floor(random() * 2_000_000) + 1000, Math.floor(random() * 2_000_000) + 1000] : [Math.floor(random() * 4_000_000) + 1000];
+          const amount = parts.reduce((s, x) => s + x, 0);
+          const accrualDate = i % 5 === 0 ? new Date(Date.parse(paidAt) + Math.floor((random() - 0.5) * 40) * 86_400_000).toISOString().slice(0, 10) : null;
+          const row = opRow({ type, paidAt, accrualDate, accountId, amount, toAccountId: null, toAmount: null, counterpartyId: random() < 0.6 ? pick(counterparties) : null });
+          const lineParts = parts.map((part) => ({ categoryId: pick(type === 'income' ? income : expense), projectId: random() < 0.8 ? pick(projects) : null, amount: part }));
+          ops.push({ row, parts: lineParts, payment: type === 'expense' && i % 97 === 0 ? { docId: pick(receipts), amount: Math.min(amount, 6_000_000) } : null });
+          lines += parts.length;
+        }
+        await writeOps(ops);
+        if (y === 2026) lines2026 = lines;
+      }
+    });
+  await insertYears(2025, 2026);
 
-  const lines: string[] = [`Компания: строк операций за 2026 год — ${lines2026}, всего операций — ${(sqlite.prepare('SELECT COUNT(*) AS n FROM operations').get() as { n: number }).n}`];
+  const lines: string[] = [`База: ${pgUrl === undefined ? 'SQLite' : pgUrl === 'pglite' ? 'PGlite' : 'Postgres (Neon)'}. Компания: строк операций за 2026 год — ${lines2026}, всего операций — ${await count('operations')}`];
   const year = 'from=2026-01-01&to=2026-12-31';
   const scenarios: [string, string][] = [
     ['«Деньги»: год по месяцам, по категориям', `cashflow?${year}`],
@@ -203,8 +241,8 @@ try {
   // пять лет истории по 50 000 строк в год (стресс, примерно в 8 раз больше журнала клуба): к 2025–2026 добавляются
   // 2022–2024, отчёт за 2026 год тот же — растёт только объём операций до периода. Справочно: бюджет §3.2 задан на год
   // в 50 000 строк; если реальный журнал дорастёт до таких объёмов — остаток на начало хранить снимками по месяцам.
-  insertYears(HISTORY_FROM, HISTORY_TO);
-  lines.push(`История: операций всего — ${(sqlite.prepare('SELECT COUNT(*) AS n FROM operations').get() as { n: number }).n} (${HISTORY_FROM}–2026)`);
+  await insertYears(HISTORY_FROM, HISTORY_TO);
+  lines.push(`История: операций всего — ${await count('operations')} (${HISTORY_FROM}–2026)`);
   await runScenario('«Деньги»: год по месяцам, 5 лет истории', `cashflow?${year}`, false);
   await runScenario('«Прибыль»: год по месяцам, склад, 5 лет истории', `pnl?${year}`, false);
   // «Выписка по счету» (§6) загруженного счёта: сводка за год и первая страница при пяти годах истории (R5, справочно)
@@ -216,7 +254,7 @@ try {
   console.log(`Ошибка замера: ${(e as Error).message}`);
 } finally {
   await app?.close();
-  sqlite.close();
+  await opened.close();
   fs.rmSync(dir, { recursive: true, force: true });
 }
 console.log(failed ? '\nИтог: ошибка замера' : over ? '\nИтог: бюджет нарушен' : '\nИтог: бюджет соблюдён');

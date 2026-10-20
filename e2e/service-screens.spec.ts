@@ -219,6 +219,7 @@ test('история: события компании с именем польз
 });
 
 test('резервная копия: последняя копия и «Скачать сейчас»', async ({ page }) => {
+  test.skip(process.env.E2E_DB === 'pg', 'бэкап Postgres — задача 16 плана 2026-10-20-vercel-postgres');
   await login(page);
   const cid = await createCompany(page, `ТОО Бэкап ${Date.now()}`);
   await page.goto(`/c/${cid}/settings/backup`);

@@ -4,9 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildApp } from '../src/server/app';
-import { loadConfig } from '../src/server/config';
-import { openDb } from '../src/server/db/client';
-import { runMigrations } from '../src/server/db/migrate';
+import { sql } from 'drizzle-orm';
+import { type DbConfig, loadConfig } from '../src/server/config';
+import { openDatabase } from '../src/server/db/client';
+import { migrateDatabase } from '../src/server/db/migrate';
+import { one } from '../src/server/db/raw';
 import { seedCurrencies } from '../src/server/db/seed';
 import { createAuditService } from '../src/server/modules/audit/service';
 import { createUsersService } from '../src/server/modules/users/service';
@@ -29,6 +31,9 @@ import { finmapLikeMany, finmapLikeXlsx } from '../tests/helpers/finmap-like';
 // заранее, замеры идут в дочерних процессах — сборка файлов и прошлый замер не попадают в пик памяти следующего.
 // Всё — во временной папке, которая удаляется в конце; папка данных приложения не трогается. Настоящие файлы владельца
 // не используются. В CI не входит.
+// npm run bench:import -- --pg <postgres://…|pglite> — те же замеры на Postgres (план 2026-10-20-vercel-postgres, задача 12):
+// все замеры идут в одну базу (у PGlite — папка во временной папке замера); адрес Neon — пустая база (отдельная ветка),
+// замер её заполняет и не чистит.
 
 const NOW = new Date('2026-10-06T12:00:00.000Z');
 const LOGIN = 'bench';
@@ -53,6 +58,14 @@ const mb = (bytes: number) => bytes / 1024 / 1024;
 /** Пик памяти процесса с его начала, МБ (resourceUsage().maxRSS — в килобайтах). */
 const peakMb = () => process.resourceUsage().maxRSS / 1024;
 
+/** Postgres: адрес из --pg (у родителя) или пятый аргумент дочернего процесса; без него — SQLite. */
+const pgAt = process.argv.indexOf('--pg');
+const pgArg = process.argv[2] === '--measure' ? process.argv[5] : pgAt >= 0 ? (process.argv[pgAt + 1] ?? '') : undefined;
+if (pgArg === '') {
+  console.log('Ошибка замера: после --pg нужен адрес пустой базы postgres://… или pglite');
+  process.exit(EXIT_MEASURE_ERROR);
+}
+
 if (process.argv[2] !== '--measure') {
   // родительский процесс: файлы на диск, каждый замер — в своём дочернем процессе с --expose-gc
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'finmap-bench-import-'));
@@ -61,9 +74,9 @@ if (process.argv[2] !== '--measure') {
   try {
     fs.writeFileSync(path.join(dir, FILE_16K), finmapLikeXlsx(finmapLikeMany(16_000, { realSize: true }), { stored: true }));
     fs.writeFileSync(path.join(dir, FILE_50K), finmapLikeXlsx(finmapLikeMany(50_000, { perDay: 40, realSize: true }), { stored: true }));
-    console.log(`Замер импорта (§10 спецификации импорта), Node ${process.version}, ${os.cpus().length} ядер`);
+    console.log(`Замер импорта (§10 спецификации импорта), Node ${process.version}, ${os.cpus().length} ядер, база: ${!pgArg ? 'SQLite' : pgArg === 'pglite' ? 'PGlite' : 'Postgres (Neon)'}`);
     for (const phase of PHASES) {
-      const child = spawnSync(process.execPath, [...process.execArgv, '--expose-gc', fileURLToPath(import.meta.url), '--measure', dir, phase], { stdio: 'inherit' });
+      const child = spawnSync(process.execPath, [...process.execArgv, '--expose-gc', fileURLToPath(import.meta.url), '--measure', dir, phase, ...(pgArg ? [pgArg] : [])], { stdio: 'inherit' });
       if (child.status === EXIT_OVER_BUDGET) overBudget = true;
       // код 2, другой код (непойманное исключение, нехватка памяти), сигнал или процесс не запустился — не бюджет
       else if (child.status !== 0) {
@@ -103,10 +116,18 @@ async function measure(dir: string, phase: Phase): Promise<void> {
   // «undo» открывает базу «write» заново (как сервер после перезапуска): импорт и пользователь там уже есть
   const config = loadConfig({ SESSION_SECRET: 'b'.repeat(40), DATA_DIR: path.join(dir, `data-${phase === 'undo' ? 'write' : phase}`), RATES_SOURCE: 'fixtures' });
   fs.mkdirSync(config.dataDir, { recursive: true });
-  const { sqlite, db } = openDb(config.dbPath);
-  runMigrations(db);
+  // у SQLite — база на замер («undo» — база «write»); у Postgres — одна база на все замеры, пользователь — из «write»
+  const dbConfig: DbConfig = !pgArg ? { kind: 'sqlite', path: config.dbPath } : pgArg === 'pglite' ? { kind: 'pglite', dataDir: path.join(dir, 'pg') } : { kind: 'neon', url: pgArg };
+  const opened = await openDatabase(dbConfig);
+  const { sqlite, db } = opened;
+  await migrateDatabase(opened);
   await seedCurrencies(db);
-  if (phase !== 'undo') await createUsersService(db, createAuditService(db)).create({ login: LOGIN, name: 'Замер', password: PASSWORD }, null);
+  const users = (await one<{ n: number }>(db, sql`SELECT COUNT(*) AS n FROM users`))!.n;
+  if (pgArg && phase === 'write' && users > 0) {
+    await opened.close();
+    throw new Error('база не пустая: замер заполняет её сам — укажите пустую базу (ветку Neon)');
+  }
+  if (users === 0) await createUsersService(db, createAuditService(db)).create({ login: LOGIN, name: 'Замер', password: PASSWORD }, null);
   const app = await buildApp({ config, db, sqlite, logger: false, now: () => NOW });
   await app.ready();
 
@@ -211,7 +232,7 @@ async function measure(dir: string, phase: Phase): Promise<void> {
     lines.push(`Ошибка замера: ${(e as Error).message}`);
   } finally {
     await app.close();
-    sqlite.close();
+    await opened.close();
   }
 
   const titles: Record<Phase, string> = { write: 'Запись 16 000 строк', undo: 'Отмена 16 000 строк', commit50k: 'Запись 50 000 строк', cache: 'Худший случай кэша' };

@@ -4,9 +4,11 @@ import path from 'node:path';
 import AdmZip from 'adm-zip';
 import Database from 'better-sqlite3';
 import { buildApp } from '../src/server/app';
-import { loadConfig } from '../src/server/config';
-import { openDb } from '../src/server/db/client';
-import { runMigrations } from '../src/server/db/migrate';
+import { type SQL, sql } from 'drizzle-orm';
+import { type Config, loadConfig } from '../src/server/config';
+import { type Db, openDatabase, openDb, type Sqlite } from '../src/server/db/client';
+import { migrateDatabase, runMigrations } from '../src/server/db/migrate';
+import { one, rows } from '../src/server/db/raw';
 import { seedCurrencies } from '../src/server/db/seed';
 import { createAuditService } from '../src/server/modules/audit/service';
 import { createUsersService } from '../src/server/modules/users/service';
@@ -17,6 +19,8 @@ if (fs.existsSync('.env')) process.loadEnvFile('.env');
 
 // Замер §12 на демо-наборе §10: p95 первой страницы журнала, фильтра и поиска (бюджет 300 мс на сервере),
 // выгрузки в Excel, балансов и сводки. Запросы идут через app.inject — сервер без сети.
+// npm run bench:journal -- --pg <postgres://…|pglite> — тот же замер на Postgres (план 2026-10-20-vercel-postgres, задача 12): база должна
+// быть пустой (отдельная ветка Neon) — замер заливает в неё демо-набор и не чистит.
 // npm run bench:journal [-- <папка данных>]; по умолчанию <tmpdir>/finmap-bench-journal — набор заливается
 // один раз (около 45 с) и переиспользуется следующими запусками. Пользователь bench создаётся только в свежей демо-копии.
 // Безопасность: скрипт пишет только в свою папку: не в папку данных приложения (DATA_DIR) и, для свежей копии, только в
@@ -39,80 +43,128 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-const dir = path.resolve(process.argv[2] ?? path.join(os.tmpdir(), 'finmap-bench-journal'));
-const dbFile = path.join(dir, 'app.db');
-const markerFile = path.join(dir, MARKER);
-const fresh = !fs.existsSync(dbFile);
-const gate = benchDirProblem(dir, path.resolve(process.env.DATA_DIR ?? 'data'), !fresh);
-if (gate) fail(gate);
+const pgAt = process.argv.indexOf('--pg');
+const pgUrl = pgAt >= 0 ? process.argv[pgAt + 1] : undefined;
+if (pgAt >= 0 && !pgUrl) fail('После --pg нужен адрес пустой базы postgres://… или pglite');
 
-// Проверка до любой записи: ни миграций, ни заливки, ни открытия на запись.
-if (!fresh) {
-  if (!fs.existsSync(markerFile)) {
-    fail(`В ${dir} уже есть app.db, но нет файла ${MARKER}: это не демо-копия замера. Ничего не изменено. Укажите другую папку или удалите эту, если она осталась от прерванной заливки.`);
-  }
-  let names: string[];
-  try {
-    const ro = new Database(dbFile, { readonly: true, fileMustExist: true });
-    try {
-      names = (ro.prepare('SELECT name FROM companies ORDER BY id').all() as { name: string }[]).map((r) => r.name);
-    } finally {
-      ro.close();
-    }
-  } catch (e) {
-    fail(`Не удалось прочитать ${dbFile} как демо-копию: ${(e as Error).message}. Ничего не изменено.`);
-  }
-  if (names.length !== DEMO_COMPANY_NAMES.length || !names.every((n) => DEMO_COMPANY_NAMES.includes(n))) {
-    fail(`В ${dbFile} не демо-набор (компании: ${names.join(', ') || 'нет'}). Ничего не изменено. Укажите другую папку.`);
-  }
-} else {
-  fs.mkdirSync(dir, { recursive: true });
+/** База замера: SQLite — одноразовая копия демо-копии; Postgres — пустая база, в которую замер сам заливает демо-набор. */
+interface BenchDb {
+  db: Db;
+  sqlite: Sqlite | null;
+  config: Config;
+  label: string;
+  close(): Promise<void>;
 }
 
-const config = loadConfig({ SESSION_SECRET: 'b'.repeat(40), DATA_DIR: dir, RATES_SOURCE: 'fixtures' });
-if (fresh) {
-  const seeded = openDb(config.dbPath);
-  runMigrations(seeded.db);
-  await seedCurrencies(seeded.db);
-  await createUsersService(seeded.db, createAuditService(seeded.db)).create({ login: LOGIN, name: 'Замер', password: PASSWORD }, null);
-  console.log(`Заливаю демо-набор в ${dir} (около 45 с)…`);
+async function postgresDb(url: string): Promise<BenchDb> {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'finmap-bench-pg-'));
+  const config = loadConfig({ SESSION_SECRET: 'b'.repeat(40), DATA_DIR: tmp, RATES_SOURCE: 'fixtures' });
+  const opened = await openDatabase(url === 'pglite' ? { kind: 'pglite' } : { kind: 'neon', url });
+  const close = async () => {
+    await opened.close();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  };
+  await migrateDatabase(opened);
+  if ((await one<{ n: number }>(opened.db, sql`SELECT COUNT(*) AS n FROM users`))!.n > 0) {
+    await close();
+    fail('База не пустая: замер на Postgres заливает демо-набор сам — укажите пустую базу (ветку Neon). Ничего не изменено.');
+  }
+  await seedCurrencies(opened.db);
+  await createUsersService(opened.db, createAuditService(opened.db)).create({ login: LOGIN, name: 'Замер', password: PASSWORD }, null);
+  console.log('Заливаю демо-набор в Postgres…');
   const started = Date.now();
-  await seedDemo({ db: seeded.db, timezone: config.timezone, now: NOW });
-  seeded.sqlite.close();
-  fs.writeFileSync(markerFile, 'Демо-копия для npm run bench:journal. Создана замером; без этого файла замер не станет её использовать.\n');
+  await seedDemo({ db: opened.db, timezone: config.timezone, now: NOW });
   console.log(`Готово за ${((Date.now() - started) / 1000).toFixed(1)} с.`);
+  return { db: opened.db, sqlite: null, config, label: url === 'pglite' ? 'PGlite в памяти' : 'Postgres (Neon)', close };
 }
 
-// Весь замер идёт на одноразовой копии во временной папке: входы пишут в журнал аудита, массовые действия меняют операции,
-// а демо-копия между запусками не должна меняться.
-const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'finmap-bench-scratch-'));
-const scratchConfig = loadConfig({ SESSION_SECRET: 'b'.repeat(40), DATA_DIR: scratchDir, RATES_SOURCE: 'fixtures' });
-let scratch: ReturnType<typeof openDb>;
-try {
-  const source = new Database(dbFile, { readonly: true, fileMustExist: true });
-  try {
-    await source.backup(scratchConfig.dbPath);
-  } finally {
-    source.close();
+async function sqliteScratch(): Promise<BenchDb> {
+  const dir = path.resolve(process.argv[2] ?? path.join(os.tmpdir(), 'finmap-bench-journal'));
+  const dbFile = path.join(dir, 'app.db');
+  const markerFile = path.join(dir, MARKER);
+  const fresh = !fs.existsSync(dbFile);
+  const gate = benchDirProblem(dir, path.resolve(process.env.DATA_DIR ?? 'data'), !fresh);
+  if (gate) fail(gate);
+
+  // Проверка до любой записи: ни миграций, ни заливки, ни открытия на запись.
+  if (!fresh) {
+    if (!fs.existsSync(markerFile)) {
+      fail(`В ${dir} уже есть app.db, но нет файла ${MARKER}: это не демо-копия замера. Ничего не изменено. Укажите другую папку или удалите эту, если она осталась от прерванной заливки.`);
+    }
+    let names: string[];
+    try {
+      const ro = new Database(dbFile, { readonly: true, fileMustExist: true });
+      try {
+        names = (ro.prepare('SELECT name FROM companies ORDER BY id').all() as { name: string }[]).map((r) => r.name);
+      } finally {
+        ro.close();
+      }
+    } catch (e) {
+      fail(`Не удалось прочитать ${dbFile} как демо-копию: ${(e as Error).message}. Ничего не изменено.`);
+    }
+    if (names.length !== DEMO_COMPANY_NAMES.length || !names.every((n) => DEMO_COMPANY_NAMES.includes(n))) {
+      fail(`В ${dbFile} не демо-набор (компании: ${names.join(', ') || 'нет'}). Ничего не изменено. Укажите другую папку.`);
+    }
+  } else {
+    fs.mkdirSync(dir, { recursive: true });
   }
-  scratch = openDb(scratchConfig.dbPath);
-} catch (e) {
-  fs.rmSync(scratchDir, { recursive: true, force: true });
-  fail(`Не удалось подготовить одноразовую копию: ${(e as Error).message}`);
+
+  const config = loadConfig({ SESSION_SECRET: 'b'.repeat(40), DATA_DIR: dir, RATES_SOURCE: 'fixtures' });
+  if (fresh) {
+    const seeded = openDb(config.dbPath);
+    runMigrations(seeded.db);
+    await seedCurrencies(seeded.db);
+    await createUsersService(seeded.db, createAuditService(seeded.db)).create({ login: LOGIN, name: 'Замер', password: PASSWORD }, null);
+    console.log(`Заливаю демо-набор в ${dir} (около 45 с)…`);
+    const started = Date.now();
+    await seedDemo({ db: seeded.db, timezone: config.timezone, now: NOW });
+    seeded.sqlite.close();
+    fs.writeFileSync(markerFile, 'Демо-копия для npm run bench:journal. Создана замером; без этого файла замер не станет её использовать.\n');
+    console.log(`Готово за ${((Date.now() - started) / 1000).toFixed(1)} с.`);
+  }
+
+  // Весь замер идёт на одноразовой копии во временной папке: входы пишут в журнал аудита, массовые действия меняют операции,
+  // а демо-копия между запусками не должна меняться.
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'finmap-bench-scratch-'));
+  const scratchConfig = loadConfig({ SESSION_SECRET: 'b'.repeat(40), DATA_DIR: scratchDir, RATES_SOURCE: 'fixtures' });
+  let scratch: ReturnType<typeof openDb>;
+  try {
+    const source = new Database(dbFile, { readonly: true, fileMustExist: true });
+    try {
+      await source.backup(scratchConfig.dbPath);
+    } finally {
+      source.close();
+    }
+    scratch = openDb(scratchConfig.dbPath);
+  } catch (e) {
+    fs.rmSync(scratchDir, { recursive: true, force: true });
+    fail(`Не удалось подготовить одноразовую копию: ${(e as Error).message}`);
+  }
+  return {
+    db: scratch.db,
+    sqlite: scratch.sqlite,
+    config: scratchConfig,
+    label: dir,
+    close: async () => {
+      scratch.sqlite.close();
+      fs.rmSync(scratchDir, { recursive: true, force: true });
+    },
+  };
 }
-const { sqlite, db } = scratch;
+
+const bench = pgUrl === undefined ? await sqliteScratch() : await postgresDb(pgUrl);
+const { db, sqlite } = bench;
 const cleanup = async () => {
   await app.close();
-  sqlite.close();
-  fs.rmSync(scratchDir, { recursive: true, force: true });
+  await bench.close();
 };
 
-const one = <T>(sql: string, ...params: unknown[]) => sqlite.prepare(sql).get(...params) as T | undefined;
-const cid = one<{ id: number }>('SELECT id FROM companies WHERE name = ?', DEMO_COMPANY)!.id;
-const premises = one<{ id: number }>("SELECT id FROM categories WHERE company_id = ? AND template_ref = 'computer-club:premises'", cid)!.id;
-const opCount = one<{ n: number }>('SELECT COUNT(*) n FROM operations WHERE company_id = ? AND deleted_at IS NULL', cid)!.n;
+const first = async <T>(q: SQL) => (await one<T>(db, q))!;
+const cid = (await first<{ id: number }>(sql`SELECT id FROM companies WHERE name = ${DEMO_COMPANY}`)).id;
+const premises = (await first<{ id: number }>(sql`SELECT id FROM categories WHERE company_id = ${cid} AND template_ref = 'computer-club:premises'`)).id;
+const opCount = (await first<{ n: number }>(sql`SELECT COUNT(*) AS n FROM operations WHERE company_id = ${cid} AND deleted_at IS NULL`)).n;
 
-const app = await buildApp({ config: scratchConfig, db, sqlite, logger: false, now: () => NOW });
+const app = await buildApp({ config: bench.config, db, sqlite, logger: false, now: () => NOW });
 await app.ready();
 
 type Inject = typeof app.inject;
@@ -188,13 +240,9 @@ try {
 // Массовые действия на BULK_MAX = 500 операций — без бюджета §12, но запрос синхронный и держит сервер всё это время.
 // Идут последними: меняют одноразовую копию.
 const bulkIds = (
-  sqlite
-    .prepare("SELECT id FROM operations WHERE company_id = ? AND deleted_at IS NULL AND type <> 'transfer' ORDER BY id DESC LIMIT 500")
-    .all(cid) as { id: number }[]
+  await rows<{ id: number }>(db, sql`SELECT id FROM operations WHERE company_id = ${cid} AND deleted_at IS NULL AND type <> 'transfer' ORDER BY id DESC LIMIT 500`)
 ).map((r) => r.id);
-const cps = (sqlite.prepare('SELECT id FROM counterparties WHERE company_id = ? AND archived_at IS NULL ORDER BY id LIMIT 2').all(cid) as { id: number }[]).map(
-  (r) => r.id,
-);
+const cps = (await rows<{ id: number }>(db, sql`SELECT id FROM counterparties WHERE company_id = ${cid} AND archived_at IS NULL ORDER BY id LIMIT 2`)).map((r) => r.id);
 
 /** Массовое действие: время запроса; все переданные операции должны оказаться в changed. */
 async function bulk(cookie: string, body: object, expectChanged: number): Promise<number> {
@@ -229,7 +277,7 @@ results.push(
   summarize(`Массово: восстановить ${bulkIds.length} операций`, restoreTimes, false),
 );
 
-console.log(`\nДемо-набор: ${dir}; компания «${DEMO_COMPANY}», операций: ${opCount}. Бюджет §12 — ${BUDGET_MS} мс (p95).\n`);
+console.log(`\nДемо-набор: ${bench.label}; компания «${DEMO_COMPANY}», операций: ${opCount}. Бюджет §12 — ${BUDGET_MS} мс (p95).\n`);
 for (const r of results) {
   const verdict = r.budget ? (r.p95 < BUDGET_MS ? 'OK' : 'ПРЕВЫШЕН') : 'без бюджета';
   console.log(`${r.name.padEnd(54)} p50 ${r.p50.toFixed(1).padStart(7)} мс   p95 ${r.p95.toFixed(1).padStart(7)} мс   ${verdict}`);
