@@ -54,11 +54,11 @@
 | 26 | `[Feature]` `[lane:gate]` `[tdd:required]` В-1: libsql вместо better-sqlite3, свёртки поиска 0012, бэкап VACUUM INTO (задача 8) | search-fold, backup PASS; npm test, e2e ×2, shots 88; бенчи ≤ 1,5×; копия БД владельца открывается | 23, 24, 25 | cc:完了 [39d47b9] |
 | 27 | `[Feature]` `[lane:gate]` `[tdd:required]` В-2: pg-схема, миграции pg, паритет, bindSchema (задача 9) | schema-parity PASS | 26 | cc:完了 [91ac9e5] |
 | 28 | `[Feature]` `[lane:gate]` `[tdd:required]` В-2: openDb по конфигу — Neon, PGlite; advisory lock (задача 10) | db-open, pg-bigint, pg-writer-lock PASS | 27 | cc:完了 [3424b8a] |
-| 29 | `[Fix]` `[lane:gate]` `[tdd:required]` В-2: все серверные тесты на обоих диалектах (задача 11) | npm test: unit, server-sqlite, server-pg PASS | 28 | cc:WIP |
-| 30 | `[Test]` `[lane:gate]` `[tdd:skip:e2e]` В-2: e2e на PGlite (задача 12) | E2E_DB=pg 229/229 ×2 | 29 | cc:TODO |
-| 31 | `[Feature]` `[lane:gate]` `[tdd:required]` В-3: DEPLOY_MODE=vercel, точка входа, vercel.json (задача 13) | config, client-ip, vercel-entry PASS; vercel build локально | 29 | cc:TODO |
-| 32 | `[Feature]` `[lane:gate]` `[tdd:required]` В-3: FileStore, вложения через Blob (задача 14) | file-store, attachments PASS; e2e operation-edit | 31 | cc:TODO |
-| 33 | `[Feature]` `[lane:gate]` `[tdd:required]` В-3: импорт и выгрузки через Blob (задача 15) | import-cache, imports-api, journal-export PASS | 32 | cc:TODO |
-| 34 | `[Feature]` `[lane:gate]` `[tdd:required]` В-3: cron daily, бэкап Postgres в Blob (задача 16) | cron, pg-dump PASS | 32 | cc:TODO |
-| 35 | `[Feature]` `[lane:gate]` `[tdd:required]` В-4: перенос SQLite → Postgres (задача 17) | sqlite-to-pg PASS | 30, 34 | cc:TODO |
-| 36 | `[Docs]` `[lane:gate]` `[tdd:skip:deploy]` В-4: запуск на Vercel с владельцем, README, итоги (задача 18) | прод работает; чек-лист; e2e PG ×2; followups | 33, 35 | cc:TODO |
+| 29 | `[Fix]` `[lane:gate]` `[tdd:required]` В-2: все серверные тесты на обоих диалектах (задача 11) | npm test: unit, server-sqlite, server-pg PASS | 28 | cc:done [01a2165] |
+| 30 | `[Test]` `[lane:gate]` `[tdd:skip:e2e]` В-2: e2e на PGlite (задача 12) | E2E_DB=pg 229/229 ×2 | 29 | cc:done [1754dc3] |
+| 31 | `[Feature]` `[lane:gate]` `[tdd:required]` В-3: DEPLOY_MODE=vercel, точка входа, vercel.json (задача 13) | config, client-ip, vercel-entry PASS; vercel build локально | 29 | cc:done [46ebe3e] |
+| 32 | `[Feature]` `[lane:gate]` `[tdd:required]` В-3: FileStore, вложения через Blob (задача 14) | file-store, attachments PASS; e2e operation-edit | 31 | cc:done [7d99b35] |
+| 33 | `[Feature]` `[lane:gate]` `[tdd:required]` В-3: импорт и выгрузки через Blob (задача 15) | import-cache, imports-api, journal-export PASS | 32 | cc:done [e9f17de] |
+| 34 | `[Feature]` `[lane:gate]` `[tdd:required]` В-3: cron daily, бэкап Postgres в Blob (задача 16) | cron, pg-dump PASS | 32 | cc:done [e2d3116] |
+| 35 | `[Feature]` `[lane:gate]` `[tdd:required]` В-4: перенос SQLite → Postgres (задача 17) | sqlite-to-pg PASS | 30, 34 | cc:done [f4cd3d6] |
+| 36 | `[Docs]` `[lane:gate]` `[tdd:skip:deploy]` В-4: запуск на Vercel с владельцем, README, итоги (задача 18; код, README и followups готовы — ждёт аккаунта владельца) | прод работает; чек-лист; e2e PG ×2; followups | 33, 35 | cc:TODO |
