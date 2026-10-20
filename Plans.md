@@ -29,11 +29,36 @@
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 11 | `[Feature]` `[lane:gate]` `[tdd:required]` Контрагенты системных категорий (план, задача 1; R2, R6, R8) | tests/client/operation-options и journal-assign PASS; e2e/operation-form PASS; npm test, typecheck, test:e2e PASS два прогона | - | cc:TODO |
-| 12 | `[Feature]` `[lane:gate]` `[tdd:required]` Отмена — схема 0011 и сервер (задача 2; R5, R10, R14) | tests/server/operations-undo, schema-0011, audit-api PASS; npm test и typecheck PASS | - | cc:TODO |
-| 13 | `[Feature]` `[lane:gate]` `[tdd:required]` Отмена — интерфейс (задача 3; R2, R10, R11) | tests/client/operation-undo, history, audit-format PASS; e2e/history-undo и service-screens PASS два прогона; shots:ux +1 снимок (c65) | 12 | cc:TODO |
-| 14 | `[Feature]` `[lane:gate]` `[tdd:required]` Категория в «Аналитике» — состояние (задача 4; R4, R9) | tests/client/report-url, report-focus, charts PASS; npm test и typecheck PASS | - | cc:TODO |
-| 15 | `[Feature]` `[lane:gate]` `[tdd:required]` Категория в «Аналитике» — интерфейс (задача 5; R4) | e2e/analytics и analytics-projects PASS два прогона; shots:ux +1 снимок (c66) | 14 | cc:TODO |
-| 16 | `[Feature]` `[lane:gate]` `[tdd:required]` Шаблоны склада — сервер и писатель XLSX (задача 6; R12, R13) | tests/server/xlsx-writer, stock-import-template PASS; npm test и typecheck PASS | - | cc:TODO |
-| 17 | `[Feature]` `[lane:gate]` `[tdd:required]` Окно импорта склада — «Выбрать файл», «Скачать шаблон» (задача 7) | tests/client/stock-import PASS; e2e/stock-2 PASS два прогона; shots:ux +1 снимок (c67) | 16 | cc:TODO |
-| 18 | `[Docs]` `[lane:gate]` `[tdd:skip:docs]` README, спецификация, итоги, полный прогон (задача 8; R3, R15) | npm test ≥ 1604 + 1 пропущен; typecheck; e2e ≥ 228; shots:ux 88/88 | 11, 13, 15, 17 | cc:TODO |
+| 11 | `[Feature]` `[lane:gate]` `[tdd:required]` Контрагенты системных категорий (план, задача 1; R2, R6, R8) | tests/client/operation-options и journal-assign PASS; e2e/operation-form PASS; npm test, typecheck, test:e2e PASS два прогона | - | cc:完了 [e7b5e97] |
+| 12 | `[Feature]` `[lane:gate]` `[tdd:required]` Отмена — схема 0011 и сервер (задача 2; R5, R10, R14) | tests/server/operations-undo, schema-0011, audit-api PASS; npm test и typecheck PASS | - | cc:完了 [c24802f] |
+| 13 | `[Feature]` `[lane:gate]` `[tdd:required]` Отмена — интерфейс (задача 3; R2, R10, R11) | tests/client/operation-undo, history, audit-format PASS; e2e/history-undo и service-screens PASS два прогона; shots:ux +1 снимок (c65) | 12 | cc:完了 [1b94a86] |
+| 14 | `[Feature]` `[lane:gate]` `[tdd:required]` Категория в «Аналитике» — состояние (задача 4; R4, R9) | tests/client/report-url, report-focus, charts PASS; npm test и typecheck PASS | - | cc:完了 [dcaf5f2] |
+| 15 | `[Feature]` `[lane:gate]` `[tdd:required]` Категория в «Аналитике» — интерфейс (задача 5; R4) | e2e/analytics и analytics-projects PASS два прогона; shots:ux +1 снимок (c66) | 14 | cc:完了 [5337eac] |
+| 16 | `[Feature]` `[lane:gate]` `[tdd:required]` Шаблоны склада — сервер и писатель XLSX (задача 6; R12, R13) | tests/server/xlsx-writer, stock-import-template PASS; npm test и typecheck PASS | - | cc:完了 [cd6ea70] |
+| 17 | `[Feature]` `[lane:gate]` `[tdd:required]` Окно импорта склада — «Выбрать файл», «Скачать шаблон» (задача 7) | tests/client/stock-import PASS; e2e/stock-2 PASS два прогона; shots:ux +1 снимок (c67) | 16 | cc:完了 [ab5a962] |
+| 18 | `[Docs]` `[lane:gate]` `[tdd:skip:docs]` README, спецификация, итоги, полный прогон (задача 8; R3, R15) | npm test ≥ 1604 + 1 пропущен; typecheck; e2e ≥ 228; shots:ux 88/88 | 11, 13, 15, 17 | cc:完了 [4a32c1f] |
+
+## Phase 4 — Vercel + Postgres (Neon), локально SQLite
+
+Источник задач: `docs/superpowers/plans/2026-10-20-vercel-postgres.md` (решения Р1–Р16). Спецификации нет — решения в плане. Solo, ревью — harness-review manual-pass. Вариант «два диалекта» выбран владельцем 2026-10-20.
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 19 | `[Refactor]` `[lane:gate]` `[tdd:required]` В-1: помощники raw/first, временный withTx, async mutate (задача 1) | db-raw, no-sync-db, audit PASS; typecheck | - | cc:完了 [3641a6b] |
+| 20 | `[Refactor]` `[lane:gate]` `[tdd:required]` В-1: async — auth, users, preferences, audit, companies, saved-filters (задача 2) | тесты модулей; npm test PASS | 19 | cc:完了 [2fd4890] |
+| 21 | `[Refactor]` `[lane:gate]` `[tdd:required]` В-1: async — справочники, seed (задача 3) | npm test PASS | 20 | cc:完了 [f6f08a1] |
+| 22 | `[Refactor]` `[lane:gate]` `[tdd:required]` В-1: async — operations, balances (задача 4) | npm test PASS | 21 | cc:完了 [4b5ce09] |
+| 23 | `[Refactor]` `[lane:gate]` `[tdd:required]` В-1: async — imports, экспорт, writer пачками (задача 5) | npm test PASS; bench:import ≤ 1,5× | 22 | cc:完了 [e8bb3b5] |
+| 24 | `[Refactor]` `[lane:gate]` `[tdd:required]` В-1: async — analytics (задача 6) | npm test PASS | 22 | cc:完了 [2fd4890] |
+| 25 | `[Refactor]` `[lane:gate]` `[tdd:required]` В-1: async — stock (задача 7) | npm test, e2e stock* PASS | 22 | cc:完了 [f6f08a1] |
+| 26 | `[Feature]` `[lane:gate]` `[tdd:required]` В-1: libsql вместо better-sqlite3, свёртки поиска 0012, бэкап VACUUM INTO (задача 8) | search-fold, backup PASS; npm test, e2e ×2, shots 88; бенчи ≤ 1,5×; копия БД владельца открывается | 23, 24, 25 | cc:完了 [39d47b9] |
+| 27 | `[Feature]` `[lane:gate]` `[tdd:required]` В-2: pg-схема, миграции pg, паритет, bindSchema (задача 9) | schema-parity PASS | 26 | cc:完了 [91ac9e5] |
+| 28 | `[Feature]` `[lane:gate]` `[tdd:required]` В-2: openDb по конфигу — Neon, PGlite; advisory lock (задача 10) | db-open, pg-bigint, pg-writer-lock PASS | 27 | cc:完了 [3424b8a] |
+| 29 | `[Fix]` `[lane:gate]` `[tdd:required]` В-2: все серверные тесты на обоих диалектах (задача 11) | npm test: unit, server-sqlite, server-pg PASS | 28 | cc:WIP |
+| 30 | `[Test]` `[lane:gate]` `[tdd:skip:e2e]` В-2: e2e на PGlite (задача 12) | E2E_DB=pg 229/229 ×2 | 29 | cc:TODO |
+| 31 | `[Feature]` `[lane:gate]` `[tdd:required]` В-3: DEPLOY_MODE=vercel, точка входа, vercel.json (задача 13) | config, client-ip, vercel-entry PASS; vercel build локально | 29 | cc:TODO |
+| 32 | `[Feature]` `[lane:gate]` `[tdd:required]` В-3: FileStore, вложения через Blob (задача 14) | file-store, attachments PASS; e2e operation-edit | 31 | cc:TODO |
+| 33 | `[Feature]` `[lane:gate]` `[tdd:required]` В-3: импорт и выгрузки через Blob (задача 15) | import-cache, imports-api, journal-export PASS | 32 | cc:TODO |
+| 34 | `[Feature]` `[lane:gate]` `[tdd:required]` В-3: cron daily, бэкап Postgres в Blob (задача 16) | cron, pg-dump PASS | 32 | cc:TODO |
+| 35 | `[Feature]` `[lane:gate]` `[tdd:required]` В-4: перенос SQLite → Postgres (задача 17) | sqlite-to-pg PASS | 30, 34 | cc:TODO |
+| 36 | `[Docs]` `[lane:gate]` `[tdd:skip:deploy]` В-4: запуск на Vercel с владельцем, README, итоги (задача 18) | прод работает; чек-лист; e2e PG ×2; followups | 33, 35 | cc:TODO |
