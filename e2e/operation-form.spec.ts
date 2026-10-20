@@ -229,18 +229,26 @@ test('ошибки у полей, Esc с вопросом о несохранё�
   await expect(category).toHaveValue('Аренда');
   await expect(dialog).toBeVisible();
 
-  // «Зарплата» (системная категория): поле контрагента — «Сотрудник» (§6.4), сначала сотрудники, затем остальные
+  // «Зарплата» (системная категория): поле контрагента — «Сотрудник» (§6.4), в списке только сотрудники (спецификация 2026-10-19, часть 1)
   await pick(page, 'Категория', 'Зарплата');
   await field(dialog, 'Сотрудник').click();
   const people = dialog.getByRole('listbox', { name: 'Контрагенты' }).getByRole('option');
-  await expect(people).toHaveText(['+ Создать контрагента', 'Без контрагента', 'Айгерим', 'ТОО Ромашка']);
-  await expect(dialog.getByRole('listbox', { name: 'Контрагенты' })).toContainText('Сотрудники');
+  await expect(people).toHaveText(['+ Создать контрагента', 'Без контрагента', 'Айгерим']);
+  await expect(dialog.getByRole('listbox', { name: 'Контрагенты' })).not.toContainText('Сотрудники');
+  await expect(dialog.getByRole('listbox', { name: 'Контрагенты' })).not.toContainText('Остальные');
   await page.keyboard.press('Escape');
-  // обычная категория — «Мой контрагент»
+  // обычная категория — «Мой контрагент», все контрагенты
   await pick(page, 'Категория', 'Аренда');
   await field(dialog, 'Мой контрагент').click();
   await expect(people).toHaveText(['+ Создать контрагента', 'Без контрагента', 'ТОО Ромашка', 'Айгерим']);
   await page.keyboard.press('Escape');
+  // уже выбранный контрагент другого типа остаётся в списке системной категории — правка его не теряет
+  await pick(page, 'Мой контрагент', 'ТОО Ромашка');
+  await pick(page, 'Категория', 'Зарплата');
+  await field(dialog, 'Сотрудник').click();
+  await expect(people).toHaveText(['+ Создать контрагента', 'Без контрагента', 'ТОО Ромашка', 'Айгерим']);
+  await page.keyboard.press('Escape');
+  await pick(page, 'Категория', 'Аренда');
 
   // после выбора значения список открывается на нём: aria-activedescendant поля указывает на выбранный пункт
   await category.click();

@@ -464,7 +464,7 @@ function DocEditor(p: {
               label={counterpartyLabel}
               listLabel="Контрагенты"
               value={draft.counterpartyId}
-              options={counterpartyOptions(p.counterparties, draft.counterpartyId, preferred)}
+              options={counterpartyOptions(p.counterparties, draft.counterpartyId, preferred, 'first')}
               emptyLabel={type === 'receipt' ? 'Без поставщика' : 'Без покупателя'}
               onChange={(counterpartyId) => set({ counterpartyId }, 'counterpartyId')}
               onCreate={createCounterparty}

@@ -47,10 +47,10 @@ import {
 import {
   accountOptions,
   categoryOptions,
-  counterpartyLabel,
+  commonCounterpartyType,
+  counterpartyLabelOf,
   counterpartyOptions,
   findCategory,
-  preferredCounterpartyType,
   projectOptions,
   salaryCategory,
   tagOptions,
@@ -394,8 +394,10 @@ function OperationEditor(p: {
   const activeAccounts = p.data.accounts.filter((a) => !a.archivedAt);
   const amountParsed = positiveAmount(draft.amount, currency.minorUnits);
   const amountMinor = amountParsed.ok ? amountParsed.minor : null;
-  // подходящий тип контрагента — по категории операции или первой строки разбиения
+  // категория операции или первой строки разбиения
   const mainCategory = draft.split ? (draft.split.lines[0]?.categoryId ?? null) : draft.categoryId;
+  // тип контрагента системной категории; у разбиения — только если у всех строк он один (иначе список полный)
+  const preferred = commonCounterpartyType(p.data.categories, draft.split ? draft.split.lines.map((l) => l.categoryId) : [draft.categoryId]);
   // зарплата (эффективный systemKey = salary): вместо «Дата сделки отличается» — «{Категория} за {месяц}» (§6.7, строка 1а)
   const salary = salaryCategory(p.data.categories, mainCategory);
   // операция на архивном счёте: сумма, дата оплаты и счета заблокированы, удалить нельзя (инвариант 7)
@@ -410,7 +412,7 @@ function OperationEditor(p: {
   const createItem = async (what: CreatableKind, name: string, apply: (d: OperationDraft, id: number) => OperationDraft): Promise<boolean> => {
     setFormError(null);
     try {
-      const counterpartyType = preferredCounterpartyType(p.data.categories, mainCategory) ?? (kind === 'income' ? 'client' : 'supplier');
+      const counterpartyType = preferred ?? (kind === 'income' ? 'client' : 'supplier');
       const id = await createFromForm(p.company.id, what, name, { kind, counterpartyType });
       setDraft((d) => apply(d, id));
       return true;
@@ -935,10 +937,10 @@ function OperationEditor(p: {
             ))}
           {!transfer && (
             <ComboSelect
-              label={counterpartyLabel(p.data.categories, mainCategory)}
+              label={counterpartyLabelOf(preferred)}
               listLabel="Контрагенты"
               value={draft.counterpartyId}
-              options={counterpartyOptions(p.data.counterparties, draft.counterpartyId, preferredCounterpartyType(p.data.categories, mainCategory))}
+              options={counterpartyOptions(p.data.counterparties, draft.counterpartyId, preferred, 'only')}
               emptyLabel="Без контрагента"
               // оплаты относились к поступлениям прежнего поставщика
               onChange={(counterpartyId) => set({ counterpartyId, stockPayments: [] }, 'counterpartyId', 'stockPayments')}

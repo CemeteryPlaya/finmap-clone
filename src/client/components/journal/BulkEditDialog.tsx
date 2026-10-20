@@ -30,7 +30,7 @@ function BulkEditForm(props: { count: number; data: AssignData; onSave: (actions
         label="Контрагент"
         listLabel="Контрагенты"
         value={values.counterpartyId}
-        options={counterpartyOptions(props.data.counterparties, null, null)}
+        options={counterpartyOptions(props.data.counterparties, null, null, 'only')}
         emptyLabel="Не менять"
         emptyText="Не менять"
         onChange={set('counterpartyId')}

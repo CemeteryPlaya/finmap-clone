@@ -137,10 +137,8 @@ describe('окно «Указать» (§5.4 этапа 1.5)', () => {
     expect(assignOptions(op({ type: 'income' }), 'category', data).map((o) => o.label)).toEqual(['Выручка']);
     expect(assignOptions(op({ type: 'transfer', lines: [] }), 'category', data)).toEqual([]);
     expect(assignOptions(op({}), 'project', data).map((o) => o.label)).toEqual(['Клуб 1']);
-    expect(assignOptions(op({ lines: [line(10, null)] }), 'counterparty', data)).toEqual([
-      { id: 8, label: 'Алина', section: 'Сотрудники' },
-      { id: 7, label: 'ИП Клиент', section: 'Остальные' },
-    ]);
+    // системная категория — только контрагенты закреплённого типа
+    expect(assignOptions(op({ lines: [line(10, null)] }), 'counterparty', data)).toEqual([{ id: 8, label: 'Алина' }]);
     expect(assignOptions(op({}), 'counterparty', data)).toEqual([
       { id: 7, label: 'ИП Клиент' },
       { id: 8, label: 'Алина' },

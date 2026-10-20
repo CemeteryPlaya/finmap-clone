@@ -98,10 +98,10 @@ export function assignLabel(item: AssignTarget, field: AssignField, tree: Catego
 
 /**
  * Варианты списка «Указать» — те же правила, что в форме операции: архивные не предлагаются (инвариант 7),
- * категории — только вида операции (инвариант 3), контрагенты подходящего типа — первыми.
+ * категории — только вида операции (инвариант 3), у системной категории — только контрагенты её типа.
  */
 export function assignOptions(item: AssignTarget, field: AssignField, data: AssignData): PickerOption[] {
-  if (field === 'counterparty') return counterpartyOptions(data.counterparties, null, preferredCounterpartyType(data.categories, singleCategory(item)));
+  if (field === 'counterparty') return counterpartyOptions(data.counterparties, null, preferredCounterpartyType(data.categories, singleCategory(item)), 'only');
   if (field === 'project') return projectOptions(data.projects, []);
   return item.type === 'transfer' ? [] : categoryOptions(data.categories, item.type, []);
 }

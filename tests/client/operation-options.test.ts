@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   accountOptions,
   categoryOptions,
+  commonCounterpartyType,
   counterpartyLabel,
+  counterpartyLabelOf,
   counterpartyOptions,
   findCategory,
   preferredCounterpartyType,
@@ -117,17 +119,57 @@ describe('варианты списков формы операции', () => {
     expect(preferredCounterpartyType(tree, null)).toBeNull();
   });
 
-  it('контрагенты: подходящий тип первым с заголовком группы, остальные — после', () => {
-    const list = [cp(1, 'ТОО Свет', 'supplier'), cp(2, 'Айгерим', 'employee'), cp(3, 'Уволен', 'employee', ARCH), cp(4, 'Бауыржан', 'employee')];
-    expect(counterpartyOptions(list, null, null)).toEqual([
-      { id: 1, label: 'ТОО Свет' },
-      { id: 2, label: 'Айгерим' },
-      { id: 4, label: 'Бауыржан' },
+  const people = [cp(1, 'Поставщик А', 'supplier'), cp(2, 'Сотрудник А', 'employee'), cp(3, 'Сотрудник Б', 'employee', ARCH), cp(4, 'Сотрудник В', 'employee')];
+
+  it('контрагенты системной категории: только закреплённый тип, выбранный другого типа остаётся', () => {
+    expect(counterpartyOptions(people, null, 'employee', 'only')).toEqual([
+      { id: 2, label: 'Сотрудник А' },
+      { id: 4, label: 'Сотрудник В' },
     ]);
-    expect(counterpartyOptions(list, null, 'employee')).toEqual([
-      { id: 2, label: 'Айгерим', section: 'Сотрудники' },
-      { id: 4, label: 'Бауыржан', section: 'Сотрудники' },
-      { id: 1, label: 'ТОО Свет', section: 'Остальные' },
+    // уже выбранный другого типа (старые данные, импорт) — в общем порядке списка, правка его не теряет
+    expect(counterpartyOptions(people, 1, 'employee', 'only')).toEqual([
+      { id: 1, label: 'Поставщик А' },
+      { id: 2, label: 'Сотрудник А' },
+      { id: 4, label: 'Сотрудник В' },
     ]);
+    expect(counterpartyOptions(people, 3, 'employee', 'only')).toEqual([
+      { id: 2, label: 'Сотрудник А' },
+      { id: 3, label: 'Сотрудник Б (в архиве)' },
+      { id: 4, label: 'Сотрудник В' },
+    ]);
+    // обычная категория — все неархивные, без заголовков
+    expect(counterpartyOptions(people, null, null, 'only')).toEqual([
+      { id: 1, label: 'Поставщик А' },
+      { id: 2, label: 'Сотрудник А' },
+      { id: 4, label: 'Сотрудник В' },
+    ]);
+  });
+
+  it('режим first — прежние секции (документ склада)', () => {
+    expect(counterpartyOptions(people, null, 'supplier', 'first')).toEqual([
+      { id: 1, label: 'Поставщик А', section: 'Поставщики' },
+      { id: 2, label: 'Сотрудник А', section: 'Остальные' },
+      { id: 4, label: 'Сотрудник В', section: 'Остальные' },
+    ]);
+    expect(counterpartyOptions(people, null, null, 'first')).toEqual([
+      { id: 1, label: 'Поставщик А' },
+      { id: 2, label: 'Сотрудник А' },
+      { id: 4, label: 'Сотрудник В' },
+    ]);
+  });
+
+  it('общий тип строк разбиения: один тип у всех строк, иначе нет', () => {
+    const system = (id: number, name: string, key: string): CategoryNode => node(id, name, { systemKey: key, effectiveSystemKey: key });
+    const taxes: CategoryTree = { income: [], expense: [...tree.expense, system(105, 'Налоги', 'tax'), system(106, 'НДС', 'vat')] };
+    expect(commonCounterpartyType(tree, [10, 11])).toBe('employee');
+    expect(commonCounterpartyType(tree, [10, 21])).toBeNull();
+    expect(commonCounterpartyType(tree, [10, null])).toBeNull();
+    expect(commonCounterpartyType(tree, [21])).toBeNull();
+    expect(commonCounterpartyType(tree, [])).toBeNull();
+    // «Налоги» и «НДС» — один тип контрагента
+    expect(commonCounterpartyType(taxes, [105, 106])).toBe('tax');
+    expect(counterpartyLabelOf(null)).toBe('Мой контрагент');
+    expect(counterpartyLabelOf('owner')).toBe('Владелец');
+    expect(counterpartyLabelOf('employee')).toBe('Сотрудник');
   });
 });

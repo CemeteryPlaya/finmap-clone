@@ -75,16 +75,41 @@ export function preferredCounterpartyType(tree: CategoryTree, categoryId: number
  * «Кредитор», «Заёмщик», «Тип налога»; без системной категории — «Мой контрагент», как в Finmap.
  */
 export function counterpartyLabel(tree: CategoryTree, categoryId: number | null): string {
-  const preferred = preferredCounterpartyType(tree, categoryId);
-  return preferred ? COUNTERPARTY_TYPE_SINGULAR[preferred] : 'Мой контрагент';
+  return counterpartyLabelOf(preferredCounterpartyType(tree, categoryId));
+}
+
+/** Подпись поля контрагента по типу: «Сотрудник», «Тип налога»…; без типа — «Мой контрагент». */
+export function counterpartyLabelOf(type: CounterpartyType | null): string {
+  return type ? COUNTERPARTY_TYPE_SINGULAR[type] : 'Мой контрагент';
 }
 
 /**
- * Контрагенты: для категории с эффективным systemKey сначала подходящий тип («Сотрудники»), затем «Остальные» (§7).
+ * Тип контрагента для нескольких строк (разбиение): есть, если у всех строк он один и тот же («Налоги» и «НДС» — оба
+ * налоговые); иначе null — список полный (спецификация 2026-10-19, часть 1).
  */
-export function counterpartyOptions(counterparties: readonly Counterparty[], selected: number | null, preferred: CounterpartyType | null): PickerOption[] {
+export function commonCounterpartyType(tree: CategoryTree, categoryIds: readonly (number | null)[]): CounterpartyType | null {
+  const types = categoryIds.map((id) => preferredCounterpartyType(tree, id));
+  const first = types[0] ?? null;
+  return first !== null && types.every((t) => t === first) ? first : null;
+}
+
+/** Как список учитывает подходящий тип: только он (`only`) или он первым (`first`). */
+export type CounterpartyListMode = 'only' | 'first';
+
+/**
+ * Список контрагентов: `only` — системная категория (форма операции, «Указать»): только закреплённый тип плюс уже
+ * выбранный другого типа (старые данные, импорт), без заголовков; `first` — документ склада: подходящий тип секцией
+ * («Поставщики»), затем «Остальные». Без preferred — все неархивные.
+ */
+export function counterpartyOptions(
+  counterparties: readonly Counterparty[],
+  selected: number | null,
+  preferred: CounterpartyType | null,
+  mode: CounterpartyListMode,
+): PickerOption[] {
   const list = counterparties.filter((c) => keep(c, [selected])).map((c) => ({ id: c.id, label: mark(c.name, c), type: c.type }));
   if (!preferred) return list.map(({ id, label }) => ({ id, label }));
+  if (mode === 'only') return list.filter((c) => c.type === preferred || c.id === selected).map(({ id, label }) => ({ id, label }));
   return [
     ...list.filter((c) => c.type === preferred).map(({ id, label }) => ({ id, label, section: COUNTERPARTY_TYPE_LABELS[preferred] })),
     ...list.filter((c) => c.type !== preferred).map(({ id, label }) => ({ id, label, section: 'Остальные' })),
