@@ -11,10 +11,10 @@ afterEach(() => {
 
 const NOW = new Date('2026-10-06T12:00:00.000Z');
 
-function freshDb() {
+async function freshDb() {
   const t = createTestDb();
   dbs.push(t);
-  seedCurrencies(t.db);
+  await seedCurrencies(t.db);
   t.sqlite.prepare("INSERT INTO users (login, name, password_hash, created_at) VALUES ('demo','Демо','h','x')").run();
   return t;
 }
@@ -44,7 +44,7 @@ describe('seed:demo', () => {
   });
 
   it('состав по §10, доли разбиений и переводов, SQL-баланс = пересчёт в JS (§12)', async () => {
-    const t = freshDb();
+    const t = await freshDb();
     const r = await seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 500 });
     expect(r).toMatchObject({ companies: 3, projects: 5, accounts: 8, counterparties: 150, operations: 500 });
     expect(r.categories).toBeGreaterThanOrEqual(60);
@@ -60,15 +60,15 @@ describe('seed:demo', () => {
     const ledger = createLedgerBalances(t.db);
     for (const c of t.sqlite.prepare('SELECT id FROM companies').all() as { id: number }[]) {
       const js = jsBalances(t, c.id);
-      const balances = ledger.companyBalances(c.id);
+      const balances = await ledger.companyBalances(c.id);
       expect(balances).toHaveLength(js.size); // цикл не должен проходить вхолостую
       for (const b of balances) expect(b.balance).toBe(js.get(b.accountId));
     }
   });
 
   it('детерминированность: два запуска на пустых базах с одной датой дают одинаковые данные; по непустой базе — отказ без записей (Review Focus 4)', async () => {
-    const a = freshDb();
-    const b = freshDb();
+    const a = await freshDb();
+    const b = await freshDb();
     await seedDemo({ db: a.db, timezone: 'Asia/Almaty', now: NOW, operations: 300 });
     await seedDemo({ db: b.db, timezone: 'Asia/Almaty', now: NOW, operations: 300 });
     const digest = (t: ReturnType<typeof createTestDb>) =>
@@ -81,7 +81,7 @@ describe('seed:demo', () => {
   });
 
   it('сбой посередине откатывает всё: база пуста и пригодна для повторного запуска', async () => {
-    const t = freshDb();
+    const t = await freshDb();
     t.sqlite.exec("CREATE TEMP TRIGGER stop_ops BEFORE INSERT ON operations WHEN (SELECT COUNT(*) FROM operations) >= 20 BEGIN SELECT RAISE(ABORT, 'stop'); END");
     await expect(seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 50 })).rejects.toThrow('stop');
     t.sqlite.exec('DROP TRIGGER stop_ops');
@@ -93,7 +93,7 @@ describe('seed:demo', () => {
   it('без пользователя — понятная ошибка', async () => {
     const t = createTestDb();
     dbs.push(t);
-    seedCurrencies(t.db);
+    await seedCurrencies(t.db);
     await expect(seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 10 })).rejects.toThrow('Сначала создайте пользователя');
   });
 });

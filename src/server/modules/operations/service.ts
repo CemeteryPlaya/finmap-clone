@@ -7,7 +7,7 @@ import type { Db, Executor } from '../../db/client';
 import { first } from '../../db/raw';
 import { accounts, categories, counterparties, operationLines, operations, operationTags, projects, tags } from '../../db/schema';
 import { AppError } from '../../errors';
-import { changedFields, mutateAsync } from '../audit/mutate';
+import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import type { RatesService } from '../rates/service';
@@ -314,7 +314,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
     const recalc = typeChange || MONEY_FIELDS.some((f) => f in changes.after);
     const { rate, baseAmount } = recalc ? await baseOf(companyId, company.baseCurrency, c) : { rate: current.rate, baseAmount: current.baseAmount };
     const { draft } = c;
-    await mutateAsync(db, audit, async (tx, record) => {
+    await mutate(db, audit, async (tx, record) => {
       const [updated] = await tx
         .update(operations)
         .set({
@@ -359,7 +359,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
     if (current.deletedAt) return current;
     const locked = await archivedAccountOf(current);
     if (locked) throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — удалить её нельзя`);
-    await mutateAsync(db, audit, async (tx, record) => {
+    await mutate(db, audit, async (tx, record) => {
       await tx.update(operations).set({ deletedAt: now().toISOString(), updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(operations.id, id));
       if (history) await record({ companyId, userId, entity: 'operation', entityId: id, action: 'delete', diff: { type: current.type, amount: current.amount, accountId: current.accountId, paidAt: current.paidAt } });
     });
@@ -374,7 +374,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
     if (locked) throw archivedRef(`Счёт «${locked.name}» в архиве — сначала верните его из архива`);
     // инвариант 11: 3–7 на текущем состоянии справочников; уже выбранные архивные ссылки не мешают
     await check(companyId, draftOf(current), draftOf(current));
-    await mutateAsync(db, audit, async (tx, record) => {
+    await mutate(db, audit, async (tx, record) => {
       await tx.update(operations).set({ deletedAt: null, updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(operations.id, id));
       if (history) await record({ companyId, userId, entity: 'operation', entityId: id, action: 'restore', diff: { type: current.type, amount: current.amount, accountId: current.accountId, paidAt: current.paidAt } });
     });
@@ -392,7 +392,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
       const c = await check(companyId, input, null);
       const { rate, baseAmount } = await baseOf(companyId, company.baseCurrency, c);
       const { draft } = c;
-      const id = await mutateAsync(db, audit, async (tx, record) => {
+      const id = await mutate(db, audit, async (tx, record) => {
         const t = now().toISOString();
         const [row] = await tx
           .insert(operations)

@@ -15,19 +15,9 @@ const ALLOWED = new Set(['db/tx.ts', 'db/raw.ts']);
 const PENDING = new Set([
   'db/client.ts',
   'db/migrate.ts',
-  'db/seed.ts',
-  'modules/audit/mutate.ts',
-  'modules/audit/service.ts',
-  'modules/auth/sessions.ts',
   'modules/backup/restore.ts',
   'modules/backup/service.ts',
-  'modules/balances/service.ts',
-  'modules/companies/guard.ts',
   'modules/operations/writer.ts',
-  'modules/rates/routes.ts',
-  'modules/rates/service.ts',
-  'modules/references/service.ts',
-  'modules/users/service.ts',
 ]);
 
 const SYNC_DB = /(?<!job)\.(all|get|run)\(\)|\b(db|tx|ex)\.(all|get|run)\b|\bsqlite\.|\.transaction\(/;

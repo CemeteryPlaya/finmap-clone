@@ -13,7 +13,7 @@ afterEach(() => t?.cleanup());
 describe('projects service: атомарность создания', () => {
   it('сбой на втором счёте откатывает проект, категории шаблона, счета и историю', async () => {
     t = createTestDb();
-    seedCurrencies(t.db);
+    await seedCurrencies(t.db);
     const now = () => new Date('2026-10-06T00:00:00.000Z');
     const audit = createAuditService(t.db, now);
     const categories = createCategoriesService({ db: t.db, audit, now });

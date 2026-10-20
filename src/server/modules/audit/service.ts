@@ -49,8 +49,8 @@ export interface AuditRow {
 
 export interface AuditService {
   /** ex — транзакция изменения: запись истории откатится вместе с ним. Результат — id записи. */
-  record(entry: AuditEntry, ex?: Executor): number;
-  list(q: { companyId: number | null; limit?: number; beforeId?: number; userId?: number; entity?: string }): AuditRow[];
+  record(entry: AuditEntry, ex?: Executor): Promise<number>;
+  list(q: { companyId: number | null; limit?: number; beforeId?: number; userId?: number; entity?: string }): Promise<AuditRow[]>;
 }
 
 const SECRET_KEY = /password|hash|token|secret/i;
@@ -82,8 +82,8 @@ const NO_ID = Number.MAX_SAFE_INTEGER;
 
 export function createAuditService(db: Db, now: () => Date = () => new Date()): AuditService {
   return {
-    record(entry, ex) {
-      return (ex ?? db)
+    async record(entry, ex) {
+      const [row] = await (ex ?? db)
         .insert(auditLog)
         .values({
           companyId: entry.companyId ?? null,
@@ -94,10 +94,10 @@ export function createAuditService(db: Db, now: () => Date = () => new Date()): 
           diff: entry.diff ? JSON.stringify(sanitizeDiff(entry.diff)) : null,
           at: now().toISOString(),
         })
-        .returning({ id: auditLog.id })
-        .get().id;
+        .returning({ id: auditLog.id });
+      return row!.id;
     },
-    list({ companyId, limit = 50, beforeId, userId, entity }) {
+    async list({ companyId, limit = 50, beforeId, userId, entity }) {
       const conds: SQL[] = [companyId === null ? isNull(auditLog.companyId) : eq(auditLog.companyId, companyId)];
       if (beforeId !== undefined) conds.push(lt(auditLog.id, beforeId));
       if (userId !== undefined) conds.push(eq(auditLog.userId, userId));
@@ -112,7 +112,7 @@ export function createAuditService(db: Db, now: () => Date = () => new Date()): 
         AND ${auditUndo.undoId} IS NULL AND ${operations.id} IS NOT NULL
         AND (${operations.deletedAt} IS NULL OR ${auditLog.id} >= COALESCE(${lastDeleteSql(auditLog.companyId, auditLog.entityId)}, ${NO_ID}))
         THEN 1 ELSE 0 END`;
-      return db
+      const rows = await db
         .select({ a: auditLog, userName: users.name, undoneBy: auditUndo.undoId, undoable })
         .from(auditLog)
         .leftJoin(users, eq(users.id, auditLog.userId))
@@ -120,13 +120,12 @@ export function createAuditService(db: Db, now: () => Date = () => new Date()): 
         .leftJoin(operations, and(eq(auditLog.entity, 'operation'), eq(operations.id, auditLog.entityId), eq(operations.companyId, auditLog.companyId)))
         .where(and(...conds))
         .orderBy(desc(auditLog.id))
-        .limit(Math.min(Math.max(limit, 1), 200))
-        .all()
-        .map(({ a, userName, undoneBy, undoable }) => ({
+        .limit(Math.min(Math.max(limit, 1), 200));
+      return rows.map(({ a, userName, undoneBy, undoable }) => ({
           ...a,
           userName: userName ?? null,
           undoneBy: undoneBy ?? null,
-          undoable: undoable === 1,
+          undoable: Number(undoable) === 1,
           action: a.action as AuditAction,
           diff: a.diff ? (JSON.parse(a.diff) as Record<string, unknown>) : null,
         }));

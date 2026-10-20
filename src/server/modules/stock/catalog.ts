@@ -9,7 +9,7 @@ import type { Db, Executor } from '../../db/client';
 import { first, one, rows as sqlRows } from '../../db/raw';
 import { stockComboParts, stockDocLines, stockItemGroups, stockItemPrices, stockItems } from '../../db/schema';
 import { AppError } from '../../errors';
-import { changedFields, mutateAsync } from '../audit/mutate';
+import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 
@@ -232,7 +232,7 @@ export function createStockCatalogService(d: { db: Db; audit: AuditService; time
     await requireCompany(db, companyId, { writable: true });
     const row = await requireGroup(companyId, id);
     if ((row.archivedAt !== null) === archive) return row;
-    return mutateAsync(db, audit, async (tx, record) => {
+    return mutate(db, audit, async (tx, record) => {
       const [out] = await tx.update(stockItemGroups).set({ archivedAt: archive ? now().toISOString() : null }).where(eq(stockItemGroups.id, id)).returning();
       await record({ companyId, userId, entity: 'stock_group', entityId: id, action: archive ? 'archive' : 'unarchive' });
       return out!;
@@ -243,7 +243,7 @@ export function createStockCatalogService(d: { db: Db; audit: AuditService; time
     await requireCompany(db, companyId, { writable: true });
     const row = await requireItem(companyId, id);
     if ((row.archivedAt !== null) === archive) return dto(row);
-    await mutateAsync(db, audit, async (tx, record) => {
+    await mutate(db, audit, async (tx, record) => {
       await tx.update(stockItems).set({ archivedAt: archive ? now().toISOString() : null }).where(eq(stockItems.id, id));
       await record({ companyId, userId, entity: 'stock_item', entityId: id, action: archive ? 'archive' : 'unarchive', diff: { name: row.name } });
     });
@@ -260,7 +260,7 @@ export function createStockCatalogService(d: { db: Db; audit: AuditService; time
       await requireCompany(db, companyId, { writable: true });
       const name = cleanName(rawName);
       await assertGroupNameFree(companyId, name);
-      return mutateAsync(
+      return mutate(
         db,
         audit,
         async (tx, record) => {
@@ -289,7 +289,7 @@ export function createStockCatalogService(d: { db: Db; audit: AuditService; time
       if (!changes) return before;
       const name = changes.after.name!;
       await assertGroupNameFree(companyId, name, id);
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const [row] = await tx.update(stockItemGroups).set({ name, nameKey: stockNameKey(name) }).where(eq(stockItemGroups.id, id)).returning();
         await record({ companyId, userId, entity: 'stock_group', entityId: id, action: 'update', diff: changes });
         return row!;
@@ -344,7 +344,7 @@ export function createStockCatalogService(d: { db: Db; audit: AuditService; time
       } else if (input.parts.length > 0) {
         throw new AppError(400, 'VALIDATION', 'Проверьте заполнение полей', { parts: 'Состав — только у комплекта' });
       }
-      const id = await mutateAsync(
+      const id = await mutate(
         db,
         audit,
         async (tx, record) => {
@@ -438,7 +438,7 @@ export function createStockCatalogService(d: { db: Db; audit: AuditService; time
           throw new AppError(422, 'INVARIANT_9', 'По товару есть документы — единицу изменить нельзя', { unit: 'По товару есть документы' });
         }
       }
-      await mutateAsync(db, audit, async (tx, record) => {
+      await mutate(db, audit, async (tx, record) => {
         if (changes) {
           await tx
             .update(stockItems)
@@ -465,7 +465,7 @@ export function createStockCatalogService(d: { db: Db; audit: AuditService; time
       }
       const history = await pricesOf(db, id);
       if (history.some((p) => p.validFrom === input.validFrom && p.price === input.price)) return dto(item);
-      await mutateAsync(
+      await mutate(
         db,
         audit,
         async (tx, record) => {
@@ -499,7 +499,7 @@ export function createStockCatalogService(d: { db: Db; audit: AuditService; time
       if (used > 0) throw new AppError(422, 'INVARIANT_9', 'По товару есть документы — его можно только перевести в архив');
       const combo = await comboUsing(id);
       if (combo) throw new AppError(422, 'INVARIANT_9', `Товар входит в комплект «${combo.name}» — уберите его из состава`);
-      await mutateAsync(db, audit, async (tx, record) => {
+      await mutate(db, audit, async (tx, record) => {
         // удаление комплекта без документов удаляет и его состав (R3)
         await tx.delete(stockComboParts).where(eq(stockComboParts.comboId, id));
         await tx.delete(stockItemPrices).where(eq(stockItemPrices.itemId, id));

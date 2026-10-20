@@ -6,12 +6,12 @@ import type { UsersService } from './service';
 export function registerUsersRoutes(app: FastifyInstance, deps: { users: UsersService }): void {
   const { users } = deps;
 
-  app.get('/api/v1/users', async () => ({ users: users.list() }));
+  app.get('/api/v1/users', async () => ({ users: await users.list() }));
 
   app.post('/api/v1/users', async (req, reply) => {
     const body = userCreateSchema.parse(req.body);
     const created = await users.create(body, req.user!.id);
-    return reply.status(201).send({ user: users.get(created.id) });
+    return reply.status(201).send({ user: await users.get(created.id) });
   });
 
   app.patch<{ Params: { id: string } }>('/api/v1/users/:id', async (req) => {

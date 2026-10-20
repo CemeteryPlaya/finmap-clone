@@ -38,7 +38,7 @@ try {
     dbExisted,
     backup: createBackupService({ sqlite, config, log: (m, e) => (e ? console.error(m, e) : console.log(m)) }),
   });
-  seedCurrencies(db);
+  await seedCurrencies(db);
   const started = Date.now();
   const r = await seedDemo({ db, timezone: config.timezone, now, operations: count });
   console.log(

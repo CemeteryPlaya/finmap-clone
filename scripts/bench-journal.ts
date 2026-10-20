@@ -73,7 +73,7 @@ const config = loadConfig({ SESSION_SECRET: 'b'.repeat(40), DATA_DIR: dir, RATES
 if (fresh) {
   const seeded = openDb(config.dbPath);
   runMigrations(seeded.db);
-  seedCurrencies(seeded.db);
+  await seedCurrencies(seeded.db);
   await createUsersService(seeded.db, createAuditService(seeded.db)).create({ login: LOGIN, name: 'Замер', password: PASSWORD }, null);
   console.log(`Заливаю демо-набор в ${dir} (около 45 с)…`);
   const started = Date.now();

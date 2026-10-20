@@ -3,7 +3,7 @@ import type { Db, Executor } from '../../db/client';
 import { first, one, rows as sqlRows } from '../../db/raw';
 import { accounts, counterparties, operations, projects, stockDocPostings, stockDocs, stockWarehouses } from '../../db/schema';
 import { AppError } from '../../errors';
-import { mutateAsync } from '../audit/mutate';
+import { mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import type { OperationsService } from '../operations/service';
@@ -75,7 +75,7 @@ export function createStockPostingsService(d: { db: Db; audit: AuditService; ope
   return {
     async post(companyId, docId, input, userId) {
       const company = await requireCompany(db, companyId, { writable: true });
-      return mutateAsync(
+      return mutate(
         db,
         audit,
         async (tx, record) => {

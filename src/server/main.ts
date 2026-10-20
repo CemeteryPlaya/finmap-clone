@@ -97,7 +97,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     const backup = createBackupService({ sqlite, config, log: (m, e) => backupLog(m, e) });
 
     migrateWithBackup({ db, sqlite, dbExisted, backup });
-    seedCurrencies(db);
+    await seedCurrencies(db);
 
     const built = await buildApp({ config, db, sqlite, backup, logger: opts.logger ?? createLoggerOptions(config) });
     app = built;

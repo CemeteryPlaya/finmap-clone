@@ -22,7 +22,7 @@ import type { Db, Executor } from '../../db/client';
 import { exec, first, one } from '../../db/raw';
 import { companies, counterparties, stockDocLines, stockDocs, stockItemGroups, stockItemPrices, stockItems, stockWarehouses } from '../../db/schema';
 import { AppError } from '../../errors';
-import { mutateAsync } from '../audit/mutate';
+import { mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import type { CsvHeaders } from '../imports/csv';
@@ -478,7 +478,7 @@ export function createStockImportService(d: { db: Db; audit: AuditService; timez
       if (plan.result.errorsTotal > 0) {
         throw new AppError(422, 'IMPORT_INVALID', 'В файле есть ошибки — исправьте их и загрузите снова', undefined, { ...plan.result });
       }
-      await mutateAsync(
+      await mutate(
         db,
         audit,
         async (tx, record) => {

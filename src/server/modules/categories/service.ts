@@ -6,7 +6,7 @@ import type { Db, Executor } from '../../db/client';
 import { first } from '../../db/raw';
 import { categories } from '../../db/schema';
 import { AppError } from '../../errors';
-import { changedFields, mutateAsync } from '../audit/mutate';
+import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import { isSameOrder } from '../dictionaries/order';
@@ -151,7 +151,7 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
   }
 
   function setArchived(companyId: number, id: number, userId: number, archivedAt: string | null): Promise<CategoryRow> {
-    return mutateAsync(db, audit, async (tx, record) => {
+    return mutate(db, audit, async (tx, record) => {
       const [updated] = await tx.update(categories).set({ archivedAt }).where(eq(categories.id, id)).returning();
       await record({ companyId, userId, entity: 'category', entityId: id, action: archivedAt ? 'archive' : 'unarchive' });
       return toRow(updated!);
@@ -228,7 +228,7 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
 
     async add(companyId, input, userId) {
       await requireCompany(db, companyId, { writable: true });
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const row = await svc.createIn(tx, { companyId, kind: input.kind, parentId: input.parentId, name: input.name });
         await record({ companyId, userId, entity: 'category', entityId: row.id, action: 'create', diff: { kind: row.kind, name: row.name, parentId: row.parentId } });
         return row;
@@ -242,7 +242,7 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
       if (before.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Категория в архиве — сначала верните её из архива');
       const changes = changedFields({ name: before.name }, { name: cleanName(name) });
       if (!changes) return before;
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const [updated] = await tx.update(categories).set(changes.after).where(eq(categories.id, id)).returning();
         await record({ companyId, userId, entity: 'category', entityId: id, action: 'update', diff: changes });
         return toRow(updated!);
@@ -274,7 +274,7 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
         moved.push(id);
       }
       if (moved.length === 0 && isSameOrder(current, ids)) return;
-      await mutateAsync(db, audit, async (tx, record) => {
+      await mutate(db, audit, async (tx, record) => {
         for (const [i, categoryId] of ids.entries()) await tx.update(categories).set({ parentId, orderIndex: i }).where(eq(categories.id, categoryId));
         await record({ companyId, userId, entity: 'category', action: 'reorder', diff: { kind, parentId, ids, moved } });
       });
@@ -307,7 +307,7 @@ export function createCategoriesService(d: { db: Db; audit: AuditService; refere
       if ((await references.countOperations('category', id)) > 0) {
         throw new AppError(422, 'INVARIANT_9', 'На категорию ссылаются операции — её можно только перевести в архив');
       }
-      await mutateAsync(db, audit, async (tx, record) => {
+      await mutate(db, audit, async (tx, record) => {
         await tx.delete(categories).where(eq(categories.id, id));
         await record({ companyId, userId, entity: 'category', entityId: id, action: 'delete', diff: { kind: row.kind, name: row.name, parentId: row.parentId } });
       });

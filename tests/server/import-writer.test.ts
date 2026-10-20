@@ -142,7 +142,7 @@ describe('OperationsWriter.insertImported (§6.4 п. 3.5)', () => {
     // инварианты: правка без изменений проходит check() и ничего не меняет
     for (const id of ids) expect((await s.operations.update(w.cid, id, { version: 1 }, adminId())).version).toBe(1);
     // балансы считаются по записанным операциям, как по обычным
-    const balances = new Map(createLedgerBalances(w.h.t.db).companyBalances(w.cid).map((b) => [b.accountId, b.balance]));
+    const balances = new Map((await createLedgerBalances(w.h.t.db).companyBalances(w.cid)).map((b) => [b.accountId, b.balance]));
     expect(balances.get(w.kzt)).toBe(150_000 - 50_000 - 47_512 + 4_751);
     expect(balances.get(w.usd)).toBe(100 - 10);
     // история операций не пишется: одна запись на импорт — у вызывающего (§6.5)

@@ -36,7 +36,7 @@ export function registerAuthRoutes(
     }
     if (!user) throw new AppError(401, 'INVALID_CREDENTIALS', 'Неверный логин или пароль');
     deps.limiter.reset([keys[0]!]); // счётчик IP не сбрасываем: иначе его можно обнулять входом в любой учётной записи
-    const s = deps.sessions.create({
+    const s = await deps.sessions.create({
       userId: user.id,
       remember: body.remember,
       ip,
@@ -50,15 +50,15 @@ export function registerAuthRoutes(
       signed: true,
       ...(body.remember ? { expires: s.expiresAt } : {}),
     });
-    deps.audit.record({ userId: user.id, entity: 'user', entityId: user.id, action: 'login', diff: { ip } });
+    await deps.audit.record({ userId: user.id, entity: 'user', entityId: user.id, action: 'login', diff: { ip } });
     return { user };
   });
 
   app.post('/api/v1/auth/logout', async (req, reply) => {
     const token = readSessionToken(req);
-    if (token) deps.sessions.revoke(token);
+    if (token) await deps.sessions.revoke(token);
     reply.clearCookie('sid', { path: '/' });
-    deps.audit.record({ userId: req.user!.id, entity: 'user', entityId: req.user!.id, action: 'logout' });
+    await deps.audit.record({ userId: req.user!.id, entity: 'user', entityId: req.user!.id, action: 'logout' });
     return reply.status(204).send();
   });
 

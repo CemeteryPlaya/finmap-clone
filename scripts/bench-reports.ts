@@ -47,7 +47,7 @@ let over = false;
 
 try {
   runMigrations(db);
-  seedCurrencies(db);
+  await seedCurrencies(db);
   const user = await createUsersService(db, createAuditService(db)).create({ login: LOGIN, name: 'Замер', password: PASSWORD }, null);
   app = await buildApp({ config, db, sqlite, logger: false, now: () => NOW });
   await app.ready();

@@ -4,7 +4,7 @@ import type { Db } from '../../db/client';
 import { first } from '../../db/raw';
 import { projects, stockWarehouses } from '../../db/schema';
 import { AppError } from '../../errors';
-import { changedFields, mutateAsync } from '../audit/mutate';
+import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 
@@ -35,7 +35,7 @@ export function createStockWarehousesService(d: { db: Db; audit: AuditService; n
     await requireCompany(db, companyId, { writable: true });
     const row = await requireRow(companyId, id);
     if ((row.archivedAt !== null) === archive) return row;
-    return mutateAsync(db, audit, async (tx, record) => {
+    return mutate(db, audit, async (tx, record) => {
       const [out] = await tx.update(stockWarehouses).set({ archivedAt: archive ? now().toISOString() : null }).where(eq(stockWarehouses.id, id)).returning();
       await record({ companyId, userId, entity: 'stock_warehouse', entityId: id, action: archive ? 'archive' : 'unarchive', diff: { name: row.name } });
       return out!;
@@ -58,7 +58,7 @@ export function createStockWarehousesService(d: { db: Db; audit: AuditService; n
       const project = await first(db.select().from(projects).where(and(eq(projects.id, input.projectId), eq(projects.companyId, companyId))));
       if (!project) throw new AppError(422, 'INVARIANT_5', 'Проект не найден в этой компании', { projectId: 'Проект не найден в этой компании' });
       if (project.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', `Проект «${project.name}» в архиве — выберите другой`);
-      return mutateAsync(
+      return mutate(
         db,
         audit,
         async (tx, record) => {
@@ -77,7 +77,7 @@ export function createStockWarehousesService(d: { db: Db; audit: AuditService; n
       const before = await requireRow(companyId, id);
       const changes = changedFields({ name: before.name }, { name: cleanName(rawName) });
       if (!changes) return before;
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const [row] = await tx.update(stockWarehouses).set({ name: changes.after.name! }).where(eq(stockWarehouses.id, id)).returning();
         await record({ companyId, userId, entity: 'stock_warehouse', entityId: id, action: 'update', diff: changes });
         return row!;

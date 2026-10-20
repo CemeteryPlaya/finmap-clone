@@ -5,7 +5,7 @@ import type { Db, Executor } from '../../db/client';
 import { first } from '../../db/raw';
 import { counterparties } from '../../db/schema';
 import { AppError } from '../../errors';
-import { changedFields, mutateAsync } from '../audit/mutate';
+import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import { assertSameSet, isSameOrder } from '../dictionaries/order';
@@ -48,7 +48,7 @@ export function createCounterpartiesService(d: { db: Db; audit: AuditService; re
     await requireCompany(db, companyId, { writable: true });
     const row = await requireRow(companyId, id);
     if ((row.archivedAt !== null) === archive) return row;
-    return mutateAsync(db, audit, async (tx, record) => {
+    return mutate(db, audit, async (tx, record) => {
       const [out] = await tx
         .update(counterparties)
         .set({ archivedAt: archive ? now().toISOString() : null })
@@ -90,7 +90,7 @@ export function createCounterpartiesService(d: { db: Db; audit: AuditService; re
 
     async add(companyId, input, userId) {
       await requireCompany(db, companyId, { writable: true });
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const row = await insert(tx, { companyId, type: input.type, name: input.name, comment: input.comment ?? null });
         await record({ companyId, userId, entity: ENTITY, entityId: row.id, action: 'create', diff: { type: row.type, name: row.name, comment: row.comment } });
         return row;
@@ -104,7 +104,7 @@ export function createCounterpartiesService(d: { db: Db; audit: AuditService; re
       const patch = { ...input, ...(input.name !== undefined ? { name: cleanName(input.name) } : {}) };
       const changes = changedFields({ type: before.type, name: before.name, comment: before.comment }, patch);
       if (!changes) return before;
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const [row] = await tx.update(counterparties).set(changes.after).where(eq(counterparties.id, id)).returning();
         await record({ companyId, userId, entity: ENTITY, entityId: id, action: 'update', diff: changes });
         return row!;
@@ -119,7 +119,7 @@ export function createCounterpartiesService(d: { db: Db; audit: AuditService; re
       const current = (await svc.list(companyId)).map((r) => r.id);
       assertSameSet(current, ids);
       if (!isSameOrder(current, ids)) {
-        await mutateAsync(db, audit, async (tx, record) => {
+        await mutate(db, audit, async (tx, record) => {
           for (const [i, rowId] of ids.entries()) await tx.update(counterparties).set({ orderIndex: i }).where(eq(counterparties.id, rowId));
           await record({ companyId, userId, entity: ENTITY, action: 'reorder', diff: { ids } });
         });
@@ -133,7 +133,7 @@ export function createCounterpartiesService(d: { db: Db; audit: AuditService; re
       if ((await references.countOperations('counterparty', id)) > 0) {
         throw new AppError(422, 'INVARIANT_9', 'На контрагента ссылаются операции — его можно только перевести в архив');
       }
-      await mutateAsync(db, audit, async (tx, record) => {
+      await mutate(db, audit, async (tx, record) => {
         await tx.delete(counterparties).where(eq(counterparties.id, id));
         await record({ companyId, userId, entity: ENTITY, entityId: id, action: 'delete', diff: { type: row.type, name: row.name } });
       });

@@ -29,7 +29,7 @@ export function registerAuth(app: FastifyInstance, deps: { sessions: SessionsSer
     if (!route || !route.startsWith('/api/')) return; // неизвестный путь — отдаст 404 обработчик not-found
     const token = readSessionToken(req);
     if (token) {
-      const s = deps.sessions.touch(token);
+      const s = await deps.sessions.touch(token);
       if (s) {
         req.user = s.user;
         req.sessionId = s.id;

@@ -12,9 +12,9 @@ const auditQuery = z.object({
 });
 
 export function registerAuditRoutes(app: FastifyInstance, deps: { audit: AuditService; companies: CompaniesService }): void {
-  const page = (companyId: number | null, raw: unknown) => {
+  const page = async (companyId: number | null, raw: unknown) => {
     const q = auditQuery.parse(raw);
-    const entries = deps.audit.list({ companyId, ...q });
+    const entries = await deps.audit.list({ companyId, ...q });
     const last = entries.at(-1);
     return { entries, nextBeforeId: entries.length === q.limit && last ? last.id : null };
   };

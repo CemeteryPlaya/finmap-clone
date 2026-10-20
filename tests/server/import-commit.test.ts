@@ -98,8 +98,8 @@ function promisedBalance(a: ImportPreviewAccount): number {
   return m.balance.mode === 'current' ? m.balance.amount : m.balance.amount + a.movement;
 }
 /** Остатки по проводкам после записи — ровно те, что обещали карточки. */
-function expectPromisedBalances(cards: ImportPreviewAccount[]) {
-  const ledger = new Map(createLedgerBalances(w.h.t.db).companyBalances(w.cid).map((b) => [b.accountId, b.balance]));
+async function expectPromisedBalances(cards: ImportPreviewAccount[]) {
+  const ledger = new Map((await createLedgerBalances(w.h.t.db).companyBalances(w.cid)).map((b) => [b.accountId, b.balance]));
   for (const c of cards) {
     const m = c.mapping!;
     const id = m.kind === 'existing' ? m.accountId : (one('SELECT id FROM accounts WHERE company_id = ? AND name = ?', w.cid, m.name).id as number);
@@ -194,13 +194,13 @@ describe('POST …/imports: запись одной транзакцией (§6.
     expect(all('SELECT t.name FROM operation_tags ot JOIN tags t ON t.id = ot.tag_id ORDER BY t.id').map((t) => t.name)).toEqual(['Смена', 'Ночь']);
 
     // остатки: «Остаток после импорта» существующего счёта и «Текущий остаток» нового — ровно как указаны
-    const balances = new Map(createLedgerBalances(w.h.t.db).companyBalances(w.cid).map((b) => [b.accountId, b.balance]));
+    const balances = new Map((await createLedgerBalances(w.h.t.db).companyBalances(w.cid)).map((b) => [b.accountId, b.balance]));
     const bank = one("SELECT id, starting_balance, opened_at FROM accounts WHERE name = 'Банк-2'");
     expect(balances.get(w.kzt)).toBe(2_000_000);
     expect(balances.get(bank.id)).toBe(1_000_000);
     expect(bank).toMatchObject({ starting_balance: 1_000_000 - (5_000_000 - 820_050), opened_at: '2026-10-04' });
     // и ровно как обещали карточки счетов проверки, которую видел человек
-    expectPromisedBalances(p.accounts);
+    await expectPromisedBalances(p.accounts);
     // дата открытия «Кассы» перенесена на первую операцию файла (инвариант 6)
     expect(one('SELECT opened_at, starting_balance FROM accounts WHERE id = ?', w.kzt)).toEqual({
       opened_at: '2026-09-20',
@@ -557,9 +557,9 @@ describe('гонки между проверкой и записью', () => {
     expect(p.accounts.find((a) => a.key === 'касса')!.existing!.balance).toBe(123_400);
     const res = await commit(p, mappings);
     expect(res.statusCode, res.body).toBe(201);
-    expectPromisedBalances(p.accounts);
+    await expectPromisedBalances(p.accounts);
     // и цифры по отдельности: 1 234,00 + 10 596 - 8 500 - 50 000; 3 000 + 50 000 - 8 200,50; 77
-    const ledger = new Map(createLedgerBalances(w.h.t.db).companyBalances(w.cid).map((b) => [b.accountId, b.balance]));
+    const ledger = new Map((await createLedgerBalances(w.h.t.db).companyBalances(w.cid)).map((b) => [b.accountId, b.balance]));
     expect(ledger.get(w.kzt)).toBe(123_400 + 1_059_600 - 850_000 - 5_000_000);
     expect(ledger.get(one("SELECT id FROM accounts WHERE name = 'Банк-2'").id)).toBe(300_000 + 5_000_000 - 820_050);
     expect(ledger.get(one("SELECT id FROM accounts WHERE name = 'Сейф'").id)).toBe(7_700);

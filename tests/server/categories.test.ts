@@ -9,9 +9,9 @@ import { createTestDb } from '../helpers/test-db';
 let t: ReturnType<typeof createTestDb>;
 afterEach(() => t?.cleanup());
 
-function setup() {
+async function setup() {
   t = createTestDb();
-  seedCurrencies(t.db);
+  await seedCurrencies(t.db);
   const company = t.db.insert(companies).values({ name: 'ТОО', baseCurrency: 'KZT', createdAt: 'x' }).returning().get();
   const svc = createCategoriesService({ db: t.db, audit: createAuditService(t.db), now: () => new Date('2026-10-06T00:00:00.000Z') });
   return { svc, companyId: company.id };
@@ -19,7 +19,7 @@ function setup() {
 
 describe('categories', () => {
   it('seedSystem создаёт 9 системных категорий верхнего уровня', async () => {
-    const { svc, companyId } = setup();
+    const { svc, companyId } = await setup();
     await svc.seedSystem(t.db, companyId);
     const tree = await svc.listTree(companyId);
     expect(tree.income.map((c) => c.name)).toEqual(['Инвестиции', 'Возврат займа', 'Получение кредита']);
@@ -28,7 +28,7 @@ describe('categories', () => {
   });
 
   it('mergeTemplate кладёт детей underSystem под системную категорию и наследует systemKey', async () => {
-    const { svc, companyId } = setup();
+    const { svc, companyId } = await setup();
     await svc.seedSystem(t.db, companyId);
     const created = await svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!);
     expect(created).toBeGreaterThan(20);
@@ -41,7 +41,7 @@ describe('categories', () => {
   });
 
   it('mergeTemplate идемпотентен', async () => {
-    const { svc, companyId } = setup();
+    const { svc, companyId } = await setup();
     await svc.seedSystem(t.db, companyId);
     await svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!);
     const before = JSON.stringify(await svc.listTree(companyId));
@@ -50,7 +50,7 @@ describe('categories', () => {
   });
 
   it('mergeTemplate не трогает переименованные и архивные категории шаблона (Review Focus 2)', async () => {
-    const { svc, companyId } = setup();
+    const { svc, companyId } = await setup();
     await svc.seedSystem(t.db, companyId);
     await svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!);
     t.sqlite.prepare("UPDATE categories SET name = 'Аренда зала' WHERE template_ref = 'computer-club:rent'").run();
@@ -66,14 +66,14 @@ describe('categories', () => {
   });
 
   it('mergeTemplate без системных категорий падает понятной ошибкой', async () => {
-    const { svc, companyId } = setup();
+    const { svc, companyId } = await setup();
     await expect(svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!)).rejects.toThrow(/salary/);
   });
 
   it.each(['moved', 'archived'] as const)(
     'mergeTemplate: группа шаблона %s — новые дочерние встают на верхний уровень (Review Focus 3)',
     async (variant) => {
-      const { svc, companyId } = setup();
+      const { svc, companyId } = await setup();
       const club = getTemplate('computer-club')!;
       await svc.seedSystem(t.db, companyId);
       await svc.mergeTemplate(t.db, companyId, club);

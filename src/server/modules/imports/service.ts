@@ -14,7 +14,7 @@ import type {
 import { cleanName } from '../../../shared/text';
 import type { Db } from '../../db/client';
 import { AppError } from '../../errors';
-import { mutateAsync } from '../audit/mutate';
+import { mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import type { RatesService } from '../rates/service';
@@ -117,7 +117,7 @@ export function createImportsService(
       // проверка заново — внутри транзакции записи: между проверкой и записью база не меняется (транзакции выстроены в очередь);
       // курсы — только чтение базы (rates.resolve), поэтому и они здесь (§6.4 п. 1–2). BEGIN IMMEDIATE: блокировка записи
       // берётся до проверки — чужая запись (скрипт, второй процесс) не вклинится между проверкой и записью (решение 17)
-      const record = await mutateAsync(
+      const record = await mutate(
         db,
         d.audit,
         async (tx, audit) => {
@@ -156,7 +156,7 @@ export function createImportsService(
     async undo(companyId, userId, importId, body) {
       await requireCompany(db, companyId, { writable: true });
       // BEGIN IMMEDIATE: две отмены одного импорта не пройдут обе — вторая увидит status = 'undone' (409)
-      const result = await mutateAsync(
+      const result = await mutate(
         db,
         d.audit,
         async (tx, audit) => {

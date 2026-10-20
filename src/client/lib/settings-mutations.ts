@@ -83,7 +83,7 @@ export function useEntityActions(path: string, refresh: () => Promise<unknown>, 
   const run = async (a: EntityAction): Promise<boolean> => {
     setBusy(true);
     try {
-      await action.mutateAsync(a);
+      await action.mutate(a);
     } catch {
       setBusy(false);
       return false;

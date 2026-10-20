@@ -7,7 +7,7 @@ import type { Db } from '../../db/client';
 import { first } from '../../db/raw';
 import { attachments, operations } from '../../db/schema';
 import { AppError } from '../../errors';
-import { mutateAsync } from '../audit/mutate';
+import { mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import { detectFileType, type DetectedType } from './file-type';
@@ -82,7 +82,7 @@ export function createAttachmentsService(d: { db: Db; audit: AuditService; uploa
       const filePath = path.join(d.uploadsDir, storedName);
       try {
         fs.writeFileSync(filePath, file.data, { flag: 'wx' });
-        return await mutateAsync(db, audit, async (tx, record) => {
+        return await mutate(db, audit, async (tx, record) => {
           const [row] = await tx
             .insert(attachments)
             .values({ companyId, operationId, originalName, storedName, mime: type.mime, size: file.data.length, createdAt: now().toISOString() })
@@ -106,7 +106,7 @@ export function createAttachmentsService(d: { db: Db; audit: AuditService; uploa
     async remove(companyId, id, userId) {
       await requireCompany(db, companyId, { writable: true });
       const row = await requireAttachment(companyId, id);
-      await mutateAsync(db, audit, async (tx, record) => {
+      await mutate(db, audit, async (tx, record) => {
         await tx.update(attachments).set({ deletedAt: now().toISOString() }).where(eq(attachments.id, id));
         await record({ companyId, userId, entity: 'attachment', entityId: id, action: 'delete', diff: { operationId: row.operationId, name: row.originalName } });
       });

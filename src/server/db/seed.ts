@@ -1,14 +1,15 @@
 import { CURRENCIES } from '../../shared/currencies';
 import type { Db } from './client';
+import { withTx } from './tx';
 import { currencies } from './schema';
 
-export function seedCurrencies(db: Db): void {
-  db.transaction((tx) => {
+export async function seedCurrencies(db: Db): Promise<void> {
+  await withTx(db, async (tx) => {
     for (const c of CURRENCIES) {
-      tx.insert(currencies)
+      await tx
+        .insert(currencies)
         .values(c)
-        .onConflictDoUpdate({ target: currencies.code, set: { name: c.name, symbol: c.symbol, minorUnits: c.minorUnits } })
-        .run();
+        .onConflictDoUpdate({ target: currencies.code, set: { name: c.name, symbol: c.symbol, minorUnits: c.minorUnits } });
     }
   });
 }

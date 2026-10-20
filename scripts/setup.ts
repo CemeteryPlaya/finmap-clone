@@ -163,9 +163,9 @@ migrateWithBackup({
   dbExisted,
   backup: createBackupService({ sqlite, config, log: (m, e) => (e ? console.error(m, e) : console.log(m)) }),
 });
-seedCurrencies(db);
+await seedCurrencies(db);
 const users = createUsersService(db, createAuditService(db));
-if (users.count() === 0) {
+if ((await users.count()) === 0) {
   console.log('Создаём первого пользователя.');
   for (;;) {
     try {

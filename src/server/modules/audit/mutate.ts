@@ -10,19 +10,6 @@ import type { AuditEntry, AuditService } from './service';
 export function mutate<T>(
   db: Db,
   audit: AuditService,
-  fn: (tx: Executor, record: (entry: AuditEntry) => number) => T,
-  opts: { behavior?: 'deferred' | 'immediate' } = {},
-): T {
-  return db.transaction((tx) => fn(tx, (entry) => audit.record(entry, tx)), { behavior: opts.behavior ?? 'deferred' });
-}
-
-/**
- * Асинхронный двойник mutate (фаза В-1 плана 2026-10-20-vercel-postgres): модули переходят на него по одному;
- * задача 8 удаляет синхронный mutate и возвращает этому имени mutate.
- */
-export function mutateAsync<T>(
-  db: Db,
-  audit: AuditService,
   fn: (tx: Executor, record: (entry: AuditEntry) => Promise<number>) => Promise<T>,
   opts: { behavior?: 'deferred' | 'immediate' } = {},
 ): Promise<T> {

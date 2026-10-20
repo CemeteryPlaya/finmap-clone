@@ -32,10 +32,10 @@ describe('ledger: балансы и ссылки операций', () => {
     await w.h.req('DELETE', `${w.ops}/${gone.id}`);
 
     const ledger = createLedgerBalances(w.h.t.db);
-    const byId = new Map(ledger.companyBalances(w.cid).map((b) => [b.accountId, b]));
+    const byId = new Map((await ledger.companyBalances(w.cid)).map((b) => [b.accountId, b]));
     expect(byId.get(w.kzt)).toMatchObject({ currency: 'KZT', balance: 82488, archived: false });
     expect(byId.get(w.usd)).toMatchObject({ currency: 'USD', balance: 100 });
-    expect(ledger.accountBalance({ id: w.kzt, startingBalance: 100000 })).toBe(82488);
+    expect(await ledger.accountBalance({ id: w.kzt, startingBalance: 100000 })).toBe(82488);
 
     // независимый пересчёт по всем операциям (критерий §12)
     const rows = w.h.t.sqlite
@@ -65,7 +65,7 @@ describe('ledger: балансы и ссылки операций', () => {
     expect((await w.h.req('PATCH', `${w.ops}/${inc.id}`, { version: 2, amount: 50 })).statusCode).toBe(422);
     expect((await w.h.req('DELETE', `${w.ops}/${inc.id}`)).statusCode).toBe(422);
     const ledger = createLedgerBalances(w.h.t.db);
-    expect(ledger.companyBalances(w.cid).find((b) => b.accountId === safe)).toMatchObject({ balance: 0, archived: true });
+    expect((await ledger.companyBalances(w.cid)).find((b) => b.accountId === safe)).toMatchObject({ balance: 0, archived: true });
   });
 
   it('инвариант 9: на что ссылается операция (даже удалённая), то удалить нельзя; неиспользуемое — можно', async () => {

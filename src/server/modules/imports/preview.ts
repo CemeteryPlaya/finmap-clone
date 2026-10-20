@@ -217,11 +217,11 @@ export async function buildPreview(deps: PreviewDeps, src: PreviewSource, reques
   // ——— суммы (§4.2): курс на дату — один запрос на пару (валюта, дата)
   type RateOn = { rate: Dec; display: string } | { missing: string };
   const rateCache = new Map<string, RateOn>();
-  function rateOn(currency: string, date: string): RateOn {
+  async function rateOn(currency: string, date: string): Promise<RateOn> {
     const k = `${currency}|${date}`;
     if (!rateCache.has(k)) {
       try {
-        rateCache.set(k, deps.rates.resolve(companyId, base, currency, date));
+        rateCache.set(k, await deps.rates.resolve(companyId, base, currency, date));
       } catch (e) {
         if (!(e instanceof AppError && e.code === 'RATE_UNAVAILABLE')) throw e;
         // курса может не быть и у базовой валюты компании (не KZT): R16 называет валюту, курса которой нет
@@ -267,7 +267,7 @@ export async function buildPreview(deps: PreviewDeps, src: PreviewSource, reques
       baseAmount = r.baseAmount;
       rate = roundSignificant(divDec(BigInt(r.baseAmount) * 10n ** BigInt(units), BigInt(a.minor) * 10n ** BigInt(baseUnits)));
     } else {
-      const x = rateOn(accCurrency, r.date);
+      const x = await rateOn(accCurrency, r.date);
       if ('missing' in x) {
         err('R16', M.R16(x.missing, r.date));
         continue;
@@ -286,7 +286,7 @@ export async function buildPreview(deps: PreviewDeps, src: PreviewSource, reques
       if (toCurrency === accCurrency) toAmount = a.minor;
       else if (toCurrency === base) toAmount = baseAmount;
       else {
-        const y = rateOn(toCurrency, r.date);
+        const y = await rateOn(toCurrency, r.date);
         if ('missing' in y) {
           err('R16', M.R16(y.missing, r.date));
           continue;

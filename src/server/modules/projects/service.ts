@@ -8,7 +8,7 @@ import { first } from '../../db/raw';
 import { accounts, projects } from '../../db/schema';
 import { AppError } from '../../errors';
 import type { AccountsService } from '../accounts/service';
-import { changedFields, mutateAsync } from '../audit/mutate';
+import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import type { CategoriesService } from '../categories/service';
 import type { CompaniesService } from '../companies/service';
@@ -128,7 +128,7 @@ export function createProjectsService(d: {
       const name = cleanName(input.name);
       await assertNameFree(companyId, name);
 
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const row = await insertProject(tx, { companyId, name, templateKey: template.key, templateParams: JSON.stringify(params) });
         const createdCategories = await d.categories.mergeTemplate(tx, companyId, template);
         const openedAt = todayInTimezone(d.timezone, now());
@@ -175,7 +175,7 @@ export function createProjectsService(d: {
       if (!changes) return { project: before, renamedAccounts: 0 };
       const newName = changes.after.name;
       if (newName !== undefined) await assertNameFree(companyId, newName, id);
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const set: Partial<typeof projects.$inferInsert> = {};
         if (newName !== undefined) set.name = newName;
         if (changes.after.templateParams !== undefined) set.templateParams = JSON.stringify(changes.after.templateParams);
@@ -214,7 +214,7 @@ export function createProjectsService(d: {
       if ((await d.accounts.countActive(companyId, id)) > 0) {
         throw new AppError(422, 'ARCHIVED_REFERENCE', 'Сначала переведите в архив счета проекта');
       }
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const [out] = await tx.update(projects).set({ archivedAt: now().toISOString() }).where(eq(projects.id, id)).returning();
         await record({ companyId, userId, entity: 'project', entityId: id, action: 'archive' });
         return toRow(out!);
@@ -225,7 +225,7 @@ export function createProjectsService(d: {
       await d.companies.require(companyId, { writable: true });
       const row = await requireProject(companyId, id);
       if (!row.archivedAt) return row;
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const [out] = await tx.update(projects).set({ archivedAt: null }).where(eq(projects.id, id)).returning();
         await record({ companyId, userId, entity: 'project', entityId: id, action: 'unarchive' });
         return toRow(out!);
@@ -237,7 +237,7 @@ export function createProjectsService(d: {
       const current = (await svc.list(companyId)).map((p) => p.id);
       assertSameSet(current, ids);
       if (!isSameOrder(current, ids)) {
-        await mutateAsync(db, audit, async (tx, record) => {
+        await mutate(db, audit, async (tx, record) => {
           for (const [i, projectId] of ids.entries()) await tx.update(projects).set({ orderIndex: i }).where(eq(projects.id, projectId));
           await record({ companyId, userId, entity: 'project', action: 'reorder', diff: { ids } });
         });
@@ -254,7 +254,7 @@ export function createProjectsService(d: {
       if ((await references.countOperations('project', id)) > 0) {
         throw new AppError(422, 'INVARIANT_9', 'На проект ссылаются операции — его можно только перевести в архив');
       }
-      await mutateAsync(db, audit, async (tx, record) => {
+      await mutate(db, audit, async (tx, record) => {
         await tx.delete(projects).where(eq(projects.id, id));
         await record({ companyId, userId, entity: 'project', entityId: id, action: 'delete', diff: { name: row.name, templateKey: row.templateKey } });
       });

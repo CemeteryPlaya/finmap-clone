@@ -951,7 +951,7 @@ try {
   const { sqlite, db } = openDb(config.dbPath);
   try {
     runMigrations(db);
-    seedCurrencies(db);
+    await seedCurrencies(db);
     await createUsersService(db, createAuditService(db)).create({ login: LOGIN, name: 'Владелец', password: PASSWORD }, null);
     await seedDemo({ db, timezone: config.timezone, now: NOW, operations: 400 });
   } finally {

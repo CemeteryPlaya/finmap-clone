@@ -5,7 +5,7 @@ import { first } from '../../db/raw';
 import { companies, fixedRates, operations } from '../../db/schema';
 import { AppError } from '../../errors';
 import type { AccountsService } from '../accounts/service';
-import { changedFields, mutateAsync } from '../audit/mutate';
+import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import type { CategoriesService } from '../categories/service';
 import { requireCompany } from './guard';
@@ -49,7 +49,7 @@ export function createCompaniesService(d: {
     },
 
     create(input, userId) {
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const [row] = await tx
           .insert(companies)
           .values({ name: cleanName(input.name), baseCurrency: input.baseCurrency, createdAt: now().toISOString() })
@@ -69,7 +69,7 @@ export function createCompaniesService(d: {
       if (changes.after.baseCurrency !== undefined && (await svc.currencyLocked(id))) {
         throw new AppError(422, 'CURRENCY_LOCKED', 'В компании есть операции или фиксированные курсы — базовую валюту изменить нельзя');
       }
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const [row] = await tx.update(companies).set(changes.after).where(eq(companies.id, id)).returning();
         await record({ companyId: id, userId, entity: 'company', entityId: id, action: 'update', diff: changes });
         return row!;
@@ -88,7 +88,7 @@ export function createCompaniesService(d: {
       if ((await d.accounts.countActive(id)) > 0) {
         throw new AppError(422, 'ARCHIVED_REFERENCE', 'Сначала переведите в архив все счета компании');
       }
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const [out] = await tx.update(companies).set({ archivedAt: now().toISOString() }).where(eq(companies.id, id)).returning();
         await record({ companyId: id, userId, entity: 'company', entityId: id, action: 'archive' });
         return out!;
@@ -98,7 +98,7 @@ export function createCompaniesService(d: {
     async unarchive(id, userId) {
       const row = await svc.require(id);
       if (!row.archivedAt) return row;
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const [out] = await tx.update(companies).set({ archivedAt: null }).where(eq(companies.id, id)).returning();
         await record({ companyId: id, userId, entity: 'company', entityId: id, action: 'unarchive' });
         return out!;

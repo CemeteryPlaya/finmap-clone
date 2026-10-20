@@ -10,18 +10,18 @@ import { createTestDb } from '../helpers/test-db';
 let t: ReturnType<typeof createTestDb>;
 afterEach(() => t?.cleanup());
 
-function setup(base = 'KZT') {
+async function setup(base = 'KZT') {
   t = createTestDb();
-  seedCurrencies(t.db);
+  await seedCurrencies(t.db);
   t.sqlite.prepare("INSERT INTO users (login, name, password_hash, created_at) VALUES ('u','U','h','x')").run();
   const company = t.db.insert(companies).values({ name: 'ТОО', baseCurrency: base, createdAt: 'x' }).returning().get();
   const svc = createRatesService({ db: t.db, audit: createAuditService(t.db), now: () => new Date('2026-10-20T00:00:00.000Z') });
   return { svc, cid: company.id };
 }
 
-const unavailable = (fn: () => unknown): string => {
+const unavailable = async (fn: () => Promise<unknown>): Promise<string> => {
   try {
-    fn();
+    await fn();
   } catch (e) {
     expect(e).toBeInstanceOf(AppError);
     expect((e as AppError).code).toBe('RATE_UNAVAILABLE');
@@ -31,65 +31,65 @@ const unavailable = (fn: () => unknown): string => {
 };
 
 describe('rates: определение курса (§4.3)', () => {
-  it('курс базовой валюты = 1 без поиска', () => {
-    const { svc, cid } = setup();
-    expect(svc.resolve(cid, 'KZT', 'KZT', '2026-10-06')).toEqual({ rate: DEC_ONE, display: '1' });
+  it('курс базовой валюты = 1 без поиска', async () => {
+    const { svc, cid } = await setup();
+    expect(await svc.resolve(cid, 'KZT', 'KZT', '2026-10-06')).toEqual({ rate: DEC_ONE, display: '1' });
   });
 
-  it('ручной курс на D действует на D…D+7, не действует на D-1 и D+8', () => {
-    const { svc, cid } = setup();
-    svc.addManual({ date: '2026-10-01', currency: 'USD', rate: '475,12' }, 1);
-    expect(svc.resolve(cid, 'KZT', 'USD', '2026-10-01').display).toBe('475.12');
-    expect(svc.resolve(cid, 'KZT', 'USD', '2026-10-08').display).toBe('475.12');
-    expect(unavailable(() => svc.resolve(cid, 'KZT', 'USD', '2026-10-09'))).toBe('Нет курса USD на 09.10.2026');
-    expect(unavailable(() => svc.resolve(cid, 'KZT', 'USD', '2026-09-30'))).toBe('Нет курса USD на 30.09.2026');
-    expect(svc.kztRate('USD', '2026-10-05')).toMatchObject({ date: '2026-10-01', source: 'manual' });
+  it('ручной курс на D действует на D…D+7, не действует на D-1 и D+8', async () => {
+    const { svc, cid } = await setup();
+    await svc.addManual({ date: '2026-10-01', currency: 'USD', rate: '475,12' }, 1);
+    expect((await svc.resolve(cid, 'KZT', 'USD', '2026-10-01')).display).toBe('475.12');
+    expect((await svc.resolve(cid, 'KZT', 'USD', '2026-10-08')).display).toBe('475.12');
+    expect(await unavailable(() => svc.resolve(cid, 'KZT', 'USD', '2026-10-09'))).toBe('Нет курса USD на 09.10.2026');
+    expect(await unavailable(() => svc.resolve(cid, 'KZT', 'USD', '2026-09-30'))).toBe('Нет курса USD на 30.09.2026');
+    expect(await svc.kztRate('USD', '2026-10-05')).toMatchObject({ date: '2026-10-01', source: 'manual' });
   });
 
-  it('берётся ближайший предыдущий курс, а не первый попавшийся', () => {
-    const { svc, cid } = setup();
-    svc.addManual({ date: '2026-10-01', currency: 'USD', rate: '470' }, 1);
-    svc.addManual({ date: '2026-10-03', currency: 'USD', rate: '480' }, 1);
-    expect(svc.resolve(cid, 'KZT', 'USD', '2026-10-05').display).toBe('480');
+  it('берётся ближайший предыдущий курс, а не первый попавшийся', async () => {
+    const { svc, cid } = await setup();
+    await svc.addManual({ date: '2026-10-01', currency: 'USD', rate: '470' }, 1);
+    await svc.addManual({ date: '2026-10-03', currency: 'USD', rate: '480' }, 1);
+    expect((await svc.resolve(cid, 'KZT', 'USD', '2026-10-05')).display).toBe('480');
   });
 
-  it('кросс-курс через тенге при базовой USD: KZT→USD и EUR→USD', () => {
-    const { svc, cid } = setup('USD');
-    svc.addManual({ date: '2026-10-06', currency: 'USD', rate: '475' }, 1);
-    svc.addManual({ date: '2026-10-06', currency: 'EUR', rate: '520' }, 1);
-    expect(svc.resolve(cid, 'USD', 'KZT', '2026-10-06').display).toBe('0.002105263158');
-    expect(svc.resolve(cid, 'USD', 'EUR', '2026-10-06').display).toBe('1.094736842');
+  it('кросс-курс через тенге при базовой USD: KZT→USD и EUR→USD', async () => {
+    const { svc, cid } = await setup('USD');
+    await svc.addManual({ date: '2026-10-06', currency: 'USD', rate: '475' }, 1);
+    await svc.addManual({ date: '2026-10-06', currency: 'EUR', rate: '520' }, 1);
+    expect((await svc.resolve(cid, 'USD', 'KZT', '2026-10-06')).display).toBe('0.002105263158');
+    expect((await svc.resolve(cid, 'USD', 'EUR', '2026-10-06')).display).toBe('1.094736842');
     // курс EUR на 20.10 есть, а базовой USD к тенге — нет (последний 06.10, старше 7 дней): сообщение называет USD
-    svc.addManual({ date: '2026-10-20', currency: 'EUR', rate: '525' }, 1);
-    expect(unavailable(() => svc.resolve(cid, 'USD', 'EUR', '2026-10-20'))).toBe('Нет курса USD на 20.10.2026');
+    await svc.addManual({ date: '2026-10-20', currency: 'EUR', rate: '525' }, 1);
+    expect(await unavailable(() => svc.resolve(cid, 'USD', 'EUR', '2026-10-20'))).toBe('Нет курса USD на 20.10.2026');
   });
 
-  it('фиксированный курс важнее ручного на ту же дату', () => {
-    const { svc, cid } = setup();
-    svc.addFixed(cid, { currency: 'USD', rate: '500', validFrom: '2026-10-01', validTo: '2026-10-31' }, 1);
-    svc.addManual({ date: '2026-10-15', currency: 'USD', rate: '470' }, 1);
-    expect(svc.resolve(cid, 'KZT', 'USD', '2026-10-15').display).toBe('500');
+  it('фиксированный курс важнее ручного на ту же дату', async () => {
+    const { svc, cid } = await setup();
+    await svc.addFixed(cid, { currency: 'USD', rate: '500', validFrom: '2026-10-01', validTo: '2026-10-31' }, 1);
+    await svc.addManual({ date: '2026-10-15', currency: 'USD', rate: '470' }, 1);
+    expect((await svc.resolve(cid, 'KZT', 'USD', '2026-10-15')).display).toBe('500');
   });
 
-  it('периоды фиксированных курсов с общим днём пересекаются, соседние — нет', () => {
-    const { svc, cid } = setup();
-    svc.addFixed(cid, { currency: 'USD', rate: '500', validFrom: '2026-10-01', validTo: '2026-10-31' }, 1);
+  it('периоды фиксированных курсов с общим днём пересекаются, соседние — нет', async () => {
+    const { svc, cid } = await setup();
+    await svc.addFixed(cid, { currency: 'USD', rate: '500', validFrom: '2026-10-01', validTo: '2026-10-31' }, 1);
     let fields: unknown;
     try {
-      svc.addFixed(cid, { currency: 'USD', rate: '510', validFrom: '2026-10-31', validTo: '2026-11-30' }, 1);
+      await svc.addFixed(cid, { currency: 'USD', rate: '510', validFrom: '2026-10-31', validTo: '2026-11-30' }, 1);
     } catch (e) {
       fields = (e as AppError).fields;
     }
     expect(fields).toEqual({ validFrom: 'Период пересекается с другим фиксированным курсом' });
   });
 
-  it('фиксированный курс действует на validFrom и validTo включительно, на validTo+1 — уже нет', () => {
-    const { svc, cid } = setup();
-    svc.addFixed(cid, { currency: 'USD', rate: '500', validFrom: '2026-10-01', validTo: '2026-10-31' }, 1);
-    svc.addManual({ date: '2026-11-01', currency: 'USD', rate: '470' }, 1);
-    expect(svc.resolve(cid, 'KZT', 'USD', '2026-10-01').display).toBe('500');
-    expect(svc.resolve(cid, 'KZT', 'USD', '2026-10-31').display).toBe('500');
-    expect(svc.resolve(cid, 'KZT', 'USD', '2026-11-01').display).toBe('470');
-    expect(unavailable(() => svc.resolve(cid, 'KZT', 'USD', '2026-09-30'))).toBe('Нет курса USD на 30.09.2026');
+  it('фиксированный курс действует на validFrom и validTo включительно, на validTo+1 — уже нет', async () => {
+    const { svc, cid } = await setup();
+    await svc.addFixed(cid, { currency: 'USD', rate: '500', validFrom: '2026-10-01', validTo: '2026-10-31' }, 1);
+    await svc.addManual({ date: '2026-11-01', currency: 'USD', rate: '470' }, 1);
+    expect((await svc.resolve(cid, 'KZT', 'USD', '2026-10-01')).display).toBe('500');
+    expect((await svc.resolve(cid, 'KZT', 'USD', '2026-10-31')).display).toBe('500');
+    expect((await svc.resolve(cid, 'KZT', 'USD', '2026-11-01')).display).toBe('470');
+    expect(await unavailable(() => svc.resolve(cid, 'KZT', 'USD', '2026-09-30'))).toBe('Нет курса USD на 30.09.2026');
   });
 });

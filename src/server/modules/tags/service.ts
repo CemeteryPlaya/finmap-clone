@@ -5,7 +5,7 @@ import type { Db, Executor } from '../../db/client';
 import { first } from '../../db/raw';
 import { tags } from '../../db/schema';
 import { AppError } from '../../errors';
-import { changedFields, mutateAsync } from '../audit/mutate';
+import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import { assertSameSet, isSameOrder } from '../dictionaries/order';
@@ -62,7 +62,7 @@ export function createTagsService(d: { db: Db; audit: AuditService; references?:
     await requireCompany(db, companyId, { writable: true });
     const row = await requireRow(companyId, id);
     if ((row.archivedAt !== null) === archive) return row;
-    return mutateAsync(db, audit, async (tx, record) => {
+    return mutate(db, audit, async (tx, record) => {
       const [out] = await tx.update(tags).set({ archivedAt: archive ? now().toISOString() : null }).where(eq(tags.id, id)).returning();
       await record({ companyId, userId, entity: ENTITY, entityId: id, action: archive ? 'archive' : 'unarchive' });
       return out!;
@@ -94,7 +94,7 @@ export function createTagsService(d: { db: Db; audit: AuditService; references?:
       await requireCompany(db, companyId, { writable: true });
       const name = cleanName(rawName);
       await assertNameFree(companyId, name);
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const row = await svc.createIn(tx, { companyId, name });
         await record({ companyId, userId, entity: ENTITY, entityId: row.id, action: 'create', diff: { name } });
         return row;
@@ -109,7 +109,7 @@ export function createTagsService(d: { db: Db; audit: AuditService; references?:
       if (!changes) return before;
       const name = changes.after.name!;
       await assertNameFree(companyId, name, id);
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const [row] = await tx.update(tags).set({ name, nameKey: tagKey(name) }).where(eq(tags.id, id)).returning();
         await record({ companyId, userId, entity: ENTITY, entityId: id, action: 'update', diff: changes });
         return row!;
@@ -124,7 +124,7 @@ export function createTagsService(d: { db: Db; audit: AuditService; references?:
       const current = (await svc.list(companyId)).map((r) => r.id);
       assertSameSet(current, ids);
       if (!isSameOrder(current, ids)) {
-        await mutateAsync(db, audit, async (tx, record) => {
+        await mutate(db, audit, async (tx, record) => {
           for (const [i, rowId] of ids.entries()) await tx.update(tags).set({ orderIndex: i }).where(eq(tags.id, rowId));
           await record({ companyId, userId, entity: ENTITY, action: 'reorder', diff: { ids } });
         });
@@ -138,7 +138,7 @@ export function createTagsService(d: { db: Db; audit: AuditService; references?:
       if ((await references.countOperations('tag', id)) > 0) {
         throw new AppError(422, 'INVARIANT_9', 'Тег стоит на операциях — его можно только перевести в архив');
       }
-      await mutateAsync(db, audit, async (tx, record) => {
+      await mutate(db, audit, async (tx, record) => {
         await tx.delete(tags).where(eq(tags.id, id));
         await record({ companyId, userId, entity: ENTITY, entityId: id, action: 'delete', diff: { name: row.name } });
       });

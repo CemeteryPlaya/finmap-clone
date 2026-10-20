@@ -1,6 +1,6 @@
 import { and, asc, eq, sql, type SQL } from 'drizzle-orm';
 import { addDays, startOfDayUtc, todayInTimezone } from '../../../shared/dates';
-import type { Dec } from '../../../shared/decimal';
+import { DEC_ONE, type Dec } from '../../../shared/decimal';
 import {
   balanceSeries,
   cashflowRows,
@@ -59,7 +59,7 @@ import { accounts, analyticsIndicatorParts, categories, counterparties, projects
 import { AppError } from '../../errors';
 import { exportFileName } from '../../http/export-name';
 import { buildXlsx } from '../../http/xlsx';
-import { mutateAsync } from '../audit/mutate';
+import { mutate } from '../audit/mutate';
 import { createAuditService, type AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import { decodeCursor, encodeCursor, JOURNAL_EXPORT_MAX, type JournalItem, type JournalService } from '../operations/journal';
@@ -490,30 +490,28 @@ export function createAnalyticsService(d: {
         transfers.push({ at: r.at, from: r.accountId, to: r.toAccountId, base: r.base });
       }
     }
-    const cache = new Map<string, Dec | null>();
-    const rate = (currency: string, date: string): Dec | null => {
-      const key = `${currency}|${date}`;
-      if (!cache.has(key)) {
-        try {
-          cache.set(key, d.rates.resolve(company.id, company.baseCurrency, currency, date).rate);
-        } catch (e) {
-          if (!(e instanceof AppError && e.code === 'RATE_UNAVAILABLE')) throw e;
-          cache.set(key, null);
-        }
-      }
-      return cache.get(key)!;
-    };
-    const series = balanceSeries({
-      columns,
-      starts,
-      accounts: set,
-      opening,
-      legs,
-      transfers,
-      baseCurrency: company.baseCurrency,
-      rate,
-      today: todayInTimezone(timezone, now()),
+    const input = { columns, starts, accounts: set, opening, legs, transfers, baseCurrency: company.baseCurrency, today: todayInTimezone(timezone, now()) };
+    // balanceSeries — чистая функция с синхронным курсом: первый проход собирает пары (валюта, дата) — их не больше,
+    // чем спросит настоящий проход, — затем курсы читаются из базы, второй проход считает по ним
+    const wanted = new Set<string>();
+    balanceSeries({
+      ...input,
+      rate: (currency, date) => {
+        wanted.add(`${currency}|${date}`);
+        return DEC_ONE;
+      },
     });
+    const cache = new Map<string, Dec | null>();
+    for (const key of wanted) {
+      const [currency, date] = key.split('|') as [string, string];
+      try {
+        cache.set(key, (await d.rates.resolve(company.id, company.baseCurrency, currency, date)).rate);
+      } catch (e) {
+        if (!(e instanceof AppError && e.code === 'RATE_UNAVAILABLE')) throw e;
+        cache.set(key, null);
+      }
+    }
+    const series = balanceSeries({ ...input, rate: (currency, date) => cache.get(`${currency}|${date}`) ?? null });
     return { series, accountIds };
   }
 
@@ -951,7 +949,7 @@ export function createAnalyticsService(d: {
         before.allCategories === next.allCategories && before.includeStock === next.includeStock && sorted(before.categoryIds) === sorted(next.categoryIds);
       if (same) return partViews(companyId);
       const names = new Map(all.map((c) => [c.id, c.name]));
-      await mutateAsync(db, audit, async (tx, record) => {
+      await mutate(db, audit, async (tx, record) => {
         const row = { allCategories: next.allCategories, categoryIds: JSON.stringify(next.categoryIds), includeStock: next.includeStock, updatedAt: now().toISOString(), updatedBy: userId };
         await tx
           .insert(analyticsIndicatorParts)
@@ -969,7 +967,7 @@ export function createAnalyticsService(d: {
       const names = new Map((await dicts(companyId)).categories.map((c) => [c.id, c.name]));
       // после сброса действует умолчание шаблонов — его и пишем в историю
       const after: IndicatorPartView = { ...defaultPart(part, await templateDefaults(companyId)), isDefault: true };
-      await mutateAsync(db, audit, async (tx, record) => {
+      await mutate(db, audit, async (tx, record) => {
         await tx.delete(analyticsIndicatorParts).where(and(eq(analyticsIndicatorParts.companyId, companyId), eq(analyticsIndicatorParts.part, part)));
         await record({ companyId, userId, entity: 'indicator_part', action: 'reset', diff: { part, before: partDiff(part, before, names), after: partDiff(part, after, names) } });
       });

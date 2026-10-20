@@ -26,7 +26,7 @@ describe('users', () => {
     expect(u).toEqual({ id: u.id, login: 'admin', name: 'Владелец' });
     const row = t.db.select().from(users).all()[0]!;
     expect(row.passwordHash.startsWith('$argon2id$')).toBe(true);
-    expect(audit.list({ companyId: null })[0]).toMatchObject({ entity: 'user', action: 'create', diff: { login: 'admin', name: 'Владелец' } });
+    expect((await audit.list({ companyId: null }))[0]).toMatchObject({ entity: 'user', action: 'create', diff: { login: 'admin', name: 'Владелец' } });
   });
 
   it('вход нечувствителен к регистру и пробелам логина (Review Focus 1)', async () => {
@@ -56,8 +56,8 @@ describe('users', () => {
     const u = await svc.create({ login: 'admin', name: 'В', password: 'correct-horse-1' }, null);
     t.sqlite.prepare('UPDATE users SET disabled_at = ? WHERE id = ?').run(new Date().toISOString(), u.id);
     expect(await svc.verifyCredentials('admin', 'correct-horse-1')).toBeNull();
-    expect(svc.getActive(u.id)).toBeNull();
-    expect(svc.count()).toBe(1);
+    expect(await svc.getActive(u.id)).toBeNull();
+    expect(await svc.count()).toBe(1);
   });
 
   it('одновременное создание одного логина: один успех, второй — ошибка поля, а не 500 (Review Focus 1)', async () => {
@@ -96,16 +96,17 @@ describe('users', () => {
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     const rejected = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
     expect(rejected.reason).toMatchObject({ code: 'USER_LOCKOUT' });
-    expect(svc.list().filter((u) => u.disabledAt === null)).toHaveLength(1);
+    expect((await svc.list()).filter((u) => u.disabledAt === null)).toHaveLength(1);
   });
 
   it('смена своего пароля: если администратор сбросил пароль, пока шёл хэш, — 409 и сброс не затирается', async () => {
     const { svc } = setup();
     const a = await svc.create({ login: 'alpha', name: 'А', password: 'correct-horse-1' }, null);
     const resetHash = await hashPassword('admin-reset-1');
-    // changeOwnPassword читает строку синхронно и затем уходит в await verifyPassword; подмена хэша сразу после вызова
-    // (до первого await) детерминированно попадает в окно между чтением и транзакцией
+    // changeOwnPassword читает строку и уходит в await verifyPassword (argon2 в пуле потоков): после одного тика setImmediate
+    // строка уже прочитана, а проверка пароля ещё идёт — подмена хэша попадает в окно между чтением и транзакцией
     const pending = svc.changeOwnPassword(a.id, 'correct-horse-1', 'self-chosen-pass-1', null);
+    await new Promise((r) => setImmediate(r));
     t.sqlite.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(resetHash, a.id);
     await expect(pending).rejects.toMatchObject({ status: 409, code: 'VERSION_CONFLICT' });
     expect(await svc.verifyCredentials('alpha', 'admin-reset-1')).toMatchObject({ id: a.id });

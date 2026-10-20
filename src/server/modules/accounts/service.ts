@@ -7,7 +7,7 @@ import type { Db, Executor } from '../../db/client';
 import { first } from '../../db/raw';
 import { accounts, projects } from '../../db/schema';
 import { AppError } from '../../errors';
-import { changedFields, mutateAsync } from '../audit/mutate';
+import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { createBalancesService, type BalancesService } from '../balances/service';
 import { requireCompany } from '../companies/guard';
@@ -147,7 +147,7 @@ export function createAccountsService(d: {
 
     async add(companyId, input, userId) {
       await requireCompany(db, companyId, { writable: true });
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const row = await svc.create(tx, {
           companyId,
           name: input.name,
@@ -189,7 +189,7 @@ export function createAccountsService(d: {
           throw new AppError(422, 'INVARIANT_6', `Есть операции от ${formatDateRu(earliest)} — дата открытия не может быть позже`);
         }
       }
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const [row] = await tx.update(accounts).set(after).where(eq(accounts.id, id)).returning();
         await record({ companyId, userId, entity: 'account', entityId: id, action: 'update', diff: changes });
         return row!;
@@ -203,7 +203,7 @@ export function createAccountsService(d: {
       if ((await balances.accountBalance(row)) !== 0) {
         throw new AppError(422, 'ARCHIVED_REFERENCE', 'Счёт можно перевести в архив только при нулевом балансе');
       }
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const [out] = await tx.update(accounts).set({ archivedAt: now().toISOString() }).where(eq(accounts.id, id)).returning();
         await record({ companyId, userId, entity: 'account', entityId: id, action: 'archive' });
         return out!;
@@ -218,7 +218,7 @@ export function createAccountsService(d: {
         const p = await first(db.select({ archivedAt: projects.archivedAt }).from(projects).where(eq(projects.id, row.projectId)));
         if (p?.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Проект счёта в архиве — сначала верните проект');
       }
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const [out] = await tx.update(accounts).set({ archivedAt: null }).where(eq(accounts.id, id)).returning();
         await record({ companyId, userId, entity: 'account', entityId: id, action: 'unarchive' });
         return out!;
@@ -230,7 +230,7 @@ export function createAccountsService(d: {
       const current = (await svc.list(companyId)).map((a) => a.id);
       assertSameSet(current, ids);
       if (!isSameOrder(current, ids)) {
-        await mutateAsync(db, audit, async (tx, record) => {
+        await mutate(db, audit, async (tx, record) => {
           for (const [i, accountId] of ids.entries()) await tx.update(accounts).set({ orderIndex: i }).where(eq(accounts.id, accountId));
           await record({ companyId, userId, entity: 'account', action: 'reorder', diff: { ids } });
         });
@@ -244,7 +244,7 @@ export function createAccountsService(d: {
       if ((await references.countOperations('account', id)) > 0) {
         throw new AppError(422, 'INVARIANT_9', 'На счёт ссылаются операции — его можно только перевести в архив');
       }
-      await mutateAsync(db, audit, async (tx, record) => {
+      await mutate(db, audit, async (tx, record) => {
         await tx.delete(accounts).where(eq(accounts.id, id));
         await record({ companyId, userId, entity: 'account', entityId: id, action: 'delete', diff: { name: row.name, currency: row.currency } });
       });

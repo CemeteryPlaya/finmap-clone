@@ -29,10 +29,10 @@ describe('db', () => {
     expect(row.v).toBe('закуп бара');
   });
 
-  it('seedCurrencies идемпотентен', () => {
+  it('seedCurrencies идемпотентен', async () => {
     t = createTestDb();
-    seedCurrencies(t.db);
-    seedCurrencies(t.db);
+    await seedCurrencies(t.db);
+    await seedCurrencies(t.db);
     const rows = t.db.select().from(currencies).all();
     expect(rows.find((r) => r.code === 'KZT')?.minorUnits).toBe(2);
     expect(new Set(rows.map((r) => r.code)).size).toBe(rows.length);

@@ -105,7 +105,7 @@ async function measure(dir: string, phase: Phase): Promise<void> {
   fs.mkdirSync(config.dataDir, { recursive: true });
   const { sqlite, db } = openDb(config.dbPath);
   runMigrations(db);
-  seedCurrencies(db);
+  await seedCurrencies(db);
   if (phase !== 'undo') await createUsersService(db, createAuditService(db)).create({ login: LOGIN, name: 'Замер', password: PASSWORD }, null);
   const app = await buildApp({ config, db, sqlite, logger: false, now: () => NOW });
   await app.ready();

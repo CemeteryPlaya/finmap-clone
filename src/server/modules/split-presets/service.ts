@@ -4,7 +4,7 @@ import type { Db } from '../../db/client';
 import { first } from '../../db/raw';
 import { categories, projects, splitPresets } from '../../db/schema';
 import { AppError } from '../../errors';
-import { changedFields, mutateAsync } from '../audit/mutate';
+import { changedFields, mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import { assertSameSet, isSameOrder } from '../dictionaries/order';
@@ -74,7 +74,7 @@ export function createSplitPresetsService(d: { db: Db; audit: AuditService; now?
     await requireCompany(db, companyId, { writable: true });
     const row = await requireRow(companyId, id);
     if ((row.archivedAt !== null) === archive) return row;
-    return mutateAsync(db, audit, async (tx, record) => {
+    return mutate(db, audit, async (tx, record) => {
       const [out] = await tx
         .update(splitPresets)
         .set({ archivedAt: archive ? now().toISOString() : null })
@@ -99,7 +99,7 @@ export function createSplitPresetsService(d: { db: Db; audit: AuditService; now?
     async add(companyId, input, userId) {
       await requireCompany(db, companyId, { writable: true });
       await checkRefs(companyId, input.lines);
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const next = await first(
           tx
             .select({ m: sql<number>`coalesce(max(${splitPresets.orderIndex}), -1)` })
@@ -131,7 +131,7 @@ export function createSplitPresetsService(d: { db: Db; audit: AuditService; now?
       if (!changes) return before;
       const { name, lines } = changes.after;
       if (lines !== undefined) await checkRefs(companyId, lines); // старые строки не перепроверяем (инвариант 10)
-      return mutateAsync(db, audit, async (tx, record) => {
+      return mutate(db, audit, async (tx, record) => {
         const [row] = await tx
           .update(splitPresets)
           .set({ ...(name !== undefined ? { name } : {}), ...(lines !== undefined ? { lines: JSON.stringify(lines) } : {}) })
@@ -150,7 +150,7 @@ export function createSplitPresetsService(d: { db: Db; audit: AuditService; now?
       const current = (await svc.list(companyId)).map((r) => r.id);
       assertSameSet(current, ids);
       if (!isSameOrder(current, ids)) {
-        await mutateAsync(db, audit, async (tx, record) => {
+        await mutate(db, audit, async (tx, record) => {
           for (const [i, rowId] of ids.entries()) await tx.update(splitPresets).set({ orderIndex: i }).where(eq(splitPresets.id, rowId));
           await record({ companyId, userId, entity: ENTITY, action: 'reorder', diff: { ids } });
         });
@@ -162,7 +162,7 @@ export function createSplitPresetsService(d: { db: Db; audit: AuditService; now?
       await requireCompany(db, companyId, { writable: true });
       const row = await requireRow(companyId, id);
       // на шаблоны разделения операции не ссылаются — удаление всегда возможно
-      await mutateAsync(db, audit, async (tx, record) => {
+      await mutate(db, audit, async (tx, record) => {
         await tx.delete(splitPresets).where(eq(splitPresets.id, id));
         await record({ companyId, userId, entity: ENTITY, entityId: id, action: 'delete', diff: { name: row.name } });
       });

@@ -16,7 +16,7 @@ import type { Db, Executor } from '../../db/client';
 import { first, rows as sqlRows } from '../../db/raw';
 import { counterparties, stockComboParts, stockDocLines, stockDocs, stockItems, stockWarehouses } from '../../db/schema';
 import { AppError } from '../../errors';
-import { changedFields, mutateAsync } from '../audit/mutate';
+import { changedFields, mutate } from '../audit/mutate';
 import type { AuditEntry, AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import { docPayments, paidByDoc, type DocPayment } from './payments';
@@ -380,7 +380,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
   /** Транзакция записи; пробный расчёт откатывается исключением DryRun. */
   async function run(dryRun: boolean, fn: (tx: Executor, record: (entry: AuditEntry) => Promise<number>) => Promise<DocSaveResult>): Promise<DocSaveResult> {
     try {
-      return await mutateAsync(
+      return await mutate(
         db,
         audit,
         async (tx, record) => {
@@ -577,7 +577,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
 
     async createCount(companyId, input, userId) {
       await requireCompany(db, companyId, { writable: true });
-      return mutateAsync(
+      return mutate(
         db,
         audit,
         async (tx, record) => {
@@ -633,7 +633,7 @@ export function createStockDocsService(d: { db: Db; audit: AuditService; timezon
 
     async updateCount(companyId, id, patch, userId) {
       await requireCompany(db, companyId, { writable: true });
-      return mutateAsync(
+      return mutate(
         db,
         audit,
         async (tx, record) => {

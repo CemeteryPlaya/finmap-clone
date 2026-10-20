@@ -51,7 +51,7 @@ describe('журнал: остаток после операции (§4.7)', () 
     expect((await items(`limit=2&cursor=${second}`)).map((x) => x.balanceAfter)).toEqual([125000, 145000]);
 
     // остаток после последней операции = баланс счёта
-    const ledger = createLedgerBalances(w.h.t.db).companyBalances(w.cid);
+    const ledger = await createLedgerBalances(w.h.t.db).companyBalances(w.cid);
     expect(ledger.find((x) => x.accountId === w.kzt)!.balance).toBe(87488);
     expect(ledger.find((x) => x.accountId === w.usd)!.balance).toBe(100);
   });

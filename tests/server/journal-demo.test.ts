@@ -71,7 +71,7 @@ describe('журнал на демо-наборе (§10, §12)', () => {
       expect(i.toBalanceAfter).toBe(i.toAccountId === null ? null : after.get(`${i.id}:${i.toAccountId}`));
     }
     // последний остаток счёта = его баланс (§4.7)
-    for (const b of createLedgerBalances(h.t.db).companyBalances(cid)) expect(b.balance).toBe(balance.get(b.accountId));
+    for (const b of await createLedgerBalances(h.t.db).companyBalances(cid)) expect(b.balance).toBe(balance.get(b.accountId));
 
     // выгрузка всей компании в формате Finmap: заголовок + строка на строку операции (у разбитой — несколько, у перевода — одна)
     const xlsx = await h.req('GET', `${ops}/export.xlsx`);
