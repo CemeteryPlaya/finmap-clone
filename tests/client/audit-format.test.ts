@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { OPERATION_FIELD_LABELS } from '../../src/client/lib/history';
-import { auditSubject, COMPANY_ENTITIES, diffRows, ENTITY_LABELS, formatBytes, importDetails, pageDiff, SYSTEM_ENTITIES } from '../../src/client/lib/audit-format';
+import { auditSubject, COMPANY_ENTITIES, diffRows, ENTITY_LABELS, formatBytes, importDetails, pageDiff, SYSTEM_ENTITIES, undoDetails, ACTION_LABELS } from '../../src/client/lib/audit-format';
 
 describe('audit-format', () => {
   it('diffRows: «было → стало» по полям before/after; иначе null', () => {
@@ -144,5 +144,16 @@ describe('audit-format', () => {
     expect(value).toMatch(/^Импорт отменён: удалено 2 операции\. Оставлено: счёт «Банк-2» \(используется\), контрагент «К0» \(используется\), /);
     expect(value).toContain('контрагент «К18» (используется), и ещё 2 (используются), стартовый баланс счёта «Касса» (изменён после импорта). ');
     expect(value).toMatch(/ Счёт «Банк-2» оставлен: на нём есть операции; стартовый баланс обнулён — проверьте его в настройках счетов\.$/);
+  });
+
+  it('отмена действий (план 2026-10-20, R11): подпись «Отмена», подробности — что отменено и номера записей', () => {
+    expect(ACTION_LABELS.undo).toBe('Отмена');
+    const diff = { type: 'expense', undone: [{ id: 5, action: 'update', type: 'transfer' }, { id: 4, action: 'create', type: 'expense' }], deleted: true };
+    expect(undoDetails({ entity: 'operation', action: 'undo', diff })).toEqual([
+      { label: 'Отменено', value: 'изменён перевод, добавлен расход' },
+      { label: 'Записи истории', value: '№5, №4' },
+    ]);
+    expect(undoDetails({ entity: 'operation', action: 'update', diff })).toBeNull();
+    expect(undoDetails({ entity: 'operation', action: 'undo', diff: { undone: 'нет' } })).toBeNull();
   });
 });

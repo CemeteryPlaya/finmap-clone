@@ -829,6 +829,34 @@ const SCENARIOS: Scenario[] = [
       await history.getByRole('button', { name: /^Отменить импорт «выгрузка-октябрь\.xlsx»/ }).waitFor();
     },
   },
+  {
+    // «Отмена» в «Истории действий» (план 2026-10-20, задача 3): окно отмены каскада из двух правок. Пары в Finmap нет —
+    // m65 заглушка. Сценарий в конце: создаёт и правит операцию демо-компании
+    ours: 'c65-history-undo.png',
+    finmap: 'm65-history-undo.png',
+    path: 'log',
+    act: async (p) => {
+      const { cid, headers } = apiOf(p);
+      const base = `/api/v1/companies/${cid}`;
+      const accounts = ((await (await p.request.get(`${base}/accounts`)).json()) as { accounts: { id: number; currency: string; archivedAt: string | null }[] }).accounts;
+      const cash = accounts.find((a) => a.currency === 'KZT' && !a.archivedAt)!;
+      const send = async (method: 'post' | 'patch', url: string, data: unknown) => {
+        const res = await p.request[method](url, { headers, data });
+        if (!res.ok()) throw new Error(`${url}: ${res.status()} ${await res.text()}`);
+        return (await res.json()) as { operation: { id: number; version: number } };
+      };
+      const paidAt = new Date(Date.now() - 3_600_000).toISOString();
+      const op = (await send('post', `${base}/operations`, { type: 'expense', paidAt, accountId: cash.id, amount: 1_000_000, comment: 'Клуб 1' })).operation;
+      const v2 = (await send('patch', `${base}/operations/${op.id}`, { version: op.version, amount: 1_500_000 })).operation;
+      await send('patch', `${base}/operations/${op.id}`, { version: v2.version, comment: 'Клуб 2' });
+      await p.reload();
+      await table(p).locator('tbody tr').first().waitFor();
+      await banner(p).getByRole('button', { name: 'История действий' }).click();
+      const history = p.getByRole('dialog', { name: 'История действий' });
+      await history.getByRole('button', { name: /^Отмена: Изменён расход, / }).nth(1).click();
+      await p.getByRole('alertdialog', { name: 'Отменить действия?' }).getByRole('list', { name: 'Что отменится' }).waitFor();
+    },
+  },
 ];
 
 function fail(message: string): never {

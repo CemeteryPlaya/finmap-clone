@@ -4,7 +4,7 @@ import { formatDateTime } from '../../../shared/dates';
 import { Field } from '../../components/Field';
 import { Pending, StaleNotice } from '../../components/QueryState';
 import { btnSecondary, inputClass } from '../../components/ui';
-import { ACTION_LABELS, auditSubject, COMPANY_ENTITIES, diffRows, ENTITY_LABELS, importDetails, pageDiff, SYSTEM_ENTITIES } from '../../lib/audit-format';
+import { ACTION_LABELS, auditSubject, COMPANY_ENTITIES, diffRows, ENTITY_LABELS, importDetails, pageDiff, SYSTEM_ENTITIES, undoDetails } from '../../lib/audit-format';
 import { OPERATION_FIELD_LABELS } from '../../lib/history';
 import { useMeta } from '../../lib/query';
 import { useAuditFeed, useUsers, type AuditEntry } from '../../lib/queries';
@@ -17,7 +17,7 @@ function AuditItem({ e, timeZone }: { e: AuditEntry; timeZone: string }) {
   const rows = diffRows(diff, e.entity);
   // импорт (§6.5 спецификации импорта): имя файла в строке записи, в подробностях — числа или итог отмены
   const subject = auditSubject(e);
-  const details = importDetails(e);
+  const details = importDetails(e) ?? undoDetails(e);
   return (
     <li className="rounded-2xl border border-field p-3 text-sm">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -26,6 +26,8 @@ function AuditItem({ e, timeZone }: { e: AuditEntry; timeZone: string }) {
         </time>
         <span className="font-semibold">{e.userName ?? 'Система'}</span>
         <span>{ACTION_LABELS[e.action] ?? e.action}</span>
+        {/* действие отменено «Отменой» в панели «История действий» (план 2026-10-20) */}
+        {e.undoneBy !== null && <span className="rounded-md bg-field px-2 text-xs text-muted">Отменено</span>}
         <span className="text-muted">
           {ENTITY_LABELS[e.entity] ?? e.entity}
           {e.entityId !== null ? ` №${e.entityId}` : ''}

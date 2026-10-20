@@ -2,6 +2,7 @@ import { PART_LABEL, type IndicatorPart } from '../../shared/report-indicators';
 import type { ImportUndoResult } from '../../shared/schemas/imports';
 import { undoResultText } from './import-history';
 import { createdParts, formatCount, operationsText } from './import-panel';
+import { undoneActions } from './operation-undo';
 
 export const ENTITY_LABELS: Record<string, string> = {
   company: 'Компания',
@@ -37,6 +38,7 @@ export const ACTION_LABELS: Record<string, string> = {
   logout: 'Выход',
   password_change: 'Смена пароля',
   reset: 'Возврат по умолчанию',
+  undo: 'Отмена',
 };
 
 /** Сущности ленты компании (для фильтра). */
@@ -178,4 +180,18 @@ export function importDetails(e: { entity: string; action: string; diff: Record<
     }
   }
   return null;
+}
+
+/**
+ * «Подробности» записи «Отмена» на странице «История действий» (план 2026-10-20, R11): что отменено и номера отменённых
+ * записей. null — не запись отмены или неизвестный вид (показывается как есть).
+ */
+export function undoDetails(e: { entity: string; action: string; diff: Record<string, unknown> | null }): { label: string; value: string }[] | null {
+  if (e.entity !== 'operation' || e.action !== 'undo') return null;
+  const undone = undoneActions(e.diff);
+  if (!undone) return null;
+  return [
+    { label: 'Отменено', value: undone.map((u) => u.title).join(', ') },
+    { label: 'Записи истории', value: undone.map((u) => `№${u.id}`).join(', ') },
+  ];
 }

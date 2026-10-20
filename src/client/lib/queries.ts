@@ -269,6 +269,10 @@ export interface AuditEntry {
   action: string;
   diff: Record<string, unknown> | null;
   at: string;
+  /** id записи «Отмена», которая отменила эту; null — не отменена. */
+  undoneBy: number | null;
+  /** У записи есть «Отмена» (действие с операцией журнала, план 2026-10-20). */
+  undoable: boolean;
 }
 
 interface AuditPage {

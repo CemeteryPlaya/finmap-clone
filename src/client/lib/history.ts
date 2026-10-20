@@ -1,18 +1,8 @@
 import { formatDateTimeSec } from '../../shared/dates';
 import { formatMoney, MONEY_SCREEN_BEFORE } from '../../shared/money';
 import { ACTION_LABELS, diffRows, type DiffRow } from './audit-format';
+import { isOperationKind, operationActionTitle, undoneActions, type OperationKind } from './operation-undo';
 import type { AuditEntry } from './queries';
-
-type OperationKind = 'income' | 'expense' | 'transfer';
-
-const NOUNS: Record<OperationKind, string> = { income: 'доход', expense: 'расход', transfer: 'перевод' };
-/** Глагол действия: с типом (мужской род) и без типа («операция»). */
-const VERBS: Record<string, [string, string]> = {
-  create: ['Добавлен', 'Добавлена'],
-  update: ['Изменён', 'Изменена'],
-  delete: ['Удалён', 'Удалена'],
-  restore: ['Восстановлен', 'Восстановлена'],
-};
 
 /** Поля операции в записи правки — по-русски. */
 export const OPERATION_FIELD_LABELS: Record<string, string> = {
@@ -58,11 +48,13 @@ export interface HistoryItem {
   changes: string | null;
   /** «Админ · 04.10.2026, 10:32:15». */
   meta: string;
-  /** Открыть в форме можно, если последнее действие с операцией в ленте — не удаление. */
+  /** Открыть в форме можно, если по ленте операция не удалена (последнее — не удаление и не отмена, после которой её нет). */
   openable: boolean;
+  /** Действие отменено (пометка «Отменено»). */
+  undone: boolean;
+  /** Есть кнопка «Отмена» (сервер: решение 3 и R5 плана 2026-10-20). */
+  undoable: boolean;
 }
-
-const isKind = (v: unknown): v is OperationKind => v === 'income' || v === 'expense' || v === 'transfer';
 
 /**
  * Записи панели «История действий» (§3.4 этапа 1.5). entries — от новых к старым, как отдаёт сервер:
@@ -72,18 +64,23 @@ export function historyItems(
   entries: readonly AuditEntry[],
   ctx: { accounts: ReadonlyMap<number, { name: string; currency: string }>; timeZone: string },
 ): HistoryItem[] {
-  const latest = new Map<number, string>();
-  for (const e of entries) if (e.entityId !== null && !latest.has(e.entityId)) latest.set(e.entityId, e.action);
+  // удалена ли операция по последнему действию в ленте: удаление или «Отмена», после которой операции нет
+  const deleted = new Map<number, boolean>();
+  for (const e of entries) {
+    if (e.entityId === null || deleted.has(e.entityId)) continue;
+    deleted.set(e.entityId, e.action === 'delete' || (e.action === 'undo' && e.diff?.deleted === true));
+  }
 
   return entries.map((e) => {
     const diff = e.diff ?? {};
-    const type = isKind(diff.type) ? diff.type : null;
-    const verb = VERBS[e.action];
-    const title = verb ? (type ? `${verb[0]} ${NOUNS[type]}` : `${verb[1]} операция`) : `${ACTION_LABELS[e.action] ?? e.action}: операция`;
+    const type = isOperationKind(diff.type) ? diff.type : null;
+    const undo = e.action === 'undo';
+    const title = undo ? 'Отмена' : (operationActionTitle(e.action, type) ?? `${ACTION_LABELS[e.action] ?? e.action}: операция`);
     const account = typeof diff.accountId === 'number' ? ctx.accounts.get(diff.accountId) : undefined;
     const amount = e.action !== 'update' && typeof diff.amount === 'number' && account ? formatMoney(diff.amount, account.currency, MONEY_SCREEN_BEFORE) : null;
     const rows = e.action === 'update' ? diffRows(e.diff, 'operation') : null;
-    const changes = rows ? changesText(rows) : null;
+    const undone = undo ? undoneActions(e.diff) : null;
+    const changes = rows ? changesText(rows) : undone ? `Отменено: ${undone.map((u) => u.title).join(', ')}` : null;
     return {
       id: e.id,
       operationId: e.entityId,
@@ -93,7 +90,9 @@ export function historyItems(
       account: account?.name ?? null,
       changes,
       meta: `${e.userName ?? 'Система'} · ${formatDateTimeSec(e.at, ctx.timeZone)}`,
-      openable: e.entityId !== null && latest.get(e.entityId) !== 'delete',
+      openable: e.entityId !== null && deleted.get(e.entityId) !== true,
+      undone: e.undoneBy !== null,
+      undoable: e.undoable,
     };
   });
 }

@@ -305,12 +305,14 @@ test('панель «История действий»: последние де�
   await expect(items.nth(2)).toContainText('Добавлен расход');
   await expect(items.nth(3)).toContainText('Добавлен доход');
   await expect(items.nth(3)).toContainText(/₸\s1\s317/);
-  // удалённый расход не открыть ни из записи об удалении, ни из записи о добавлении
-  await expect(items.nth(0).getByRole('button')).toHaveCount(0);
+  // удалённый расход не открыть ни из записи об удалении, ни из записи о добавлении; у удаления — только «Отмена»,
+  // у добавления удалённой операции «Отмены» нет — сначала отменяется удаление (план 2026-10-20, R5)
+  await expect(items.nth(0).getByRole('button')).toHaveCount(1);
+  await expect(items.nth(0).getByRole('button')).toHaveAccessibleName(/^Отмена: Удалён расход, /);
   await expect(items.nth(2).getByRole('button')).toHaveCount(0);
 
   // запись о доходе открывает его в форме, панель закрывается
-  await items.nth(1).getByRole('button').click();
+  await items.nth(1).getByRole('button', { name: /^Изменён доход/ }).click();
   await expect(drawer).toBeHidden();
   const form = page.getByRole('dialog', { name: 'Доход', exact: true });
   await expect(form.getByLabel('Комментарий')).toHaveValue('выручка за смену');

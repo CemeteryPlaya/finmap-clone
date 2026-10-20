@@ -17,6 +17,8 @@ const entry = (over: Partial<AuditEntry>): AuditEntry => ({
   action: 'create',
   diff: null,
   at: '2026-10-04T05:32:15.000Z',
+  undoneBy: null,
+  undoable: false,
   ...over,
 });
 /** Неразрывные пробелы денег → обычные: так ожидания читаются. */
@@ -101,5 +103,28 @@ describe('панель «История действий» (§3.4 этапа 1.5
     expect(list.map((i) => i.title)).toEqual(['Изменена операция', 'Восстановлена операция', 'Добавлен доход']);
     expect(list[1]!.meta.startsWith('Система · ')).toBe(true);
     expect(list[2]).toMatchObject({ amount: null, account: null });
+  });
+
+  it('запись «Отмена»: что отменено — по типу каждого действия; отменённые и отменяемые записи (план 2026-10-20, задача 3)', () => {
+    const undoDiff = { type: 'expense', undone: [{ id: 5, action: 'update', type: 'transfer' }, { id: 4, action: 'create', type: 'expense' }], deleted: true };
+    const list = historyItems(
+      [
+        entry({ id: 6, action: 'undo', diff: undoDiff }),
+        entry({ id: 5, action: 'update', undoneBy: 6, diff: { type: 'transfer', before: { type: 'expense' }, after: { type: 'transfer' } } }),
+        entry({ id: 4, action: 'create', undoneBy: 6, diff: { type: 'expense', amount: 100, accountId: 1 } }),
+        entry({ id: 3, entityId: 11, action: 'create', undoable: true, diff: { type: 'income', amount: 100, accountId: 1 } }),
+      ],
+      ctx,
+    );
+    expect(list[0]).toMatchObject({ title: 'Отмена', changes: 'Отменено: изменён перевод, добавлен расход', undone: false, undoable: false, openable: false });
+    expect(list.map((i) => [i.id, i.undone, i.undoable, i.openable])).toEqual([
+      [6, false, false, false],
+      [5, true, false, false],
+      [4, true, false, false],
+      [3, false, true, true],
+    ]);
+    // отмена, после которой операция есть (отменено удаление), — открыть можно
+    const restored = historyItems([entry({ id: 8, action: 'undo', diff: { type: 'expense', undone: [{ id: 7, action: 'delete', type: 'expense' }], deleted: false } })], ctx);
+    expect(restored[0]).toMatchObject({ title: 'Отмена', changes: 'Отменено: удалён расход', openable: true });
   });
 });

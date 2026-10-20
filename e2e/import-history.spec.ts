@@ -152,7 +152,8 @@ async function watchLiveRegions(page: Page) {
     new MutationObserver(() => {
       const modal = document.querySelector('dialog[role="alertdialog"][open]') !== null;
       for (const role of ['status', 'alert']) {
-        const el = document.querySelector(`dialog[open] [role="tabpanel"] [role="${role}"]`);
+        // живая область открытой вкладки: у «Журнала» своя (итог «Отмены», план 2026-10-20), он скрыт
+        const el = document.querySelector(`dialog[open] [role="tabpanel"]:not([hidden]) [role="${role}"]`);
         const text = el?.textContent ?? '';
         if (text && text !== last.get(role)) log.push({ role, text, modal });
         last.set(role, text);

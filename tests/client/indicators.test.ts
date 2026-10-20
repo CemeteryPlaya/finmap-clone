@@ -80,6 +80,8 @@ describe('«Финансовые показатели»: вкладка «Ист
       action,
       diff,
       at: '2026-10-06T12:00:00.000Z',
+      undoneBy: null,
+      undoable: false,
     });
     const rows = historyRows([
       entry(3, 'reset', { part: 'cogs', after: { allCategories: false, categories: [], includeStock: true } }),

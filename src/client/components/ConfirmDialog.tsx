@@ -14,6 +14,8 @@ export interface ConfirmDialogProps {
   danger?: boolean;
   /** Флажок под текстом: «Больше не спрашивать» в вопросе о несохранённом, «Удалить и изменённые (3)» при отмене импорта. */
   checkbox?: { label: string; checked: boolean; onChange: (checked: boolean) => void };
+  /** Список под текстом: действия, которые отменятся («Изменён расход · дата · сотрудник», план 2026-10-20). */
+  details?: readonly string[];
   /** Идёт запрос действия: обе кнопки недоступны, Esc не закрывает. */
   pending?: boolean;
   onConfirm: () => void;
@@ -102,6 +104,13 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
           <p id={textId} className="mb-4 text-sm text-muted">
             {props.text}
           </p>
+          {props.details && props.details.length > 0 && (
+            <ul aria-label="Что отменится" className="mb-4 grid max-h-60 gap-1 overflow-y-auto text-sm">
+              {props.details.map((line, i) => (
+                <li key={i}>{line}</li>
+              ))}
+            </ul>
+          )}
           {props.checkbox && (
             <label htmlFor={checkId} className="mb-5 flex items-center gap-2 text-sm">
               <input
