@@ -3,6 +3,12 @@ import { z } from 'zod';
 
 export type DeployMode = 'local' | 'cloudflare' | 'ngrok' | 'vps';
 
+/**
+ * Где лежат данные (Р1 плана 2026-10-20-vercel-postgres): DATABASE_URL postgres:// — Postgres (Neon), иначе файл SQLite
+ * в DATA_DIR. pglite — Postgres в памяти процесса (тесты).
+ */
+export type DbConfig = { kind: 'sqlite'; path: string } | { kind: 'neon'; url: string } | { kind: 'pglite'; dataDir?: string };
+
 export interface Config {
   appName: string;
   timezone: string;
@@ -21,6 +27,7 @@ export interface Config {
   ratesSource: 'nbrk' | 'fixtures';
   dataDir: string;
   dbPath: string;
+  db: DbConfig;
   uploadsDir: string;
   backupsDir: string;
   logsDir: string;
@@ -58,6 +65,7 @@ const envSchema = z.object({
   EXTRA_ORIGINS: z.string().default(''),
   BACKUP_KEEP: z.coerce.number().int().min(1).default(14),
   BACKUP_COPY_DIR: optional,
+  DATABASE_URL: optional,
   RATES_SOURCE: z.enum(['nbrk', 'fixtures']).default('nbrk'),
   DATA_DIR: z.string().default('data'),
 });
@@ -137,6 +145,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     ratesSource: e.RATES_SOURCE,
     dataDir,
     dbPath: path.join(dataDir, 'app.db'),
+    db: e.DATABASE_URL && /^postgres(ql)?:\/\//.test(e.DATABASE_URL) ? { kind: 'neon', url: e.DATABASE_URL } : { kind: 'sqlite', path: path.join(dataDir, 'app.db') },
     uploadsDir: path.join(dataDir, 'uploads'),
     backupsDir: path.join(dataDir, 'backups'),
     logsDir: path.join(dataDir, 'logs'),

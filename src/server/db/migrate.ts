@@ -2,12 +2,27 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import type { Db, Sqlite } from './client';
+import type { Db, OpenedDatabase, Sqlite } from './client';
+import { driverOf } from './tx';
 
 export const MIGRATIONS_DIR = fileURLToPath(new URL('./migrations', import.meta.url));
+/** Миграции Postgres (drizzle.pg.config.ts). */
+export const PG_MIGRATIONS_DIR = fileURLToPath(new URL('./migrations-pg', import.meta.url));
 
 export function runMigrations(db: Db): void {
   migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+}
+
+/** Миграции открытой базы по её диалекту. */
+export async function migrateDatabase(o: OpenedDatabase): Promise<void> {
+  if (o.dialect === 'sqlite') return runMigrations(o.db);
+  if (driverOf(o.db) === 'pglite') {
+    const { migrate: migratePglite } = await import('drizzle-orm/pglite/migrator');
+    await migratePglite(o.db as never, { migrationsFolder: PG_MIGRATIONS_DIR });
+    return;
+  }
+  const { migrate: migrateNeon } = await import('drizzle-orm/neon-serverless/migrator');
+  await migrateNeon(o.db as never, { migrationsFolder: PG_MIGRATIONS_DIR });
 }
 
 export function codeMigrationsCount(): number {
