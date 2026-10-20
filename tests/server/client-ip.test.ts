@@ -12,6 +12,7 @@ const MODE_ENV = {
   cloudflare: { DEPLOY_MODE: 'cloudflare', CF_TUNNEL_TOKEN: 't' },
   ngrok: { DEPLOY_MODE: 'ngrok', NGROK_AUTHTOKEN: 'a', NGROK_DOMAIN: 'x.ngrok-free.app' },
   vps: { DEPLOY_MODE: 'vps', PUBLIC_URL: 'https://fin.example.kz' },
+  vercel: { DEPLOY_MODE: 'vercel', DATABASE_URL: 'postgres://u:p@h/db', CRON_SECRET: 'c'.repeat(16), BLOB_READ_WRITE_TOKEN: 'vercel_blob_rw_x' },
 } as const;
 
 async function ipOf(mode: keyof typeof MODE_ENV, headers: Record<string, string>, remoteAddress = '127.0.0.1') {
@@ -44,6 +45,12 @@ describe('resolveClientIp', () => {
 
   it('в режиме cloudflare с loopback учитывает CF-Connecting-IP', async () => {
     expect(await ipOf('cloudflare', { 'cf-connecting-ip': '5.5.5.5', 'x-forwarded-for': '5.5.5.5' })).toBe('5.5.5.5');
+  });
+
+  it('в режиме vercel — первый адрес X-Forwarded-For (Vercel перезаписывает заголовок адресом клиента)', async () => {
+    expect(await ipOf('vercel', { 'x-forwarded-for': '7.7.7.7' }, '10.0.0.1')).toBe('7.7.7.7');
+    expect(await ipOf('vercel', { 'x-forwarded-for': ' 7.7.7.7 , 10.1.1.1' }, '10.0.0.1')).toBe('7.7.7.7');
+    expect(await ipOf('vercel', {}, '10.0.0.1')).toBe('10.0.0.1');
   });
 
   it('в режиме cloudflare не с loopback (локальная сеть) CF-Connecting-IP игнорируется', async () => {

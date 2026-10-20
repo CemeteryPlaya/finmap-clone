@@ -30,6 +30,15 @@ describe('startServer', () => {
     expect(fs.existsSync(config.lockPath)).toBe(false);
   });
 
+  it('Postgres и режим vercel — не для npm start: понятная ошибка до создания папок и lock (план 2026-10-20-vercel-postgres)', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-main-'));
+    const pg = testConfig(dir, { PORT: '0', DATABASE_URL: 'postgres://u:p@h/db' });
+    await expect(startServer(pg, { logger: false, handleSignals: false })).rejects.toThrow('npm start работает с базой SQLite');
+    const vercel = { ...testConfig(dir, { PORT: '0' }), deployMode: 'vercel' as const };
+    await expect(startServer(vercel, { logger: false, handleSignals: false })).rejects.toThrow('режим vercel запускается на Vercel');
+    expect(fs.existsSync(pg.lockPath)).toBe(false);
+  });
+
   it('не стартует второй экземпляр при живом lock', async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-main-'));
     const config = testConfig(dir, { PORT: '0' });

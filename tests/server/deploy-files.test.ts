@@ -1,5 +1,8 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
+import { buildServer } from '../../scripts/lib/build-server';
 import { EXAMPLE, renderCaddyfile, renderSystemdUnit, systemdArg, upstreamAddress } from '../../scripts/lib/deploy-files';
 
 /** Отступы в примерах могут быть табами или пробелами — сравниваем без них. */
@@ -101,4 +104,44 @@ describe('systemd-юнит', () => {
       noIndent(renderSystemdUnit({ ...EXAMPLE, execStart: [...EXAMPLE.execStart], readWritePaths: [...EXAMPLE.readWritePaths] })),
     );
   });
+});
+
+describe('vercel.json (план 2026-10-20-vercel-postgres, задача 13)', () => {
+  const vercel = JSON.parse(fs.readFileSync('vercel.json', 'utf8')) as {
+    regions: string[];
+    buildCommand: string;
+    functions?: unknown;
+    rewrites?: unknown;
+    crons: { path: string; schedule: string }[];
+  };
+
+  // длительность функции — по умолчанию Fluid compute (300 с на Hobby): ключ functions для точки входа Fastify Vercel не принимает
+  it('Франкфурт, сборка с миграциями, ежедневное задание в 04:00 по Алматы; длительность — по умолчанию Fluid compute', () => {
+    expect(vercel.regions).toEqual(['fra1']);
+    expect(vercel.buildCommand).toBe('npm run vercel-build');
+    expect(vercel.functions).toBeUndefined();
+    expect(vercel.crons).toEqual([{ path: '/api/v1/cron/daily', schedule: '0 23 * * *' }]);
+    expect(JSON.parse(fs.readFileSync('package.json', 'utf8')).scripts['vercel-build']).toBe('vite build && tsx scripts/migrate.ts && tsx scripts/build-server.ts');
+  });
+
+  it('интерфейс и его пути отдаёт функция (Vercel не отдаёт public/ у Fastify): правил rewrites нет', () => {
+    expect(vercel.rewrites).toBeUndefined();
+  });
+});
+
+describe('сборка функции Vercel: server.mjs (план 2026-10-20-vercel-postgres, задача 13)', () => {
+  it('один ESM-файл из src/server/vercel-entry.ts: свой код внутри, пакеты — импортами (их собирает Vercel), fastify виден точке входа', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-build-server-'));
+    try {
+      const out = path.join(dir, 'server.mjs');
+      await buildServer(out);
+      const code = fs.readFileSync(out, 'utf8');
+      expect(code).toMatch(/from ["']fastify["']/);
+      expect(code).toMatch(/from ["']better-sqlite3["']/);
+      expect(code).not.toMatch(/from ["']\.\.?\//); // относительных импортов нет — весь код приложения в файле
+      expect(code).toContain('createServerlessApp');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import os from 'node:os';
 import path from 'node:path';
 import { loadConfig } from '../../src/server/config';
 
@@ -111,5 +112,43 @@ describe('loadConfig', () => {
     expect(c.uploadsDir).toBe(path.resolve('tmp/x', 'uploads'));
     expect(c.backupsDir).toBe(path.resolve('tmp/x', 'backups'));
     expect(c.binDir).toBe(path.resolve('tmp/x', 'bin'));
+  });
+});
+
+describe('режим vercel (план 2026-10-20-vercel-postgres, задача 13)', () => {
+  const vercel = {
+    ...base,
+    DEPLOY_MODE: 'vercel',
+    DATABASE_URL: 'postgres://user:pass@ep-x.eu-central-1.aws.neon.tech/neondb',
+    CRON_SECRET: 'c'.repeat(16),
+    BLOB_READ_WRITE_TOKEN: 'vercel_blob_rw_x',
+  };
+
+  it('без DATABASE_URL, CRON_SECRET или BLOB_READ_WRITE_TOKEN — понятная ошибка', () => {
+    expect(() => loadConfig({ ...vercel, DATABASE_URL: undefined })).toThrow('На Vercel нужен Postgres: DATABASE_URL');
+    expect(() => loadConfig({ ...vercel, CRON_SECRET: undefined })).toThrow(/CRON_SECRET/);
+    expect(() => loadConfig({ ...vercel, CRON_SECRET: 'short' })).toThrow(/CRON_SECRET/);
+    expect(() => loadConfig({ ...vercel, BLOB_READ_WRITE_TOKEN: undefined })).toThrow(/BLOB_READ_WRITE_TOKEN/);
+  });
+
+  it('путь к файлу SQLite вместо Postgres — «На Vercel нужен Postgres»', () => {
+    expect(() => loadConfig({ ...vercel, DATABASE_URL: 'data/app.db' })).toThrow('На Vercel нужен Postgres');
+  });
+
+  it('адрес — из VERCEL_PROJECT_PRODUCTION_URL, разрешены и адреса развёртывания; данные — во временной папке, не в data/', () => {
+    const c = loadConfig({ ...vercel, VERCEL_PROJECT_PRODUCTION_URL: 'finmap.vercel.app', VERCEL_URL: 'finmap-abc123.vercel.app', VERCEL_BRANCH_URL: 'finmap-git-dev.vercel.app' });
+    expect(c.deployMode).toBe('vercel');
+    expect(c.publicUrl).toBe('https://finmap.vercel.app');
+    expect(c.allowedOrigins).toEqual(['https://finmap.vercel.app', 'https://finmap-abc123.vercel.app', 'https://finmap-git-dev.vercel.app']);
+    expect(c.db).toEqual({ kind: 'neon', url: vercel.DATABASE_URL });
+    expect(c.cronSecret).toBe(vercel.CRON_SECRET);
+    expect(c.blobToken).toBe(vercel.BLOB_READ_WRITE_TOKEN);
+    expect(c.dataDir.startsWith(os.tmpdir())).toBe(true);
+  });
+
+  it('вне vercel секреты Vercel не нужны и не попадают в конфиг', () => {
+    const c = loadConfig(base);
+    expect(c.cronSecret).toBeNull();
+    expect(c.blobToken).toBeNull();
   });
 });

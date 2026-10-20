@@ -85,7 +85,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   installZodRu();
   const { config, db } = deps;
   const now = deps.now ?? (() => new Date());
-  const app = Fastify({ logger: deps.logger ?? false, trustProxy: 'loopback', bodyLimit: 1024 * 1024 });
+  // за прокси Vercel запросы приходят не с loopback (план 2026-10-20-vercel-postgres, Р14)
+  const app = Fastify({ logger: deps.logger ?? false, trustProxy: config.deployMode === 'vercel' ? true : 'loopback', bodyLimit: 1024 * 1024 });
 
   registerErrorHandler(app);
   await app.register(cookie, { secret: config.sessionSecret });
@@ -193,9 +194,19 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       : unavailableBackup());
   registerBackupRoutes(app, { backup, db });
 
+  // интерфейс отдаёт приложение — и на Vercel: у Fastify Vercel не отдаёт public/ с CDN, dist/client едет в бандле функции.
+  // Файлы assets/ с хэшем в имени не меняются — кэш на год
   const clientDir = deps.clientDir ?? path.resolve('dist', 'client');
   if (fs.existsSync(path.join(clientDir, 'index.html'))) {
-    await app.register(fastifyStatic, { root: clientDir, prefix: '/', wildcard: false });
+    await app.register(fastifyStatic, {
+      root: clientDir,
+      prefix: '/',
+      wildcard: false,
+      cacheControl: false,
+      setHeaders: (reply, file) => {
+        reply.header('cache-control', /(^|[\\/])assets[\\/][^\\/]+$/.test(file) ? 'public, max-age=31536000, immutable' : 'public, max-age=0');
+      },
+    });
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith('/api/') || req.url.startsWith('/pwa/') || req.method !== 'GET') {
         return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Не найдено' } });

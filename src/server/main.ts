@@ -42,6 +42,9 @@ export interface StartOptions {
 }
 
 export async function startServer(config: Config, opts: StartOptions = {}): Promise<RunningServer> {
+  // локальный запуск — файл SQLite в DATA_DIR; Postgres и режим vercel — точка входа src/server.ts на Vercel
+  if (config.deployMode === 'vercel') throw new Error('Ошибка конфигурации — режим vercel запускается на Vercel (src/server.ts), а не через npm start');
+  if (config.db.kind !== 'sqlite') throw new Error('Ошибка конфигурации — npm start работает с базой SQLite в DATA_DIR; уберите DATABASE_URL Postgres из .env');
   ensureDataDir(config.dataDir);
   for (const d of [config.uploadsDir, config.backupsDir, config.logsDir]) fs.mkdirSync(d, { recursive: true });
   // Живой PID с чужим bootTime: перезагрузка (PID занят другим процессом) или скачок часов при

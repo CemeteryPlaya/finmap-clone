@@ -46,7 +46,8 @@ export function pgPlaceholders(text: string): string {
 
 /** Снимок мигрированной базы Postgres — один на процесс vitest: базы тестов поднимаются из него (0,3 с вместо 2,7 с). */
 let snapshot: Promise<Blob> | null = null;
-async function pgSnapshot(): Promise<Blob> {
+/** Снимок размеченной базы PGlite — один на процесс (база в тестах поднимается из него). */
+export async function pgSnapshot(): Promise<Blob> {
   snapshot ??= (async () => {
     const o = await openDatabase({ kind: 'pglite' });
     await migrateDatabase(o);

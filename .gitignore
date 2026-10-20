@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# настройки и сборка Vercel CLI; server.mjs — функция Vercel (scripts/build-server.ts)
+.vercel/
+/server.mjs
 .env
 .env.*
 !.env.example
