@@ -27,7 +27,8 @@
     "db:generate": "drizzle-kit generate",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint:async": "oxlint --type-aware src/server scripts tests/server tests/helpers"
   },
   "keywords": [],
   "author": "",
@@ -66,6 +67,8 @@
     "@vitejs/plugin-react": "^6.1.2",
     "concurrently": "^10.0.5",
     "drizzle-kit": "^0.31.11",
+    "oxlint": "^1.89.0",
+    "oxlint-tsgolint": "^7.0.2004",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.2",
