@@ -27,6 +27,7 @@ import { contentDisposition } from '../../http/content-disposition';
 import { XLSX_MIME } from '../../http/xlsx';
 import type { StockAnalyticsService } from './analytics';
 import type { StockImportService } from './import';
+import type { StockTemplateService } from './import-template';
 import type { StockBalanceService } from './balance';
 import type { StockCatalogService } from './catalog';
 import type { StockDocsService } from './docs';
@@ -48,10 +49,23 @@ export function registerStockRoutes(
     balance: StockBalanceService;
     postings: StockPostingsService;
     imports: StockImportService;
+    templates: StockTemplateService;
     analytics: StockAnalyticsService;
   },
 ): void {
-  const { db, catalog, warehouses, docs, balance, postings, imports, analytics } = deps;
+  const { db, catalog, warehouses, docs, balance, postings, imports, templates, analytics } = deps;
+
+  // ---- шаблон импорта (спецификация 2026-10-19, часть 4): собирается по текущим группам, товарам и поставщикам
+  app.get<{ Params: { cid: string; kind: string } }>(`${BASE}/import/:kind/template.xlsx`, async (req, reply) => {
+    const kind = z.enum(['items', 'receipts']).safeParse(req.params.kind);
+    if (!kind.success) throw new AppError(404, 'NOT_FOUND', 'Неизвестный вид импорта');
+    const file = templates.template(parseId(req.params.cid), kind.data);
+    reply.header('Content-Type', XLSX_MIME);
+    reply.header('Content-Disposition', contentDisposition(file.fileName));
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('Cache-Control', 'private, no-store');
+    return reply.send(file.data);
+  });
 
   // ---- аналитика склада (§8, план Склад-3)
   app.get<C>(`${BASE}/analytics/items`, async (req) => analytics.items(parseId(req.params.cid), stockAnalyticsSchema.parse(req.query)));

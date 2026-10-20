@@ -52,6 +52,7 @@ import { createStockBalanceService } from './modules/stock/balance';
 import { createStockCatalogService } from './modules/stock/catalog';
 import { createStockDocsService } from './modules/stock/docs';
 import { createStockImportService } from './modules/stock/import';
+import { createStockTemplateService } from './modules/stock/import-template';
 import { createStockPostingsService } from './modules/stock/postings';
 import { registerStockRoutes } from './modules/stock/routes';
 import { createStockWarehousesService } from './modules/stock/warehouses';
@@ -158,6 +159,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     balance: stockBalance,
     postings: createStockPostingsService({ db, audit, operations }),
     imports: createStockImportService({ db, audit, timezone: config.timezone, now }),
+    templates: createStockTemplateService({ db, timezone: config.timezone, now }),
     analytics: createStockAnalyticsService({ db, balance: stockBalance, timezone: config.timezone, now }),
   });
   registerSavedFiltersRoutes(app, { savedFilters: createSavedFiltersService({ db, now }) });

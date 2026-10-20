@@ -24,6 +24,22 @@ export interface XlsxSheet {
    * строка заголовков, которая закрепляется. Без них заголовки — в первой строке.
    */
   preamble?: XlsxCell[][];
+  /** Скрытый лист (`state="hidden"`): списки для выпадающих списков шаблона (план 2026-10-20, решение 12). */
+  hidden?: boolean;
+  /** Выпадающие списки ячеек: значения — диапазон другого листа. */
+  validations?: XlsxListValidation[];
+}
+
+/**
+ * Выпадающий список столбца (data validation `type="list"`): строки fromRow…toRow (с 1) столбца column (с 0), значения —
+ * диапазон source (`'Списки'!$A$2:$A$4`). Предупреждение информационное: Excel подсказывает, но новое значение вписать
+ * можно — импорт создаёт новые группы, товары и поставщиков (спецификация 2026-10-19, часть 4).
+ */
+export interface XlsxListValidation {
+  column: number;
+  fromRow: number;
+  toRow: number;
+  source: string;
 }
 
 export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -153,8 +169,20 @@ function sheetXml(sheet: XlsxSheet, shared: SharedStrings | null): string {
   const top = preamble.map((row, r) => `<row r="${r + 1}">${row.map((cell, i) => cellXml(`${columnName(i)}${r + 1}`, cell, shared)).join('')}</row>`);
   const header = `<row r="${headRow}">${sheet.columns.map((c, i) => cellXml(`${columnName(i)}${headRow}`, { kind: 'text', value: c.header }, shared, STYLE.header)).join('')}</row>`;
   const body = sheet.rows.map((row, r) => `<row r="${headRow + 1 + r}">${row.map((cell, i) => cellXml(`${columnName(i)}${headRow + 1 + r}`, cell, shared)).join('')}</row>`);
-  // строка заголовков закреплена
-  return `<worksheet xmlns="${NS_MAIN}"><sheetViews><sheetView workbookViewId="0"><pane ySplit="${headRow}" topLeftCell="A${headRow + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${cols}</cols><sheetData>${top.join('')}${header}${body.join('')}</sheetData></worksheet>`;
+  // строка заголовков закреплена; выпадающие списки — сразу после sheetData (порядок элементов ECMA-376)
+  return `<worksheet xmlns="${NS_MAIN}"><sheetViews><sheetView workbookViewId="0"><pane ySplit="${headRow}" topLeftCell="A${headRow + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${cols}</cols><sheetData>${top.join('')}${header}${body.join('')}</sheetData>${validationsXml(sheet.validations ?? [])}</worksheet>`;
+}
+
+/** Текст предупреждения выпадающего списка: значение не из списка Excel принимает (errorStyle="information"). */
+const LIST_HINT = { title: 'Нет в списке', text: 'Такого значения нет в списке — при импорте оно будет создано' };
+
+function validationsXml(list: readonly XlsxListValidation[]): string {
+  if (list.length === 0) return '';
+  const items = list.map((v) => {
+    const col = columnName(v.column);
+    return `<dataValidation type="list" errorStyle="information" allowBlank="1" showErrorMessage="1" errorTitle="${xmlText(LIST_HINT.title)}" error="${xmlText(LIST_HINT.text)}" sqref="${col}${v.fromRow}:${col}${v.toRow}"><formula1>${xmlText(v.source)}</formula1></dataValidation>`;
+  });
+  return `<dataValidations count="${list.length}">${items.join('')}</dataValidations>`;
 }
 
 /**
@@ -167,7 +195,7 @@ export function buildXlsx(book: XlsxSheet | XlsxSheet[], opts: XlsxOptions = {})
   const shared = opts.strings === 'shared' ? new SharedStrings() : null;
   const zip = new AdmZip();
   const add = (name: string, xml: string) => zip.addFile(name, Buffer.from(HEAD + xml, 'utf8'));
-  const list = sheets.map((sh, i) => `<sheet name="${xmlText(sh.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
+  const list = sheets.map((sh, i) => `<sheet name="${xmlText(sh.name)}" sheetId="${i + 1}"${sh.hidden ? ' state="hidden"' : ''} r:id="rId${i + 1}"/>`).join('');
   add('[Content_Types].xml', contentTypes(sheets.length, shared !== null));
   add('_rels/.rels', ROOT_RELS);
   add('xl/workbook.xml', `<workbook xmlns="${NS_MAIN}" xmlns:r="${NS_REL}"><bookViews><workbookView/></bookViews><sheets>${list}</sheets></workbook>`);

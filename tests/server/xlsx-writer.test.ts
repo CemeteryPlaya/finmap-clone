@@ -92,3 +92,45 @@ describe('писатель XLSX: строки сведений над загол
     expect(plain).toContain('<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>');
   });
 });
+
+describe('писатель XLSX: скрытые листы и выпадающие списки (план 2026-10-20, задача 6)', () => {
+  const book: XlsxSheet[] = [
+    {
+      name: 'А',
+      columns: [
+        { header: 'Название', width: 20 },
+        { header: 'Группа', width: 20 },
+      ],
+      rows: [[{ kind: 'text', value: 'Кола 0,5' }, null]],
+      validations: [{ column: 1, fromRow: 2, toRow: 5001, source: "'Списки'!$A$2:$A$4" }],
+    },
+    { name: 'Б', columns: [{ header: 'Группа', width: 20 }], rows: [[{ kind: 'text', value: 'Напитки' }]], hidden: true },
+  ];
+
+  it('скрытый лист — state="hidden" в книге; у видимого атрибута нет', () => {
+    const workbook = part(new AdmZip(buildXlsx(book)), 'xl/workbook.xml');
+    expect(workbook).toContain('<sheet name="А" sheetId="1" r:id="rId1"/>');
+    expect(workbook).toContain('<sheet name="Б" sheetId="2" state="hidden" r:id="rId2"/>');
+  });
+
+  it('выпадающий список: type="list", информационное предупреждение, диапазон и ссылка на лист; сразу после sheetData', () => {
+    const xml = part(new AdmZip(buildXlsx(book)), 'xl/worksheets/sheet1.xml');
+    const m = /<\/sheetData><dataValidations count="1"><dataValidation ([^>]*)><formula1>([^<]*)<\/formula1><\/dataValidation><\/dataValidations>/.exec(xml);
+    expect(m).not.toBeNull();
+    const attrs = Object.fromEntries([...m![1]!.matchAll(/(\w+)="([^"]*)"/g)].map((a) => [a[1]!, a[2]!]));
+    expect(attrs).toEqual({
+      type: 'list',
+      errorStyle: 'information',
+      allowBlank: '1',
+      showErrorMessage: '1',
+      errorTitle: 'Нет в списке',
+      error: 'Такого значения нет в списке — при импорте оно будет создано',
+      sqref: 'B2:B5001',
+    });
+    // апострофы xmlText не экранирует (R12)
+    expect(m![2]).toBe("'Списки'!$A$2:$A$4");
+    // без validations — элемента нет; читатель импорта книгу открывает
+    expect(part(new AdmZip(buildXlsx(book)), 'xl/worksheets/sheet2.xml')).not.toContain('dataValidation');
+    expect(readXlsx(buildXlsx(book)).rows).toHaveLength(2);
+  });
+});

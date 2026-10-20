@@ -43,8 +43,9 @@ export interface StockImportService {
 type ItemField = 'name' | 'group' | 'unit' | 'barcode' | 'price';
 type ReceiptField = 'date' | 'supplier' | 'item' | 'qty' | 'amount' | 'price';
 
-const ITEM_COLUMNS: Record<ItemField, string> = { name: 'Название', group: 'Группа', unit: 'Единица', barcode: 'Штрихкод', price: 'Цена продажи' };
-const RECEIPT_COLUMNS: Record<ReceiptField, string> = { date: 'Дата', supplier: 'Поставщик', item: 'Товар', qty: 'Количество', amount: 'Сумма', price: 'Цена' };
+/** Заголовки столбцов импорта; их же пишет шаблон (import-template.ts, план 2026-10-20, задача 6). */
+export const ITEM_COLUMNS: Record<ItemField, string> = { name: 'Название', group: 'Группа', unit: 'Единица', barcode: 'Штрихкод', price: 'Цена продажи' };
+export const RECEIPT_COLUMNS: Record<ReceiptField, string> = { date: 'Дата', supplier: 'Поставщик', item: 'Товар', qty: 'Количество', amount: 'Сумма', price: 'Цена' };
 
 const headerKey = (s: string) => foldCase(cleanName(s));
 
