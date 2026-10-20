@@ -5,6 +5,7 @@ import AdmZip from 'adm-zip';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDb } from '../../src/server/db/client';
 import { runMigrations } from '../../src/server/db/migrate';
+import { inLine, withTx } from '../../src/server/db/tx';
 import { copyErrorText, createBackupService } from '../../src/server/modules/backup/service';
 import { createTestApp, loginAs, seedUser, testConfig } from '../helpers/test-app';
 
@@ -28,10 +29,27 @@ function setup(dirName = 'fc-backup-', overrides: Record<string, string> = {}) {
     sqlite.close();
     fs.rmSync(dir, { recursive: true, force: true });
   };
-  return { dir, config, sqlite, svc, clock };
+  return { dir, config, sqlite, db, svc, clock };
 }
 
 describe('backup', () => {
+  it('бэкап во время открытой транзакции ждёт её конца (VACUUM INTO внутри транзакции невозможен)', async () => {
+    const { svc, db } = setup();
+    let entered!: () => void;
+    const inside = new Promise<void>((r) => (entered = r));
+    let finish!: () => void;
+    const gate = new Promise<void>((r) => (finish = r));
+    const tx = withTx(db, async () => {
+      entered();
+      await gate;
+    });
+    await inside;
+    const file = inLine(db, () => svc.create('manual'));
+    finish();
+    await tx;
+    expect(fs.existsSync(await file)).toBe(true);
+  });
+
   it('создаёт архив с app.db, когда uploads/ ещё нет (Review Focus 5)', () => {
     const { svc } = setup();
     const file = svc.create('manual');

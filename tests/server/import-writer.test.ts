@@ -112,7 +112,7 @@ describe('OperationsWriter.insertImported (§6.4 п. 3.5)', () => {
   it('доход, расход, перевод с проектом и без: строки, теги, import_id, version 1; каждая проходит check() сервиса операций', async () => {
     w = await opsWorld();
     const s = services();
-    const writer = createOperationsWriter(w.h.t.sqlite);
+    const writer = createOperationsWriter();
     const importId = importRow();
     const rows: ImportedOperation[] = [
       { ...base, type: 'income', paidAt: '2026-10-02T04:00:00Z', accountId: w.kzt, amount: 150_000, baseAmount: 150_000, categoryId: w.income, counterpartyId: w.counterparty, projectId: w.project, tagIds: [w.tag, w.tag], comment: 'выручка', accrualDate: '2026-10-01' },
@@ -121,7 +121,7 @@ describe('OperationsWriter.insertImported (§6.4 п. 3.5)', () => {
       { ...base, type: 'transfer', paidAt: '2026-10-05T04:00:00.000Z', accountId: w.usd, amount: 10, toAccountId: w.kzt, toAmount: 4_751, rate: '475.12', baseAmount: 4_751 },
     ];
     const at = '2026-10-06T12:00:00.000Z';
-    const ids = w.h.t.db.transaction((tx) => writer.insertImported(tx, { companyId: w.cid, importId, userId: adminId(), at, rows }));
+    const ids = await withTx(w.h.t.db, (tx) => writer.insertImported(tx, { companyId: w.cid, importId, userId: adminId(), at, rows }));
     expect(ids).toHaveLength(4);
     expect(ids).toEqual([...ids].sort((a, b) => a - b));
 
@@ -152,7 +152,7 @@ describe('OperationsWriter.insertImported (§6.4 п. 3.5)', () => {
   it('эквивалентно OperationsService.create: те же строки operations, operation_lines и operation_tags', async () => {
     w = await opsWorld();
     const s = services();
-    const writer = createOperationsWriter(w.h.t.sqlite);
+    const writer = createOperationsWriter();
     const kzt2 = (await w.post(`/api/v1/companies/${w.cid}/accounts`, { name: 'Касса 2', currency: 'KZT', openedAt: '2026-10-01', startingBalance: 0 })).account.id as number;
     const day = (n: number) => `2026-10-0${n}T04:00:00.000Z`;
     // пары «вход create / вход insertImported» одного смысла; rate и baseAmount импорта — как их считает предпросмотр
@@ -189,7 +189,7 @@ describe('OperationsWriter.insertImported (§6.4 п. 3.5)', () => {
     const viaService: number[] = [];
     for (const [input] of cases) viaService.push((await s.operations.create(w.cid, input, adminId())).id);
     const importId = importRow();
-    const viaWriter = w.h.t.db.transaction((tx) => writer.insertImported(tx, { companyId: w.cid, importId, userId: adminId(), at: NOW.toISOString(), rows: cases.map(([, row]) => row) }));
+    const viaWriter = await withTx(w.h.t.db, (tx) => writer.insertImported(tx, { companyId: w.cid, importId, userId: adminId(), at: NOW.toISOString(), rows: cases.map(([, row]) => row) }));
     // без id, import_id и меток времени (у create их ставит now(), у импорта — batch.at; в тесте оба равны NOW, но не часть эквивалентности)
     const snapshot = (id: number) => {
       const { id: _id, import_id, created_at, updated_at, ...op } = one('SELECT * FROM operations WHERE id = ?', id) as Record<string, unknown>;
@@ -206,46 +206,46 @@ describe('OperationsWriter.insertImported (§6.4 п. 3.5)', () => {
 
   it('защитные проверки: перевод без суммы зачисления или с категорией, неположительная и не целая сумма', async () => {
     w = await opsWorld();
-    const writer = createOperationsWriter(w.h.t.sqlite);
+    const writer = createOperationsWriter();
     const importId = importRow();
     const transfer: ImportedOperation = { ...base, type: 'transfer', paidAt: '2026-10-02T04:00:00Z', accountId: w.kzt, amount: 100, toAccountId: w.usd, toAmount: 1, baseAmount: 100 };
     const income: ImportedOperation = { ...base, type: 'income', paidAt: '2026-10-02T04:00:00Z', accountId: w.kzt, amount: 100, baseAmount: 100 };
-    const insert = (row: ImportedOperation) => () => w.h.t.db.transaction((tx) => writer.insertImported(tx, { companyId: w.cid, importId, userId: adminId(), at: NOW.toISOString(), rows: [row] }));
-    expect(insert({ ...transfer, toAmount: null })).toThrow('у перевода нужны счёт и сумма зачисления');
-    expect(insert({ ...transfer, categoryId: w.expense })).toThrow('у перевода нет категории');
-    expect(insert({ ...income, amount: 0 })).toThrow('сумма — положительное целое');
-    expect(insert({ ...income, amount: -5 })).toThrow('сумма — положительное целое');
-    expect(insert({ ...income, amount: 1.5 })).toThrow('сумма — положительное целое');
-    expect(insert({ ...income, amount: Number.MAX_SAFE_INTEGER + 2 })).toThrow('сумма — положительное целое');
-    expect(insert({ ...income, toAmount: 5 })).toThrow('только у перевода');
+    const insert = (row: ImportedOperation) => withTx(w.h.t.db, (tx) => writer.insertImported(tx, { companyId: w.cid, importId, userId: adminId(), at: NOW.toISOString(), rows: [row] }));
+    await expect(insert({ ...transfer, toAmount: null })).rejects.toThrow('у перевода нужны счёт и сумма зачисления');
+    await expect(insert({ ...transfer, categoryId: w.expense })).rejects.toThrow('у перевода нет категории');
+    await expect(insert({ ...income, amount: 0 })).rejects.toThrow('сумма — положительное целое');
+    await expect(insert({ ...income, amount: -5 })).rejects.toThrow('сумма — положительное целое');
+    await expect(insert({ ...income, amount: 1.5 })).rejects.toThrow('сумма — положительное целое');
+    await expect(insert({ ...income, amount: Number.MAX_SAFE_INTEGER + 2 })).rejects.toThrow('сумма — положительное целое');
+    await expect(insert({ ...income, toAmount: 5 })).rejects.toThrow('только у перевода');
     expect(one('SELECT COUNT(*) n FROM operations').n).toBe(0);
   });
 
   it('защитные проверки: перевод без счёта зачисления, на тот же счёт; сумма в валюте компании — неотрицательное безопасное целое', async () => {
     w = await opsWorld();
-    const writer = createOperationsWriter(w.h.t.sqlite);
+    const writer = createOperationsWriter();
     const importId = importRow();
     const transfer: ImportedOperation = { ...base, type: 'transfer', paidAt: '2026-10-02T04:00:00Z', accountId: w.kzt, amount: 100, toAccountId: w.usd, toAmount: 1, baseAmount: 100 };
     const income: ImportedOperation = { ...base, type: 'income', paidAt: '2026-10-02T04:00:00Z', accountId: w.kzt, amount: 100, baseAmount: 100 };
-    const insert = (row: ImportedOperation) => () => w.h.t.db.transaction((tx) => writer.insertImported(tx, { companyId: w.cid, importId, userId: adminId(), at: NOW.toISOString(), rows: [row] }));
-    expect(insert({ ...transfer, toAccountId: null })).toThrow('у перевода нужны счёт и сумма зачисления');
-    expect(insert({ ...transfer, toAccountId: w.kzt, toAmount: 100 })).toThrow('перевод на тот же счёт');
-    expect(insert({ ...income, baseAmount: -1 })).toThrow('сумма в валюте компании — неотрицательное целое');
-    expect(insert({ ...income, baseAmount: 1.5 })).toThrow('сумма в валюте компании — неотрицательное целое');
-    expect(insert({ ...income, baseAmount: Number.MAX_SAFE_INTEGER + 2 })).toThrow('сумма в валюте компании — неотрицательное целое');
-    expect(insert({ ...income, baseAmount: Number.NaN })).toThrow('сумма в валюте компании — неотрицательное целое');
+    const insert = (row: ImportedOperation) => withTx(w.h.t.db, (tx) => writer.insertImported(tx, { companyId: w.cid, importId, userId: adminId(), at: NOW.toISOString(), rows: [row] }));
+    await expect(insert({ ...transfer, toAccountId: null })).rejects.toThrow('у перевода нужны счёт и сумма зачисления');
+    await expect(insert({ ...transfer, toAccountId: w.kzt, toAmount: 100 })).rejects.toThrow('перевод на тот же счёт');
+    await expect(insert({ ...income, baseAmount: -1 })).rejects.toThrow('сумма в валюте компании — неотрицательное целое');
+    await expect(insert({ ...income, baseAmount: 1.5 })).rejects.toThrow('сумма в валюте компании — неотрицательное целое');
+    await expect(insert({ ...income, baseAmount: Number.MAX_SAFE_INTEGER + 2 })).rejects.toThrow('сумма в валюте компании — неотрицательное целое');
+    await expect(insert({ ...income, baseAmount: Number.NaN })).rejects.toThrow('сумма в валюте компании — неотрицательное целое');
     expect(one('SELECT COUNT(*) n FROM operations').n).toBe(0);
     // ноль допустим: сумма в валюте компании от очень малой суммы по курсу округляется до нуля
-    expect(insert({ ...income, baseAmount: 0 })).not.toThrow();
+    await insert({ ...income, baseAmount: 0 });
     expect(one('SELECT COUNT(*) n FROM operations').n).toBe(1);
   });
 
   it('вне транзакции — ошибка, ничего не записано', async () => {
     w = await opsWorld();
-    const writer = createOperationsWriter(w.h.t.sqlite);
+    const writer = createOperationsWriter();
     const importId = importRow();
     const row: ImportedOperation = { ...base, type: 'income', paidAt: '2026-10-02T04:00:00Z', accountId: w.kzt, amount: 100, baseAmount: 100 };
-    expect(() => writer.insertImported(w.h.t.db, { companyId: w.cid, importId, userId: adminId(), at: NOW.toISOString(), rows: [row] })).toThrow('только внутри транзакции');
+    await expect(writer.insertImported(w.h.t.db, { companyId: w.cid, importId, userId: adminId(), at: NOW.toISOString(), rows: [row] })).rejects.toThrow('только внутри транзакции');
     expect(one('SELECT COUNT(*) n FROM operations').n).toBe(0);
   });
 });

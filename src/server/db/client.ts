@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { foldCase } from '../../shared/search';
 import * as schema from './schema';
+import { ambient } from './tx';
 
 export type Sqlite = Database.Database;
 export type Db = BetterSQLite3Database<typeof schema>;
@@ -21,7 +22,8 @@ export function openDb(filePath: string): { sqlite: Sqlite; db: Db } {
     sqlite.pragma('foreign_keys = ON');
     sqlite.pragma('busy_timeout = 5000');
     sqlite.function('ulower', { deterministic: true }, (v: unknown) => ulower(v));
-    const db = drizzle({ client: sqlite, schema });
+    // окружающая база: запросы вне транзакции встают в очередь соединения, внутри — идут в транзакцию (db/tx.ts)
+    const db = ambient(drizzle({ client: sqlite, schema }));
     return { sqlite, db };
   } catch (e) {
     sqlite.close(); // не оставляем открытый дескриптор (файл не SQLite и т. п.)

@@ -188,7 +188,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       now,
       log: (m, e) => (e ? app.log.error({ err: e }, m) : app.log.info(m)),
     });
-  registerBackupRoutes(app, { backup });
+  registerBackupRoutes(app, { backup, db });
 
   const clientDir = deps.clientDir ?? path.resolve('dist', 'client');
   if (fs.existsSync(path.join(clientDir, 'index.html'))) {

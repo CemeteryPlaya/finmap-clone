@@ -68,6 +68,40 @@ describe('withTx', () => {
     expect(await count()).toBe(3);
   });
 
+  it('запрос через db внутри транзакции видит её незафиксированную запись', async () => {
+    const seen = await withTx(t.db, async () => {
+      await add('A');
+      return (await t.db.select().from(currencies)).length;
+    });
+    expect(seen).toBe(1);
+  });
+
+  it('запрос вне транзакции ждёт её конца и не попадает в неё: откат не уносит чужую запись', async () => {
+    let entered!: () => void;
+    const inside = new Promise<void>((r) => (entered = r));
+    let finish!: () => void;
+    const gate = new Promise<void>((r) => (finish = r));
+    const tx = withTx(t.db, async () => {
+      await add('A');
+      entered();
+      await gate;
+      throw new Error('откат');
+    }).catch((e: Error) => e.message);
+    await inside;
+    // пока транзакция открыта, чужая запись и чтение ждут
+    const outsideWrite = add('B');
+    const outsideRead = t.db.select().from(currencies);
+    let settled = false;
+    void outsideWrite.then(() => (settled = true));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(settled).toBe(false);
+    finish();
+    expect(await tx).toBe('откат');
+    await outsideWrite;
+    expect((await outsideRead).map((c) => c.code)).toEqual(['B']);
+    expect(await rows(t.db, sql`SELECT code FROM currencies`)).toEqual([{ code: 'B' }]);
+  });
+
   it('возвращает результат колбэка', async () => {
     expect(await withTx(t.db, async () => 42)).toBe(42);
   });

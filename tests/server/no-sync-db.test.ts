@@ -5,20 +5,17 @@ import { describe, expect, it } from 'vitest';
 /**
  * Сторож перехода на асинхронный доступ к БД (план 2026-10-20-vercel-postgres, Р9): в серверном коде нет синхронных
  * вызовов Drizzle (`.all()`, `.get()`, `.run()`), сырого better-sqlite3 (`sqlite.`) и синхронных транзакций.
- * PENDING — файлы, которые ещё не переведены; список сокращается задачами 2–8 и в задаче 8 становится пустым.
+ * PENDING — файлы, которые ещё не переведены (после фазы В-1 — пусто).
  */
 const ROOT = path.resolve(__dirname, '../../src/server');
 
-/** Остаются навсегда: здесь живёт сам механизм транзакций. */
-const ALLOWED = new Set(['db/tx.ts', 'db/raw.ts']);
+/**
+ * Остаются навсегда: механизм транзакций и сырых запросов, а также то, что существует только у SQLite — соединение,
+ * миграции, бэкап копией файла и быстрая запись импорта подготовленными выражениями (у Postgres свои реализации).
+ */
+const ALLOWED = new Set(['db/tx.ts', 'db/raw.ts', 'db/client.ts', 'db/migrate.ts', 'modules/backup/restore.ts', 'modules/backup/service.ts', 'modules/operations/writer.ts']);
 
-const PENDING = new Set([
-  'db/client.ts',
-  'db/migrate.ts',
-  'modules/backup/restore.ts',
-  'modules/backup/service.ts',
-  'modules/operations/writer.ts',
-]);
+const PENDING = new Set<string>([]);
 
 const SYNC_DB = /(?<!job)\.(all|get|run)\(\)|\b(db|tx|ex)\.(all|get|run)\b|\bsqlite\.|\.transaction\(/;
 

@@ -6,6 +6,7 @@ import { ensureDataDir } from './data-dir';
 import { openDb, type Sqlite } from './db/client';
 import { migrateWithBackup } from './db/migrate';
 import { seedCurrencies } from './db/seed';
+import { inLine } from './db/tx';
 import { startScheduler } from './jobs/scheduler';
 import { acquireLock, isPortFree, lockState, LockSuspectError, type IsNodeProcess } from './lock';
 import { createLoggerOptions } from './logger';
@@ -113,7 +114,8 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     scheduler = startScheduler({
       timezone: config.timezone,
       log: (m, e) => built.log.error({ err: e }, m),
-      jobs: [{ name: 'daily-backup', cron: '0 4 * * *', run: () => void backup.create('daily') }],
+      // в очереди соединения: VACUUM INTO внутри открытой транзакции невозможен
+      jobs: [{ name: 'daily-backup', cron: '0 4 * * *', run: async () => void (await inLine(db, () => backup.create('daily'))) }],
     });
     const addr = built.server.address();
     const port = typeof addr === 'object' && addr ? addr.port : config.port;

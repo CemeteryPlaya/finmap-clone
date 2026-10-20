@@ -1,16 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
+import type { Db } from '../../db/client';
+import { inLine } from '../../db/tx';
 import { AppError } from '../../errors';
 import type { BackupService } from './service';
 
-export function registerBackupRoutes(app: FastifyInstance, deps: { backup: BackupService }): void {
+export function registerBackupRoutes(app: FastifyInstance, deps: { backup: BackupService; db: Db }): void {
   app.get('/api/v1/backup/download', async (req, reply) => {
     // GET с побочным эффектом: межсайтовая навигация не может выставить этот заголовок.
     if (req.headers['x-requested-with'] !== 'fetch') {
       throw new AppError(403, 'CSRF', 'Запрос отклонён защитой от подделки');
     }
-    const file = deps.backup.exportArchive();
+    // VACUUM INTO внутри транзакции невозможен — архив снимается в своей очереди соединения
+    const file = await inLine(deps.db, () => deps.backup.exportArchive());
     const tmpDir = path.dirname(file);
     const stream = fs.createReadStream(file);
     // Уборка — по возможности: EPERM/EBUSY (антивирус в Windows) не должен ронять сервер.

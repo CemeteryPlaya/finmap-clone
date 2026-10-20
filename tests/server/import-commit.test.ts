@@ -134,7 +134,7 @@ function importsServiceWith(cache: ImportCache) {
     counterparties: createCounterpartiesService({ db, audit }),
     projects: createProjectsService({ db, audit, companies, categories, accounts, timezone: 'Asia/Almaty' }),
     tags: createTagsService({ db, audit }),
-    writer: createOperationsWriter(w.h.t.sqlite),
+    writer: createOperationsWriter(),
   });
 }
 
@@ -370,11 +370,11 @@ describe('атомарность записи (§6.4 п. 5)', () => {
     const categories = createCategoriesService({ db, audit });
     const accounts = createAccountsService({ db, audit, timezone: 'Asia/Almaty', now: () => NOW });
     const companies = createCompaniesService({ db, audit, categories, accounts });
-    const real = createOperationsWriter(w.h.t.sqlite);
+    const real = createOperationsWriter();
     let written = 0;
     const failing: OperationsWriter = {
-      insertImported(tx, batch) {
-        written = real.insertImported(tx, { ...batch, rows: batch.rows.slice(0, Math.ceil(batch.rows.length / 2)) }).length;
+      async insertImported(tx, batch) {
+        written = (await real.insertImported(tx, { ...batch, rows: batch.rows.slice(0, Math.ceil(batch.rows.length / 2)) })).length;
         throw new Error('сбой записи');
       },
     };

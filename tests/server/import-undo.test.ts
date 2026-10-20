@@ -570,7 +570,7 @@ describe('POST …/imports/:id/undo — отмена (§7.3 спецификац
       counterparties: createCounterpartiesService({ db, audit }),
       projects: createProjectsService({ db, audit, companies, categories, accounts, timezone: 'Asia/Almaty' }),
       tags: createTagsService({ db, audit }),
-      writer: createOperationsWriter(w.h.t.sqlite),
+      writer: createOperationsWriter(),
     });
     const before = fullState();
 
