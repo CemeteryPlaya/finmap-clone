@@ -1,7 +1,9 @@
+import type { SQL } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/server/app';
 import { loadConfig, type Config } from '../../src/server/config';
 import type { Db, Sqlite } from '../../src/server/db/client';
+import { rows } from '../../src/server/db/raw';
 import { createAuditService } from '../../src/server/modules/audit/service';
 import { createUsersService, type AuthUser } from '../../src/server/modules/users/service';
 import { createTestDb } from './test-db';
@@ -18,6 +20,8 @@ export interface TestApp {
   sqlite: Sqlite;
   config: Config;
   dir: string;
+  /** Сырой запрос к БД теста (одинаков для всех диалектов). */
+  sql<T = Record<string, unknown>>(q: SQL): Promise<T[]>;
   cleanup(): Promise<void>;
 }
 
@@ -37,6 +41,7 @@ export async function createTestApp(
     sqlite: t.sqlite,
     config,
     dir: t.dir,
+    sql: (q) => rows(t.db, q),
     async cleanup() {
       await app.close();
       t.cleanup();

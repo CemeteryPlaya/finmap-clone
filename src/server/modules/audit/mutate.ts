@@ -1,4 +1,5 @@
 import type { Db, Executor } from '../../db/client';
+import { withTx } from '../../db/tx';
 import type { AuditEntry, AuditService } from './service';
 
 /**
@@ -13,6 +14,19 @@ export function mutate<T>(
   opts: { behavior?: 'deferred' | 'immediate' } = {},
 ): T {
   return db.transaction((tx) => fn(tx, (entry) => audit.record(entry, tx)), { behavior: opts.behavior ?? 'deferred' });
+}
+
+/**
+ * Асинхронный двойник mutate (фаза В-1 плана 2026-10-20-vercel-postgres): модули переходят на него по одному;
+ * задача 8 удаляет синхронный mutate и возвращает этому имени mutate.
+ */
+export function mutateAsync<T>(
+  db: Db,
+  audit: AuditService,
+  fn: (tx: Executor, record: (entry: AuditEntry) => Promise<number>) => Promise<T>,
+  opts: { behavior?: 'deferred' | 'immediate' } = {},
+): Promise<T> {
+  return withTx(db, (tx) => fn(tx, async (entry) => audit.record(entry, tx)), opts);
 }
 
 /** Только реально изменившиеся поля; null — изменений нет (пустой PATCH не пишет историю). */
