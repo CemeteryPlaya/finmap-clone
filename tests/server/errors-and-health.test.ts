@@ -17,7 +17,7 @@ describe('app', () => {
   it('GET /api/v1/meta отдаёт название продукта', async () => {
     t = await createTestApp({ APP_NAME: 'Клубный учёт' });
     const res = await t.app.inject({ method: 'GET', url: '/api/v1/meta' });
-    expect(res.json()).toEqual({ appName: 'Клубный учёт', timezone: 'Asia/Almaty' });
+    expect(res.json()).toEqual({ appName: 'Клубный учёт', timezone: 'Asia/Almaty', uploads: 'body' });
   });
 
   it('превращает AppError, ZodError и неизвестные ошибки в единый формат', async () => {

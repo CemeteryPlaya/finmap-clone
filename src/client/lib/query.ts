@@ -30,7 +30,7 @@ export function useMe() {
 }
 
 export function useMeta() {
-  return useQuery<{ appName: string; timezone: string }, ApiError>({
+  return useQuery<{ appName: string; timezone: string; uploads?: 'body' | 'blob' }, ApiError>({
     queryKey: ['meta'],
     queryFn: () => api('/meta'),
     staleTime: Infinity,

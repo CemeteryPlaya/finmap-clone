@@ -32,6 +32,9 @@ import { createLedgerBalances } from './modules/balances/service';
 import { createOperationsReferences } from './modules/references/service';
 import { createCategoriesService } from './modules/categories/service';
 import { registerBalancesRoutes } from './modules/balances/routes';
+import { createBlobStore } from './files/blob';
+import { createLocalStore } from './files/local';
+import type { FileStore } from './files/store';
 import { registerAttachmentsRoutes } from './modules/attachments/routes';
 import { registerImportsRoutes } from './modules/imports/routes';
 import { createImportsService } from './modules/imports/service';
@@ -62,6 +65,7 @@ import { createCompaniesService } from './modules/companies/service';
 import { registerUsersRoutes } from './modules/users/routes';
 import { createUsersService } from './modules/users/service';
 import { registerPreferencesRoutes } from './modules/preferences/routes';
+import { registerUploadsRoutes } from './modules/uploads/routes';
 import { registerPwaRoutes } from './pwa/routes';
 import { createPreferencesService } from './modules/preferences/service';
 import { resolveClientIp } from './security/client-ip';
@@ -79,6 +83,8 @@ export interface AppDeps {
   extraRoutes?: (app: FastifyInstance) => void;
   /** Общий сервис бэкапов процесса (startServer); без него приложение создаёт свой (тесты). */
   backup?: BackupService;
+  /** Хранилище файлов; без него — Vercel Blob в режиме vercel, иначе папка uploads (тесты подменяют). */
+  files?: FileStore;
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -124,7 +130,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerAuth(app, { sessions });
 
   app.get('/api/v1/health', async () => ({ ok: true }));
-  app.get('/api/v1/meta', async () => ({ appName: config.appName, timezone: config.timezone }));
+  // файлы: на Vercel браузер грузит их прямо в Blob (Р11) — тело запроса функции не больше 4,5 МБ
+  const files = deps.files ?? (config.blobToken ? createBlobStore(config.blobToken) : createLocalStore(config.uploadsDir));
+  const uploads = config.deployMode === 'vercel' && config.blobToken ? 'blob' : 'body';
+  app.get('/api/v1/meta', async () => ({ appName: config.appName, timezone: config.timezone, uploads }));
+  if (uploads === 'blob') registerUploadsRoutes(app, { blobToken: config.blobToken!, now });
   registerPwaRoutes(app, { appName: config.appName });
   registerAuthRoutes(app, { users, sessions, limiter, audit, config });
   registerUsersRoutes(app, { users });
@@ -165,7 +175,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     analytics: createStockAnalyticsService({ db, balance: stockBalance, timezone: config.timezone, now }),
   });
   registerSavedFiltersRoutes(app, { savedFilters: createSavedFiltersService({ db, now }) });
-  registerAttachmentsRoutes(app, { attachments: createAttachmentsService({ db, audit, uploadsDir: config.uploadsDir, now }) });
+  registerAttachmentsRoutes(app, { attachments: createAttachmentsService({ db, audit, files, now }), files, stored: uploads === 'blob' });
   registerBalancesRoutes(app, { companies, ledger: balances, rates, timezone: config.timezone, now });
   registerImportsRoutes(app, {
     imports: createImportsService({

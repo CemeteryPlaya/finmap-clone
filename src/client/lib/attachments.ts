@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api, ApiError } from './api';
+import { uploadMode, uploadToBlob } from './blob-upload';
 import { queryClient } from './query';
 
 /** Вложение операции (`GET …/operations/:id/attachments`, план 4b). */
@@ -73,10 +74,17 @@ async function invalidateAttachments(companyId: number, operationId: number): Pr
   ]);
 }
 
-/** Загрузить файл к операции (тело — байты, имя — в X-File-Name). Ошибка сервера — `ApiError` (у типа файла — `fields.file`). */
+/**
+ * Загрузить файл к операции: локально — байты телом (имя — в X-File-Name), на Vercel — сначала в Blob, затем ключ файла.
+ * Ошибка сервера — `ApiError` (у типа файла — `fields.file`).
+ */
 export async function uploadAttachment(companyId: number, operationId: number, file: File): Promise<Attachment> {
   try {
     const path = `/companies/${companyId}/operations/${operationId}/attachments`;
+    if ((await uploadMode()) === 'blob') {
+      const blobKey = await uploadToBlob('attachment', file);
+      return (await api<{ attachment: Attachment }>(path, { method: 'POST', body: { blobKey, fileName: file.name } })).attachment;
+    }
     return (await api<{ attachment: Attachment }>(path, { method: 'POST', file: { data: file, name: file.name } })).attachment;
   } finally {
     void invalidateAttachments(companyId, operationId);

@@ -1,6 +1,6 @@
 import type { SQL } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { buildApp } from '../../src/server/app';
+import { buildApp, type AppDeps } from '../../src/server/app';
 import { loadConfig, type Config } from '../../src/server/config';
 import type { Db, Sqlite } from '../../src/server/db/client';
 import { rows } from '../../src/server/db/raw';
@@ -36,11 +36,13 @@ export async function createTestApp(
   overrides: Record<string, string> = {},
   extraRoutes?: (app: FastifyInstance) => void,
   now?: () => Date,
+  /** Подмена зависимостей приложения (хранилище файлов). */
+  deps: Pick<AppDeps, 'files'> = {},
 ): Promise<TestApp> {
   const t = await createTestDb();
   const config = testConfig(t.dir, overrides);
   // TEST_LOG=1 — журнал ошибок сервера в консоль (разбор 500 в тестах)
-  const app = await buildApp({ config, db: t.db, sqlite: t.sqlite, logger: process.env.TEST_LOG ? { level: 'error' } : false, extraRoutes, now });
+  const app = await buildApp({ config, db: t.db, sqlite: t.sqlite, logger: process.env.TEST_LOG ? { level: 'error' } : false, extraRoutes, now, ...deps });
   await app.ready();
   return {
     app,

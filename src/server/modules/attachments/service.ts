@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 import path from 'node:path';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import { cleanName } from '../../../shared/text';
 import type { Db } from '../../db/client';
 import { first } from '../../db/raw';
+import type { FileStore } from '../../files/store';
 import { attachments, operations } from '../../db/schema';
 import { AppError } from '../../errors';
 import { mutate } from '../audit/mutate';
@@ -19,8 +19,13 @@ export type AttachmentRow = typeof attachments.$inferSelect;
 export interface AttachmentsService {
   list(companyId: number, operationId: number): Promise<AttachmentRow[]>;
   add(companyId: number, operationId: number, file: { name: string; data: Buffer }, userId: number): Promise<AttachmentRow>;
-  /** Неудалённое вложение компании и путь к файлу. */
-  open(companyId: number, id: number): Promise<{ row: AttachmentRow; filePath: string }>;
+  /**
+   * Вложение из файла, который браузер уже загрузил в хранилище (режим vercel, Р11): ключ — из POST /uploads/token
+   * (uploads/attachment/…) и ещё ничьё; тип и размер — по содержимому. Недопустимый файл из хранилища удаляется.
+   */
+  addStored(companyId: number, operationId: number, file: { key: string; name: string }, userId: number): Promise<AttachmentRow>;
+  /** Неудалённое вложение компании. */
+  open(companyId: number, id: number): Promise<AttachmentRow>;
   /** Мягкое удаление: файл на диске остаётся (§4.5). */
   remove(companyId: number, id: number, userId: number): Promise<void>;
 }
@@ -37,8 +42,12 @@ function nameForType(name: string, type: DetectedType): string {
 
 const invalid = (fields: Record<string, string>) => new AppError(400, 'VALIDATION', 'Проверьте файл', fields);
 
-export function createAttachmentsService(d: { db: Db; audit: AuditService; uploadsDir: string; now?: () => Date }): AttachmentsService {
-  const { db, audit } = d;
+/** Ключ файла, загруженного браузером для вложения (uploadKey в modules/uploads/routes.ts). */
+const STORED_KEY = /^uploads\/attachment\/[0-9a-f-]{36}(\.[a-z0-9]{1,8})?$/;
+const notUploaded = () => invalid({ file: 'Файл не загружен — загрузите его снова' });
+
+export function createAttachmentsService(d: { db: Db; audit: AuditService; files: FileStore; now?: () => Date }): AttachmentsService {
+  const { db, audit, files } = d;
   const now = d.now ?? (() => new Date());
 
   async function requireOperation(companyId: number, operationId: number) {
@@ -55,6 +64,44 @@ export function createAttachmentsService(d: { db: Db; audit: AuditService; uploa
     return row;
   }
 
+  /** Компания и операция доступны для записи, имя и содержимое допустимы; тип — по содержимому. */
+  async function check(companyId: number, operationId: number, file: { name: string; data: Buffer }) {
+    await requireCompany(db, companyId, { writable: true });
+    const op = await requireOperation(companyId, operationId);
+    if (op.deletedAt) throw new AppError(409, 'VERSION_CONFLICT', 'Операция удалена — обновите страницу');
+    const name = cleanName(file.name);
+    if (name.length < 1 || name.length > 200) throw invalid({ name: 'Имя файла: от 1 до 200 символов' });
+    if (file.data.length === 0) throw invalid({ file: 'Файл пустой' });
+    if (file.data.length > ATTACHMENT_MAX_BYTES) throw new AppError(413, 'TOO_LARGE', 'Файл больше 10 МБ');
+    const type = detectFileType(file.data, name);
+    if (!type) throw invalid({ file: 'Допустимые файлы: PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV' });
+    return { name, type };
+  }
+
+  /** Строка вложения и история; запись не удалась — файл-сирота удаляется. */
+  async function insert(
+    companyId: number,
+    operationId: number,
+    f: { name: string; type: DetectedType; storedName: string; size: number },
+    userId: number,
+  ): Promise<AttachmentRow> {
+    const originalName = nameForType(f.name, f.type);
+    try {
+      return await mutate(db, audit, async (tx, record) => {
+        const [row] = await tx
+          .insert(attachments)
+          .values({ companyId, operationId, originalName, storedName: f.storedName, mime: f.type.mime, size: f.size, createdAt: now().toISOString() })
+          .returning();
+        if (!row) throw new Error('attachments: вставка не вернула строку');
+        await record({ companyId, userId, entity: 'attachment', entityId: row.id, action: 'create', diff: { operationId, name: originalName, size: row.size, mime: f.type.mime } });
+        return row;
+      });
+    } catch (e) {
+      await files.remove(f.storedName);
+      throw e;
+    }
+  }
+
   return {
     async list(companyId, operationId) {
       await requireCompany(db, companyId);
@@ -67,40 +114,31 @@ export function createAttachmentsService(d: { db: Db; audit: AuditService; uploa
     },
 
     async add(companyId, operationId, file, userId) {
-      await requireCompany(db, companyId, { writable: true });
-      const op = await requireOperation(companyId, operationId);
-      if (op.deletedAt) throw new AppError(409, 'VERSION_CONFLICT', 'Операция удалена — обновите страницу');
-      const name = cleanName(file.name);
-      if (name.length < 1 || name.length > 200) throw invalid({ name: 'Имя файла: от 1 до 200 символов' });
-      if (file.data.length === 0) throw invalid({ file: 'Файл пустой' });
-      if (file.data.length > ATTACHMENT_MAX_BYTES) throw new AppError(413, 'TOO_LARGE', 'Файл больше 10 МБ');
-      const type = detectFileType(file.data, name);
-      if (!type) throw invalid({ file: 'Допустимые файлы: PNG, JPG, WEBP, HEIC, PDF, XLSX, CSV' });
-      const originalName = nameForType(name, type);
+      const { name, type } = await check(companyId, operationId, file);
       const storedName = `${crypto.randomUUID()}${type.ext}`;
-      fs.mkdirSync(d.uploadsDir, { recursive: true });
-      const filePath = path.join(d.uploadsDir, storedName);
+      await files.put(storedName, file.data, type.mime);
+      return insert(companyId, operationId, { name, type, storedName, size: file.data.length }, userId);
+    },
+
+    async addStored(companyId, operationId, file, userId) {
+      await requireCompany(db, companyId, { writable: true });
+      if (!STORED_KEY.test(file.key)) throw notUploaded();
+      if (await first(db.select({ id: attachments.id }).from(attachments).where(eq(attachments.storedName, file.key)))) throw notUploaded();
+      const data = await files.get(file.key);
+      if (!data) throw notUploaded();
+      let checked: Awaited<ReturnType<typeof check>>;
       try {
-        fs.writeFileSync(filePath, file.data, { flag: 'wx' });
-        return await mutate(db, audit, async (tx, record) => {
-          const [row] = await tx
-            .insert(attachments)
-            .values({ companyId, operationId, originalName, storedName, mime: type.mime, size: file.data.length, createdAt: now().toISOString() })
-            .returning();
-          if (!row) throw new Error('attachments: вставка не вернула строку');
-          await record({ companyId, userId, entity: 'attachment', entityId: row.id, action: 'create', diff: { operationId, name: originalName, size: row.size, mime: type.mime } });
-          return row;
-        });
+        checked = await check(companyId, operationId, { name: file.name, data });
       } catch (e) {
-        fs.rmSync(filePath, { force: true }); // запись в БД не удалась — файл-сирота не нужен
+        await files.remove(file.key); // недопустимый файл в хранилище не оставляем
         throw e;
       }
+      return insert(companyId, operationId, { ...checked, storedName: file.key, size: data.length }, userId);
     },
 
     async open(companyId, id) {
       await requireCompany(db, companyId);
-      const row = await requireAttachment(companyId, id);
-      return { row, filePath: path.join(d.uploadsDir, row.storedName) };
+      return requireAttachment(companyId, id);
     },
 
     async remove(companyId, id, userId) {
