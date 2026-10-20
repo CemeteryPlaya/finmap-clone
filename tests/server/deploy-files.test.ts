@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
 import { builtinModules } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
 import { buildServer } from '../../scripts/lib/build-server';
@@ -162,14 +163,23 @@ describe('сборка функции Vercel: server.mjs (план 2026-10-20-ve
 });
 
 describe('собранная функция запускается', () => {
-  it('server.mjs стартует в Node с переменными Vercel и отвечает /api/v1/health и /api/v1/meta', async () => {
+  // Vercel вызывает обработчик по умолчанию (req, res) — как обычную Node-функцию. listen() не нужен: перехват listen
+  // у Vercel срабатывает на пакет fastify из node_modules, а fastify внутри бандла — запросы зависали без единой записи
+  it('server.mjs отдаёт обработчик (req, res) по умолчанию; с переменными Vercel он отвечает /api/v1/health и /api/v1/meta', async () => {
     // внутри node_modules: внешние пакеты (better-sqlite3 и др.) находятся, как на Vercel рядом с функцией
     const dir = path.resolve('node_modules/.cache/fc-server-test');
     fs.mkdirSync(dir, { recursive: true });
     const out = path.join(dir, 'server.mjs');
     await buildServer(out);
     const port = 42000 + Math.floor(Math.random() * 1000);
-    const child = spawn(process.execPath, [out], {
+    // обработчик — в обычный http-сервер, как его вызывает Vercel; сам модуль порт не открывает
+    const host = [
+      "const { default: handler } = await import(process.argv[1]);",
+      "if (typeof handler !== 'function') throw new Error('нет обработчика по умолчанию');",
+      "const http = await import('node:http');",
+      "http.createServer(handler).listen(Number(process.env.PORT), '127.0.0.1');",
+    ].join('\n');
+    const child = spawn(process.execPath, ['--input-type=module', '-e', host, pathToFileURL(out).href], {
       env: {
         PATH: process.env.PATH,
         SYSTEMROOT: process.env.SYSTEMROOT,
