@@ -22,7 +22,7 @@ export function registerOperationsRoutes(
 
   // «Отмена» в «Истории действий» (план 2026-10-20, решение 7): каскад для окна подтверждения и сама отмена
   const UNDO = '/api/v1/companies/:cid/audit/:id/undo';
-  app.get<P>(UNDO, async (req) => undo.preview(parseId(req.params.cid), parseId(req.params.id)));
+  app.get<P>(UNDO, async (req) => await undo.preview(parseId(req.params.cid), parseId(req.params.id)));
   app.post<P>(UNDO, async (req) => {
     const { ids } = auditUndoSchema.parse(req.body);
     return undo.run(parseId(req.params.cid), parseId(req.params.id), ids, req.user!.id);
@@ -33,7 +33,7 @@ export function registerOperationsRoutes(
 
   // выгрузка по тому же фильтру; статические сегменты export.xlsx и export-preview важнее параметра :id
   app.get<C>(`${BASE}/export.xlsx`, async (req, reply) => {
-    const { fileName, data } = journal.exportXlsx(parseId(req.params.cid), journalExportSchema.parse(req.query));
+    const { fileName, data } = await journal.exportXlsx(parseId(req.params.cid), journalExportSchema.parse(req.query));
     reply.header('Content-Type', XLSX_MIME);
     reply.header('Content-Disposition', contentDisposition(fileName));
     reply.header('X-Content-Type-Options', 'nosniff');

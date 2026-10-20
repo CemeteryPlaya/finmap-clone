@@ -269,9 +269,9 @@ describe('журнал: «Excel» в формате Finmap (§8.2 специфи
     const db = w.h.t.db;
     const journal = createJournal({ db, balances: createLedgerBalances(db), timezone: 'Asia/Almaty', exportLimit: 2 });
     const q = { sort: 'date', order: 'desc', format: 'finmap' } as const;
-    expect(() => journal.exportXlsx(w.cid, q)).toThrow('Больше 2 операций — сузьте период или фильтр');
-    expect(sheetRows(journal.exportXlsx(w.cid, { ...q, from: '2026-10-04' }).data)).toHaveLength(2);
-    const empty = sheetRows(journal.exportXlsx(w.cid, { ...q, q: 'нет такого' }).data);
+    await expect(journal.exportXlsx(w.cid, q)).rejects.toThrow('Больше 2 операций — сузьте период или фильтр');
+    expect(sheetRows((await journal.exportXlsx(w.cid, { ...q, from: '2026-10-04' })).data)).toHaveLength(2);
+    const empty = sheetRows((await journal.exportXlsx(w.cid, { ...q, q: 'нет такого' })).data);
     expect(empty).toEqual([HEADERS]);
   });
 });

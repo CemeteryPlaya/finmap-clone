@@ -11,11 +11,11 @@ function readValue(body: unknown): unknown {
 }
 
 export function registerPreferencesRoutes(app: FastifyInstance, deps: { preferences: PreferencesService }): void {
-  app.get('/api/v1/preferences', async (req) => ({ preferences: deps.preferences.all(req.user!.id) }));
+  app.get('/api/v1/preferences', async (req) => ({ preferences: await deps.preferences.all(req.user!.id) }));
 
   app.put<{ Params: { key: string } }>('/api/v1/preferences/:key', async (req) => {
     const value = readValue(req.body);
-    deps.preferences.set(req.user!.id, req.params.key, value);
+    await deps.preferences.set(req.user!.id, req.params.key, value);
     return { key: req.params.key, value };
   });
 }

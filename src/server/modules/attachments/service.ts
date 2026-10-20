@@ -4,9 +4,10 @@ import path from 'node:path';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import { cleanName } from '../../../shared/text';
 import type { Db } from '../../db/client';
+import { first } from '../../db/raw';
 import { attachments, operations } from '../../db/schema';
 import { AppError } from '../../errors';
-import { mutate } from '../audit/mutate';
+import { mutateAsync } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import { detectFileType, type DetectedType } from './file-type';
@@ -16,12 +17,12 @@ export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 export type AttachmentRow = typeof attachments.$inferSelect;
 
 export interface AttachmentsService {
-  list(companyId: number, operationId: number): AttachmentRow[];
-  add(companyId: number, operationId: number, file: { name: string; data: Buffer }, userId: number): AttachmentRow;
+  list(companyId: number, operationId: number): Promise<AttachmentRow[]>;
+  add(companyId: number, operationId: number, file: { name: string; data: Buffer }, userId: number): Promise<AttachmentRow>;
   /** Неудалённое вложение компании и путь к файлу. */
-  open(companyId: number, id: number): { row: AttachmentRow; filePath: string };
+  open(companyId: number, id: number): Promise<{ row: AttachmentRow; filePath: string }>;
   /** Мягкое удаление: файл на диске остаётся (§4.5). */
-  remove(companyId: number, id: number, userId: number): void;
+  remove(companyId: number, id: number, userId: number): Promise<void>;
 }
 
 /** Имя файла с расширением, соответствующим типу по содержимому; иначе расширение типа дописывается (не длиннее 200 знаков). */
@@ -40,37 +41,34 @@ export function createAttachmentsService(d: { db: Db; audit: AuditService; uploa
   const { db, audit } = d;
   const now = d.now ?? (() => new Date());
 
-  function requireOperation(companyId: number, operationId: number) {
-    const op = db.select().from(operations).where(and(eq(operations.id, operationId), eq(operations.companyId, companyId))).get();
+  async function requireOperation(companyId: number, operationId: number) {
+    const op = await first(db.select().from(operations).where(and(eq(operations.id, operationId), eq(operations.companyId, companyId))));
     if (!op) throw new AppError(404, 'NOT_FOUND', 'Операция не найдена');
     return op;
   }
 
-  function requireAttachment(companyId: number, id: number): AttachmentRow {
-    const row = db
-      .select()
-      .from(attachments)
-      .where(and(eq(attachments.id, id), eq(attachments.companyId, companyId), isNull(attachments.deletedAt)))
-      .get();
+  async function requireAttachment(companyId: number, id: number): Promise<AttachmentRow> {
+    const row = await first(
+      db.select().from(attachments).where(and(eq(attachments.id, id), eq(attachments.companyId, companyId), isNull(attachments.deletedAt))),
+    );
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Вложение не найдено');
     return row;
   }
 
   return {
-    list(companyId, operationId) {
-      requireCompany(db, companyId);
-      requireOperation(companyId, operationId);
+    async list(companyId, operationId) {
+      await requireCompany(db, companyId);
+      await requireOperation(companyId, operationId);
       return db
         .select()
         .from(attachments)
         .where(and(eq(attachments.operationId, operationId), isNull(attachments.deletedAt)))
-        .orderBy(asc(attachments.id))
-        .all();
+        .orderBy(asc(attachments.id));
     },
 
-    add(companyId, operationId, file, userId) {
-      requireCompany(db, companyId, { writable: true });
-      const op = requireOperation(companyId, operationId);
+    async add(companyId, operationId, file, userId) {
+      await requireCompany(db, companyId, { writable: true });
+      const op = await requireOperation(companyId, operationId);
       if (op.deletedAt) throw new AppError(409, 'VERSION_CONFLICT', 'Операция удалена — обновите страницу');
       const name = cleanName(file.name);
       if (name.length < 1 || name.length > 200) throw invalid({ name: 'Имя файла: от 1 до 200 символов' });
@@ -84,13 +82,13 @@ export function createAttachmentsService(d: { db: Db; audit: AuditService; uploa
       const filePath = path.join(d.uploadsDir, storedName);
       try {
         fs.writeFileSync(filePath, file.data, { flag: 'wx' });
-        return mutate(db, audit, (tx, record) => {
-          const row = tx
+        return await mutateAsync(db, audit, async (tx, record) => {
+          const [row] = await tx
             .insert(attachments)
             .values({ companyId, operationId, originalName, storedName, mime: type.mime, size: file.data.length, createdAt: now().toISOString() })
-            .returning()
-            .get();
-          record({ companyId, userId, entity: 'attachment', entityId: row.id, action: 'create', diff: { operationId, name: originalName, size: row.size, mime: type.mime } });
+            .returning();
+          if (!row) throw new Error('attachments: вставка не вернула строку');
+          await record({ companyId, userId, entity: 'attachment', entityId: row.id, action: 'create', diff: { operationId, name: originalName, size: row.size, mime: type.mime } });
           return row;
         });
       } catch (e) {
@@ -99,18 +97,18 @@ export function createAttachmentsService(d: { db: Db; audit: AuditService; uploa
       }
     },
 
-    open(companyId, id) {
-      requireCompany(db, companyId);
-      const row = requireAttachment(companyId, id);
+    async open(companyId, id) {
+      await requireCompany(db, companyId);
+      const row = await requireAttachment(companyId, id);
       return { row, filePath: path.join(d.uploadsDir, row.storedName) };
     },
 
-    remove(companyId, id, userId) {
-      requireCompany(db, companyId, { writable: true });
-      const row = requireAttachment(companyId, id);
-      mutate(db, audit, (tx, record) => {
-        tx.update(attachments).set({ deletedAt: now().toISOString() }).where(eq(attachments.id, id)).run();
-        record({ companyId, userId, entity: 'attachment', entityId: id, action: 'delete', diff: { operationId: row.operationId, name: row.originalName } });
+    async remove(companyId, id, userId) {
+      await requireCompany(db, companyId, { writable: true });
+      const row = await requireAttachment(companyId, id);
+      await mutateAsync(db, audit, async (tx, record) => {
+        await tx.update(attachments).set({ deletedAt: now().toISOString() }).where(eq(attachments.id, id));
+        await record({ companyId, userId, entity: 'attachment', entityId: id, action: 'delete', diff: { operationId: row.operationId, name: row.originalName } });
       });
     },
   };

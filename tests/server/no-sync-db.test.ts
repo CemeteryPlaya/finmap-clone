@@ -10,15 +10,13 @@ import { describe, expect, it } from 'vitest';
 const ROOT = path.resolve(__dirname, '../../src/server');
 
 /** Остаются навсегда: здесь живёт сам механизм транзакций. */
-const ALLOWED = new Set(['db/tx.ts']);
+const ALLOWED = new Set(['db/tx.ts', 'db/raw.ts']);
 
 const PENDING = new Set([
   'db/client.ts',
   'db/migrate.ts',
   'db/seed.ts',
   'modules/accounts/service.ts',
-  'modules/analytics/service.ts',
-  'modules/attachments/service.ts',
   'modules/audit/mutate.ts',
   'modules/audit/service.ts',
   'modules/auth/sessions.ts',
@@ -34,22 +32,18 @@ const PENDING = new Set([
   'modules/imports/match.ts',
   'modules/imports/preview.ts',
   'modules/imports/undo.ts',
-  'modules/operations/bulk.ts',
-  'modules/operations/journal.ts',
   'modules/operations/service.ts',
-  'modules/operations/undo.ts',
   'modules/operations/writer.ts',
-  'modules/preferences/service.ts',
   'modules/projects/service.ts',
   'modules/rates/routes.ts',
   'modules/rates/service.ts',
   'modules/references/service.ts',
-  'modules/saved-filters/service.ts',
-  'modules/split-presets/service.ts',
   'modules/stock/analytics.ts',
   'modules/stock/balance.ts',
   'modules/stock/catalog.ts',
+  'modules/stock/count.ts',
   'modules/stock/docs.ts',
+  'modules/stock/events.ts',
   'modules/stock/import-template.ts',
   'modules/stock/import.ts',
   'modules/stock/payments.ts',
@@ -60,7 +54,7 @@ const PENDING = new Set([
   'modules/users/service.ts',
 ]);
 
-const SYNC_DB = /(?<!job)\.(all|get|run)\(\)|\bsqlite\.|\.transaction\(/;
+const SYNC_DB = /(?<!job)\.(all|get|run)\(\)|\b(db|tx|ex)\.(all|get|run)\b|\bsqlite\.|\.transaction\(/;
 
 function walk(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {

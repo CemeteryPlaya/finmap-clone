@@ -1,9 +1,10 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { cleanName } from '../../../shared/text';
 import type { Db } from '../../db/client';
+import { first } from '../../db/raw';
 import { categories, projects, splitPresets } from '../../db/schema';
 import { AppError } from '../../errors';
-import { changedFields, mutate } from '../audit/mutate';
+import { changedFields, mutateAsync } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import { assertSameSet, isSameOrder } from '../dictionaries/order';
@@ -25,13 +26,13 @@ export interface SplitPresetRow {
 }
 
 export interface SplitPresetsService {
-  list(companyId: number): SplitPresetRow[];
-  add(companyId: number, input: { name: string; lines: SplitLine[] }, userId: number): SplitPresetRow;
-  update(companyId: number, id: number, input: { name?: string; lines?: SplitLine[] }, userId: number): SplitPresetRow;
-  archive(companyId: number, id: number, userId: number): SplitPresetRow;
-  unarchive(companyId: number, id: number, userId: number): SplitPresetRow;
-  reorder(companyId: number, ids: number[], userId: number): SplitPresetRow[];
-  remove(companyId: number, id: number, userId: number): void;
+  list(companyId: number): Promise<SplitPresetRow[]>;
+  add(companyId: number, input: { name: string; lines: SplitLine[] }, userId: number): Promise<SplitPresetRow>;
+  update(companyId: number, id: number, input: { name?: string; lines?: SplitLine[] }, userId: number): Promise<SplitPresetRow>;
+  archive(companyId: number, id: number, userId: number): Promise<SplitPresetRow>;
+  unarchive(companyId: number, id: number, userId: number): Promise<SplitPresetRow>;
+  reorder(companyId: number, ids: number[], userId: number): Promise<SplitPresetRow[]>;
+  remove(companyId: number, id: number, userId: number): Promise<void>;
 }
 
 const ENTITY = 'split_preset';
@@ -46,21 +47,21 @@ export function createSplitPresetsService(d: { db: Db; audit: AuditService; now?
   const { db, audit } = d;
   const now = d.now ?? (() => new Date());
 
-  function requireRow(companyId: number, id: number): SplitPresetRow {
-    const row = db.select().from(splitPresets).where(and(eq(splitPresets.id, id), eq(splitPresets.companyId, companyId))).get();
+  async function requireRow(companyId: number, id: number): Promise<SplitPresetRow> {
+    const row = await first(db.select().from(splitPresets).where(and(eq(splitPresets.id, id), eq(splitPresets.companyId, companyId))));
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Шаблон разделения не найден');
     return toRow(row);
   }
 
   /** Категории и проекты строк: той же компании (инвариант 5), не в архиве (инвариант 7), категории одного вида. */
-  function checkRefs(companyId: number, lines: SplitLine[]): void {
+  async function checkRefs(companyId: number, lines: SplitLine[]): Promise<void> {
     const catIds = [...new Set(lines.flatMap((l) => (l.categoryId === null ? [] : [l.categoryId])))];
     const projIds = [...new Set(lines.flatMap((l) => (l.projectId === null ? [] : [l.projectId])))];
     const cats = catIds.length
-      ? db.select().from(categories).where(and(eq(categories.companyId, companyId), inArray(categories.id, catIds))).all()
+      ? await db.select().from(categories).where(and(eq(categories.companyId, companyId), inArray(categories.id, catIds)))
       : [];
     const projs = projIds.length
-      ? db.select().from(projects).where(and(eq(projects.companyId, companyId), inArray(projects.id, projIds))).all()
+      ? await db.select().from(projects).where(and(eq(projects.companyId, companyId), inArray(projects.id, projIds)))
       : [];
     if (cats.length !== catIds.length) throw invalidLines('Категория не найдена в этой компании');
     if (projs.length !== projIds.length) throw invalidLines('Проект не найден в этой компании');
@@ -69,105 +70,101 @@ export function createSplitPresetsService(d: { db: Db; audit: AuditService; now?
     if (archived) throw new AppError(422, 'ARCHIVED_REFERENCE', `«${archived.name}» в архиве — выберите другой элемент`);
   }
 
-  function setArchived(companyId: number, id: number, userId: number, archive: boolean): SplitPresetRow {
-    requireCompany(db, companyId, { writable: true });
-    const row = requireRow(companyId, id);
+  async function setArchived(companyId: number, id: number, userId: number, archive: boolean): Promise<SplitPresetRow> {
+    await requireCompany(db, companyId, { writable: true });
+    const row = await requireRow(companyId, id);
     if ((row.archivedAt !== null) === archive) return row;
-    return mutate(db, audit, (tx, record) => {
-      const out = tx
+    return mutateAsync(db, audit, async (tx, record) => {
+      const [out] = await tx
         .update(splitPresets)
         .set({ archivedAt: archive ? now().toISOString() : null })
         .where(eq(splitPresets.id, id))
-        .returning()
-        .get();
-      record({ companyId, userId, entity: ENTITY, entityId: id, action: archive ? 'archive' : 'unarchive' });
-      return toRow(out);
+        .returning();
+      await record({ companyId, userId, entity: ENTITY, entityId: id, action: archive ? 'archive' : 'unarchive' });
+      return toRow(out!);
     });
   }
 
   const svc: SplitPresetsService = {
-    list(companyId) {
-      requireCompany(db, companyId);
-      return db
+    async list(companyId) {
+      await requireCompany(db, companyId);
+      const rows = await db
         .select()
         .from(splitPresets)
         .where(eq(splitPresets.companyId, companyId))
-        .orderBy(asc(splitPresets.orderIndex), asc(splitPresets.id))
-        .all()
-        .map(toRow);
+        .orderBy(asc(splitPresets.orderIndex), asc(splitPresets.id));
+      return rows.map(toRow);
     },
 
-    add(companyId, input, userId) {
-      requireCompany(db, companyId, { writable: true });
-      checkRefs(companyId, input.lines);
-      return mutate(db, audit, (tx, record) => {
-        const next = tx
-          .select({ m: sql<number>`coalesce(max(${splitPresets.orderIndex}), -1)` })
-          .from(splitPresets)
-          .where(eq(splitPresets.companyId, companyId))
-          .get();
-        const row = toRow(
+    async add(companyId, input, userId) {
+      await requireCompany(db, companyId, { writable: true });
+      await checkRefs(companyId, input.lines);
+      return mutateAsync(db, audit, async (tx, record) => {
+        const next = await first(
           tx
-            .insert(splitPresets)
-            .values({
-              companyId,
-              name: cleanName(input.name),
-              lines: JSON.stringify(input.lines),
-              orderIndex: (next?.m ?? -1) + 1,
-              createdAt: now().toISOString(),
-            })
-            .returning()
-            .get(),
+            .select({ m: sql<number>`coalesce(max(${splitPresets.orderIndex}), -1)` })
+            .from(splitPresets)
+            .where(eq(splitPresets.companyId, companyId)),
         );
-        record({ companyId, userId, entity: ENTITY, entityId: row.id, action: 'create', diff: { name: row.name, lines: row.lines } });
+        const [inserted] = await tx
+          .insert(splitPresets)
+          .values({
+            companyId,
+            name: cleanName(input.name),
+            lines: JSON.stringify(input.lines),
+            orderIndex: (next?.m ?? -1) + 1,
+            createdAt: now().toISOString(),
+          })
+          .returning();
+        const row = toRow(inserted!);
+        await record({ companyId, userId, entity: ENTITY, entityId: row.id, action: 'create', diff: { name: row.name, lines: row.lines } });
         return row;
       });
     },
 
-    update(companyId, id, input, userId) {
-      requireCompany(db, companyId, { writable: true });
-      const before = requireRow(companyId, id);
+    async update(companyId, id, input, userId) {
+      await requireCompany(db, companyId, { writable: true });
+      const before = await requireRow(companyId, id);
       if (before.archivedAt) throw new AppError(422, 'ARCHIVED_REFERENCE', 'Шаблон в архиве — сначала верните его из архива');
       const patch = { ...input, ...(input.name !== undefined ? { name: cleanName(input.name) } : {}) };
       const changes = changedFields({ name: before.name, lines: before.lines }, patch);
       if (!changes) return before;
       const { name, lines } = changes.after;
-      if (lines !== undefined) checkRefs(companyId, lines); // старые строки не перепроверяем (инвариант 10)
-      return mutate(db, audit, (tx, record) => {
-        const row = tx
+      if (lines !== undefined) await checkRefs(companyId, lines); // старые строки не перепроверяем (инвариант 10)
+      return mutateAsync(db, audit, async (tx, record) => {
+        const [row] = await tx
           .update(splitPresets)
           .set({ ...(name !== undefined ? { name } : {}), ...(lines !== undefined ? { lines: JSON.stringify(lines) } : {}) })
           .where(eq(splitPresets.id, id))
-          .returning()
-          .get();
-        record({ companyId, userId, entity: ENTITY, entityId: id, action: 'update', diff: changes });
-        return toRow(row);
+          .returning();
+        await record({ companyId, userId, entity: ENTITY, entityId: id, action: 'update', diff: changes });
+        return toRow(row!);
       });
     },
 
     archive: (companyId, id, userId) => setArchived(companyId, id, userId, true),
     unarchive: (companyId, id, userId) => setArchived(companyId, id, userId, false),
 
-    reorder(companyId, ids, userId) {
-      requireCompany(db, companyId, { writable: true });
-      const current = svc.list(companyId).map((r) => r.id);
+    async reorder(companyId, ids, userId) {
+      await requireCompany(db, companyId, { writable: true });
+      const current = (await svc.list(companyId)).map((r) => r.id);
       assertSameSet(current, ids);
       if (!isSameOrder(current, ids)) {
-        mutate(db, audit, (tx, record) => {
-          ids.forEach((rowId, i) => tx.update(splitPresets).set({ orderIndex: i }).where(eq(splitPresets.id, rowId)).run());
-          record({ companyId, userId, entity: ENTITY, action: 'reorder', diff: { ids } });
+        await mutateAsync(db, audit, async (tx, record) => {
+          for (const [i, rowId] of ids.entries()) await tx.update(splitPresets).set({ orderIndex: i }).where(eq(splitPresets.id, rowId));
+          await record({ companyId, userId, entity: ENTITY, action: 'reorder', diff: { ids } });
         });
       }
       return svc.list(companyId);
     },
 
-    remove(companyId, id, userId) {
-      requireCompany(db, companyId, { writable: true });
-      const row = requireRow(companyId, id);
+    async remove(companyId, id, userId) {
+      await requireCompany(db, companyId, { writable: true });
+      const row = await requireRow(companyId, id);
       // на шаблоны разделения операции не ссылаются — удаление всегда возможно
-      mutate(db, audit, (tx, record) => {
-        tx.delete(splitPresets).where(eq(splitPresets.id, id)).run();
-        record({ companyId, userId, entity: ENTITY, entityId: id, action: 'delete', diff: { name: row.name } });
+      await mutateAsync(db, audit, async (tx, record) => {
+        await tx.delete(splitPresets).where(eq(splitPresets.id, id));
+        await record({ companyId, userId, entity: ENTITY, entityId: id, action: 'delete', diff: { name: row.name } });
       });
     },
   };

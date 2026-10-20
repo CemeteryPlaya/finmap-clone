@@ -25,7 +25,7 @@ export function registerAttachmentsRoutes(app: FastifyInstance, deps: { attachme
 
     scope.post<P>('/api/v1/companies/:cid/operations/:id/attachments', { bodyLimit: ATTACHMENT_MAX_BYTES }, async (req, reply) => {
       if (!Buffer.isBuffer(req.body)) throw new AppError(400, 'VALIDATION', 'Проверьте файл', { file: 'Нет файла' });
-      const attachment = attachments.add(
+      const attachment = await attachments.add(
         parseId(req.params.cid),
         parseId(req.params.id),
         { name: headerFileName(req.headers['x-file-name']), data: req.body },
@@ -35,11 +35,11 @@ export function registerAttachmentsRoutes(app: FastifyInstance, deps: { attachme
     });
 
     scope.get<P>('/api/v1/companies/:cid/operations/:id/attachments', async (req) => ({
-      attachments: attachments.list(parseId(req.params.cid), parseId(req.params.id)),
+      attachments: await attachments.list(parseId(req.params.cid), parseId(req.params.id)),
     }));
 
     scope.get<P>('/api/v1/companies/:cid/attachments/:id', async (req, reply) => {
-      const { row, filePath } = attachments.open(parseId(req.params.cid), parseId(req.params.id));
+      const { row, filePath } = await attachments.open(parseId(req.params.cid), parseId(req.params.id));
       if (!fs.existsSync(filePath)) throw new AppError(404, 'NOT_FOUND', 'Файл вложения не найден');
       // всегда как файл и без кэширования у посредников
       reply.header('Content-Type', 'application/octet-stream');
@@ -51,7 +51,7 @@ export function registerAttachmentsRoutes(app: FastifyInstance, deps: { attachme
     });
 
     scope.delete<P>('/api/v1/companies/:cid/attachments/:id', async (req, reply) => {
-      attachments.remove(parseId(req.params.cid), parseId(req.params.id), req.user!.id);
+      await attachments.remove(parseId(req.params.cid), parseId(req.params.id), req.user!.id);
       return reply.status(204).send();
     });
   });

@@ -1,6 +1,8 @@
 import { and, desc, eq, gte, inArray, isNull } from 'drizzle-orm';
 import { UNDO_CASCADE_MAX, type UndoableAction, type UndoneAction, type UndoOperationType, type UndoPreview, type UndoResult } from '../../../shared/schemas/audit';
 import type { Db, Executor } from '../../db/client';
+import { first } from '../../db/raw';
+import { withTx } from '../../db/tx';
 import { auditLog, auditUndo, operations, users } from '../../db/schema';
 import { AppError } from '../../errors';
 import { lastDeleteSql, UNDOABLE_ACTIONS, type AuditService } from '../audit/service';
@@ -14,8 +16,8 @@ import type { OperationInput, OperationsService, RevertStep } from './service';
  * «Отмена» и отметки audit_undo.
  */
 export interface OperationUndoService {
-  preview(companyId: number, entryId: number): UndoPreview;
-  run(companyId: number, entryId: number, ids: number[], userId: number): UndoResult;
+  preview(companyId: number, entryId: number): Promise<UndoPreview>;
+  run(companyId: number, entryId: number, ids: number[], userId: number): Promise<UndoResult>;
 }
 
 type AuditRow = typeof auditLog.$inferSelect;
@@ -47,10 +49,12 @@ export function assertCascadeSize(n: number): void {
  * Раньше какой записи отменять нельзя (R5): у удалённой операции — её последнее неотменённое «Удаление» (нет такого —
  * отменять нечего); у неудалённой — ограничения нет (null).
  */
-export function undoBlock(ex: Executor, companyId: number, operationId: number): number | null {
-  const op = ex.select({ deletedAt: operations.deletedAt }).from(operations).where(and(eq(operations.id, operationId), eq(operations.companyId, companyId))).get();
+export async function undoBlock(ex: Executor, companyId: number, operationId: number): Promise<number | null> {
+  const op = await first(
+    ex.select({ deletedAt: operations.deletedAt }).from(operations).where(and(eq(operations.id, operationId), eq(operations.companyId, companyId))),
+  );
   if (!op?.deletedAt) return null;
-  return ex.select({ id: lastDeleteSql(companyId, operationId) }).from(operations).where(eq(operations.id, operationId)).get()?.id ?? Number.MAX_SAFE_INTEGER;
+  return (await first(ex.select({ id: lastDeleteSql(companyId, operationId) }).from(operations).where(eq(operations.id, operationId))))?.id ?? Number.MAX_SAFE_INTEGER;
 }
 
 const diffOf = (row: AuditRow): Record<string, unknown> => (row.diff ? (JSON.parse(row.diff) as Record<string, unknown>) : {});
@@ -81,19 +85,19 @@ export function createOperationUndoService(d: { db: Db; audit: AuditService; ope
   const { db, audit, operations: ops } = d;
 
   /** Запись, её операция и каскад после всех проверок (решение 7); ошибка — AppError. */
-  function cascade(ex: Executor, companyId: number, entryId: number): { opId: number; rows: AuditRow[] } {
-    const entry = ex.select().from(auditLog).where(and(eq(auditLog.id, entryId), eq(auditLog.companyId, companyId))).get();
+  async function cascade(ex: Executor, companyId: number, entryId: number): Promise<{ opId: number; rows: AuditRow[] }> {
+    const entry = await first(ex.select().from(auditLog).where(and(eq(auditLog.id, entryId), eq(auditLog.companyId, companyId))));
     if (!entry) throw new AppError(404, 'NOT_FOUND', 'Запись истории не найдена');
     if (entry.entity !== 'operation' || entry.entityId === null || !(UNDOABLE_ACTIONS as readonly string[]).includes(entry.action)) throw unsupported();
-    if (ex.select({ id: auditUndo.auditId }).from(auditUndo).where(eq(auditUndo.auditId, entry.id)).get()) {
+    if (await first(ex.select({ id: auditUndo.auditId }).from(auditUndo).where(eq(auditUndo.auditId, entry.id)))) {
       throw new AppError(409, 'UNDO_DONE', 'Действие уже отменено');
     }
     const opId = entry.entityId;
-    const op = ex.select({ id: operations.id }).from(operations).where(and(eq(operations.id, opId), eq(operations.companyId, companyId))).get();
+    const op = await first(ex.select({ id: operations.id }).from(operations).where(and(eq(operations.id, opId), eq(operations.companyId, companyId))));
     if (!op) throw new AppError(404, 'NOT_FOUND', 'Операция больше не существует');
-    const block = undoBlock(ex, companyId, opId);
+    const block = await undoBlock(ex, companyId, opId);
     if (block !== null && entry.id < block) throw unsupported('Операция удалена — сначала отмените её удаление');
-    const rows = ex
+    const found = await ex
       .select({ a: auditLog })
       .from(auditLog)
       .leftJoin(auditUndo, eq(auditUndo.auditId, auditLog.id))
@@ -107,24 +111,23 @@ export function createOperationUndoService(d: { db: Db; audit: AuditService; ope
           isNull(auditUndo.auditId),
         ),
       )
-      .orderBy(desc(auditLog.id))
-      .all()
-      .map((r) => r.a);
+      .orderBy(desc(auditLog.id));
+    const rows = found.map((r) => r.a);
     assertCascadeSize(rows.length);
     return { opId, rows };
   }
 
   return {
-    preview(companyId, entryId) {
-      requireCompany(db, companyId);
-      const { rows } = cascade(db, companyId, entryId);
+    async preview(companyId, entryId) {
+      await requireCompany(db, companyId);
+      const { rows } = await cascade(db, companyId, entryId);
       const names = new Map(
-        db
+        (
+          await db
           .select({ id: users.id, name: users.name })
           .from(users)
-          .where(inArray(users.id, [...new Set(rows.map((r) => r.userId).filter((x): x is number => x !== null))]))
-          .all()
-          .map((u) => [u.id, u.name]),
+            .where(inArray(users.id, [...new Set(rows.map((r) => r.userId).filter((x): x is number => x !== null))]))
+        ).map((u) => [u.id, u.name]),
       );
       return {
         entries: rows.map((r) => ({
@@ -137,11 +140,12 @@ export function createOperationUndoService(d: { db: Db; audit: AuditService; ope
       };
     },
 
-    run(companyId, entryId, ids, userId) {
-      requireCompany(db, companyId, { writable: true });
-      return db.transaction(
-        (tx) => {
-          const { opId, rows } = cascade(tx, companyId, entryId);
+    async run(companyId, entryId, ids, userId) {
+      await requireCompany(db, companyId, { writable: true });
+      return withTx(
+        db,
+        async (tx) => {
+          const { opId, rows } = await cascade(tx, companyId, entryId);
           // пока человек читал подтверждение, у операции появились или отменились действия (решение 6)
           const seen = [...new Set(ids)].sort((a, b) => a - b);
           const now = rows.map((r) => r.id).sort((a, b) => a - b);
@@ -149,11 +153,11 @@ export function createOperationUndoService(d: { db: Db; audit: AuditService; ope
             throw new AppError(409, 'VERSION_CONFLICT', 'Действия с операцией изменились — обновите историю');
           }
           // шаги — вложенные mutate (точки сохранения): ошибка любого откатывает всю отмену
-          for (const row of rows) ops.revert(companyId, opId, stepOf(row), userId);
-          const op = ops.get(companyId, opId);
+          for (const row of rows) await ops.revert(companyId, opId, stepOf(row), userId);
+          const op = await ops.get(companyId, opId);
           const undone: UndoneAction[] = rows.map((r) => ({ id: r.id, action: r.action as UndoableAction, type: typeOf(r) }));
-          const undoId = audit.record({ companyId, userId, entity: 'operation', entityId: opId, action: 'undo', diff: { type: op.type, undone, deleted: op.deletedAt !== null } }, tx);
-          for (const r of rows) tx.insert(auditUndo).values({ auditId: r.id, undoId }).run();
+          const undoId = await audit.record({ companyId, userId, entity: 'operation', entityId: opId, action: 'undo', diff: { type: op.type, undone, deleted: op.deletedAt !== null } }, tx);
+          for (const r of rows) await tx.insert(auditUndo).values({ auditId: r.id, undoId });
           return { undone: rows.map((r) => r.id), undoId, operation: { id: opId, deleted: op.deletedAt !== null } };
         },
         { behavior: 'immediate' },

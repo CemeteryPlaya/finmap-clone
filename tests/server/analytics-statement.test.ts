@@ -222,15 +222,15 @@ describe('«Выписка по счету»: GET …/analytics/statement (§6, 
     const analytics = (exportLimit: number) => createAnalyticsService({ db, rates: {} as RatesService, journal, timezone: 'Asia/Almaty', exportLimit });
     const q = { account: w.kzt, from: '2026-10-01', to: '2026-10-03' };
     // в периоде 4 операции по счёту «Касса»
-    expect(() => analytics(3).statementXlsx(w.cid, q)).toThrowError(expect.objectContaining({ status: 422, code: 'EXPORT_LIMIT' }));
-    expect(() => analytics(3).statementXlsx(w.cid, q)).toThrow('Больше 3 операций — сузьте период или фильтр');
+    await expect(analytics(3).statementXlsx(w.cid, q)).rejects.toThrowError(expect.objectContaining({ status: 422, code: 'EXPORT_LIMIT' }));
+    await expect(analytics(3).statementXlsx(w.cid, q)).rejects.toThrow('Больше 3 операций — сузьте период или фильтр');
     // в пределе файл действительно собран: сводка, заголовки и ровно 4 строки операций, новые сверху
-    const built = sheetRows(analytics(4).statementXlsx(w.cid, q).data);
+    const built = sheetRows((await analytics(4).statementXlsx(w.cid, q)).data);
     const head = built.findIndex((r) => r[0] === 'Дата и время');
     expect(head).toBeGreaterThan(0);
     expect(built.slice(head + 1).map((r) => r[1])).toEqual(['237.56', '-475.12', '-300.00', '1000.00']);
     // экран предел не затрагивает
-    expect(analytics(3).statement(w.cid, { ...q, limit: 50 }).items).toHaveLength(4);
+    expect((await analytics(3).statement(w.cid, { ...q, limit: 50 })).items).toHaveLength(4);
   });
 
   it('счёт открыт внутри периода (R2): начало = стартовый остаток, конец = «Деньги» по счёту; в Excel — строка про открытие', async () => {

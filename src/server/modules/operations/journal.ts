@@ -5,6 +5,7 @@ import type { JournalExportPreviewQuery, JournalExportQuery, JournalFilter, Jour
 import { foldCase } from '../../../shared/search';
 import { effectiveSystemKey, type SystemKey } from '../../../shared/system-categories';
 import type { Db } from '../../db/client';
+import { rows as sqlRows } from '../../db/raw';
 import { attachments, operationLines, operations, operationTags } from '../../db/schema';
 import { AppError } from '../../errors';
 import { exportFileName } from '../../http/export-name';
@@ -31,16 +32,16 @@ export interface JournalPage {
 
 export interface JournalService {
   /** Страница журнала (§6): фильтр, сортировка, курсор. Удалённые операции не показываются. */
-  list(companyId: number, query: JournalQuery): JournalPage;
+  list(companyId: number, query: JournalQuery): Promise<JournalPage>;
   /** Строки журнала по id в заданном порядке — со строками, тегами, вложениями и остатками (список операций отчёта). */
-  load(companyId: number, ids: number[]): JournalItem[];
+  load(companyId: number, ids: number[]): Promise<JournalItem[]>;
   /**
    * Выгрузка в Excel по тому же фильтру, без страниц (§7, §8 спецификации импорта): `finmap` — «Excel» в формате Finmap,
    * `custom` — «Собрать Excel» с колонками в заданном порядке. Больше exportLimit операций — 422 EXPORT_LIMIT.
    */
-  exportXlsx(companyId: number, query: JournalExportQuery): { fileName: string; data: Buffer };
+  exportXlsx(companyId: number, query: JournalExportQuery): Promise<{ fileName: string; data: Buffer }>;
   /** Превью окна «Собрать Excel» (§8.3): текст каждой колонки каталога у первых 3 операций фильтра, как в файле. */
-  exportPreview(companyId: number, query: JournalExportPreviewQuery): { rows: Record<ExportColumnId, string>[] };
+  exportPreview(companyId: number, query: JournalExportPreviewQuery): Promise<{ rows: Record<ExportColumnId, string>[] }>;
 }
 
 /** Столько операций показывает превью окна «Собрать Excel» (§8.3). */
@@ -175,39 +176,38 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
   const exportLimit = d.exportLimit ?? JOURNAL_EXPORT_MAX;
 
   /** Операции страницы в заданном порядке: со строками, тегами, числом вложений и остатками после операции. */
-  function loadItems(companyId: number, ids: number[]): JournalItem[] {
+  async function loadItems(companyId: number, ids: number[]): Promise<JournalItem[]> {
     if (ids.length === 0) return [];
-    const rows = new Map(db.select().from(operations).where(and(eq(operations.companyId, companyId), inArray(operations.id, ids))).all().map((r) => [r.id, r]));
+    const rows = new Map((await db.select().from(operations).where(and(eq(operations.companyId, companyId), inArray(operations.id, ids)))).map((r) => [r.id, r]));
     // дальше — только найденные операции этой компании, в порядке ids
     const found = ids.filter((id) => rows.has(id));
     if (found.length === 0) return [];
     const lines = new Map<number, OperationLineDto[]>();
-    for (const l of db
+    for (const l of await db
       .select()
       .from(operationLines)
       .where(inArray(operationLines.operationId, found))
-      .orderBy(asc(operationLines.operationId), asc(operationLines.position))
-      .all()) {
+      .orderBy(asc(operationLines.operationId), asc(operationLines.position))) {
       const xs = lines.get(l.operationId) ?? [];
       xs.push({ id: l.id, position: l.position, categoryId: l.categoryId, projectId: l.projectId, amount: l.amount, baseAmount: l.baseAmount });
       lines.set(l.operationId, xs);
     }
     const tags = new Map<number, number[]>();
-    for (const t of db.select().from(operationTags).where(inArray(operationTags.operationId, found)).orderBy(asc(operationTags.tagId)).all()) {
+    for (const t of await db.select().from(operationTags).where(inArray(operationTags.operationId, found)).orderBy(asc(operationTags.tagId))) {
       tags.set(t.operationId, [...(tags.get(t.operationId) ?? []), t.tagId]);
     }
     const files = new Map(
-      db
-        .select({ operationId: attachments.operationId, n: count() })
-        .from(attachments)
-        .where(and(inArray(attachments.operationId, found), isNull(attachments.deletedAt)))
-        .groupBy(attachments.operationId)
-        .all()
-        .map((r) => [r.operationId, r.n]),
+      (
+        await db
+          .select({ operationId: attachments.operationId, n: count() })
+          .from(attachments)
+          .where(and(inArray(attachments.operationId, found), isNull(attachments.deletedAt)))
+          .groupBy(attachments.operationId)
+      ).map((r) => [r.operationId, r.n]),
     );
     // окно — по полной истории счетов этой страницы (§4.7), фильтр журнала на него не влияет
     const accountIds = [...new Set([...rows.values()].flatMap((r) => (r.toAccountId === null ? [r.accountId] : [r.accountId, r.toAccountId])))];
-    const after = balances.balancesAfter(companyId, { operationIds: found, accountIds });
+    const after = await balances.balancesAfter(companyId, { operationIds: found, accountIds });
     return found.map((id) => {
       const row = rows.get(id)!;
       return {
@@ -222,8 +222,8 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
   }
 
   /** Первые `limit` операций выгрузки в порядке журнала: счета, контрагент и суммы (без строк, тегов и остатков). */
-  function exportRows(companyId: number, q: JournalFilter & { sort: JournalSort; order: JournalOrder }, limit: number): ExportRow[] {
-    return db.all<ExportRow>(sql`
+  function exportRows(companyId: number, q: JournalFilter & { sort: JournalSort; order: JournalOrder }, limit: number): Promise<ExportRow[]> {
+    return sqlRows<ExportRow>(db, sql`
       SELECT o.id AS id, o.type AS type, o.paid_at AS paidAt, o.accrual_date AS accrualDate, o.amount AS amount,
              o.base_amount AS baseAmount, o.comment AS comment, o.account_id AS accountId, a.name AS accountName,
              a.currency AS currency, o.to_account_id AS toAccountId, ta.name AS toAccountName, ta.currency AS toCurrency,
@@ -242,16 +242,16 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
    * и пределом, без длинных списков id). Остатки после операции — по полной истории счетов: 'all' — всей компании (выгрузка),
    * 'rows' — только счетов этих операций (превью), 'none' — не нужны.
    */
-  function completeExportRows(
+  async function completeExportRows(
     companyId: number,
     q: JournalFilter & { sort: JournalSort; order: JournalOrder },
     rows: ExportRow[],
     balancesFor: 'all' | 'rows' | 'none',
-  ): ExportOperation[] {
+  ): Promise<ExportOperation[]> {
     if (rows.length === 0) return [];
     const ids = sql`SELECT o.id FROM operations o WHERE ${journalWhere(companyId, q, timezone)} ORDER BY ${journalOrder(q.sort, q.order)} LIMIT ${rows.length}`;
     const lines = new Map<number, ExportLine[]>();
-    for (const l of db.all<{
+    for (const l of await sqlRows<{
       operationId: number;
       category: string | null;
       parent: string | null;
@@ -260,7 +260,9 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
       project: string | null;
       amount: number;
       baseAmount: number;
-    }>(sql`
+    }>(
+      db,
+      sql`
       SELECT l.operation_id AS operationId, c.name AS category, pc.name AS parent, c.system_key AS own,
              pc.system_key AS parentKey, p.name AS project, l.amount AS amount, l.base_amount AS baseAmount
         FROM operation_lines l
@@ -268,7 +270,8 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
         LEFT JOIN categories pc ON pc.id = c.parent_id
         LEFT JOIN projects p ON p.id = l.project_id
        WHERE l.operation_id IN (${ids})
-       ORDER BY l.operation_id, l.position`)) {
+       ORDER BY l.operation_id, l.position`,
+    )) {
       const xs = lines.get(l.operationId) ?? [];
       xs.push({
         category: l.category,
@@ -281,19 +284,22 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
       lines.set(l.operationId, xs);
     }
     const tagNames = new Map<number, string[]>();
-    for (const t of db.all<{ operationId: number; name: string }>(sql`
+    for (const t of await sqlRows<{ operationId: number; name: string }>(
+      db,
+      sql`
       SELECT ot.operation_id AS operationId, t.name AS name
         FROM operation_tags ot JOIN tags t ON t.id = ot.tag_id
        WHERE ot.operation_id IN (${ids})
-       ORDER BY t.order_index, t.id`)) {
+       ORDER BY t.order_index, t.id`,
+    )) {
       tagNames.set(t.operationId, [...(tagNames.get(t.operationId) ?? []), t.name]);
     }
     const after =
       balancesFor === 'none'
         ? new Map<string, number>()
         : balancesFor === 'all'
-          ? balances.balancesAfter(companyId)
-          : balances.balancesAfter(companyId, {
+          ? await balances.balancesAfter(companyId)
+          : await balances.balancesAfter(companyId, {
               operationIds: rows.map((r) => r.id),
               accountIds: [...new Set(rows.flatMap((r) => (r.toAccountId === null ? [r.accountId] : [r.accountId, r.toAccountId])))],
             });
@@ -321,8 +327,8 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
   return {
     load: loadItems,
 
-    list(companyId, q) {
-      requireCompany(db, companyId);
+    async list(companyId, q) {
+      await requireCompany(db, companyId);
       const conds = [journalWhere(companyId, q, timezone)];
       if (q.cursor) {
         // ключ сортировки и id последней строки предыдущей страницы: (key, id) строго дальше
@@ -330,26 +336,27 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
         const key = sql.raw(q.sort === 'date' ? 'o.paid_at' : 'o.base_amount');
         conds.push(sql`(${key}, o.id) ${sql.raw(q.order === 'asc' ? '>' : '<')} (${c.v}, ${c.id})`);
       }
-      const found = db.all<{ id: number; paidAt: string; baseAmount: number }>(
+      const found = await sqlRows<{ id: number; paidAt: string; baseAmount: number }>(
+        db,
         sql`SELECT o.id AS id, o.paid_at AS paidAt, o.base_amount AS baseAmount FROM operations o WHERE ${sql.join(conds, sql` AND `)} ORDER BY ${journalOrder(q.sort, q.order)} LIMIT ${q.limit + 1}`,
       );
       const more = found.length > q.limit;
       const rows = more ? found.slice(0, q.limit) : found;
       const last = rows.at(-1);
       return {
-        items: loadItems(companyId, rows.map((r) => r.id)),
+        items: await loadItems(companyId, rows.map((r) => r.id)),
         nextCursor: more && last ? encodeCursor({ s: q.sort, o: q.order, v: q.sort === 'date' ? last.paidAt : last.baseAmount, id: last.id }) : null,
       };
     },
 
-    exportXlsx(companyId, q) {
-      const company = requireCompany(db, companyId);
-      const rows = exportRows(companyId, q, exportLimit + 1);
+    async exportXlsx(companyId, q) {
+      const company = await requireCompany(db, companyId);
+      const rows = await exportRows(companyId, q, exportLimit + 1);
       if (rows.length > exportLimit) {
         throw new AppError(422, 'EXPORT_LIMIT', `Больше ${exportLimit.toLocaleString('ru-RU')} операций — сузьте период или фильтр`);
       }
       const columns = q.format === 'custom' ? (q.columns ?? []) : [];
-      const ops = completeExportRows(companyId, q, rows, columns.some((c) => BALANCE_COLUMNS.includes(c)) ? 'all' : 'none');
+      const ops = await completeExportRows(companyId, q, rows, columns.some((c) => BALANCE_COLUMNS.includes(c)) ? 'all' : 'none');
       return {
         fileName: exportFileName(company.name, 'Журнал', now(), timezone),
         data: buildXlsx(q.format === 'custom' ? customSheet(ops, columns, company.baseCurrency, timezone) : finmapSheet(ops, company.baseCurrency, timezone), {
@@ -358,10 +365,10 @@ export function createJournal(d: { db: Db; balances: LedgerBalances; timezone: s
       };
     },
 
-    exportPreview(companyId, q) {
-      const company = requireCompany(db, companyId);
-      const rows = exportRows(companyId, q, EXPORT_PREVIEW_ROWS);
-      return { rows: customPreview(completeExportRows(companyId, q, rows, 'rows'), company.baseCurrency, timezone) };
+    async exportPreview(companyId, q) {
+      const company = await requireCompany(db, companyId);
+      const rows = await exportRows(companyId, q, EXPORT_PREVIEW_ROWS);
+      return { rows: customPreview(await completeExportRows(companyId, q, rows, 'rows'), company.baseCurrency, timezone) };
     },
   };
 }

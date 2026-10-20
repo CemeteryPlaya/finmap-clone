@@ -328,9 +328,9 @@ describe('JournalService.load (R3)', () => {
     const foreign = (await w.post(`/api/v1/companies/${other}/operations`, { type: 'income', paidAt: '2026-10-02T05:00:00Z', accountId: account, amount: 777 })).operation.id as number;
     const db = w.h.t.db;
     const journal = createJournal({ db, balances: createLedgerBalances(db), timezone: 'Asia/Almaty' });
-    expect(journal.load(w.cid, [o.income, foreign, 999_999, o.expense]).map((i) => i.id)).toEqual([o.income, o.expense]);
-    expect(journal.load(w.cid, [foreign])).toEqual([]);
-    expect(journal.load(w.cid, [])).toEqual([]);
+    expect((await journal.load(w.cid, [o.income, foreign, 999_999, o.expense])).map((i) => i.id)).toEqual([o.income, o.expense]);
+    expect(await journal.load(w.cid, [foreign])).toEqual([]);
+    expect(await journal.load(w.cid, [])).toEqual([]);
   });
 });
 

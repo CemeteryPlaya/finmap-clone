@@ -197,7 +197,7 @@ describe('массовые действия: POST /companies/:cid/operations/bul
       },
     };
     const before = w.h.auditCount('operation', 'update');
-    expect(() => createBulkService({ db, operations: flaky }).run(w.cid, { action: 'setCounterparty', counterpartyId: w.counterparty, ids: [a, b] }, 1)).toThrow(
+    await expect(createBulkService({ db, operations: flaky }).run(w.cid, { action: 'setCounterparty', counterpartyId: w.counterparty, ids: [a, b] }, 1)).rejects.toThrow(
       'диск отвалился',
     );
     expect(await getOp(a)).toMatchObject({ counterpartyId: null, version: 1 });

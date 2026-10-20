@@ -54,11 +54,12 @@ import {
 import type { SystemKey } from '../../../shared/system-categories';
 import { TEMPLATES } from '../../../templates';
 import type { Db } from '../../db/client';
+import { first, one, rows } from '../../db/raw';
 import { accounts, analyticsIndicatorParts, categories, counterparties, projects, tags } from '../../db/schema';
 import { AppError } from '../../errors';
 import { exportFileName } from '../../http/export-name';
 import { buildXlsx } from '../../http/xlsx';
-import { mutate } from '../audit/mutate';
+import { mutateAsync } from '../audit/mutate';
 import { createAuditService, type AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import { decodeCursor, encodeCursor, JOURNAL_EXPORT_MAX, type JournalItem, type JournalService } from '../operations/journal';
@@ -165,31 +166,31 @@ export interface IndicatorsResponse {
 
 export interface AnalyticsService {
   /** «Деньги / Cash flow» (§4.1). */
-  cashflow(companyId: number, q: ReportQuery): ReportResponse;
+  cashflow(companyId: number, q: ReportQuery): Promise<ReportResponse>;
   /** «Прибыль / P&L» (§5): по дате сделки, без переводов и исключённых категорий, склад — по q.stock. */
-  pnl(companyId: number, q: ReportQuery): ReportResponse;
+  pnl(companyId: number, q: ReportQuery): Promise<ReportResponse>;
   /** «Проекты» (§7): по правилам «Прибыли» — дата сделки, исключения, склад по q.stock; статус и режим. */
-  projects(companyId: number, q: ProjectsQuery): ProjectsResponse;
+  projects(companyId: number, q: ProjectsQuery): Promise<ProjectsResponse>;
   /** Excel «Проектов» (§2.6, §7): таблица как на экране, с категориями в режиме «Проекты с категориями». */
-  projectsXlsx(companyId: number, q: ProjectsQuery): { fileName: string; data: Buffer };
+  projectsXlsx(companyId: number, q: ProjectsQuery): Promise<{ fileName: string; data: Buffer }>;
   /** Страница операций ячейки отчёта (§2.5): новые сверху, по 50. */
-  operations(companyId: number, q: CellQuery): CellPage;
+  operations(companyId: number, q: CellQuery): Promise<CellPage>;
   /** Excel отчёта (§2.6): таблица как на экране, все строки раскрыты; «{Компания} - {Отчёт} - ДД-ММ-ГГГГ ЧЧ-ММ.xlsx». */
-  exportXlsx(companyId: number, report: ReportKind, q: ReportExportQuery): { fileName: string; data: Buffer };
+  exportXlsx(companyId: number, report: ReportKind, q: ReportExportQuery): Promise<{ fileName: string; data: Buffer }>;
   /** «Финансовые показатели» (§8.1): по правилам «Прибыли», части — настройка компании или умолчание (§8.2). */
-  indicators(companyId: number, q: IndicatorsQuery): IndicatorsResponse;
+  indicators(companyId: number, q: IndicatorsQuery): Promise<IndicatorsResponse>;
   /** Excel «Финансовых показателей» (§2.6): таблица как на экране и настройки частей. */
-  indicatorsXlsx(companyId: number, q: IndicatorsQuery): { fileName: string; data: Buffer };
+  indicatorsXlsx(companyId: number, q: IndicatorsQuery): Promise<{ fileName: string; data: Buffer }>;
   /** Сохранить часть показателя (§8.2) и записать изменение в историю; архивная компания — только чтение. */
-  savePart(companyId: number, part: IndicatorPart, input: IndicatorPartInput, userId: number): Record<IndicatorPart, IndicatorPartView>;
+  savePart(companyId: number, part: IndicatorPart, input: IndicatorPartInput, userId: number): Promise<Record<IndicatorPart, IndicatorPartView>>;
   /** «Вернуть по умолчанию» (§8.2): удалить настройку части; без настройки — ничего не меняется и не пишется. */
-  resetPart(companyId: number, part: IndicatorPart, userId: number): Record<IndicatorPart, IndicatorPartView>;
+  resetPart(companyId: number, part: IndicatorPart, userId: number): Promise<Record<IndicatorPart, IndicatorPartView>>;
   /** «Выписка по счету» (§6): сводка за период в валюте счёта и первая страница операций, новые сверху. */
-  statement(companyId: number, q: StatementQuery): StatementResponse;
+  statement(companyId: number, q: StatementQuery): Promise<StatementResponse>;
   /** Следующие страницы операций выписки (курсор журнала). */
-  statementOperations(companyId: number, q: StatementQuery): StatementPage;
+  statementOperations(companyId: number, q: StatementQuery): Promise<StatementPage>;
   /** Excel выписки (§2.6, §6): сводка и все операции периода, как на экране. */
-  statementXlsx(companyId: number, q: StatementExportQuery): { fileName: string; data: Buffer };
+  statementXlsx(companyId: number, q: StatementExportQuery): Promise<{ fileName: string; data: Buffer }>;
 }
 
 /** Названия отчётов в имени файла и листа Excel. */
@@ -274,35 +275,27 @@ export function createAnalyticsService(d: {
   const now = d.now ?? (() => new Date());
   const audit = d.audit ?? createAuditService(db, now);
 
-  function dicts(companyId: number): ReportDicts {
+  async function dicts(companyId: number): Promise<ReportDicts> {
     return {
-      categories: db
-        .select()
-        .from(categories)
-        .where(eq(categories.companyId, companyId))
-        .orderBy(asc(categories.orderIndex), asc(categories.id))
-        .all()
-        .map((c) => ({ id: c.id, kind: c.kind, parentId: c.parentId, name: c.name, archived: c.archivedAt !== null, systemKey: c.systemKey as SystemKey | null })),
-      counterparties: db
-        .select()
-        .from(counterparties)
-        .where(eq(counterparties.companyId, companyId))
-        .orderBy(asc(counterparties.orderIndex), asc(counterparties.id))
-        .all()
-        .map((c) => ({ id: c.id, name: c.name, archived: c.archivedAt !== null })),
-      projects: db
-        .select()
-        .from(projects)
-        .where(eq(projects.companyId, companyId))
-        .orderBy(asc(projects.orderIndex), asc(projects.id))
-        .all()
-        .map((p) => ({ id: p.id, name: p.name, archived: p.archivedAt !== null })),
+      categories: (
+        await db.select().from(categories).where(eq(categories.companyId, companyId)).orderBy(asc(categories.orderIndex), asc(categories.id))
+      ).map((c) => ({ id: c.id, kind: c.kind, parentId: c.parentId, name: c.name, archived: c.archivedAt !== null, systemKey: c.systemKey as SystemKey | null })),
+      counterparties: (
+        await db
+          .select()
+          .from(counterparties)
+          .where(eq(counterparties.companyId, companyId))
+          .orderBy(asc(counterparties.orderIndex), asc(counterparties.id))
+      ).map((c) => ({ id: c.id, name: c.name, archived: c.archivedAt !== null })),
+      projects: (
+        await db.select().from(projects).where(eq(projects.companyId, companyId)).orderBy(asc(projects.orderIndex), asc(projects.id))
+      ).map((p) => ({ id: p.id, name: p.name, archived: p.archivedAt !== null })),
     };
   }
 
   /** Строки операций периода одним запросом (§3.2, шаг 1). */
-  function selectLines(companyId: number, f: ReportFilter, range: LineRange): ReportLine[] {
-    return db.all<ReportLine>(sql`
+  function selectLines(companyId: number, f: ReportFilter, range: LineRange): Promise<ReportLine[]> {
+    return rows<ReportLine>(db, sql`
       SELECT o.paid_at AS at, o.type AS type, o.account_id AS accountId, l.category_id AS categoryId, l.project_id AS projectId,
              o.counterparty_id AS counterpartyId, l.base_amount AS amount
         FROM operation_lines l JOIN operations o ON o.id = l.operation_id
@@ -327,15 +320,15 @@ export function createAnalyticsService(d: {
    * склада (§5.3), когда stock: оплата делится по всем строкам операции (paymentExclusions), даже если фильтр оставил
    * только часть строк. Без склада cut — 0.
    */
-  function selectDealLines(companyId: number, f: ReportFilter, range: LineRange, stock: boolean): IndicatorLine[] {
-    const rows = db.all<ReportLine & { lineId: number; accrual: string | null }>(sql`
+  async function selectDealLines(companyId: number, f: ReportFilter, range: LineRange, stock: boolean): Promise<IndicatorLine[]> {
+    const found = await rows<ReportLine & { lineId: number; accrual: string | null }>(db, sql`
       SELECT l.id AS lineId, o.paid_at AS at, o.accrual_date AS accrual, o.type AS type, o.account_id AS accountId, l.category_id AS categoryId,
              l.project_id AS projectId, o.counterparty_id AS counterpartyId, l.base_amount AS amount
         FROM operation_lines l JOIN operations o ON o.id = l.operation_id
        WHERE ${reportLineWhere(companyId, f, range)}`);
-    const excluded = stock ? exclusions(companyId) : new Map<number, number>();
+    const excluded = stock ? await exclusions(companyId) : new Map<number, number>();
     const day = dayStarts();
-    return rows.map((r) => ({
+    return found.map((r) => ({
       at: r.accrual === null ? r.at : day(r.accrual),
       type: r.type,
       accountId: r.accountId,
@@ -348,36 +341,28 @@ export function createAnalyticsService(d: {
   }
 
   /** Строки «Прибыли» (§5.1): строки по дате сделки, со складом — без частей расходов, оплативших поступления (§5.3). */
-  function selectPnlLines(companyId: number, f: ReportFilter, range: LineRange, stock: boolean): ReportLine[] {
-    return selectDealLines(companyId, f, range, stock).map(({ cut, ...l }) => ({ ...l, amount: l.amount - cut }));
+  async function selectPnlLines(companyId: number, f: ReportFilter, range: LineRange, stock: boolean): Promise<ReportLine[]> {
+    return (await selectDealLines(companyId, f, range, stock)).map(({ cut, ...l }) => ({ ...l, amount: l.amount - cut }));
   }
 
   /** Категории компании из умолчаний шаблонов (§8.2): по ссылке шаблона, у «Общего» их нет. */
-  function templateDefaults(companyId: number): { cogs: number[]; variable: number[] } {
-    const rows = db
+  async function templateDefaults(companyId: number): Promise<{ cogs: number[]; variable: number[] }> {
+    const cats = await db
       .select({ id: categories.id, templateRef: categories.templateRef })
       .from(categories)
       .where(eq(categories.companyId, companyId))
-      .orderBy(asc(categories.orderIndex), asc(categories.id))
-      .all();
+      .orderBy(asc(categories.orderIndex), asc(categories.id));
     const refs = (key: 'cogs' | 'variable') => TEMPLATES.flatMap((t) => t.indicatorDefaults?.[key] ?? []);
-    return { cogs: templateCategoryIds(rows, refs('cogs')), variable: templateCategoryIds(rows, refs('variable')) };
+    return { cogs: templateCategoryIds(cats, refs('cogs')), variable: templateCategoryIds(cats, refs('variable')) };
   }
 
   /** Действующие настройки частей (§8.2): сохранённая строка или умолчание. */
-  function partViews(companyId: number): Record<IndicatorPart, IndicatorPartView> {
-    const saved = new Map(
-      db
-        .select()
-        .from(analyticsIndicatorParts)
-        .where(eq(analyticsIndicatorParts.companyId, companyId))
-        .all()
-        .map((r) => [r.part, r]),
-    );
-    const template = templateDefaults(companyId);
+  async function partViews(companyId: number): Promise<Record<IndicatorPart, IndicatorPartView>> {
+    const saved = new Map((await db.select().from(analyticsIndicatorParts).where(eq(analyticsIndicatorParts.companyId, companyId))).map((r) => [r.part, r]));
+    const template = await templateDefaults(companyId);
     // удалённая категория (отмена импорта, удаление из справочника) не остаётся в сохранённой части: иначе следующее
     // «Сохранить» упало бы на «Неизвестная категория», которую в окне не видно
-    const kindOf = new Map(dicts(companyId).categories.map((c) => [c.id, c.kind]));
+    const kindOf = new Map((await dicts(companyId)).categories.map((c) => [c.id, c.kind]));
     const out = {} as Record<IndicatorPart, IndicatorPartView>;
     for (const part of INDICATOR_PARTS) {
       const row = saved.get(part);
@@ -400,18 +385,21 @@ export function createAnalyticsService(d: {
   }
 
   /** Расходы с оплатами закупок: id операции → сумма оплат и все её строки (base_amount) по порядку (§5.3). */
-  function paidOperations(companyId: number, operationIds?: readonly number[]): Map<number, PaidOperation> {
+  async function paidOperations(companyId: number, operationIds?: readonly number[]): Promise<Map<number, PaidOperation>> {
     const ops = new Map<number, PaidOperation>();
     if (operationIds && operationIds.length === 0) return ops;
     const scope = operationIds ? sql`AND p.operationId IN (${idList(operationIds)})` : sql.empty();
-    const rows = db.all<{ operationId: number; paid: number; lineId: number; amount: number }>(sql`
+    const found = await rows<{ operationId: number; paid: number; lineId: number; amount: number }>(
+      db,
+      sql`
       SELECT p.operationId AS operationId, p.paid AS paid, l.id AS lineId, l.base_amount AS amount
         FROM (${livePayments(companyId)}) p
         JOIN operations o ON o.id = p.operationId AND o.company_id = ${companyId} AND o.type = 'expense'
         JOIN operation_lines l ON l.operation_id = o.id
        WHERE 1 = 1 ${scope}
-       ORDER BY p.operationId, l.position, l.id`);
-    for (const r of rows) {
+       ORDER BY p.operationId, l.position, l.id`,
+    );
+    for (const r of found) {
       const op = ops.get(r.operationId);
       const line = { id: r.lineId, amount: r.amount };
       ops.set(r.operationId, op ? { paid: op.paid, lines: [...op.lines, line] } : { paid: Number(r.paid), lines: [line] });
@@ -420,14 +408,14 @@ export function createAnalyticsService(d: {
   }
 
   /** Исключаемые части строк расходов, оплативших поступления: id строки → сумма (§5.3). */
-  function exclusions(companyId: number): Map<number, number> {
-    return paymentExclusions([...paidOperations(companyId).values()]);
+  async function exclusions(companyId: number): Promise<Map<number, number>> {
+    return paymentExclusions([...(await paidOperations(companyId)).values()]);
   }
 
   /** Склад компании для «Прибыли» (§5.3): себестоимость продаж и списаний по stock_allocations и продажи «Нет партии». */
-  function stockInput(companyId: number, start: string, end: string): StockInput {
+  async function stockInput(companyId: number, start: string, end: string): Promise<StockInput> {
     const scope = sql`d.company_id = ${companyId} AND d.deleted_at IS NULL AND d.status = 'posted' AND d.at >= ${start} AND d.at < ${end}`;
-    const costs = db.all<StockCost>(sql`
+    const costs = await rows<StockCost>(db, sql`
       SELECT d.at AS at, CASE WHEN d.type = 'sale' THEN 'cogs' ELSE 'writeoff' END AS kind, w.project_id AS projectId, SUM(a.cost) AS amount
         FROM stock_allocations a
         JOIN stock_doc_lines l ON l.id = a.line_id
@@ -435,7 +423,7 @@ export function createAnalyticsService(d: {
         JOIN stock_warehouses w ON w.id = d.warehouse_id
        WHERE ${scope} AND d.type IN ('sale', 'writeoff', 'count') AND a.cost IS NOT NULL
        GROUP BY d.id`);
-    const noBatch = db.all<{ at: string; projectId: number }>(sql`
+    const noBatch = await rows<{ at: string; projectId: number }>(db, sql`
       SELECT d.at AS at, w.project_id AS projectId
         FROM stock_docs d JOIN stock_warehouses w ON w.id = d.warehouse_id
        WHERE ${scope} AND d.type = 'sale'
@@ -444,12 +432,12 @@ export function createAnalyticsService(d: {
   }
 
   /** Склад учитывается: переключатель включён и у компании есть хоть один склад (архивный тоже — история). */
-  const stockOn = (companyId: number, q: { stock: boolean }) =>
-    q.stock && db.get<{ x: number }>(sql`SELECT 1 AS x FROM stock_warehouses WHERE company_id = ${companyId} LIMIT 1`) !== undefined;
+  const stockOn = async (companyId: number, q: { stock: boolean }) =>
+    q.stock && (await one<{ x: number }>(db, sql`SELECT 1 AS x FROM stock_warehouses WHERE company_id = ${companyId} LIMIT 1`)) !== undefined;
 
   /** Счета компании; счёт фильтра не из этой компании — 400 «Неизвестный счёт» (§9). */
-  function companyAccounts(companyId: number, f: ReportFilter) {
-    const all = db.select().from(accounts).where(eq(accounts.companyId, companyId)).all();
+  async function companyAccounts(companyId: number, f: ReportFilter) {
+    const all = await db.select().from(accounts).where(eq(accounts.companyId, companyId));
     if (has(f.accountIds)) {
       const known = new Set(all.map((a) => a.id));
       if (f.accountIds.some((id) => !known.has(id))) throw invalid('accounts', 'Неизвестный счёт');
@@ -462,7 +450,13 @@ export function createAnalyticsService(d: {
    * внутри периода — по одному на операцию; курс — rates.resolve с кэшем. Каждая часть — один проход по операциям
    * (bench:reports): перевод даёт движение счёта списания, счёта зачисления и строку «Переводов» из одной строки выборки.
    */
-  function balances(company: { id: number; baseCurrency: string }, all: (typeof accounts.$inferSelect)[], f: ReportFilter, columns: ReportColumn[], starts: string[]) {
+  async function balances(
+    company: { id: number; baseCurrency: string },
+    all: (typeof accounts.$inferSelect)[],
+    f: ReportFilter,
+    columns: ReportColumn[],
+    starts: string[],
+  ) {
     const chosen = all.filter((a) => (has(f.accountIds) ? f.accountIds.includes(a.id) : a.archivedAt === null));
     const set: BalanceAccount[] = chosen.map((a) => ({ id: a.id, currency: a.currency, startingBalance: a.startingBalance, openedAt: a.openedAt }));
     const accountIds = new Set(set.map((a) => a.id));
@@ -475,15 +469,21 @@ export function createAnalyticsService(d: {
       const end = starts.at(-1)!;
       const scope = sql`company_id = ${company.id} AND deleted_at IS NULL AND status = 'actual' AND (account_id IN (${ids}) OR to_account_id IN (${ids}))`;
       const add = (id: number, delta: number) => opening.set(id, (opening.get(id) ?? 0) + delta);
-      for (const r of db.all<{ accountId: number; toAccountId: number | null; type: string; amount: number; toAmount: number | null }>(sql`
+      for (const r of await rows<{ accountId: number; toAccountId: number | null; type: string; amount: number; toAmount: number | null }>(
+        db,
+        sql`
         SELECT account_id AS accountId, to_account_id AS toAccountId, type, SUM(amount) AS amount, SUM(to_amount) AS toAmount
-          FROM operations WHERE ${scope} AND paid_at < ${start} GROUP BY account_id, to_account_id, type`)) {
+          FROM operations WHERE ${scope} AND paid_at < ${start} GROUP BY account_id, to_account_id, type`,
+      )) {
         if (accountIds.has(r.accountId)) add(r.accountId, r.type === 'income' ? Number(r.amount) : -Number(r.amount));
         if (r.type === 'transfer' && r.toAccountId !== null && accountIds.has(r.toAccountId)) add(r.toAccountId, Number(r.toAmount));
       }
-      for (const r of db.all<{ at: string; type: string; accountId: number; amount: number; toAccountId: number | null; toAmount: number | null; base: number }>(sql`
+      for (const r of await rows<{ at: string; type: string; accountId: number; amount: number; toAccountId: number | null; toAmount: number | null; base: number }>(
+        db,
+        sql`
         SELECT paid_at AS at, type, account_id AS accountId, amount, to_account_id AS toAccountId, to_amount AS toAmount, base_amount AS base
-          FROM operations WHERE ${scope} AND paid_at >= ${start} AND paid_at < ${end}`)) {
+          FROM operations WHERE ${scope} AND paid_at >= ${start} AND paid_at < ${end}`,
+      )) {
         if (accountIds.has(r.accountId)) legs.push({ at: r.at, accountId: r.accountId, delta: r.type === 'income' ? r.amount : -r.amount });
         if (r.type !== 'transfer' || r.toAccountId === null) continue;
         if (accountIds.has(r.toAccountId)) legs.push({ at: r.at, accountId: r.toAccountId, delta: r.toAmount ?? 0 });
@@ -546,11 +546,11 @@ export function createAnalyticsService(d: {
    * Условие строк ячейки показателя (§8.1): доходы категорий «Выручки» и расходы категорий его части расходов; «Процент
    * маржи» — все строки «Прибыли». stock — у части расходов включён склад (у «Процента маржи» — как у «Прибыли»).
    */
-  function indicatorCellWhere(companyId: number, key: IndicatorKey): { where: SQL; stock: boolean } {
+  async function indicatorCellWhere(companyId: number, key: IndicatorKey): Promise<{ where: SQL; stock: boolean }> {
     const expensePart = INDICATOR_EXPENSE[key];
     if (expensePart === null) return { where: sql`1 = 1`, stock: true };
-    const parts = partViews(companyId);
-    const cats = dicts(companyId).categories;
+    const parts = await partViews(companyId);
+    const cats = (await dicts(companyId)).categories;
     const side = (part: IndicatorPart) => {
       const set = partCategories(part, parts[part], cats);
       const conds = [...(set.ids.size > 0 ? [sql`l.category_id IN (${idList([...set.ids])})`] : []), ...(set.uncategorized ? [sql`l.category_id IS NULL`] : [])];
@@ -560,16 +560,16 @@ export function createAnalyticsService(d: {
   }
 
   /** Названия выбранных значений фильтров для сведений Excel (R13). */
-  function filterNames(companyId: number, f: ReportFilter): FilterNames {
-    const dict = dicts(companyId);
+  async function filterNames(companyId: number, f: ReportFilter): Promise<FilterNames> {
+    const dict = await dicts(companyId);
     const names = (ids: readonly number[] | undefined, items: readonly { id: number; name: string }[]) =>
       (ids ?? []).map((id) => items.find((i) => i.id === id)?.name).filter((n): n is string => n !== undefined);
     return {
-      accounts: names(f.accountIds, db.select().from(accounts).where(eq(accounts.companyId, companyId)).all()),
+      accounts: names(f.accountIds, await db.select().from(accounts).where(eq(accounts.companyId, companyId))),
       categories: names(f.categoryIds, dict.categories),
       counterparties: names(f.counterpartyIds, dict.counterparties),
       projects: names(f.projectIds, dict.projects),
-      tags: names(f.tagIds, db.select().from(tags).where(eq(tags.companyId, companyId)).all()),
+      tags: names(f.tagIds, await db.select().from(tags).where(eq(tags.companyId, companyId))),
       withoutCategory: f.withoutCategory === true,
       withoutCounterparty: f.withoutCounterparty === true,
       withoutProject: f.withoutProject === true,
@@ -577,12 +577,8 @@ export function createAnalyticsService(d: {
   }
 
   /** Счёт выписки — любой счёт компании, архивный тоже; чужой или несуществующий — 400 «Неизвестный счёт» (§9). */
-  function statementAccount(companyId: number, accountId: number): StatementAccount {
-    const a = db
-      .select()
-      .from(accounts)
-      .where(and(eq(accounts.companyId, companyId), eq(accounts.id, accountId)))
-      .get();
+  async function statementAccount(companyId: number, accountId: number): Promise<StatementAccount> {
+    const a = await first(db.select().from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.id, accountId))));
     if (!a) throw invalid('account', 'Неизвестный счёт');
     return { id: a.id, name: a.name, currency: a.currency, archived: a.archivedAt !== null, openedAt: a.openedAt };
   }
@@ -603,22 +599,28 @@ export function createAnalyticsService(d: {
    * остаток счёта плюс все движения до начала периода (дата открытия счёта на остаток не влияет). Остаток на конец —
    * начало плюс обороты периода (statementSummary), поэтому он равен остатку после последней операции периода.
    */
-  function statementTotals(companyId: number, account: StatementAccount, q: { from: string; to: string }): StatementSummary {
+  async function statementTotals(companyId: number, account: StatementAccount, q: { from: string; to: string }): Promise<StatementSummary> {
     const id = account.id;
-    const before = db.get<{ starting: number; delta: number | null }>(sql`
+    const before = (await one<{ starting: number; delta: number | null }>(
+      db,
+      sql`
       SELECT (SELECT starting_balance FROM accounts WHERE id = ${id}) AS starting,
              SUM(CASE WHEN o.account_id = ${id} THEN (CASE WHEN o.type = 'income' THEN o.amount ELSE -o.amount END) ELSE 0 END
                + CASE WHEN o.type = 'transfer' AND o.to_account_id = ${id} THEN o.to_amount ELSE 0 END) AS delta
         FROM operations o
        WHERE o.company_id = ${companyId} AND o.deleted_at IS NULL AND o.status = 'actual'
-         AND (o.account_id = ${id} OR o.to_account_id = ${id}) AND o.paid_at < ${startOfDayUtc(q.from, timezone)}`)!;
-    const t = db.get<{ income: number | null; expense: number | null; transfersIn: number | null; transfersOut: number | null }>(sql`
+         AND (o.account_id = ${id} OR o.to_account_id = ${id}) AND o.paid_at < ${startOfDayUtc(q.from, timezone)}`,
+    ))!;
+    const t = (await one<{ income: number | null; expense: number | null; transfersIn: number | null; transfersOut: number | null }>(
+      db,
+      sql`
       SELECT SUM(CASE WHEN o.type = 'income' THEN o.amount END) AS income,
              SUM(CASE WHEN o.type = 'expense' THEN o.amount END) AS expense,
              SUM(CASE WHEN o.type = 'transfer' AND o.to_account_id = ${id} THEN o.to_amount END) AS transfersIn,
              SUM(CASE WHEN o.type = 'transfer' AND o.account_id = ${id} THEN o.amount END) AS transfersOut
         FROM operations o
-       WHERE ${statementWhere(companyId, id, q)}`)!;
+       WHERE ${statementWhere(companyId, id, q)}`,
+    ))!;
     return statementSummary(Number(before.starting) + Number(before.delta ?? 0), {
       income: Number(t.income ?? 0),
       expense: Number(t.expense ?? 0),
@@ -628,19 +630,22 @@ export function createAnalyticsService(d: {
   }
 
   /** Страница операций выписки: новые сверху по (paid_at, id), курсор журнала; строки — JournalService.load с остатками. */
-  function statementPage(companyId: number, accountId: number, q: StatementQuery): StatementPage {
+  async function statementPage(companyId: number, accountId: number, q: StatementQuery): Promise<StatementPage> {
     const conds = [statementWhere(companyId, accountId, q)];
     if (q.cursor) {
       const c = decodeCursor(q.cursor, 'date', 'desc');
       conds.push(sql`(o.paid_at, o.id) < (${c.v}, ${c.id})`);
     }
-    const found = db.all<{ id: number; paidAt: string }>(sql`
-      SELECT o.id AS id, o.paid_at AS paidAt FROM operations o WHERE ${sql.join(conds, sql` AND `)} ORDER BY o.paid_at DESC, o.id DESC LIMIT ${q.limit + 1}`);
+    const found = await rows<{ id: number; paidAt: string }>(
+      db,
+      sql`
+      SELECT o.id AS id, o.paid_at AS paidAt FROM operations o WHERE ${sql.join(conds, sql` AND `)} ORDER BY o.paid_at DESC, o.id DESC LIMIT ${q.limit + 1}`,
+    );
     const more = found.length > q.limit;
-    const rows = more ? found.slice(0, q.limit) : found;
-    const last = rows.at(-1);
+    const page = more ? found.slice(0, q.limit) : found;
+    const last = page.at(-1);
     return {
-      items: d.journal.load(companyId, rows.map((r) => r.id)),
+      items: await d.journal.load(companyId, page.map((r) => r.id)),
       nextCursor: more && last ? encodeCursor({ s: 'date', o: 'desc', v: last.paidAt, id: last.id }) : null,
     };
   }
@@ -650,9 +655,9 @@ export function createAnalyticsService(d: {
    * плюс движения по порядку (paid_at, id): тот же порядок, что у остатка журнала (§4.7). Категория — полные названия
    * строк («Родитель → Дочерняя») через «; », у перевода — «Перевод: {другой счёт}».
    */
-  function statementRows(companyId: number, accountId: number, q: { from: string; to: string }, start: number): StatementExportRow[] {
+  async function statementRows(companyId: number, accountId: number, q: { from: string; to: string }, start: number): Promise<StatementExportRow[]> {
     const where = statementWhere(companyId, accountId, q);
-    const ops = db.all<{
+    const ops = await rows<{
       id: number;
       type: 'income' | 'expense' | 'transfer';
       paidAt: string;
@@ -662,18 +667,24 @@ export function createAnalyticsService(d: {
       toAmount: number | null;
       counterpartyId: number | null;
       comment: string | null;
-    }>(sql`
+    }>(
+      db,
+      sql`
       SELECT o.id AS id, o.type AS type, o.paid_at AS paidAt, o.account_id AS accountId, o.to_account_id AS toAccountId, o.amount AS amount,
              o.to_amount AS toAmount, o.counterparty_id AS counterpartyId, o.comment AS comment
-        FROM operations o WHERE ${where} ORDER BY o.paid_at, o.id`);
+        FROM operations o WHERE ${where} ORDER BY o.paid_at, o.id`,
+    );
     const lines = new Map<number, { categoryId: number | null; projectId: number | null }[]>();
-    for (const l of db.all<{ operationId: number; categoryId: number | null; projectId: number | null }>(sql`
+    for (const l of await rows<{ operationId: number; categoryId: number | null; projectId: number | null }>(
+      db,
+      sql`
       SELECT l.operation_id AS operationId, l.category_id AS categoryId, l.project_id AS projectId
         FROM operation_lines l JOIN operations o ON o.id = l.operation_id
-       WHERE ${where} ORDER BY l.operation_id, l.position`)) {
+       WHERE ${where} ORDER BY l.operation_id, l.position`,
+    )) {
       lines.set(l.operationId, [...(lines.get(l.operationId) ?? []), l]);
     }
-    const dict = dicts(companyId);
+    const dict = await dicts(companyId);
     const categoryById = new Map(dict.categories.map((c) => [c.id, c]));
     const categoryName = (id: number | null) => {
       const c = id === null ? undefined : categoryById.get(id);
@@ -683,10 +694,10 @@ export function createAnalyticsService(d: {
     };
     const projectName = new Map(dict.projects.map((p) => [p.id, p.name]));
     const counterpartyName = new Map(dict.counterparties.map((c) => [c.id, c.name]));
-    const accountName = new Map(db.select().from(accounts).where(eq(accounts.companyId, companyId)).all().map((a) => [a.id, a.name]));
+    const accountName = new Map((await db.select().from(accounts).where(eq(accounts.companyId, companyId))).map((a) => [a.id, a.name]));
     const joined = (xs: (string | null | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x))].join('; ') || null;
     let balance = start;
-    const rows = ops.map((o): StatementExportRow => {
+    const out = ops.map((o): StatementExportRow => {
       const delta = statementDelta(o, accountId);
       balance += delta;
       const own = lines.get(o.id) ?? [];
@@ -701,38 +712,47 @@ export function createAnalyticsService(d: {
         comment: o.comment,
       };
     });
-    return rows.reverse();
+    return out.reverse();
   }
 
   const service: AnalyticsService = {
-    cashflow(companyId, q) {
-      const company = requireCompany(db, companyId);
+    async cashflow(companyId, q) {
+      const company = await requireCompany(db, companyId);
       const f = reportFilter(q);
       const columns = reportColumns(q.from, q.to, q.step);
       const starts = columnStarts(columns, timezone);
-      const all = companyAccounts(companyId, f);
+      const all = await companyAccounts(companyId, f);
       const hidden = hidesBalances(f);
-      const balance = hidden ? null : balances(company, all, f, columns, starts);
-      const lines = selectLines(companyId, f, { start: starts[0]!, end: starts.at(-1)! });
-      const { rows, empty } = cashflowRows({ columns, starts, lines, by: q.by, dicts: dicts(companyId), filter: f, balances: balance });
+      const balance = hidden ? null : await balances(company, all, f, columns, starts);
+      const lines = await selectLines(companyId, f, { start: starts[0]!, end: starts.at(-1)! });
+      const result = cashflowRows({ columns, starts, lines, by: q.by, dicts: await dicts(companyId), filter: f, balances: balance });
+      const empty = result.empty;
       return {
         columns,
-        rows,
+        rows: result.rows,
         meta: { from: q.from, to: q.to, step: q.step, by: q.by, currency: company.baseCurrency, empty, balancesHidden: hidden },
       };
     },
 
-    pnl(companyId, q) {
-      const company = requireCompany(db, companyId);
+    async pnl(companyId, q) {
+      const company = await requireCompany(db, companyId);
       const f = reportFilter(q);
-      companyAccounts(companyId, f);
+      await companyAccounts(companyId, f);
       const columns = reportColumns(q.from, q.to, q.step);
       const starts = columnStarts(columns, timezone);
-      const stock = stockOn(companyId, q);
+      const stock = await stockOn(companyId, q);
       // те же границы, что у «Проектов»: итоги «Проектов» равны итогам «Прибыли» (§7)
       const range = dealRange(q);
-      const lines = selectPnlLines(companyId, f, range, stock);
-      const result = pnlRows({ columns, starts, lines, by: q.by, dicts: dicts(companyId), filter: f, stock: stock ? stockInput(companyId, range.start, range.end) : null });
+      const lines = await selectPnlLines(companyId, f, range, stock);
+      const result = pnlRows({
+        columns,
+        starts,
+        lines,
+        by: q.by,
+        dicts: await dicts(companyId),
+        filter: f,
+        stock: stock ? await stockInput(companyId, range.start, range.end) : null,
+      });
       return {
         columns,
         rows: result.rows,
@@ -740,19 +760,19 @@ export function createAnalyticsService(d: {
       };
     },
 
-    projects(companyId, q) {
-      const company = requireCompany(db, companyId);
+    async projects(companyId, q) {
+      const company = await requireCompany(db, companyId);
       const f = reportFilter(q);
-      companyAccounts(companyId, f);
+      await companyAccounts(companyId, f);
       const range = dealRange(q);
-      const stock = stockOn(companyId, q);
+      const stock = await stockOn(companyId, q);
       const result = projectsRows({
-        lines: selectPnlLines(companyId, f, range, stock),
-        dicts: dicts(companyId),
+        lines: await selectPnlLines(companyId, f, range, stock),
+        dicts: await dicts(companyId),
         filter: f,
         status: q.status,
         mode: q.mode,
-        stock: stock ? stockInput(companyId, range.start, range.end) : null,
+        stock: stock ? await stockInput(companyId, range.start, range.end) : null,
       });
       return {
         rows: result.rows,
@@ -761,15 +781,15 @@ export function createAnalyticsService(d: {
       };
     },
 
-    projectsXlsx(companyId, q) {
-      const company = requireCompany(db, companyId);
-      const data = service.projects(companyId, q);
+    async projectsXlsx(companyId, q) {
+      const company = await requireCompany(db, companyId);
+      const data = await service.projects(companyId, q);
       const info = reportInfo({
         title: 'Проекты',
         from: q.from,
         to: q.to,
         extra: [`Проекты: ${STATUS_LABEL[q.status].toLowerCase()}`, `Режим: ${MODE_LABEL[q.mode].toLowerCase()}`],
-        filters: filterText(filterNames(companyId, reportFilter(q))),
+        filters: filterText(await filterNames(companyId, reportFilter(q))),
         stock: data.meta.stock,
         noBatch: data.meta.noBatch,
       });
@@ -777,14 +797,14 @@ export function createAnalyticsService(d: {
       return { fileName: exportFileName(company.name, 'Проекты', now(), timezone), data: buildXlsx(sheet, { strings: 'shared' }) };
     },
 
-    operations(companyId, q) {
-      requireCompany(db, companyId);
+    async operations(companyId, q) {
+      await requireCompany(db, companyId);
       const projects = q.report === 'projects';
       const indicators = q.report === 'indicators';
       // у «Проектов» фильтра по проектам нет (проекты и есть строки): параметры проектов в запросе не читаются;
       // у «Финансовых показателей» фильтра нет совсем (§8.1)
       const f: ReportFilter = indicators ? {} : projects ? { ...reportFilter(q), projectIds: [], withoutProject: false } : reportFilter(q);
-      companyAccounts(companyId, f);
+      await companyAccounts(companyId, f);
       // у «Проектов» колонок шага нет — ячейка за весь период
       const range = projects ? { from: q.from, to: q.to } : drillRange(reportColumns(q.from, q.to, q.step), q.col);
       if (!range) throw invalid('col', 'Неизвестная колонка');
@@ -795,39 +815,42 @@ export function createAnalyticsService(d: {
         end: startOfDayUtc(addDays(range.to, 1), timezone),
         ...(pnl ? { accrual: range } : {}),
       };
-      const indicator = indicators ? indicatorCellWhere(companyId, q.row as IndicatorKey) : null;
+      const indicator = indicators ? await indicatorCellWhere(companyId, q.row as IndicatorKey) : null;
       const where = projects
         ? projectsCellWhere(companyId, f, bounds, q.row, q.col as ProjectsCol)
         : indicator
           ? [reportLineWhere(companyId, f, bounds), indicator.where]
           : [reportLineWhere(companyId, f, bounds, parseDrillRow(q.row)!)];
       // у показателя склад — флажок его части расходов (§8.2); «Процент маржи» — как «Прибыль»
-      const stock = pnl && stockOn(companyId, indicator ? { stock: indicator.stock } : q);
+      const stock = pnl && (await stockOn(companyId, indicator ? { stock: indicator.stock } : q));
       if (pnl) {
         // «Прибыль» (§5.1): строки исключённых системных категорий не входят
-        const excluded = [...pnlExcludedCategories(dicts(companyId).categories)];
+        const excluded = [...pnlExcludedCategories((await dicts(companyId)).categories)];
         if (excluded.length) where.push(sql`(l.category_id IS NULL OR l.category_id NOT IN (${idList(excluded)}))`);
       }
       // строки операции, попавшие в ячейку: сумма в валюте счёта; «часть операции» — если вошли не все строки
+      type Found = { id: number; paidAt: string; part: number; matched: number; lines: number; lineIds: string };
       const page = (after: { v: string | number; id: number } | null, size: number) =>
-        db.all<{ id: number; paidAt: string; part: number; matched: number; lines: number; lineIds: string }>(sql`
+        rows<Found>(
+          db,
+          sql`
         SELECT o.id AS id, o.paid_at AS paidAt, SUM(l.amount) AS part, COUNT(*) AS matched, GROUP_CONCAT(l.id) AS lineIds,
                (SELECT COUNT(*) FROM operation_lines x WHERE x.operation_id = o.id) AS lines
           FROM operation_lines l JOIN operations o ON o.id = l.operation_id
          WHERE ${sql.join(after ? [...where, sql`(o.paid_at, o.id) < (${after.v}, ${after.id})`] : where, sql` AND `)}
          GROUP BY o.id
          ORDER BY o.paid_at DESC, o.id DESC
-         LIMIT ${size}`);
+         LIMIT ${size}`,
+        );
       // «Прибыль» со складом (R1): расход, целиком оплативший закупки, в ячейку не входит — решает isFullyPaid, то же правило
       // исключений по всем строкам расхода, что и в отчёте (расход с отрицательной строкой оплаченным не считается). Решение
       // принимается после выборки, поэтому страница добирается порциями, пока не наберётся лимит.
-      type Found = ReturnType<typeof page>[number];
       const kept: { row: Found; cut: number }[] = [];
       let after: { v: string | number; id: number } | null = q.cursor ? decodeCursor(q.cursor, 'date', 'desc') : null;
       for (let exhausted = false; !exhausted && kept.length <= q.limit; ) {
-        const found = page(after, q.limit + 1);
+        const found = await page(after, q.limit + 1);
         exhausted = found.length < q.limit + 1;
-        const paid = stock ? paidOperations(companyId, found.map((r) => r.id)) : new Map<number, PaidOperation>();
+        const paid = stock ? await paidOperations(companyId, found.map((r) => r.id)) : new Map<number, PaidOperation>();
         for (const row of found) {
           if (kept.length > q.limit) break;
           const op = paid.get(row.id);
@@ -840,20 +863,20 @@ export function createAnalyticsService(d: {
         if (last) after = { v: last.paidAt, id: last.id };
       }
       const more = kept.length > q.limit;
-      const rows = more ? kept.slice(0, q.limit) : kept;
+      const pageRows = more ? kept.slice(0, q.limit) : kept;
       // часть строки, оплатившая закупку, в ячейку не входит (§5.3) — сумма без неё и пометка части; оплаты только со счетов
       // в базовой валюте, поэтому срез (base_amount) и сумма в валюте счёта совпадают
-      const parts = new Map(rows.map(({ row, cut }) => [row.id, row.matched < row.lines || cut > 0 ? Number(row.part) - cut : null]));
-      const last = rows.at(-1)?.row;
+      const parts = new Map(pageRows.map(({ row, cut }) => [row.id, row.matched < row.lines || cut > 0 ? Number(row.part) - cut : null]));
+      const last = pageRows.at(-1)?.row;
       return {
-        items: d.journal.load(companyId, rows.map(({ row }) => row.id)).map((item) => ({ ...item, part: parts.get(item.id) ?? null })),
+        items: (await d.journal.load(companyId, pageRows.map(({ row }) => row.id))).map((item) => ({ ...item, part: parts.get(item.id) ?? null })),
         nextCursor: more && last ? encodeCursor({ s: 'date', o: 'desc', v: last.paidAt, id: last.id }) : null,
       };
     },
 
-    exportXlsx(companyId, report, q) {
-      const company = requireCompany(db, companyId);
-      const data = service[report](companyId, q);
+    async exportXlsx(companyId, report, q) {
+      const company = await requireCompany(db, companyId);
+      const data = await service[report](companyId, q);
       // сведения над таблицей (R13): период, шаг, разрез, фильтры по названиям, у «Прибыли» — склад и «Нет партии»
       const info = reportInfo({
         title: REPORT_TITLE[report],
@@ -861,23 +884,29 @@ export function createAnalyticsService(d: {
         to: q.to,
         step: q.step,
         by: q.by,
-        filters: filterText(filterNames(companyId, reportFilter(q))),
+        filters: filterText(await filterNames(companyId, reportFilter(q))),
         ...(report === 'pnl' ? { stock: data.meta.stock === true, noBatch: data.meta.noBatch ?? 0 } : {}),
       });
       const sheet = reportSheet({ name: REPORT_TITLE[report], columns: data.columns, rows: data.rows, currency: data.meta.currency, percent: q.pct === true, info });
       return { fileName: exportFileName(company.name, REPORT_TITLE[report], now(), timezone), data: buildXlsx(sheet, { strings: 'shared' }) };
     },
 
-    indicators(companyId, q) {
-      const company = requireCompany(db, companyId);
+    async indicators(companyId, q) {
+      const company = await requireCompany(db, companyId);
       const columns = reportColumns(q.from, q.to, q.step);
       const starts = columnStarts(columns, timezone);
       // те же границы и строки, что у «Прибыли» (§8.1): дата сделки, исключения; склад — если у компании он есть
       const range = dealRange(q);
-      const stock = stockOn(companyId, { stock: true });
-      const store = stock ? stockInput(companyId, range.start, range.end) : null;
-      const parts = partViews(companyId);
-      const result = indicatorRows({ starts, lines: selectDealLines(companyId, {}, range, stock), categories: dicts(companyId).categories, parts, stock: store ? store.costs : null });
+      const stock = await stockOn(companyId, { stock: true });
+      const store = stock ? await stockInput(companyId, range.start, range.end) : null;
+      const parts = await partViews(companyId);
+      const result = indicatorRows({
+        starts,
+        lines: await selectDealLines(companyId, {}, range, stock),
+        categories: (await dicts(companyId)).categories,
+        parts,
+        stock: store ? store.costs : null,
+      });
       return {
         columns,
         rows: result.rows,
@@ -886,10 +915,10 @@ export function createAnalyticsService(d: {
       };
     },
 
-    indicatorsXlsx(companyId, q) {
-      const company = requireCompany(db, companyId);
-      const data = service.indicators(companyId, q);
-      const names = new Map(dicts(companyId).categories.map((c) => [c.id, c.name]));
+    async indicatorsXlsx(companyId, q) {
+      const company = await requireCompany(db, companyId);
+      const data = await service.indicators(companyId, q);
+      const names = new Map((await dicts(companyId)).categories.map((c) => [c.id, c.name]));
       const info = reportInfo({
         title: 'Финансовые показатели',
         from: q.from,
@@ -903,10 +932,10 @@ export function createAnalyticsService(d: {
       return { fileName: exportFileName(company.name, 'Финансовые показатели', now(), timezone), data: buildXlsx(sheet, { strings: 'shared' }) };
     },
 
-    savePart(companyId, part, input, userId) {
-      requireCompany(db, companyId, { writable: true });
+    async savePart(companyId, part, input, userId) {
+      await requireCompany(db, companyId, { writable: true });
       const kind = PART_KIND[part];
-      const all = dicts(companyId).categories;
+      const all = (await dicts(companyId)).categories;
       const own = new Set(all.filter((c) => c.kind === kind).map((c) => c.id));
       const ids = input.allCategories ? [] : [...new Set(input.categoryIds)];
       if (ids.some((id) => !own.has(id))) throw invalid('categoryIds', kind === 'income' ? 'Неизвестная категория дохода' : 'Неизвестная категория расхода');
@@ -915,57 +944,57 @@ export function createAnalyticsService(d: {
       if (ids.some((id) => excluded.has(id))) throw invalid('categoryIds', 'Инвестиции, дивиденды, займы и кредиты в показатели не входят');
       // у «Выручки» склада нет: флажок — только у частей расходов
       const next: IndicatorPartView = { allCategories: input.allCategories, categoryIds: ids, includeStock: kind === 'expense' && input.includeStock, isDefault: false };
-      const before = partViews(companyId)[part];
+      const before = (await partViews(companyId))[part];
       const sorted = (xs: readonly number[]) => JSON.stringify([...xs].sort((a, b) => a - b));
       // та же действующая настройка (в том числе умолчание) — без записи и без строки истории (§17.9)
       const same =
         before.allCategories === next.allCategories && before.includeStock === next.includeStock && sorted(before.categoryIds) === sorted(next.categoryIds);
       if (same) return partViews(companyId);
       const names = new Map(all.map((c) => [c.id, c.name]));
-      mutate(db, audit, (tx, record) => {
+      await mutateAsync(db, audit, async (tx, record) => {
         const row = { allCategories: next.allCategories, categoryIds: JSON.stringify(next.categoryIds), includeStock: next.includeStock, updatedAt: now().toISOString(), updatedBy: userId };
-        tx.insert(analyticsIndicatorParts)
+        await tx
+          .insert(analyticsIndicatorParts)
           .values({ companyId, part, ...row })
-          .onConflictDoUpdate({ target: [analyticsIndicatorParts.companyId, analyticsIndicatorParts.part], set: row })
-          .run();
-        record({ companyId, userId, entity: 'indicator_part', action: 'update', diff: { part, before: partDiff(part, before, names), after: partDiff(part, next, names) } });
+          .onConflictDoUpdate({ target: [analyticsIndicatorParts.companyId, analyticsIndicatorParts.part], set: row });
+        await record({ companyId, userId, entity: 'indicator_part', action: 'update', diff: { part, before: partDiff(part, before, names), after: partDiff(part, next, names) } });
       });
       return partViews(companyId);
     },
 
-    resetPart(companyId, part, userId) {
-      requireCompany(db, companyId, { writable: true });
-      const before = partViews(companyId)[part];
+    async resetPart(companyId, part, userId) {
+      await requireCompany(db, companyId, { writable: true });
+      const before = (await partViews(companyId))[part];
       if (before.isDefault) return partViews(companyId);
-      const names = new Map(dicts(companyId).categories.map((c) => [c.id, c.name]));
-      mutate(db, audit, (tx, record) => {
-        tx.delete(analyticsIndicatorParts)
-          .where(and(eq(analyticsIndicatorParts.companyId, companyId), eq(analyticsIndicatorParts.part, part)))
-          .run();
-        record({ companyId, userId, entity: 'indicator_part', action: 'reset', diff: { part, before: partDiff(part, before, names), after: partDiff(part, partViews(companyId)[part], names) } });
+      const names = new Map((await dicts(companyId)).categories.map((c) => [c.id, c.name]));
+      // после сброса действует умолчание шаблонов — его и пишем в историю
+      const after: IndicatorPartView = { ...defaultPart(part, await templateDefaults(companyId)), isDefault: true };
+      await mutateAsync(db, audit, async (tx, record) => {
+        await tx.delete(analyticsIndicatorParts).where(and(eq(analyticsIndicatorParts.companyId, companyId), eq(analyticsIndicatorParts.part, part)));
+        await record({ companyId, userId, entity: 'indicator_part', action: 'reset', diff: { part, before: partDiff(part, before, names), after: partDiff(part, after, names) } });
       });
       return partViews(companyId);
     },
 
-    statement(companyId, q) {
-      requireCompany(db, companyId);
-      const account = statementAccount(companyId, q.account);
-      return { account, summary: statementTotals(companyId, account, q), ...statementPage(companyId, account.id, q), meta: { from: q.from, to: q.to } };
+    async statement(companyId, q) {
+      await requireCompany(db, companyId);
+      const account = await statementAccount(companyId, q.account);
+      return { account, summary: await statementTotals(companyId, account, q), ...(await statementPage(companyId, account.id, q)), meta: { from: q.from, to: q.to } };
     },
 
-    statementOperations(companyId, q) {
-      requireCompany(db, companyId);
-      return statementPage(companyId, statementAccount(companyId, q.account).id, q);
+    async statementOperations(companyId, q) {
+      await requireCompany(db, companyId);
+      return statementPage(companyId, (await statementAccount(companyId, q.account)).id, q);
     },
 
-    statementXlsx(companyId, q) {
-      const company = requireCompany(db, companyId);
-      const account = statementAccount(companyId, q.account);
+    async statementXlsx(companyId, q) {
+      const company = await requireCompany(db, companyId);
+      const account = await statementAccount(companyId, q.account);
       // предел выгрузки (R1): тот же, что у журнала, — проверяем до сборки файла
-      const count = db.get<{ n: number }>(sql`SELECT COUNT(*) AS n FROM operations o WHERE ${statementWhere(companyId, account.id, q)}`)!.n;
+      const count = Number((await one<{ n: number }>(db, sql`SELECT COUNT(*) AS n FROM operations o WHERE ${statementWhere(companyId, account.id, q)}`))!.n);
       if (count > exportLimit) throw new AppError(422, 'EXPORT_LIMIT', `Больше ${exportLimit.toLocaleString('ru-RU')} операций — сузьте период или фильтр`);
-      const summary = statementTotals(companyId, account, q);
-      const sheet = statementSheet({ account, from: q.from, to: q.to, summary, rows: statementRows(companyId, account.id, q, summary.start), timeZone: timezone });
+      const summary = await statementTotals(companyId, account, q);
+      const sheet = statementSheet({ account, from: q.from, to: q.to, summary, rows: await statementRows(companyId, account.id, q, summary.start), timeZone: timezone });
       return { fileName: exportFileName(company.name, 'Выписка по счету', now(), timezone), data: buildXlsx(sheet, { strings: 'shared' }) };
     },
   };

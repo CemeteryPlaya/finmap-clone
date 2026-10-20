@@ -2,6 +2,7 @@ import { and, asc, eq, isNull } from 'drizzle-orm';
 import { journalFilterSchema, type JournalFilter } from '../../../shared/schemas/journal';
 import { cleanName } from '../../../shared/text';
 import type { Db } from '../../db/client';
+import { first } from '../../db/raw';
 import { accounts, categories, counterparties, projects, savedFilters, tags } from '../../db/schema';
 import { AppError } from '../../errors';
 import { requireCompany } from '../companies/guard';
@@ -22,10 +23,10 @@ export interface SavedFilterRow {
 
 /** Личные сохранённые фильтры журнала (§4.4, §6): чужие не видны (404). Как и настройки пользователя, историю не пишут. */
 export interface SavedFiltersService {
-  list(userId: number, companyId: number): SavedFilterRow[];
-  add(userId: number, companyId: number, input: { name: string; filter: JournalFilter }): SavedFilterRow;
-  update(userId: number, companyId: number, id: number, input: { name?: string; filter?: JournalFilter }): SavedFilterRow;
-  remove(userId: number, companyId: number, id: number): void;
+  list(userId: number, companyId: number): Promise<SavedFilterRow[]>;
+  add(userId: number, companyId: number, input: { name: string; filter: JournalFilter }): Promise<SavedFilterRow>;
+  update(userId: number, companyId: number, id: number, input: { name?: string; filter?: JournalFilter }): Promise<SavedFilterRow>;
+  remove(userId: number, companyId: number, id: number): Promise<void>;
 }
 
 /** Поля фильтра со ссылками на справочники. */
@@ -38,16 +39,16 @@ export function createSavedFiltersService(d: { db: Db; now?: () => Date }): Save
   const now = d.now ?? (() => new Date());
 
   /** Доступные для фильтра элементы справочников компании — не в архиве. */
-  function available(companyId: number): Available {
+  async function available(companyId: number): Promise<Available> {
     const set = (rows: { id: number }[]) => new Set(rows.map((r) => r.id));
     return {
-      accountIds: set(db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), isNull(accounts.archivedAt))).all()),
-      categoryIds: set(db.select({ id: categories.id }).from(categories).where(and(eq(categories.companyId, companyId), isNull(categories.archivedAt))).all()),
-      projectIds: set(db.select({ id: projects.id }).from(projects).where(and(eq(projects.companyId, companyId), isNull(projects.archivedAt))).all()),
+      accountIds: set(await db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.companyId, companyId), isNull(accounts.archivedAt)))),
+      categoryIds: set(await db.select({ id: categories.id }).from(categories).where(and(eq(categories.companyId, companyId), isNull(categories.archivedAt)))),
+      projectIds: set(await db.select({ id: projects.id }).from(projects).where(and(eq(projects.companyId, companyId), isNull(projects.archivedAt)))),
       counterpartyIds: set(
-        db.select({ id: counterparties.id }).from(counterparties).where(and(eq(counterparties.companyId, companyId), isNull(counterparties.archivedAt))).all(),
+        await db.select({ id: counterparties.id }).from(counterparties).where(and(eq(counterparties.companyId, companyId), isNull(counterparties.archivedAt))),
       ),
-      tagIds: set(db.select({ id: tags.id }).from(tags).where(and(eq(tags.companyId, companyId), isNull(tags.archivedAt))).all()),
+      tagIds: set(await db.select({ id: tags.id }).from(tags).where(and(eq(tags.companyId, companyId), isNull(tags.archivedAt)))),
     };
   }
 
@@ -81,44 +82,40 @@ export function createSavedFiltersService(d: { db: Db; now?: () => Date }): Save
     };
   }
 
-  function requireOwn(userId: number, companyId: number, id: number): typeof savedFilters.$inferSelect {
-    const row = db
-      .select()
-      .from(savedFilters)
-      .where(and(eq(savedFilters.id, id), eq(savedFilters.userId, userId), eq(savedFilters.companyId, companyId)))
-      .get();
+  async function requireOwn(userId: number, companyId: number, id: number): Promise<typeof savedFilters.$inferSelect> {
+    const row = await first(
+      db.select().from(savedFilters).where(and(eq(savedFilters.id, id), eq(savedFilters.userId, userId), eq(savedFilters.companyId, companyId))),
+    );
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Фильтр не найден');
     return row;
   }
 
   return {
-    list(userId, companyId) {
-      requireCompany(db, companyId);
-      const avail = available(companyId);
-      return db
+    async list(userId, companyId) {
+      await requireCompany(db, companyId);
+      const avail = await available(companyId);
+      const rows = await db
         .select()
         .from(savedFilters)
         .where(and(eq(savedFilters.userId, userId), eq(savedFilters.companyId, companyId)))
-        .orderBy(asc(savedFilters.id))
-        .all()
-        .map((r) => toRow(r, avail));
+        .orderBy(asc(savedFilters.id));
+      return rows.map((r) => toRow(r, avail));
     },
 
-    add(userId, companyId, input) {
-      requireCompany(db, companyId, { writable: true });
+    async add(userId, companyId, input) {
+      await requireCompany(db, companyId, { writable: true });
       const t = now().toISOString();
-      const row = db
+      const [row] = await db
         .insert(savedFilters)
         .values({ userId, companyId, name: cleanName(input.name), filter: JSON.stringify(input.filter), createdAt: t, updatedAt: t })
-        .returning()
-        .get();
-      return toRow(row, available(companyId));
+        .returning();
+      return toRow(row!, await available(companyId));
     },
 
-    update(userId, companyId, id, input) {
-      requireCompany(db, companyId, { writable: true });
-      requireOwn(userId, companyId, id);
-      const row = db
+    async update(userId, companyId, id, input) {
+      await requireCompany(db, companyId, { writable: true });
+      await requireOwn(userId, companyId, id);
+      const [row] = await db
         .update(savedFilters)
         .set({
           ...(input.name !== undefined ? { name: cleanName(input.name) } : {}),
@@ -126,15 +123,14 @@ export function createSavedFiltersService(d: { db: Db; now?: () => Date }): Save
           updatedAt: now().toISOString(),
         })
         .where(eq(savedFilters.id, id))
-        .returning()
-        .get();
-      return toRow(row, available(companyId));
+        .returning();
+      return toRow(row!, await available(companyId));
     },
 
-    remove(userId, companyId, id) {
-      requireCompany(db, companyId, { writable: true });
-      requireOwn(userId, companyId, id);
-      db.delete(savedFilters).where(eq(savedFilters.id, id)).run();
+    async remove(userId, companyId, id) {
+      await requireCompany(db, companyId, { writable: true });
+      await requireOwn(userId, companyId, id);
+      await db.delete(savedFilters).where(eq(savedFilters.id, id));
     },
   };
 }
