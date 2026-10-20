@@ -21,7 +21,7 @@ async function world(): Promise<StockWorld> {
 
 const balanceOf = async (world: StockWorld, wh: number, item: number) =>
   ((await world.h.req('GET', `${world.stock}/balance?warehouse=${wh}`)).json().items as any[]).find((i) => i.itemId === item);
-const count = (world: StockWorld, table: string) => (world.h.t.sqlite.prepare(`SELECT COUNT(*) n FROM ${table}`).get() as { n: number }).n;
+const count = async (world: StockWorld, table: string) => ((await world.h.t.q(`SELECT COUNT(*) n FROM ${table}`))[0] as { n: number }).n;
 
 describe('перемещение (§5.2, Склад-2)', () => {
   it('номер М-0001; остатки и себестоимость на обоих складах; стоимость складов не меняется', async () => {
@@ -108,11 +108,11 @@ describe('перемещение (§5.2, Склад-2)', () => {
     const w = await world();
     const receipt = await w.receipt(D1, [[w.cola, 3000, 30_000]]);
     await w.transfer(D2, w.wh, w.wh2, [[w.cola, 2000]]);
-    const before = ['stock_docs', 'stock_batches', 'stock_allocations', 'audit_log'].map((t) => count(w, t));
+    const before = await Promise.all(['stock_docs', 'stock_batches', 'stock_allocations', 'audit_log'].map((t) => count(w, t)));
     const res = await w.h.req('DELETE', `${w.stock}/docs/${receipt.id}`);
     expect(res.statusCode).toBe(422);
     expect(res.json().error).toMatchObject({ code: 'INSUFFICIENT_STOCK', message: 'Не хватает «Кола 0,5»: на складе 0 шт на 02.10.2026' });
-    expect(['stock_docs', 'stock_batches', 'stock_allocations', 'audit_log'].map((t) => count(w, t))).toEqual(before);
+    expect(await Promise.all(['stock_docs', 'stock_batches', 'stock_allocations', 'audit_log'].map((t) => count(w, t)))).toEqual(before);
     expect((await w.h.req('GET', `${w.stock}/docs/${receipt.id}`)).json().doc.deletedAt).toBeNull();
   });
 
@@ -120,11 +120,11 @@ describe('перемещение (§5.2, Склад-2)', () => {
     const w = await world();
     await w.receipt(D1, [[w.cola, 10_000, 100_000]]);
     await w.doc({ type: 'sale', at: D3, warehouseId: w.wh2, lines: [{ itemId: w.cola, qty: 1000, amount: 50_000 }] });
-    const before = ['stock_docs', 'stock_batches', 'stock_allocations', 'audit_log'].map((t) => count(w, t));
+    const before = await Promise.all(['stock_docs', 'stock_batches', 'stock_allocations', 'audit_log'].map((t) => count(w, t)));
     const res = await w.h.req('POST', `${w.stock}/docs`, { type: 'transfer', at: D2, warehouseId: w.wh, toWarehouseId: w.wh2, lines: [{ itemId: w.cola, qty: 1000 }], dryRun: true });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ doc: null, impact: { sales: 1, writeoffs: 0, since: D2 } });
-    expect(['stock_docs', 'stock_batches', 'stock_allocations', 'audit_log'].map((t) => count(w, t))).toEqual(before);
+    expect(await Promise.all(['stock_docs', 'stock_batches', 'stock_allocations', 'audit_log'].map((t) => count(w, t)))).toEqual(before);
   });
 
   it('список: склад показывает и входящие перемещения (R6); фильтр по типу', async () => {
@@ -140,7 +140,7 @@ describe('перемещение (§5.2, Склад-2)', () => {
     const w = await world();
     await w.receipt(D1, [[w.cola, 10_000, 100_000]]);
     await w.transfer(D2, w.wh, w.wh2, [[w.cola, 1000]]);
-    const row = w.h.t.sqlite.prepare("SELECT diff FROM audit_log WHERE entity = 'stock_doc' AND action = 'create' ORDER BY id DESC LIMIT 1").get() as { diff: string };
+    const row = (await w.h.t.q("SELECT diff FROM audit_log WHERE entity = 'stock_doc' AND action = 'create' ORDER BY id DESC LIMIT 1"))[0] as { diff: string };
     expect(JSON.parse(row.diff)).toMatchObject({ number: `${M}-0001`, type: 'transfer', warehouseId: w.wh, toWarehouseId: w.wh2 });
   });
 
@@ -154,7 +154,7 @@ describe('перемещение (§5.2, Склад-2)', () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(await balanceOf(w, w.wh2, w.cola)).toMatchObject({ qty: 0, cost: 0 });
     expect(await balanceOf(w, wh3, w.cola)).toMatchObject({ qty: 4000, cost: 40_000 });
-    expect(count(w, 'stock_batches')).toBe(2);
+    expect(await count(w, 'stock_batches')).toBe(2);
 
     // Клуб 1 → Клуб 3 → Клуб 2: продажа на Клубе 2 берёт партию, пришедшую через два перемещения
     await w.transfer(D3, wh3, w.wh2, [[w.cola, 1000]]);

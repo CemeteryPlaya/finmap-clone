@@ -4,13 +4,13 @@ import { seedCurrencies } from '../../src/server/db/seed';
 import { createAuditService } from '../../src/server/modules/audit/service';
 import { createCategoriesService } from '../../src/server/modules/categories/service';
 import { getTemplate } from '../../src/templates';
-import { createTestDb } from '../helpers/test-db';
+import { createTestDb, type TestDb } from '../helpers/test-db';
 
-let t: ReturnType<typeof createTestDb>;
+let t: TestDb;
 afterEach(() => t?.cleanup());
 
 async function setup() {
-  t = createTestDb();
+  t = await createTestDb();
   await seedCurrencies(t.db);
   const company = t.db.insert(companies).values({ name: 'ТОО', baseCurrency: 'KZT', createdAt: 'x' }).returning().get();
   const svc = createCategoriesService({ db: t.db, audit: createAuditService(t.db), now: () => new Date('2026-10-06T00:00:00.000Z') });
@@ -53,12 +53,10 @@ describe('categories', () => {
     const { svc, companyId } = await setup();
     await svc.seedSystem(t.db, companyId);
     await svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!);
-    t.sqlite.prepare("UPDATE categories SET name = 'Аренда зала' WHERE template_ref = 'computer-club:rent'").run();
-    t.sqlite.prepare("UPDATE categories SET archived_at = 'x' WHERE template_ref = 'computer-club:charity'").run();
+    await t.q("UPDATE categories SET name = 'Аренда зала' WHERE template_ref = 'computer-club:rent'");
+    await t.q("UPDATE categories SET archived_at = 'x' WHERE template_ref = 'computer-club:charity'");
     expect(await svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!)).toBe(0);
-    const rows = t.sqlite
-      .prepare("SELECT name, archived_at FROM categories WHERE template_ref IN ('computer-club:rent','computer-club:charity') ORDER BY template_ref")
-      .all() as { name: string; archived_at: string | null }[];
+    const rows = (await t.q("SELECT name, archived_at FROM categories WHERE template_ref IN ('computer-club:rent','computer-club:charity') ORDER BY template_ref")) as { name: string; archived_at: string | null }[];
     expect(rows).toEqual([
       { name: 'Благотворительность', archived_at: 'x' },
       { name: 'Аренда зала', archived_at: null },
@@ -77,24 +75,21 @@ describe('categories', () => {
       const club = getTemplate('computer-club')!;
       await svc.seedSystem(t.db, companyId);
       await svc.mergeTemplate(t.db, companyId, club);
-      const s = t.sqlite;
-      const premises = s.prepare("SELECT id FROM categories WHERE template_ref = 'computer-club:premises'").get() as { id: number };
+      const premises = (await t.q("SELECT id FROM categories WHERE template_ref = 'computer-club:premises'"))[0] as { id: number };
       // пользователь убрал дочерние «Помещения», затем перенёс группу в свою или отправил в архив
-      s.prepare('DELETE FROM categories WHERE parent_id = ?').run(premises.id);
+      await t.q('DELETE FROM categories WHERE parent_id = ?', premises.id);
       if (variant === 'moved') {
         const mine = await svc.add(companyId, { kind: 'expense', name: 'Моя группа', parentId: null }, 1);
-        s.prepare('UPDATE categories SET parent_id = ? WHERE id = ?').run(mine.id, premises.id);
+        await t.q('UPDATE categories SET parent_id = ? WHERE id = ?', mine.id, premises.id);
       } else {
-        s.prepare("UPDATE categories SET archived_at = 'x' WHERE id = ?").run(premises.id);
+        await t.q("UPDATE categories SET archived_at = 'x' WHERE id = ?", premises.id);
       }
       expect(await svc.mergeTemplate(t.db, companyId, club)).toBe(4);
-      const depth3 = s
-        .prepare('SELECT COUNT(*) n FROM categories c JOIN categories p ON p.id = c.parent_id WHERE p.parent_id IS NOT NULL')
-        .get() as { n: number };
+      const depth3 = (await t.q('SELECT COUNT(*) n FROM categories c JOIN categories p ON p.id = c.parent_id WHERE p.parent_id IS NOT NULL'))[0] as { n: number };
       expect(depth3.n).toBe(0);
-      const underPremises = s.prepare('SELECT COUNT(*) n FROM categories WHERE parent_id = ?').get(premises.id) as { n: number };
+      const underPremises = (await t.q('SELECT COUNT(*) n FROM categories WHERE parent_id = ?', premises.id))[0] as { n: number };
       expect(underPremises.n).toBe(0);
-      const rent = s.prepare("SELECT parent_id FROM categories WHERE template_ref = 'computer-club:rent'").get() as { parent_id: number | null };
+      const rent = (await t.q("SELECT parent_id FROM categories WHERE template_ref = 'computer-club:rent'"))[0] as { parent_id: number | null };
       expect(rent.parent_id).toBeNull();
     },
   );

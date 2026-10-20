@@ -24,12 +24,12 @@ let w: OpsWorld;
 afterEach(async () => w?.h.t.cleanup());
 
 const NOW = new Date('2026-10-06T12:00:00.000Z');
-const one = (sql: string, ...args: unknown[]) => w.h.t.sqlite.prepare(sql).get(...args) as Record<string, any>;
-const all = (sql: string, ...args: unknown[]) => w.h.t.sqlite.prepare(sql).all(...args) as Record<string, any>[];
-const adminId = () => one("SELECT id FROM users WHERE login = 'admin'").id as number;
+const one = async (sql: string, ...args: unknown[]) => (await w.h.t.q(sql, ...args))[0] as Record<string, any>;
+const all = async (sql: string, ...args: unknown[]) => (await w.h.t.q(sql, ...args)) as Record<string, any>[];
+const adminId = async () => (await one("SELECT id FROM users WHERE login = 'admin'")).id as number;
 /** Сколько строк в таблицах, которые меняет импорт: «база не изменилась» — те же числа. */
-const tableCounts = () =>
-  one(
+const tableCounts = async () =>
+  await one(
     `SELECT (SELECT COUNT(*) FROM operations) ops, (SELECT COUNT(*) FROM operation_lines) lines, (SELECT COUNT(*) FROM operation_tags) optags,
             (SELECT COUNT(*) FROM accounts) accounts, (SELECT COUNT(*) FROM categories) categories, (SELECT COUNT(*) FROM counterparties) cps,
             (SELECT COUNT(*) FROM projects) projects, (SELECT COUNT(*) FROM tags) tags, (SELECT COUNT(*) FROM imports) imports,
@@ -102,7 +102,7 @@ async function expectPromisedBalances(cards: ImportPreviewAccount[]) {
   const ledger = new Map((await createLedgerBalances(w.h.t.db).companyBalances(w.cid)).map((b) => [b.accountId, b.balance]));
   for (const c of cards) {
     const m = c.mapping!;
-    const id = m.kind === 'existing' ? m.accountId : (one('SELECT id FROM accounts WHERE company_id = ? AND name = ?', w.cid, m.name).id as number);
+    const id = m.kind === 'existing' ? m.accountId : ((await one('SELECT id FROM accounts WHERE company_id = ? AND name = ?', w.cid, m.name)).id as number);
     expect(ledger.get(id), c.fileName).toBe(promisedBalance(c));
   }
 }
@@ -168,7 +168,7 @@ describe('POST …/imports: запись одной транзакцией (§6.
     const importId = r.import.id;
 
     // операции: по времени, все с import_id; зарплата — с датой начисления из периода
-    const ops = all('SELECT id, type, paid_at, accrual_date, amount, import_id, version FROM operations WHERE company_id = ? ORDER BY id', w.cid);
+    const ops = await all('SELECT id, type, paid_at, accrual_date, amount, import_id, version FROM operations WHERE company_id = ? ORDER BY id', w.cid);
     expect(ops.map((o) => [o.type, o.paid_at, o.accrual_date, o.amount, o.import_id, o.version])).toEqual([
       ['income', '2026-09-20T05:00:00.000Z', null, 1_059_600, importId, 1],
       ['expense', '2026-10-03T17:07:30.000Z', '2026-09-01', 850_000, importId, 1],
@@ -177,47 +177,47 @@ describe('POST …/imports: запись одной транзакцией (§6.
     ]);
     // каждая импортированная операция проходит check() сервиса операций (§6.4 п. 4)
     const operations = operationsService();
-    for (const o of ops) expect((await operations.update(w.cid, o.id, { version: 1 }, adminId())).version).toBe(1);
+    for (const o of ops) expect((await operations.update(w.cid, o.id, { version: 1 }, await adminId())).version).toBe(1);
 
     // справочники: вид, родитель (системная «Зарплата» и новая «Связь»), тип контрагента по категории
-    expect(all('SELECT c.name, c.kind, p.name parent FROM categories c LEFT JOIN categories p ON p.id = c.parent_id WHERE c.id IN (SELECT value FROM json_each((SELECT created FROM imports WHERE id = ?), \'$.categories\')) ORDER BY c.id', importId)).toEqual([
+    expect(await all('SELECT c.name, c.kind, p.name parent FROM categories c LEFT JOIN categories p ON p.id = c.parent_id WHERE c.id IN (SELECT value FROM json_each((SELECT created FROM imports WHERE id = ?), \'$.categories\')) ORDER BY c.id', importId)).toEqual([
       { name: 'Связь', kind: 'expense', parent: null },
       { name: 'Администраторы', kind: 'expense', parent: 'Зарплата' },
       { name: 'Интернет', kind: 'expense', parent: 'Связь' },
     ]);
-    expect(all('SELECT name, type FROM counterparties WHERE company_id = ? ORDER BY id', w.cid)).toEqual([
+    expect(await all('SELECT name, type FROM counterparties WHERE company_id = ? ORDER BY id', w.cid)).toEqual([
       { name: 'ИП Клиент', type: 'client' },
       { name: 'Сотрудник А', type: 'employee' },
       { name: 'Поставщик Б', type: 'supplier' },
     ]);
-    expect(one("SELECT template_key, template_params FROM projects WHERE name = 'Клуб 9'")).toEqual({ template_key: 'general', template_params: '{}' });
-    expect(all('SELECT t.name FROM operation_tags ot JOIN tags t ON t.id = ot.tag_id ORDER BY t.id').map((t) => t.name)).toEqual(['Смена', 'Ночь']);
+    expect(await one("SELECT template_key, template_params FROM projects WHERE name = 'Клуб 9'")).toEqual({ template_key: 'general', template_params: '{}' });
+    expect((await all('SELECT t.name FROM operation_tags ot JOIN tags t ON t.id = ot.tag_id ORDER BY t.id')).map((t) => t.name)).toEqual(['Смена', 'Ночь']);
 
     // остатки: «Остаток после импорта» существующего счёта и «Текущий остаток» нового — ровно как указаны
     const balances = new Map((await createLedgerBalances(w.h.t.db).companyBalances(w.cid)).map((b) => [b.accountId, b.balance]));
-    const bank = one("SELECT id, starting_balance, opened_at FROM accounts WHERE name = 'Банк-2'");
+    const bank = await one("SELECT id, starting_balance, opened_at FROM accounts WHERE name = 'Банк-2'");
     expect(balances.get(w.kzt)).toBe(2_000_000);
     expect(balances.get(bank.id)).toBe(1_000_000);
     expect(bank).toMatchObject({ starting_balance: 1_000_000 - (5_000_000 - 820_050), opened_at: '2026-10-04' });
     // и ровно как обещали карточки счетов проверки, которую видел человек
     await expectPromisedBalances(p.accounts);
     // дата открытия «Кассы» перенесена на первую операцию файла (инвариант 6)
-    expect(one('SELECT opened_at, starting_balance FROM accounts WHERE id = ?', w.kzt)).toEqual({
+    expect(await one('SELECT opened_at, starting_balance FROM accounts WHERE id = ?', w.kzt)).toEqual({
       opened_at: '2026-09-20',
       starting_balance: 2_000_000 - (1_059_600 - 850_000 - 5_000_000),
     });
 
     // запись imports: счётчики, id созданного, изменения существующих счетов
-    const row = one('SELECT status, counts, created, account_changes, user_id FROM imports WHERE id = ?', importId);
+    const row = await one('SELECT status, counts, created, account_changes, user_id FROM imports WHERE id = ?', importId);
     expect(row.status).toBe('done');
-    expect(row.user_id).toBe(adminId());
+    expect(row.user_id).toBe(await adminId());
     expect(JSON.parse(row.counts)).toEqual(counts);
     expect(JSON.parse(row.created)).toEqual({
       accounts: [bank.id],
-      categories: ['Связь', 'Администраторы', 'Интернет'].map((n) => one('SELECT id FROM categories WHERE company_id = ? AND name = ?', w.cid, n).id),
-      counterparties: ['Сотрудник А', 'Поставщик Б'].map((n) => one('SELECT id FROM counterparties WHERE company_id = ? AND name = ?', w.cid, n).id),
-      projects: [one("SELECT id FROM projects WHERE name = 'Клуб 9'").id],
-      tags: [one("SELECT id FROM tags WHERE name = 'Ночь'").id],
+      categories: await Promise.all(['Связь', 'Администраторы', 'Интернет'].map(async (n) => (await one('SELECT id FROM categories WHERE company_id = ? AND name = ?', w.cid, n)).id)),
+      counterparties: await Promise.all(['Сотрудник А', 'Поставщик Б'].map(async (n) => (await one('SELECT id FROM counterparties WHERE company_id = ? AND name = ?', w.cid, n)).id)),
+      projects: [(await one("SELECT id FROM projects WHERE name = 'Клуб 9'")).id],
+      tags: [(await one("SELECT id FROM tags WHERE name = 'Ночь'")).id],
       // «Текущий остаток» 10 000: стартовый баланс, рассчитанный импортом (по нему отмена решает, обнулять ли, — решение 16 плана И-3)
       computedStarts: { [String(bank.id)]: 1_000_000 - (5_000_000 - 820_050) },
     });
@@ -226,7 +226,7 @@ describe('POST …/imports: запись одной транзакцией (§6.
     ]);
 
     // история: одна запись импорта, записи создания справочников и изменения счёта с importId, у операций — ничего
-    const audit = all('SELECT entity, action, entity_id eid, diff FROM audit_log WHERE company_id = ? AND audit_log.id > (SELECT MAX(id) FROM audit_log WHERE entity = \'rate\') ORDER BY audit_log.id', w.cid)
+    const audit = (await all('SELECT entity, action, entity_id eid, diff FROM audit_log WHERE company_id = ? AND audit_log.id > (SELECT MAX(id) FROM audit_log WHERE entity = \'rate\') ORDER BY audit_log.id', w.cid))
       .filter((a) => a.diff?.includes('importId') || a.entity === 'import')
       .map((a) => ({ entity: a.entity as string, action: a.action as string, eid: a.eid as number, diff: JSON.parse(a.diff) }));
     expect(audit.map((a) => `${a.entity} ${a.action}`)).toEqual([
@@ -253,7 +253,7 @@ describe('POST …/imports: запись одной транзакцией (§6.
       importId,
     });
     expect(audit.slice(0, -1).every((a) => a.diff.importId === importId)).toBe(true);
-    expect(w.h.auditCount('operation')).toBe(0);
+    expect(await w.h.auditCount('operation')).toBe(0);
 
     // токен удалён: повторное «Импортировать» — 410
     const again = await commit(p, mappings);
@@ -265,7 +265,7 @@ describe('POST …/imports: запись одной транзакцией (§6.
     w = await opsWorld();
     const p = await uploaded([...FILE, fr({ paidAt: 'вчера', amount: 1, to: 'Касса' })]);
     expect(p.canImport).toBe(false);
-    const before = tableCounts();
+    const before = await tableCounts();
     const res = await commit(p);
     expect(res.statusCode).toBe(422);
     const e = res.json().error;
@@ -274,7 +274,7 @@ describe('POST …/imports: запись одной транзакцией (§6.
       message: 'Данные компании изменились после проверки, и импорт сейчас невозможен — посмотрите ошибки в обновлённой проверке',
     });
     expect(e.details.preview.errors.byCode.map((g: { code: string }) => g.code)).toEqual(['R02']);
-    expect(tableCounts()).toEqual(before);
+    expect(await tableCounts()).toEqual(before);
   });
 
   it('между проверкой и записью: счёт ушёл в архив — 422 (A5); появилась категория — 409 IMPORT_CHANGED, повтор с новой версией использует её', async () => {
@@ -286,7 +286,7 @@ describe('POST …/imports: запись одной транзакцией (§6.
     expect(p.create.categories.total).toBe(1);
 
     await w.post(`${w.ops.replace('/operations', '')}/accounts/${w.usd}/archive`, {});
-    const before = tableCounts();
+    const before = await tableCounts();
     const invalid = await commit(p, mapping);
     expect(invalid.statusCode).toBe(422);
     expect(invalid.json().error.details.preview.accounts[0].errors).toEqual([{ code: 'A5', message: 'Счёт «Валютный» в архиве — выберите другой' }]);
@@ -302,12 +302,12 @@ describe('POST …/imports: запись одной транзакцией (§6.
     expect(fresh.create.categories.total).toBe(0);
     expect(fresh.revision).not.toBe(p.revision);
     // из архива и новая категория — две записи истории; импорт ничего не записал
-    expect(tableCounts()).toEqual({ ...before, categories: before.categories + 1, audit: before.audit + 2 });
+    expect(await tableCounts()).toEqual({ ...before, categories: before.categories + 1, audit: before.audit + 2 });
 
     const ok = await commit(fresh, mapping);
     expect(ok.statusCode, ok.body).toBe(201);
     expect((ok.json() as ImportCommitResult).import.created.categories).toBe(0);
-    expect(one('SELECT category_id FROM operation_lines').category_id).toBe(lunch);
+    expect((await one('SELECT category_id FROM operation_lines')).category_id).toBe(lunch);
   });
 
   it('архивная компания — 422; токен другой компании или пользователя — 410; без версии — 400', async () => {
@@ -341,7 +341,7 @@ describe('POST …/imports: запись одной транзакцией (§6.
     expect(nothing.statusCode).toBe(422);
     // ошибок нет, просто всё уже есть в компании — отдельный текст
     expect(nothing.json().error).toMatchObject({ code: 'IMPORT_INVALID', message: 'Нечего импортировать: все операции из файла уже есть в компании' });
-    expect(one('SELECT COUNT(*) n FROM operations').n).toBe(4);
+    expect((await one('SELECT COUNT(*) n FROM operations')).n).toBe(4);
   });
 
   it('валюты: счёт USD без F — курс на дату, с F — F и производный курс; перевод KZT → USD — сумма зачисления по курсу', async () => {
@@ -353,7 +353,7 @@ describe('POST …/imports: запись одной транзакцией (§6.
     ];
     const res = await commit(await uploaded(rows));
     expect(res.statusCode, res.body).toBe(201);
-    expect(all('SELECT type, amount, base_amount, rate, to_amount FROM operations ORDER BY id')).toEqual([
+    expect(await all('SELECT type, amount, base_amount, rate, to_amount FROM operations ORDER BY id')).toEqual([
       { type: 'expense', amount: 1000, base_amount: 475_120, rate: '475.12', to_amount: null },
       { type: 'expense', amount: 2000, base_amount: 960_000, rate: '480', to_amount: null },
       { type: 'transfer', amount: 475_120, base_amount: 475_120, rate: '1', to_amount: 1000 },
@@ -391,13 +391,13 @@ describe('атомарность записи (§6.4 п. 5)', () => {
       tags: createTagsService({ db, audit }),
       writer: failing,
     });
-    const p = await imports.upload(w.cid, adminId(), { name: 'выгрузка.xlsx', data: finmapLikeXlsx(FILE) });
+    const p = await imports.upload(w.cid, await adminId(), { name: 'выгрузка.xlsx', data: finmapLikeXlsx(FILE) });
     const mappings: AccountMapping[] = [{ key: 'банк-2', kind: 'new', name: 'Банк-2', currency: 'KZT', balance: { mode: 'current', amount: 1 } }];
-    const q = await imports.preview(w.cid, adminId(), { token: p.token, accounts: mappings });
-    const before = tableCounts();
-    await expect(imports.commit(w.cid, adminId(), { token: q.token, accounts: mappings, revision: q.revision })).rejects.toThrow('сбой записи');
+    const q = await imports.preview(w.cid, await adminId(), { token: p.token, accounts: mappings });
+    const before = await tableCounts();
+    await expect(imports.commit(w.cid, await adminId(), { token: q.token, accounts: mappings, revision: q.revision })).rejects.toThrow('сбой записи');
     expect(written).toBe(2);
-    expect(tableCounts()).toEqual(before);
+    expect(await tableCounts()).toEqual(before);
   });
 });
 
@@ -410,13 +410,13 @@ describe('писатель получает только корректные с
     expect(p.create.categories.items).toEqual([{ name: 'Электричество', kind: 'expense', parent: 'Аренда', rows: 1 }]);
 
     await w.post(`${w.ops.replace('/operations', '')}/categories/${w.expense}/archive`, {});
-    const before = tableCounts();
+    const before = await tableCounts();
     const res = await commit(p);
     expect(res.statusCode).toBe(422);
     const e = res.json().error;
     expect(e.code).toBe('IMPORT_INVALID');
     expect(e.details.preview.errors.byCode.map((g: { code: string }) => g.code)).toEqual(['R17']);
-    expect(tableCounts()).toEqual(before);
+    expect(await tableCounts()).toEqual(before);
 
     // родитель в архиве уже при загрузке — та же R17, «Будет создано» пусто
     const again = await uploaded(rows);
@@ -440,7 +440,7 @@ describe('писатель получает только корректные с
     expect(p.canImport).toBe(true);
     const res = await commit(p, mappings);
     expect(res.statusCode, res.body).toBe(201);
-    const ops = all('SELECT id, type, account_id, to_account_id, amount, to_amount, base_amount, rate FROM operations ORDER BY id');
+    const ops = await all('SELECT id, type, account_id, to_account_id, amount, to_amount, base_amount, rate FROM operations ORDER BY id');
     expect(ops.map((o) => [o.type, o.amount, o.to_amount, o.base_amount, o.rate])).toEqual([
       ['transfer', 123_456, 123_456, 123_456, '1'],
       ['transfer', 70_000, 70_000, 70_000, '1'],
@@ -448,7 +448,7 @@ describe('писатель получает только корректные с
     ]);
     expect(ops[1]!.to_account_id).toBe(kassa2);
     const operations = operationsService();
-    for (const o of ops) expect((await operations.update(w.cid, o.id, { version: 1 }, adminId())).version).toBe(1);
+    for (const o of ops) expect((await operations.update(w.cid, o.id, { version: 1 }, await adminId())).version).toBe(1);
   });
 
   it('комментарий с пробелами по краям записывается без них; из одних пробелов — пустой', async () => {
@@ -459,10 +459,10 @@ describe('писатель получает только корректные с
     ];
     const res = await commit(await uploaded(rows));
     expect(res.statusCode, res.body).toBe(201);
-    const ops = all('SELECT id, comment FROM operations ORDER BY id');
+    const ops = await all('SELECT id, comment FROM operations ORDER BY id');
     expect(ops.map((o) => o.comment)).toEqual(['Свет  за октябрь', null]);
     const operations = operationsService();
-    for (const o of ops) expect((await operations.update(w.cid, o.id, { version: 1 }, adminId())).version).toBe(1);
+    for (const o of ops) expect((await operations.update(w.cid, o.id, { version: 1 }, await adminId())).version).toBe(1);
   });
 });
 
@@ -482,10 +482,10 @@ describe('гонки между проверкой и записью', () => {
     expect(p2.canImport).toBe(true);
 
     expect((await commit(first, mappings)).statusCode).toBe(201);
-    const bankId = one("SELECT id FROM accounts WHERE name = 'Банк-2'").id as number;
+    const bankId = (await one("SELECT id FROM accounts WHERE name = 'Банк-2'")).id as number;
 
     // второй нажимает «Импортировать» с прежним выбором «Создать новый счёт»: не тихая замена на существующий, а ошибка карточки
-    const before = tableCounts();
+    const before = await tableCounts();
     const stale = await second.post(importsUrl(), { token: p2.token, accounts: mappings, revision: p2.revision });
     expect(stale.statusCode).toBe(422);
     const e = stale.json().error;
@@ -496,7 +496,7 @@ describe('гонки между проверкой и записью', () => {
     const card = (e.details.preview as ImportPreview).accounts.find((a) => a.key === 'банк-2')!;
     expect(card.mapping).toMatchObject({ kind: 'new', name: 'Банк-2' });
     expect(card.errors).toEqual([{ code: 'A1', message: 'Счёт «Банк-2» уже есть в компании — проверка обновлена, выберите его' }]);
-    expect(tableCounts()).toEqual(before);
+    expect(await tableCounts()).toEqual(before);
 
     // свежая проверка с выбором по умолчанию: «Банк-2» — существующий, все строки — дубликаты
     const fresh = (await second.post(`${importsUrl()}/preview`, { token: p2.token, accounts: [] })).json() as ImportPreview;
@@ -506,7 +506,7 @@ describe('гонки между проверкой и записью', () => {
     const nothing = await second.post(importsUrl(), { token: p2.token, accounts: [], revision: fresh.revision });
     expect(nothing.statusCode).toBe(422);
     expect(nothing.json().error).toMatchObject({ code: 'IMPORT_INVALID', message: 'Нечего импортировать: все операции из файла уже есть в компании' });
-    expect(tableCounts()).toEqual(before);
+    expect(await tableCounts()).toEqual(before);
   });
 
   it('компания ушла в архив после проверки перед транзакцией (другое соединение) — проверка под блокировкой записи: 422, ничего не записано', async () => {
@@ -525,19 +525,19 @@ describe('гонки между проверкой и записью', () => {
         },
       };
       const imports = importsServiceWith(cache);
-      const p = await imports.upload(w.cid, adminId(), { name: 'выгрузка.xlsx', data: finmapLikeXlsx(FILE) });
+      const p = await imports.upload(w.cid, await adminId(), { name: 'выгрузка.xlsx', data: finmapLikeXlsx(FILE) });
       expect(p.canImport).toBe(true);
-      const before = tableCounts();
+      const before = await tableCounts();
       archiveOnGet = true;
       let err: unknown;
       try {
-        await imports.commit(w.cid, adminId(), { token: p.token, accounts: [], revision: p.revision });
+        await imports.commit(w.cid, await adminId(), { token: p.token, accounts: [], revision: p.revision });
       } catch (e) {
         err = e;
       }
       expect(err).toBeInstanceOf(AppError);
       expect((err as AppError).code).toBe('ARCHIVED_REFERENCE');
-      expect(tableCounts()).toEqual(before);
+      expect(await tableCounts()).toEqual(before);
     } finally {
       other.close();
     }
@@ -545,7 +545,7 @@ describe('гонки между проверкой и записью', () => {
 
   it('остатки по проводкам после записи — как обещали карточки: существующий без «Остатка после импорта», «Стартовый баланс», пустой остаток', async () => {
     w = await opsWorld();
-    w.h.t.sqlite.prepare('UPDATE accounts SET starting_balance = 123400 WHERE id = ?').run(w.kzt);
+    await w.h.t.q('UPDATE accounts SET starting_balance = 123400 WHERE id = ?', w.kzt);
     const rows = [...FILE, fr({ paidAt: at('2026-10-01', '12:00:00'), amount: 77, to: 'Сейф', category: 'Бар' })];
     const mappings: AccountMapping[] = [
       { key: 'касса', kind: 'existing', accountId: w.kzt },
@@ -561,11 +561,11 @@ describe('гонки между проверкой и записью', () => {
     // и цифры по отдельности: 1 234,00 + 10 596 - 8 500 - 50 000; 3 000 + 50 000 - 8 200,50; 77
     const ledger = new Map((await createLedgerBalances(w.h.t.db).companyBalances(w.cid)).map((b) => [b.accountId, b.balance]));
     expect(ledger.get(w.kzt)).toBe(123_400 + 1_059_600 - 850_000 - 5_000_000);
-    expect(ledger.get(one("SELECT id FROM accounts WHERE name = 'Банк-2'").id)).toBe(300_000 + 5_000_000 - 820_050);
-    expect(ledger.get(one("SELECT id FROM accounts WHERE name = 'Сейф'").id)).toBe(7_700);
+    expect(ledger.get((await one("SELECT id FROM accounts WHERE name = 'Банк-2'")).id)).toBe(300_000 + 5_000_000 - 820_050);
+    expect(ledger.get((await one("SELECT id FROM accounts WHERE name = 'Сейф'")).id)).toBe(7_700);
     // «Стартовый баланс» и пустой остаток — введены человеком, не рассчитаны: в computedStarts их нет
     const importId = (res.json() as ImportCommitResult).import.id;
-    expect(JSON.parse(one('SELECT created FROM imports WHERE id = ?', importId).created).computedStarts).toEqual({});
+    expect(JSON.parse((await one('SELECT created FROM imports WHERE id = ?', importId)).created).computedStarts).toEqual({});
   });
 });
 
@@ -580,7 +580,7 @@ describe('большой файл (§11.2 «Производительность
     const ms = performance.now() - t0;
     expect(res.statusCode, res.body.slice(0, 300)).toBe(201);
     expect((res.json() as ImportCommitResult).counts.added).toBe(16_000);
-    expect(one('SELECT COUNT(*) n FROM operations WHERE import_id IS NOT NULL').n).toBe(16_000);
+    expect((await one('SELECT COUNT(*) n FROM operations WHERE import_id IS NOT NULL')).n).toBe(16_000);
     // бюджет §10 — 5 с на эталонной машине (bench:import); здесь — с запасом для медленного CI
     expect(ms).toBeLessThan(20_000);
   });

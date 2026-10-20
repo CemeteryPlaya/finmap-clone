@@ -3,13 +3,13 @@ import { createAuditService } from '../../src/server/modules/audit/service';
 import { createSessionsService, REMEMBER_TTL_MS, SESSION_TTL_MS } from '../../src/server/modules/auth/sessions';
 import { createUsersService } from '../../src/server/modules/users/service';
 import { sessions } from '../../src/server/db/schema';
-import { createTestDb } from '../helpers/test-db';
+import { createTestDb, type TestDb } from '../helpers/test-db';
 
-let t: ReturnType<typeof createTestDb>;
+let t: TestDb;
 afterEach(() => t?.cleanup());
 
 async function setup() {
-  t = createTestDb();
+  t = await createTestDb();
   let now = new Date('2026-10-05T10:00:00.000Z');
   const clock = { set: (iso: string) => (now = new Date(iso)), now: () => now };
   const users = createUsersService(t.db, createAuditService(t.db));
@@ -68,7 +68,7 @@ describe('sessions', () => {
     await svc.revokeAllForUser(u.id, b.id);
     expect(await svc.touch(b.token)).not.toBeNull();
     expect(await svc.touch(c.token)).toBeNull();
-    t.sqlite.prepare('UPDATE users SET disabled_at = ? WHERE id = ?').run('2026-10-05T10:00:00.000Z', u.id);
+    await t.q('UPDATE users SET disabled_at = ? WHERE id = ?', '2026-10-05T10:00:00.000Z', u.id);
     expect(await svc.touch(b.token)).toBeNull();
   });
 

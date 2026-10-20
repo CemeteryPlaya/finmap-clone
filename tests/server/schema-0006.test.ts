@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createTestDb } from '../helpers/test-db';
 
-let cleanup: (() => void) | null = null;
-afterEach(() => {
-  cleanup?.();
+let cleanup: (() => void | Promise<void>) | null = null;
+afterEach(async () => {
+  await cleanup?.();
   cleanup = null;
 });
 
-function setup() {
-  const t = createTestDb();
+async function setup() {
+  const t = await createTestDb();
   cleanup = t.cleanup;
-  const s = t.sqlite;
+  const s = t.sqlite!;
   s.prepare("INSERT INTO currencies (code,name,symbol,minor_units) VALUES ('KZT','Тенге','₸',2)").run();
   s.prepare("INSERT INTO users (login, name, password_hash, created_at) VALUES ('u','U','h','x')").run();
   s.prepare("INSERT INTO companies (name, base_currency, created_at) VALUES ('ТОО','KZT','x')").run();
@@ -24,8 +24,8 @@ const insertOp =
   "INSERT INTO operations (company_id, type, status, paid_at, account_id, amount, rate, base_amount, created_by, created_at, updated_at, version, import_id) VALUES (1,'income','actual','2026-10-06T00:00:00.000Z',1,100,'1',100,1,'x','x',1,?)";
 
 describe('миграция 0006 (§6.1 спецификации импорта)', () => {
-  it('таблица imports; operations.import_id — null у обычных операций, ссылка на импорт с внешним ключом и индексом', () => {
-    const s = setup();
+  it('таблица imports; operations.import_id — null у обычных операций, ссылка на импорт с внешним ключом и индексом', async () => {
+    const s = await setup();
     const imp = s.prepare(insertImport).run();
     expect(s.prepare(insertOp).run(null).changes).toBe(1);
     expect(s.prepare(insertOp).run(imp.lastInsertRowid).changes).toBe(1);
@@ -38,8 +38,8 @@ describe('миграция 0006 (§6.1 спецификации импорта)'
     expect(() => s.prepare('DELETE FROM imports WHERE id = ?').run(imp.lastInsertRowid)).toThrow(/FOREIGN KEY/);
   });
 
-  it('импорт ссылается на существующие компанию и пользователя; итог отмены и отмена — необязательны', () => {
-    const s = setup();
+  it('импорт ссылается на существующие компанию и пользователя; итог отмены и отмена — необязательны', async () => {
+    const s = await setup();
     expect(() => s.prepare(insertImport.replace('VALUES (1, 1,', 'VALUES (2, 1,')).run()).toThrow(/FOREIGN KEY/);
     const id = s.prepare(insertImport).run().lastInsertRowid;
     expect(s.prepare('SELECT status, undo_result, undone_at, undone_by FROM imports WHERE id = ?').get(id)).toEqual({

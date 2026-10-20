@@ -27,7 +27,7 @@ describe('users API', () => {
     expect(list.map((u) => u.login)).toEqual(['admin', 'kassir']);
     const dup = await h.req('POST', '/api/v1/users', { login: 'KASSIR', name: 'Д', password: PASS });
     expect(dup.json().error.fields.login).toBe('Логин уже занят');
-    const diffs = h.t.sqlite.prepare("SELECT diff FROM audit_log WHERE entity = 'user'").all() as { diff: string | null }[];
+    const diffs = (await h.t.q("SELECT diff FROM audit_log WHERE entity = 'user'")) as { diff: string | null }[];
     expect(diffs.some((d) => d.diff?.includes(PASS))).toBe(false);
   });
 
@@ -41,7 +41,7 @@ describe('users API', () => {
     expect((await as(kassir, 'GET', '/api/v1/auth/me')).statusCode).toBe(401);
     await expect(loginAs(h.t, 'kassir', PASS)).rejects.toThrow();
     await loginAs(h.t, 'kassir', 'new-kassir-pass');
-    expect(h.auditCount('user', 'password_change')).toBe(1);
+    expect(await h.auditCount('user', 'password_change')).toBe(1);
   });
 
   it('свой пароль через PATCH /users/:id нельзя — только в профиле', async () => {
@@ -75,7 +75,7 @@ describe('users API', () => {
     const k = await addKassir();
     expect((await h.req('PATCH', `/api/v1/users/${k.id}`, { name: ' Старший\u200B кассир ' })).json().user.name).toBe('Старший кассир');
     await h.req('PATCH', `/api/v1/users/${k.id}`, { name: 'Старший кассир', disabled: false });
-    expect(h.auditCount('user', 'update')).toBe(1);
+    expect(await h.auditCount('user', 'update')).toBe(1);
     expect((await h.req('PATCH', '/api/v1/users/999', { name: 'X' })).statusCode).toBe(404);
   });
 
@@ -94,7 +94,7 @@ describe('users API', () => {
     expect((await as(other, 'GET', '/api/v1/auth/me')).statusCode).toBe(401);
     await expect(loginAs(h.t, 'admin', 'correct-horse-1')).rejects.toThrow();
     await loginAs(h.t, 'admin', 'brand-new-pass-1');
-    expect(h.auditCount('user', 'password_change')).toBe(1);
+    expect(await h.auditCount('user', 'password_change')).toBe(1);
   });
 
   it('подбор текущего пароля ограничен: 6-я попытка — 429 (Review Focus 4)', async () => {

@@ -63,7 +63,7 @@ describe('projects: переименование счетов, порядок, �
     const res = await h.req('POST', `${projectsUrl(cid)}/reorder`, { ids: [b, a] });
     expect(res.json().projects.map((p: { name: string }) => p.name)).toEqual(['B', 'A']);
     expect((await h.req('POST', `${projectsUrl(cid)}/reorder`, { ids: [a] })).statusCode).toBe(409);
-    expect(h.auditCount('project', 'reorder')).toBe(1);
+    expect(await h.auditCount('project', 'reorder')).toBe(1);
   });
 
   it('удаление: только без счетов (включая архивные); чужие id — 404', async () => {
@@ -80,6 +80,6 @@ describe('projects: переименование счетов, порядок, �
     await h.req('DELETE', `${accountsUrl(cid)}/${acc}`);
     expect((await h.req('DELETE', `${projectsUrl(cid)}/${office}`)).statusCode).toBe(204);
     expect((await h.req('GET', projectsUrl(cid))).json().projects).toEqual([]);
-    expect(h.auditCount('project', 'delete')).toBe(1);
+    expect(await h.auditCount('project', 'delete')).toBe(1);
   });
 });

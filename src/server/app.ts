@@ -23,7 +23,7 @@ import { createAccountsService } from './modules/accounts/service';
 import { registerAuditRoutes } from './modules/audit/routes';
 import { createAuditService } from './modules/audit/service';
 import { registerBackupRoutes } from './modules/backup/routes';
-import { createBackupService, type BackupService } from './modules/backup/service';
+import { unavailableBackup, createBackupService, type BackupService } from './modules/backup/service';
 import { LoginLimiter } from './modules/auth/login-limiter';
 import { readSessionToken, registerAuth } from './modules/auth/plugin';
 import { registerAuthRoutes } from './modules/auth/routes';
@@ -71,7 +71,8 @@ import { installZodRu } from '../shared/zod-ru';
 export interface AppDeps {
   config: Config;
   db: Db;
-  sqlite: Sqlite;
+  /** Соединение better-sqlite3 — у SQLite; у Postgres null (запись импорта пачками, бэкап — своей реализацией). */
+  sqlite: Sqlite | null;
   logger?: FastifyServerOptions['logger'];
   now?: () => Date;
   clientDir?: string;
@@ -177,17 +178,19 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       counterparties,
       projects,
       tags,
-      writer: createOperationsWriter(deps.sqlite),
+      writer: createOperationsWriter(deps.sqlite ?? undefined),
     }),
   });
   const backup =
     deps.backup ??
-    createBackupService({
-      sqlite: deps.sqlite,
-      config,
-      now,
-      log: (m, e) => (e ? app.log.error({ err: e }, m) : app.log.info(m)),
-    });
+    (deps.sqlite
+      ? createBackupService({
+          sqlite: deps.sqlite,
+          config,
+          now,
+          log: (m, e) => (e ? app.log.error({ err: e }, m) : app.log.info(m)),
+        })
+      : unavailableBackup());
   registerBackupRoutes(app, { backup, db });
 
   const clientDir = deps.clientDir ?? path.resolve('dist', 'client');

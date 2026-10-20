@@ -36,7 +36,7 @@ const SAMPLE = [
 describe('POST …/imports/upload и …/imports/preview (§6.2, §6.3 спецификации импорта)', () => {
   it('загрузка → предпросмотр с токеном; пересчёт по кэшу с другим сопоставлением; ничего не записано', async () => {
     w = await opsWorld();
-    const before = w.h.t.sqlite.prepare('SELECT (SELECT COUNT(*) FROM operations) + (SELECT COUNT(*) FROM accounts) + (SELECT COUNT(*) FROM categories) n').get();
+    const before = (await w.h.t.q('SELECT (SELECT COUNT(*) FROM operations) + (SELECT COUNT(*) FROM accounts) + (SELECT COUNT(*) FROM categories) n'))[0];
     const res = await upload(finmapLikeXlsx(SAMPLE));
     expect(res.statusCode, res.body).toBe(200);
     const p = res.json() as ImportPreview;
@@ -57,7 +57,7 @@ describe('POST …/imports/upload и …/imports/preview (§6.2, §6.3 спец�
     const q = again.json() as ImportPreview;
     expect(q.token).toBe(p.token);
     expect(q.accounts[1]).toMatchObject({ currency: 'USD', mapping: { name: 'Банк 2', currency: 'USD' } });
-    expect(w.h.t.sqlite.prepare('SELECT (SELECT COUNT(*) FROM operations) + (SELECT COUNT(*) FROM accounts) + (SELECT COUNT(*) FROM categories) n').get()).toEqual(before);
+    expect((await w.h.t.q('SELECT (SELECT COUNT(*) FROM operations) + (SELECT COUNT(*) FROM accounts) + (SELECT COUNT(*) FROM categories) n'))[0]).toEqual(before);
   });
 
   it('CSV в UTF-8 с «;»; ошибки файла — 400 IMPORT_FILE с кодом и текстом', async () => {

@@ -44,7 +44,7 @@ async function upload(world: StockWorld, kind: 'items' | 'receipts', data: Buffe
   });
 }
 
-const count = (world: StockWorld, sql: string, ...args: unknown[]) => (world.h.t.sqlite.prepare(sql).get(...args) as { n: number }).n;
+const count = async (world: StockWorld, sql: string, ...args: unknown[]) => ((await world.h.t.q(sql, ...args))[0] as { n: number }).n;
 const CATALOG = ['Название', 'Группа', 'Единица', 'Штрихкод', 'Цена продажи'];
 const RECEIPTS = ['Дата', 'Поставщик', 'Товар', 'Количество', 'Сумма', 'Цена'];
 
@@ -56,7 +56,7 @@ describe('импорт каталога (§9.1, Склад-2)', () => {
       ['Сок', 'Напитки', 'л', '4870001', '450,50'],
       ['Жвачка', null, null, null, null],
     ]);
-    const items = count(w, 'SELECT COUNT(*) n FROM stock_items');
+    const items = await count(w, 'SELECT COUNT(*) n FROM stock_items');
     const check = await upload(w, 'items', file, 'commit=0');
     expect(check.statusCode, check.body).toBe(200);
     expect(check.json()).toMatchObject({
@@ -68,7 +68,7 @@ describe('импорт каталога (§9.1, Склад-2)', () => {
       skip: { items: 1 },
       committed: false,
     });
-    expect(count(w, 'SELECT COUNT(*) n FROM stock_items')).toBe(items);
+    expect(await count(w, 'SELECT COUNT(*) n FROM stock_items')).toBe(items);
 
     const done = await upload(w, 'items', file, 'commit=1');
     expect(done.statusCode, done.body).toBe(201);
@@ -77,7 +77,7 @@ describe('импорт каталога (§9.1, Склад-2)', () => {
     const juice = catalog.find((i) => i.name === 'Сок');
     expect(juice).toMatchObject({ unit: 'l', barcode: '4870001', salePrice: 45_050, prices: [{ price: 45_050, validFrom: '2026-10-06' }] });
     expect(catalog.find((i) => i.name === 'Жвачка')).toMatchObject({ unit: 'pcs', salePrice: 0, groupId: null });
-    expect(w.h.auditCount('stock_import', 'create')).toBe(1);
+    expect(await w.h.auditCount('stock_import', 'create')).toBe(1);
   });
 
   it('ошибки строк: нет названия, неизвестная единица, дубль в файле, отрицательная цена; запись при ошибках — 422', async () => {
@@ -96,11 +96,11 @@ describe('импорт каталога (§9.1, Склад-2)', () => {
       { row: 5, field: 'Название', message: 'Товар «сок» уже есть в файле (строка 4)' },
       { row: 6, field: 'Цена продажи', message: 'Цена не меньше нуля' },
     ]);
-    const before = count(w, 'SELECT COUNT(*) n FROM stock_items');
+    const before = await count(w, 'SELECT COUNT(*) n FROM stock_items');
     const commit = await upload(w, 'items', file, 'commit=1');
     expect(commit.statusCode).toBe(422);
     expect(commit.json().error).toMatchObject({ code: 'IMPORT_INVALID', details: { errorsTotal: 4 } });
-    expect(count(w, 'SELECT COUNT(*) n FROM stock_items')).toBe(before);
+    expect(await count(w, 'SELECT COUNT(*) n FROM stock_items')).toBe(before);
   });
 
   it('CSV через «,» и в cp1251 читается (R1); импорт журнала прежний', async () => {
@@ -136,7 +136,7 @@ describe('импорт поступлений (§9.1, Склад-2)', () => {
     ]);
     // без времени — 12:00 по часам компании (Алматы, UTC+5)
     expect(docs[0].at).toBe('2026-10-02T07:00:00.000Z');
-    const supplierB = w.h.t.sqlite.prepare("SELECT type FROM counterparties WHERE name = 'Поставщик Б'").get();
+    const supplierB = (await w.h.t.q("SELECT type FROM counterparties WHERE name = 'Поставщик Б'"))[0];
     expect(supplierB).toEqual({ type: 'supplier' });
     const balance = (await w.h.req('GET', `${w.stock}/balance?warehouse=${w.wh}`)).json().items as any[];
     expect(balance.find((i) => i.itemId === w.cola)).toMatchObject({ qty: 12_000, cost: 120_000_00 });
@@ -184,7 +184,7 @@ describe('импорт поступлений (§9.1, Склад-2)', () => {
     const doc = (await w.h.req('GET', `${w.stock}/docs?type=receipt`)).json().docs[0];
     expect((await w.h.req('DELETE', `${w.stock}/docs/${doc.id}`)).statusCode).toBe(200);
     expect((await upload(w, 'receipts', file, `warehouse=${w.wh}&commit=1`)).statusCode).toBe(201);
-    expect(count(w, "SELECT COUNT(*) n FROM stock_docs WHERE source = 'import' AND deleted_at IS NULL")).toBe(1);
+    expect(await count(w, "SELECT COUNT(*) n FROM stock_docs WHERE source = 'import' AND deleted_at IS NULL")).toBe(1);
   });
 
   it('склад: другой компании и архивный — 422; без склада — 400; поставщик только в архиве — ошибка строки', async () => {

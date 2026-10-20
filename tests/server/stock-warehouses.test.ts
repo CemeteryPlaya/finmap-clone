@@ -22,7 +22,7 @@ describe('склады', () => {
     expect(dup.statusCode).toBe(422);
     expect(dup.json().error.fields.projectId).toBe('У проекта уже есть склад');
     expect((await w.h.req('GET', `${stock}/warehouses`)).json().warehouses).toHaveLength(1);
-    expect(w.h.auditCount('stock_warehouse', 'create')).toBe(1);
+    expect(await w.h.auditCount('stock_warehouse', 'create')).toBe(1);
   });
 
   it('проект чужой компании и архивный проект отклоняются', async () => {

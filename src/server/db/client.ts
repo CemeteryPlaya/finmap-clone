@@ -62,7 +62,7 @@ export async function openDatabase(cfg: DbConfig): Promise<OpenedDatabase> {
   if (cfg.kind === 'pglite') {
     const { PGlite } = await import('@electric-sql/pglite');
     const { drizzle: pglite } = await import('drizzle-orm/pglite');
-    const client = await PGlite.create(cfg.dataDir, { parsers: { 20: toNumber, 1700: toNumber } });
+    const client = await PGlite.create({ dataDir: cfg.dataDir, loadDataDir: cfg.snapshot, parsers: { 20: toNumber, 1700: toNumber } });
     const db = ambient(pglite({ client, schema: pgTables }) as unknown as Db, 'pglite');
     return { db, sqlite: null, dialect: 'pg', close: () => client.close() };
   }

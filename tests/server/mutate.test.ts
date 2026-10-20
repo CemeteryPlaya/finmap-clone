@@ -61,7 +61,7 @@ describe('mutate: транзакция и история', () => {
         throw new Error('сбой');
       }),
     ).rejects.toThrow('сбой');
-    expect(h.auditCount('probe')).toBe(0);
+    expect(await h.auditCount('probe')).toBe(0);
     expect(await mutate(h.t.db, audit, async (_tx, record) => record({ entity: 'probe', action: 'create' }))).toBeGreaterThan(0);
     expect(await h.t.sql(sql`SELECT entity FROM audit_log WHERE entity = 'probe'`)).toEqual([{ entity: 'probe' }]);
   });
@@ -72,15 +72,15 @@ describe('история и транзакции', () => {
     h = await createApi();
     const cid = await h.company('ТОО');
     expect((await h.req('PATCH', `/api/v1/companies/${cid}`, { name: ' ТОО ', baseCurrency: 'KZT' })).statusCode).toBe(200);
-    expect(h.auditCount('company', 'update')).toBe(0);
+    expect(await h.auditCount('company', 'update')).toBe(0);
 
     const p = (await h.req('POST', `/api/v1/companies/${cid}/projects`, { name: 'Клуб 1', templateKey: 'computer-club', templateParams: { pcCount: 30 } })).json().project;
     const same = await h.req('PATCH', `/api/v1/companies/${cid}/projects/${p.id}`, { name: 'Клуб\u200B 1', templateParams: { pcCount: 30 } });
     expect(same.statusCode).toBe(200);
-    expect(h.auditCount('project', 'update')).toBe(0);
+    expect(await h.auditCount('project', 'update')).toBe(0);
 
     await h.req('PATCH', `/api/v1/companies/${cid}/projects/${p.id}`, { name: 'Клуб 2', templateParams: { pcCount: 30 } });
-    const row = h.t.sqlite.prepare("SELECT diff FROM audit_log WHERE entity = 'project' AND action = 'update'").get() as { diff: string };
+    const row = (await h.t.q("SELECT diff FROM audit_log WHERE entity = 'project' AND action = 'update'"))[0] as { diff: string };
     expect(JSON.parse(row.diff)).toEqual({ before: { name: 'Клуб 1' }, after: { name: 'Клуб 2' } });
   });
 
@@ -88,19 +88,18 @@ describe('история и транзакции', () => {
     h = await createApi();
     const cid = await h.company('A');
     const p = (await h.req('POST', `/api/v1/companies/${cid}/projects`, { name: 'Офис', templateKey: 'general' })).json().project;
-    const s = h.t.sqlite;
-    const categoriesBefore = (s.prepare('SELECT COUNT(*) n FROM categories').get() as { n: number }).n;
-    s.exec("CREATE TEMP TRIGGER audit_down BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'audit down'); END");
+    const categoriesBefore = ((await h.t.q('SELECT COUNT(*) n FROM categories'))[0] as { n: number }).n;
+    await h.t.failOn('audit_down', { table: 'audit_log', event: 'INSERT', message: 'audit down' });
     expect((await h.req('PATCH', `/api/v1/companies/${cid}`, { name: 'Б' })).statusCode).toBe(500);
     expect((await h.req('POST', `/api/v1/companies/${cid}/archive`)).statusCode).toBe(500);
     expect((await h.req('POST', '/api/v1/companies', { name: 'В' })).statusCode).toBe(500);
     expect((await h.req('PATCH', `/api/v1/companies/${cid}/projects/${p.id}`, { name: 'Склад' })).statusCode).toBe(500);
     expect((await h.req('POST', `/api/v1/companies/${cid}/projects/${p.id}/archive`)).statusCode).toBe(500);
-    s.exec('DROP TRIGGER audit_down');
+    await h.t.dropFail('audit_down', 'audit_log');
 
     const companies = (await h.req('GET', '/api/v1/companies')).json().companies;
     expect(companies).toEqual([expect.objectContaining({ id: cid, name: 'A', archivedAt: null })]);
-    expect((s.prepare('SELECT COUNT(*) n FROM categories').get() as { n: number }).n).toBe(categoriesBefore);
+    expect(((await h.t.q('SELECT COUNT(*) n FROM categories'))[0] as { n: number }).n).toBe(categoriesBefore);
     const projects = (await h.req('GET', `/api/v1/companies/${cid}/projects`)).json().projects;
     expect(projects).toEqual([expect.objectContaining({ name: 'Офис', archivedAt: null })]);
   });

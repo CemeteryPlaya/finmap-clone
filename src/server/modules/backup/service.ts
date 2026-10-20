@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
+import { AppError } from '../../errors';
 import type { Config } from '../../config';
 import type { Sqlite } from '../../db/client';
 import { ARCHIVE_RE, archiveName } from './archive-name';
@@ -26,6 +27,23 @@ export interface BackupService {
 }
 
 const DAY_MS = 24 * 3600_000;
+
+/** Бэкап базы без файла SQLite (Postgres): копий на диске нет — снимки делает ежедневное задание (план 2026-10-20, Р13). */
+export function unavailableBackup(): BackupService {
+  const unavailable = () => new AppError(501, 'BACKUP_UNAVAILABLE', 'Резервная копия этой базы делается ежедневным заданием, а не здесь');
+  return {
+    create: () => {
+      throw unavailable();
+    },
+    exportArchive: () => {
+      throw unavailable();
+    },
+    list: () => [],
+    last: () => null,
+    ensureRecent: () => null,
+    status: () => ({ last: null, copyDir: null, lastCopyError: null }),
+  };
+}
 
 /**
  * Текст сбоя копии в BACKUP_COPY_DIR для экрана «Резервная копия» (R3 плана 1.5-4b): что сделать сотруднику,

@@ -36,7 +36,7 @@ describe('categories API', () => {
     const t = await tree(cid);
     expect(t.expense.find((n) => n.id === ads.id)!.children.map((n) => n.name)).toEqual(['Таргет']);
     expect(t.expense.find((n) => n.id === salary.id)!.children[0]).toMatchObject({ name: 'Администраторы', effectiveSystemKey: 'salary' });
-    expect(h.auditCount('category', 'create')).toBe(3);
+    expect(await h.auditCount('category', 'create')).toBe(3);
   });
 
   it('родитель: другого вида, второго уровня, чужой компании — ошибка поля; архивный — 422', async () => {
@@ -64,7 +64,7 @@ describe('categories API', () => {
     const ads = await add(cid, { kind: 'expense', name: 'Реклама' });
     expect((await h.req('PATCH', `${base(cid)}/${ads.id}`, { name: 'Маркетинг' })).json().category.name).toBe('Маркетинг');
     await h.req('PATCH', `${base(cid)}/${ads.id}`, { name: ' Маркетинг ' });
-    expect(h.auditCount('category', 'update')).toBe(1);
+    expect(await h.auditCount('category', 'update')).toBe(1);
     const sys = await h.req('PATCH', `${base(cid)}/${(await salaryOf(cid)).id}`, { name: 'ФОТ' });
     expect(sys.statusCode).toBe(422);
     expect(sys.json().error.code).toBe('SYSTEM_CATEGORY');
@@ -114,9 +114,9 @@ describe('categories API', () => {
     await fail({ kind: 'expense', parentId: null, ids: [...(await top()), print.id] }, 409, 'VERSION_CONFLICT');
     expect((await tree(cid)).expense.find((n) => n.id === ads.id)!.children.map((n) => n.id)).toEqual([print.id]);
 
-    const before = h.auditCount('category', 'reorder');
+    const before = await h.auditCount('category', 'reorder');
     await reorder({ kind: 'expense', parentId: null, ids: await top() }); // тот же порядок
-    expect(h.auditCount('category', 'reorder')).toBe(before);
+    expect(await h.auditCount('category', 'reorder')).toBe(before);
   });
 
   it('порядок дочерних архивного родителя меняется; перенос внутрь архивного — 422', async () => {
@@ -165,7 +165,7 @@ describe('categories API', () => {
     expect((await h.req('DELETE', `${base(cid)}/${tg.id}`)).statusCode).toBe(204);
     expect((await h.req('DELETE', `${base(cid)}/${ads.id}`)).statusCode).toBe(204);
     expect((await tree(cid)).expense.some((n) => n.id === ads.id)).toBe(false);
-    expect(h.auditCount('category', 'delete')).toBe(2);
+    expect(await h.auditCount('category', 'delete')).toBe(2);
   });
 
   it('дерево компании не содержит чужих категорий; чужие id → 404 без истории', async () => {
@@ -178,7 +178,7 @@ describe('categories API', () => {
     expect(all.every((n) => n.companyId === c1)).toBe(true);
     expect(all.some((n) => n.id === x.id)).toBe(false);
 
-    const before = h.auditCount('category');
+    const before = await h.auditCount('category');
     const topIds = own.expense.map((n) => n.id);
     const attempts = [
       ['PATCH', `${base(c1)}/${x.id}`, { name: 'X' }],
@@ -188,6 +188,6 @@ describe('categories API', () => {
       ['POST', `${base(c1)}/reorder`, { kind: 'expense', parentId: null, ids: [...topIds, x.id] }],
     ] as const;
     for (const [method, url, body] of attempts) expect((await h.req(method, url, body)).statusCode).toBe(404);
-    expect(h.auditCount('category')).toBe(before);
+    expect(await h.auditCount('category')).toBe(before);
   });
 });

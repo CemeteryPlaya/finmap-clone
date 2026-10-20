@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createTestDb } from '../helpers/test-db';
 
-let cleanup: (() => void) | null = null;
-afterEach(() => {
-  cleanup?.();
+let cleanup: (() => void | Promise<void>) | null = null;
+afterEach(async () => {
+  await cleanup?.();
   cleanup = null;
 });
 
-function setup() {
-  const t = createTestDb();
+async function setup() {
+  const t = await createTestDb();
   cleanup = t.cleanup;
-  const s = t.sqlite;
+  const s = t.sqlite!;
   s.prepare("INSERT INTO currencies (code,name,symbol,minor_units) VALUES ('KZT','Тенге','₸',2)").run();
   s.prepare("INSERT INTO companies (name, base_currency, created_at) VALUES ('ТОО 1','KZT','x'), ('ТОО 2','KZT','x')").run();
   s.prepare("INSERT INTO users (login, name, password_hash, created_at) VALUES ('u','U','h','x')").run();
@@ -18,16 +18,16 @@ function setup() {
 }
 
 describe('миграция 0002', () => {
-  it('теги уникальны в компании по name_key, включая архивные', () => {
-    const s = setup();
+  it('теги уникальны в компании по name_key, включая архивные', async () => {
+    const s = await setup();
     const ins = s.prepare("INSERT INTO tags (company_id, name, name_key, order_index, created_at, archived_at) VALUES (?, ?, ?, 0, 'x', ?)");
     ins.run(1, 'Аренда', 'аренда', 'y');
     expect(() => ins.run(1, 'аренда', 'аренда', null)).toThrow(/UNIQUE/);
     ins.run(2, 'Аренда', 'аренда', null);
   });
 
-  it('контрагенты и шаблоны разделения ссылаются на компанию', () => {
-    const s = setup();
+  it('контрагенты и шаблоны разделения ссылаются на компанию', async () => {
+    const s = await setup();
     s.prepare("INSERT INTO counterparties (company_id, type, name, comment, order_index, created_at) VALUES (1,'client','ИП','',0,'x')").run();
     expect(() =>
       s.prepare("INSERT INTO counterparties (company_id, type, name, order_index, created_at) VALUES (99,'client','ИП',0,'x')").run(),
@@ -38,8 +38,8 @@ describe('миграция 0002', () => {
     ).toThrow(/FOREIGN KEY/);
   });
 
-  it('user_preferences: пара (user_id, key) уникальна, удаляются вместе с пользователем', () => {
-    const s = setup();
+  it('user_preferences: пара (user_id, key) уникальна, удаляются вместе с пользователем', async () => {
+    const s = await setup();
     const ins = s.prepare("INSERT INTO user_preferences (user_id, key, value, updated_at) VALUES (1, ?, '1', 'x')");
     ins.run('lastCompanyId');
     expect(() => ins.run('lastCompanyId')).toThrow(/UNIQUE/);
@@ -47,8 +47,8 @@ describe('миграция 0002', () => {
     expect((s.prepare('SELECT COUNT(*) n FROM user_preferences').get() as { n: number }).n).toBe(0);
   });
 
-  it('внешние ключи плана 2: categories.parent_id и accounts.project_id', () => {
-    const s = setup();
+  it('внешние ключи плана 2: categories.parent_id и accounts.project_id', async () => {
+    const s = await setup();
     expect(() =>
       s.prepare("INSERT INTO categories (company_id, kind, parent_id, name, order_index, created_at) VALUES (1,'expense',999,'X',0,'x')").run(),
     ).toThrow(/FOREIGN KEY/);

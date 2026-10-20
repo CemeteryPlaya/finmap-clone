@@ -40,7 +40,7 @@ describe('сверка импорта npm run import:check (§12 специфи�
   it('после импорта — «Совпадает»: число операций, движение счетов и итоги по категориям; плановая строка не считается', async () => {
     w = await opsWorld();
     await importFile();
-    const r = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx(ROWS), ...CTX });
+    const r = checkImport({ sqlite: w.h.t.sqlite!, companyId: w.cid, data: finmapLikeXlsx(ROWS), ...CTX });
     expect(r.today).toBe('2026-10-06');
     expect(r.rows).toEqual({ total: 6, future: 1, errors: 0 });
     expect(r.counts).toEqual([
@@ -63,7 +63,7 @@ describe('сверка импорта npm run import:check (§12 специфи�
     expect(formatReport(r).at(-1)).toBe('Итог: Совпадает');
     expect(formatReport(r)[1]).toBe('Сегодня для разбора: 06.10.2026 — строки с датой платежа позже пропущены как плановые (--today ГГГГ-ММ-ДД — другая дата)');
     // другая «сегодня»: декабрьская строка уже не плановая — в файле на одну строку больше, чем в базе
-    const later = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx(ROWS), ...CTX, today: '2026-12-31' });
+    const later = checkImport({ sqlite: w.h.t.sqlite!, companyId: w.cid, data: finmapLikeXlsx(ROWS), ...CTX, today: '2026-12-31' });
     expect(later.rows.future).toBe(0);
     expect(later.counts[0]).toEqual({ what: 'доходы', file: 3, db: 2, currency: null });
   });
@@ -75,7 +75,7 @@ describe('сверка импорта npm run import:check (§12 специфи�
       fr({ paidAt: at('2026-10-02', '11:00:00'), amount: 200, from: 'Касса', category: 'Офис', subcategory: 'Администраторы' }),
     ];
     await importFile(rows);
-    const r = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx(rows), ...CTX });
+    const r = checkImport({ sqlite: w.h.t.sqlite!, companyId: w.cid, data: finmapLikeXlsx(rows), ...CTX });
     expect(r.categories).toEqual([{ what: 'Расходы: Зарплата → Администраторы + Офис → Администраторы', file: -30_000, db: -30_000, currency: 'KZT' }]);
     expect(r.mismatches).toBe(0);
     const text = formatReport(r);
@@ -87,7 +87,7 @@ describe('сверка импорта npm run import:check (§12 специфи�
     w = await opsWorld();
     await importFile();
     await w.post(w.ops, { type: 'income', paidAt: '2026-10-05T05:00:00Z', accountId: w.kzt, amount: 777, lines: [{ categoryId: w.income, projectId: null, amount: 777 }] });
-    const r = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx([...ROWS, fr({ paidAt: at('2026-10-01'), amount: 5, to: 'Сейф' })]), ...CTX });
+    const r = checkImport({ sqlite: w.h.t.sqlite!, companyId: w.cid, data: finmapLikeXlsx([...ROWS, fr({ paidAt: at('2026-10-01'), amount: 5, to: 'Сейф' })]), ...CTX });
     // «Касса», «Доходы: Бар» и число доходов: строка «Сейфа» в число файла не входит (счёта нет), в базе — лишняя операция
     expect(r.mismatches).toBe(3);
     expect(r.counts[0]).toEqual({ what: 'доходы', file: 2, db: 3, currency: null });
@@ -101,8 +101,8 @@ describe('сверка импорта npm run import:check (§12 специфи�
 
   it('ошибка файла — тем же текстом, что в панели; нет компании — понятная ошибка', async () => {
     w = await opsWorld();
-    expect(() => checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: Buffer.from('%PDF-1.4'), ...CTX, fileName: 'отчёт.pdf' })).toThrow('Нужен файл .xlsx или .csv');
-    expect(() => checkImport({ sqlite: w.h.t.sqlite, companyId: 999_999, data: finmapLikeXlsx(ROWS), ...CTX })).toThrow('Компании с id 999999 нет');
+    expect(() => checkImport({ sqlite: w.h.t.sqlite!, companyId: w.cid, data: Buffer.from('%PDF-1.4'), ...CTX, fileName: 'отчёт.pdf' })).toThrow('Нужен файл .xlsx или .csv');
+    expect(() => checkImport({ sqlite: w.h.t.sqlite!, companyId: 999_999, data: finmapLikeXlsx(ROWS), ...CTX })).toThrow('Компании с id 999999 нет');
   });
 });
 
@@ -111,7 +111,7 @@ describe('сверка импорта: что не сверено, не даёт
     w = await opsWorld();
     await importFile();
     const bad = fr({ paidAt: at('2026-10-02', '10:00:00'), amount: null, to: 'Касса', category: 'Бар' });
-    const r = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx([...ROWS, bad]), ...CTX });
+    const r = checkImport({ sqlite: w.h.t.sqlite!, companyId: w.cid, data: finmapLikeXlsx([...ROWS, bad]), ...CTX });
     expect(r.rows.errors).toBe(1);
     expect(r.mismatches).toBe(0);
     expect(r.unchecked).toBe(1);
@@ -127,7 +127,7 @@ describe('сверка импорта: что не сверено, не даёт
       fr({ paidAt: at('2026-10-01'), amount: 5, to: 'Сейф', category: 'Бар' }),
       fr({ paidAt: at('2026-10-01', '01:00:00'), amount: 7, from: 'Касса', to: 'Сейф' }),
     ];
-    const r = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx([...ROWS, ...extra]), ...CTX });
+    const r = checkImport({ sqlite: w.h.t.sqlite!, companyId: w.cid, data: finmapLikeXlsx([...ROWS, ...extra]), ...CTX });
     expect(r.counts.map((l) => [l.file, l.db])).toEqual([[2, 2], [2, 2], [1, 1]]);
     expect(r.accounts.map((l) => l.file === l.db)).toEqual([true, true]);
     expect(r.mismatches).toBe(0);
@@ -143,7 +143,7 @@ describe('сверка импорта: что не сверено, не даёт
       fr({ paidAt: at('2026-10-04', '10:00:00'), amount: 3000, from: 'Касса', to: 'Валютный' }),
     ];
     await importFile(rows);
-    const r = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx(rows), ...CTX });
+    const r = checkImport({ sqlite: w.h.t.sqlite!, companyId: w.cid, data: finmapLikeXlsx(rows), ...CTX });
     expect(r.counts.map((l) => [l.file, l.db])).toEqual([[1, 1], [0, 0], [2, 2]]);
     expect(r.accounts.find((l) => l.what === 'Валютный, USD')).toMatchObject({ currency: 'USD', file: 600 });
     expect(r.categories).toEqual([{ what: 'Доходы: Бар', file: 475_120, db: 475_120, currency: 'KZT' }]);
@@ -169,7 +169,7 @@ describe('сверка импорта: что не сверено, не даёт
     w = await opsWorld();
     await importFile(CROSS_ROWS);
     await w.post(w.ops, { type: 'income', paidAt: '2026-10-02T05:00:00Z', accountId: w.usd, amount: 1000, lines: [{ categoryId: w.income, projectId: null, amount: 1000 }] });
-    const r = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx(CROSS_ROWS), ...CTX });
+    const r = checkImport({ sqlite: w.h.t.sqlite!, companyId: w.cid, data: finmapLikeXlsx(CROSS_ROWS), ...CTX });
     expect(r.accounts.find((l) => l.what === 'Валютный, USD')).toMatchObject({ file: 1000, db: 2000, unverified: true });
     expect(r.mismatches).toBeGreaterThanOrEqual(1);
     expect(formatReport(r).some((l) => l.startsWith('≠ Валютный, USD'))).toBe(true);
@@ -179,10 +179,10 @@ describe('сверка импорта: что не сверено, не даёт
   it('настоящее расхождение на другом счёте при переводе между валютами по-прежнему считается', async () => {
     w = await opsWorld();
     await importFile(CROSS_ROWS);
-    const before = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx(CROSS_ROWS), ...CTX });
+    const before = checkImport({ sqlite: w.h.t.sqlite!, companyId: w.cid, data: finmapLikeXlsx(CROSS_ROWS), ...CTX });
     expect(before.mismatches).toBe(0);
     await w.post(w.ops, { type: 'income', paidAt: '2026-10-02T05:00:00Z', accountId: w.kzt, amount: 777, lines: [{ categoryId: w.income, projectId: null, amount: 777 }] });
-    const r = checkImport({ sqlite: w.h.t.sqlite, companyId: w.cid, data: finmapLikeXlsx(CROSS_ROWS), ...CTX });
+    const r = checkImport({ sqlite: w.h.t.sqlite!, companyId: w.cid, data: finmapLikeXlsx(CROSS_ROWS), ...CTX });
     expect(r.accounts.find((l) => l.what === 'Касса, KZT')).toMatchObject({ db: r.accounts.find((l) => l.what === 'Касса, KZT')!.file + 777 });
     expect(r.accounts.find((l) => l.what === 'Валютный, USD')).toMatchObject({ file: 1000, db: 1000 });
     expect(r.mismatches).toBe(3);

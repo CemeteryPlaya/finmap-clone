@@ -253,7 +253,7 @@ describe('«Выписка по счету»: GET …/analytics/statement (§6, 
     await world();
     const before = await statement(`account=${w.kzt}&${PERIOD}`);
     const planned = (await w.post(w.ops, { type: 'income', paidAt: '2026-10-02T09:00:00Z', accountId: w.kzt, amount: 77_700, lines: [{ categoryId: w.income, amount: 77_700 }] })).operation.id as number;
-    w.h.t.sqlite.prepare("UPDATE operations SET status = 'planned' WHERE id = ?").run(planned);
+    await w.h.t.q("UPDATE operations SET status = 'planned' WHERE id = ?", planned);
     const after = await statement(`account=${w.kzt}&${PERIOD}`);
     expect(after.summary).toEqual(before.summary);
     expect(after.items.map((i) => i.id)).toEqual(before.items.map((i) => i.id));

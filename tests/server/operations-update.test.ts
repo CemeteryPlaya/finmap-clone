@@ -27,7 +27,7 @@ describe('operations: правка, удаление, восстановлени
     expect(v2.json().operation).toMatchObject({ comment: 'а', version: 2 });
     expect(fail(await patch(op.id, { version: 1, comment: 'б' }), 409, 'VERSION_CONFLICT').message).toBe('Операция изменена другим пользователем');
     expect((await patch(op.id, { version: 2, comment: ' а ' })).json().operation.version).toBe(2);
-    expect(w.h.auditCount('operation', 'update')).toBe(1);
+    expect(await w.h.auditCount('operation', 'update')).toBe(1);
   });
 
   it('пересчёт: правка комментария после смены курса не меняет rate и baseAmount, правка суммы — пересчитывает (Review Focus 2)', async () => {
@@ -93,8 +93,8 @@ describe('operations: правка, удаление, восстановлени
     expect(fail(await patch(op.id, { version: 2, comment: 'x' }), 409, 'VERSION_CONFLICT').message).toBe('Операция удалена — обновите страницу');
     const back = (await w.h.req('POST', `${w.ops}/${op.id}/restore`)).json().operation;
     expect(back).toMatchObject({ deletedAt: null, version: 3 });
-    expect(w.h.auditCount('operation', 'delete')).toBe(1);
-    expect(w.h.auditCount('operation', 'restore')).toBe(1);
+    expect(await w.h.auditCount('operation', 'delete')).toBe(1);
+    expect(await w.h.auditCount('operation', 'restore')).toBe(1);
   });
 
   it('восстановление: архивная категория не мешает, архивный счёт мешает, openedAt позже даты операции — INVARIANT_6 (Review Focus 4)', async () => {
@@ -253,7 +253,7 @@ describe('«Изменить в перевод»: PATCH с type: transfer (§10.
     refused(await patch(op.id, without('accrualDate')), 400, 'VALIDATION', { accrualDate: 'У перевода нет даты сделки' });
     refused(await patch(op.id, { ...full, type: 'income' }), 400, 'VALIDATION', { type: 'Тип можно сменить только на «Перевод»' });
     expect((await w.h.req('GET', `${w.ops}/${op.id}`)).json().operation).toMatchObject({ type: 'expense', version: 1, counterpartyId: w.counterparty, accrualDate: '2026-09-01' });
-    expect(w.h.auditCount('operation', 'update')).toBe(0);
+    expect(await w.h.auditCount('operation', 'update')).toBe(0);
 
     const fx = await create({ type: 'income', paidAt: '2026-10-05T10:00:00Z', accountId: w.usd, amount: 100 });
     refused(await patch(fx.id, { version: 1, type: 'transfer', accountId: w.kzt, toAccountId: w.usd, lines: [] }), 400, 'VALIDATION', { toAmount: 'Укажите сумму зачисления' });
@@ -265,7 +265,7 @@ describe('«Изменить в перевод»: PATCH с type: transfer (§10.
     const tr = await create({ type: 'transfer', paidAt: '2026-10-05T10:00:00Z', accountId: w.kzt, toAccountId: kaspi, amount: 5000 });
     refused(await patch(tr.id, { version: 1, type: 'expense' }), 400, 'VALIDATION', { type: 'Тип можно сменить только на «Перевод»' });
     expect((await w.h.req('GET', `${w.ops}/${tr.id}`)).json().operation).toMatchObject({ type: 'transfer', version: 1, toAccountId: kaspi, toAmount: 5000 });
-    expect(w.h.auditCount('operation', 'update')).toBe(0);
+    expect(await w.h.auditCount('operation', 'update')).toBe(0);
   });
 
   it('операция на архивном счёте: тип менять нельзя — ARCHIVED_REFERENCE со своим текстом (Review Focus 3)', async () => {
@@ -289,7 +289,7 @@ describe('«Изменить в перевод»: PATCH с type: transfer (§10.
     expect((await patch(op.id, { version: 2, ...body })).statusCode).toBe(200);
     const same = await patch(op.id, { version: 3, type: 'transfer' });
     expect(same.json().operation).toMatchObject({ type: 'transfer', version: 3 });
-    expect(w.h.auditCount('operation', 'update')).toBe(2);
+    expect(await w.h.auditCount('operation', 'update')).toBe(2);
 
     const [last] = (await w.h.req('GET', `/api/v1/companies/${w.cid}/audit?entity=operation&limit=20`)).json().entries as { action: string; diff: Record<string, unknown> }[];
     expect(last!.action).toBe('update');
@@ -306,7 +306,7 @@ describe('«Изменить в перевод»: дополнения итог�
   const addKaspi = async () => (await w.post(accountsUrl(), { name: 'Kaspi', currency: 'KZT', openedAt: '2026-10-01' })).account.id as number;
   const unchanged = async (id: number, expected: object) => {
     expect((await w.h.req('GET', `${w.ops}/${id}`)).json().operation).toMatchObject({ version: 1, ...expected });
-    expect(w.h.auditCount('operation', 'update')).toBe(0);
+    expect(await w.h.auditCount('operation', 'update')).toBe(0);
   };
 
   it('разбитая операция: перевод с двумя строками отклонён, операция не меняется и истории нет', async () => {
@@ -349,7 +349,7 @@ describe('«Изменить в перевод»: дополнения итог�
     const res = await patch(tr.id, { version: 1, type: 'transfer' });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json().operation).toMatchObject({ type: 'transfer', version: 1 });
-    expect(w.h.auditCount('operation', 'update')).toBe(0);
+    expect(await w.h.auditCount('operation', 'update')).toBe(0);
   });
 
   it('доход → перевод в одной валюте: курс 1 и базовая сумма равны сумме', async () => {

@@ -25,73 +25,67 @@ interface Counts {
 }
 
 /** Число строк в таблицах, которые пробный расчёт (`dryRun`) не должен менять. */
-function rowCounts(world: StockWorld): Record<string, number> {
-  const s = world.h.t.sqlite;
+async function rowCounts(world: StockWorld): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   for (const table of ['stock_docs', 'stock_batches', 'stock_allocations', 'audit_log']) {
-    out[table] = (s.prepare(`SELECT COUNT(*) n FROM ${table}`).get() as Counts).n;
+    out[table] = ((await world.h.t.q(`SELECT COUNT(*) n FROM ${table}`))[0] as Counts).n;
   }
   return out;
 }
 
 /** Инварианты §13: деньги и количество сходятся, остатки не отрицательны, база равна свежему пересчёту. */
-function assertInvariants(world: StockWorld, label: string): void {
-  const s = world.h.t.sqlite;
-  const one = <T>(sql: string) => s.prepare(sql).get() as T;
-  const purchased = one<{ v: number }>(
+async function assertInvariants(world: StockWorld, label: string): Promise<void> {
+  const one = async <T>(sql: string) => (await world.h.t.q(sql))[0] as T;
+  const purchased = (await one<{ v: number }>(
     "SELECT COALESCE(SUM(l.amount), 0) v FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id WHERE d.type = 'receipt' AND d.deleted_at IS NULL",
-  ).v;
+  )).v;
   // излишек инвентаризации — партия без закупки: приходует стоимость по цене последней партии склада
-  const surplus = one<{ v: number }>(
+  const surplus = (await one<{ v: number }>(
     "SELECT COALESCE(SUM(b.cost_in), 0) v FROM stock_batches b JOIN stock_doc_lines l ON l.id = b.origin_line_id JOIN stock_docs d ON d.id = l.doc_id WHERE d.type = 'count'",
-  ).v;
-  const left = one<{ v: number }>('SELECT COALESCE(SUM(cost_left), 0) v FROM stock_batches').v;
+  )).v;
+  const left = (await one<{ v: number }>('SELECT COALESCE(SUM(cost_left), 0) v FROM stock_batches')).v;
   // взятое перемещением не уходит со склада — оно стало партиями получателя
-  const taken = one<{ v: number }>(
+  const taken = (await one<{ v: number }>(
     "SELECT COALESCE(SUM(a.cost), 0) v FROM stock_allocations a JOIN stock_doc_lines l ON l.id = a.line_id JOIN stock_docs d ON d.id = l.doc_id WHERE d.type <> 'transfer'",
-  ).v;
+  )).v;
   expect(left + taken, `${label}: стоимость склада + себестоимость = закупки + излишки`).toBe(purchased + surplus);
 
-  const qtyIn = one<{ v: number }>('SELECT COALESCE(SUM(qty_in), 0) v FROM stock_batches').v;
-  const qtyLeft = one<{ v: number }>('SELECT COALESCE(SUM(qty_left), 0) v FROM stock_batches').v;
-  const qtyTaken = one<{ v: number }>('SELECT COALESCE(SUM(qty), 0) v FROM stock_allocations WHERE batch_id IS NOT NULL').v;
+  const qtyIn = (await one<{ v: number }>('SELECT COALESCE(SUM(qty_in), 0) v FROM stock_batches')).v;
+  const qtyLeft = (await one<{ v: number }>('SELECT COALESCE(SUM(qty_left), 0) v FROM stock_batches')).v;
+  const qtyTaken = (await one<{ v: number }>('SELECT COALESCE(SUM(qty), 0) v FROM stock_allocations WHERE batch_id IS NOT NULL')).v;
   expect(qtyLeft + qtyTaken, `${label}: количество`).toBe(qtyIn);
-  expect(one<Counts>('SELECT COUNT(*) n FROM stock_batches WHERE qty_left < 0 OR cost_left < 0 OR (qty_left = 0 AND cost_left <> 0)').n, `${label}: отрицательные остатки`).toBe(0);
+  expect((await one<Counts>('SELECT COUNT(*) n FROM stock_batches WHERE qty_left < 0 OR cost_left < 0 OR (qty_left = 0 AND cost_left <> 0)')).n, `${label}: отрицательные остатки`).toBe(0);
 
   // у каждой живой строки списания части дают её количество, у удалённых документов нет ни партий, ни списаний
-  const bad = s
-    .prepare(
+  const bad = (await world.h.t.q(
       `SELECT l.id FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id
         WHERE d.type IN ('sale', 'writeoff', 'transfer') AND d.deleted_at IS NULL
           AND COALESCE((SELECT SUM(l.qty * p.qty / 1000) FROM stock_combo_parts p WHERE p.combo_id = l.item_id), l.qty)
               <> (SELECT COALESCE(SUM(a.qty), 0) FROM stock_allocations a WHERE a.line_id = l.id)`,
-    )
-    .all();
+    ));
   expect(bad, `${label}: части списания`).toEqual([]);
   expect(
-    one<Counts>(
+    (await one<Counts>(
       `SELECT COUNT(*) n FROM stock_batches b JOIN stock_doc_lines l ON l.id = b.origin_line_id JOIN stock_docs d ON d.id = l.doc_id WHERE d.deleted_at IS NOT NULL`,
-    ).n,
+    )).n,
     `${label}: партии удалённых`,
   ).toBe(0);
   expect(
-    one<Counts>(
+    (await one<Counts>(
       `SELECT COUNT(*) n FROM stock_allocations a JOIN stock_doc_lines l ON l.id = a.line_id JOIN stock_docs d ON d.id = l.doc_id WHERE d.deleted_at IS NOT NULL`,
-    ).n,
+    )).n,
     `${label}: списания удалённых`,
   ).toBe(0);
 
   // база равна независимому пересчёту по живым документам
-  const lines = s
-    .prepare(
+  const lines = (await world.h.t.q(
       `SELECT l.id lineId, l.doc_id docId, l.position position, l.qty qty, l.amount amount, l.item_id itemId, d.warehouse_id warehouseId, d.to_warehouse_id toWarehouseId, d.type type, d.at at,
               l.counted_qty countedQty, l.expected_qty expectedQty
          FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id WHERE d.deleted_at IS NULL AND d.status = 'posted'`,
-    )
-    .all() as { lineId: number; docId: number; position: number; qty: number; amount: number | null; itemId: number; warehouseId: number; toWarehouseId: number | null; type: string; at: string; countedQty: number | null; expectedQty: number | null }[];
+    )) as { lineId: number; docId: number; position: number; qty: number; amount: number | null; itemId: number; warehouseId: number; toWarehouseId: number | null; type: string; at: string; countedQty: number | null; expectedQty: number | null }[];
   // все склады товара — одним проходом: группы пересчёта независимы, их объединение даёт тот же результат
   const byItem = new Map<number, StockEvent[]>();
-  const parts = s.prepare('SELECT combo_id comboId, item_id itemId, qty FROM stock_combo_parts').all() as { comboId: number; itemId: number; qty: number }[];
+  const parts = (await world.h.t.q('SELECT combo_id comboId, item_id itemId, qty FROM stock_combo_parts')) as { comboId: number; itemId: number; qty: number }[];
   const comboItems = new Set(parts.map((p) => p.comboId));
   const push = (item: number, ev: StockEvent) => byItem.set(item, [...(byItem.get(item) ?? []), ev]);
   for (const l of lines) {
@@ -115,13 +109,11 @@ function assertInvariants(world: StockWorld, label: string): void {
   for (const [item, events] of byItem) {
     const fresh = runStock(events);
     for (const o of fresh.outs.values()) {
-      const stored = s
-        .prepare('SELECT COALESCE(SUM(cost), 0) cost, COALESCE(SUM(CASE WHEN batch_id IS NULL THEN qty END), 0) unc FROM stock_allocations WHERE line_id = ? AND COALESCE(component_item_id, 0) = ?')
-        .get(o.key, comboLines.has(o.key) ? item : 0) as { cost: number; unc: number };
+      const stored = (await world.h.t.q('SELECT COALESCE(SUM(cost), 0) cost, COALESCE(SUM(CASE WHEN batch_id IS NULL THEN qty END), 0) unc FROM stock_allocations WHERE line_id = ? AND COALESCE(component_item_id, 0) = ?', o.key, comboLines.has(o.key) ? item : 0))[0] as { cost: number; unc: number };
       expect([stored.cost, stored.unc], `${label}: строка ${o.key} товара ${item}`).toEqual([o.takes.reduce((a, t) => a + (t.cost ?? 0), 0), o.uncovered]);
     }
     for (const wh of new Set(fresh.batches.map((b) => b.wh).concat(events.map((e) => e.wh)))) {
-      const storedLeft = s.prepare('SELECT COALESCE(SUM(qty_left), 0) q, COALESCE(SUM(cost_left), 0) c FROM stock_batches WHERE warehouse_id = ? AND item_id = ?').get(wh, item) as { q: number; c: number };
+      const storedLeft = (await world.h.t.q('SELECT COALESCE(SUM(qty_left), 0) q, COALESCE(SUM(cost_left), 0) c FROM stock_batches WHERE warehouse_id = ? AND item_id = ?', wh, item))[0] as { q: number; c: number };
       const mine = fresh.batches.filter((b) => b.wh === wh);
       expect([storedLeft.q, storedLeft.c], `${label}: остаток склада ${wh} товара ${item}`).toEqual([mine.reduce((a, b) => a + b.qtyLeft, 0), mine.reduce((a, b) => a + b.costLeft, 0)]);
     }
@@ -161,7 +153,7 @@ describe('случайные последовательности докумен
         const label = `seed ${seed} шаг ${step}`;
         // пробный расчёт перед шагом: ни документов, ни партий, ни списаний, ни истории не прибавляется и не убывает
         if (rand() < 0.35) {
-          const counts = rowCounts(world);
+          const counts = await rowCounts(world);
           const kind = live.length > 0 ? pick(['create', 'patch', 'delete']) : 'create';
           let probe;
           if (kind === 'create') {
@@ -183,7 +175,7 @@ describe('случайные последовательности докумен
           } else continue;
           expect([200, 422], `${label}: dryRun ${kind}: ${probe.body}`).toContain(probe.statusCode);
           if (probe.statusCode === 200) expect(probe.json().doc, `${label}: dryRun без документа`).toBeNull();
-          expect(rowCounts(world), `${label}: dryRun ${kind} ничего не записал`).toEqual(counts);
+          expect(await rowCounts(world), `${label}: dryRun ${kind} ничего не записал`).toEqual(counts);
           probes++;
         }
         if (roll < 0.3) {
@@ -228,7 +220,7 @@ describe('случайные последовательности докумен
           expect(res.json().error.code, label).toBe('INSUFFICIENT_STOCK');
           insufficient++;
         }
-        assertInvariants(world, label);
+        await assertInvariants(world, label);
       }
       expect(saved, `seed ${seed}: последовательность не пустая`).toBeGreaterThan(20);
       expect(probes, `seed ${seed}: пробные расчёты были`).toBeGreaterThan(0);

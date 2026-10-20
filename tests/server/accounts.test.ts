@@ -6,13 +6,13 @@ import { createAccountsService } from '../../src/server/modules/accounts/service
 import { createAuditService } from '../../src/server/modules/audit/service';
 import type { BalancesService } from '../../src/server/modules/balances/service';
 import type { ReferencesService } from '../../src/server/modules/references/service';
-import { createTestDb } from '../helpers/test-db';
+import { createTestDb, type TestDb } from '../helpers/test-db';
 
-let t: ReturnType<typeof createTestDb>;
+let t: TestDb;
 afterEach(() => t?.cleanup());
 
 async function setup() {
-  t = createTestDb();
+  t = await createTestDb();
   await seedCurrencies(t.db);
   const c1 = t.db.insert(companies).values({ name: 'A', baseCurrency: 'KZT', createdAt: 'x' }).returning().get();
   const c2 = t.db.insert(companies).values({ name: 'B', baseCurrency: 'KZT', createdAt: 'x' }).returning().get();
@@ -75,7 +75,7 @@ describe('accounts', () => {
     await svc.create(t.db, { companyId: c1, name: 'A', currency: 'KZT', openedAt: '2026-10-06' });
     await svc.create(t.db, { companyId: c1, projectId: p.id, name: 'P1', currency: 'KZT', openedAt: '2026-10-06' });
     const b = await svc.create(t.db, { companyId: c1, projectId: p.id, name: 'P2', currency: 'KZT', openedAt: '2026-10-06' });
-    t.sqlite.prepare('UPDATE accounts SET archived_at = ? WHERE id = ?').run('x', b.id);
+    await t.q('UPDATE accounts SET archived_at = ? WHERE id = ?', 'x', b.id);
     expect(await svc.countActive(c1)).toBe(2);
     expect(await svc.countActive(c1, p.id)).toBe(1);
   });
@@ -83,7 +83,7 @@ describe('accounts', () => {
 
 describe('accounts: ссылки операций и баланс (заглушки шага 4 подменяются)', () => {
   it('удаление, смена валюты, сдвиг openedAt и архив учитывают операции и баланс', async () => {
-    t = createTestDb();
+    t = await createTestDb();
     await seedCurrencies(t.db);
     const company = t.db.insert(companies).values({ name: 'A', baseCurrency: 'KZT', createdAt: 'x' }).returning().get();
     const references: ReferencesService = { countOperations: async () => 1, earliestOperationDate: async () => '2026-10-01' };

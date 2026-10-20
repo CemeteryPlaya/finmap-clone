@@ -17,7 +17,7 @@ import { sheetRows } from '../helpers/xlsx-rows';
 let w: OpsWorld;
 afterEach(async () => w?.h.t.cleanup());
 
-const sqlite = () => w.h.t.sqlite;
+const sqlite = () => w.h.t.sqlite!;
 const all = <T = Record<string, any>>(sql: string, ...args: unknown[]) => sqlite().prepare(sql).all(...args) as T[];
 const one = <T = Record<string, any>>(sql: string, ...args: unknown[]) => sqlite().prepare(sql).get(...args) as T;
 const base = (cid: number) => `/api/v1/companies/${cid}`;
@@ -300,7 +300,7 @@ describe('круг на демо-наборе (§11.2)', () => {
     const h = await createApi(NOW);
     await seedDemo({ db: h.t.db, timezone: 'Asia/Almaty', now: new Date(NOW), operations: 300 });
     w = { h } as OpsWorld;
-    const source = (h.t.sqlite.prepare('SELECT id FROM companies ORDER BY id LIMIT 1').get() as { id: number }).id;
+    const source = ((await h.t.q('SELECT id FROM companies ORDER BY id LIMIT 1'))[0] as { id: number }).id;
     const file = await exportFile(source);
     const rows = sheetRows(file);
     const target = await h.company('ТОО Круг демо');

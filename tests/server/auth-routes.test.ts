@@ -78,7 +78,7 @@ describe('auth routes', () => {
     expect(forged.json().error.code).toBe('UNAUTHORIZED');
 
     const cookie = await loginAs(t);
-    t.sqlite.prepare('DELETE FROM sessions').run(); // как после восстановления бэкапа
+    await t.q('DELETE FROM sessions'); // как после восстановления бэкапа
     expect((await t.app.inject({ method: 'GET', url: '/api/v1/auth/me', headers: { cookie } })).statusCode).toBe(401);
   });
 
@@ -89,7 +89,7 @@ describe('auth routes', () => {
     const out = await t.app.inject({ method: 'POST', url: '/api/v1/auth/logout', headers: { ...ORIGIN_HEADERS, cookie } });
     expect(out.statusCode).toBe(204);
     expect((await t.app.inject({ method: 'GET', url: '/api/v1/auth/me', headers: { cookie } })).statusCode).toBe(401);
-    const actions = t.sqlite.prepare('SELECT action FROM audit_log ORDER BY id').all() as { action: string }[];
+    const actions = (await t.q('SELECT action FROM audit_log ORDER BY id')) as { action: string }[];
     expect(actions.map((a) => a.action)).toEqual(['create', 'login', 'logout']);
   });
 

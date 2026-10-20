@@ -9,7 +9,7 @@ type Req = (method: 'GET' | 'POST' | 'PATCH', url: string, payload?: object) => 
 
 async function setup(now?: string) {
   t = await createTestApp({}, undefined, now ? () => new Date(now) : undefined);
-  t.sqlite.prepare("INSERT INTO currencies (code,name,symbol,minor_units) VALUES ('KZT','Тенге','₸',2),('USD','Доллар','$',2)").run();
+  await t.q("INSERT INTO currencies (code,name,symbol,minor_units) VALUES ('KZT','Тенге','₸',2),('USD','Доллар','$',2)");
   await seedUser(t);
   const cookie = await loginAs(t);
   const req: Req = (method, url, payload) =>
@@ -52,18 +52,18 @@ describe('projects API', () => {
       ['Касса Клуб на Ленина', 'KZT', project.id],
       ['Kaspi Клуб на Ленина', 'KZT', project.id],
     ]);
-    const audit = t.sqlite.prepare("SELECT action FROM audit_log WHERE entity = 'project'").all();
+    const audit = (await t.q("SELECT action FROM audit_log WHERE entity = 'project'"));
     expect(audit).toEqual([{ action: 'create' }]);
   });
 
   it('второй клуб не дублирует категории, но получает свои счета (Review Focus 1)', async () => {
     const { req, cid } = await setup();
     await req('POST', `/api/v1/companies/${cid}/projects`, club('Клуб 1'));
-    const count = () => (t.sqlite.prepare('SELECT COUNT(*) n FROM categories WHERE company_id = ?').get(cid) as { n: number }).n;
-    const before = count();
+    const count = async () => ((await t.q('SELECT COUNT(*) n FROM categories WHERE company_id = ?', cid))[0] as { n: number }).n;
+    const before = await count();
     const second = (await req('POST', `/api/v1/companies/${cid}/projects`, club('Клуб 2'))).json();
     expect(second.applied).toEqual({ categories: 0, accounts: 2 });
-    expect(count()).toBe(before);
+    expect(await count()).toBe(before);
     const names = (await req('GET', `/api/v1/companies/${cid}/accounts`)).json().accounts.map((a: { name: string }) => a.name);
     expect(names).toEqual(['Касса Клуб 1', 'Kaspi Клуб 1', 'Касса Клуб 2', 'Kaspi Клуб 2']);
   });
@@ -101,7 +101,7 @@ describe('projects API', () => {
       templateParams: { pcCount: 5, hack: true },
     });
     expect(extra.json().project.templateParams).toEqual({ pcCount: 5, consoleCount: 0 });
-    expect(t.sqlite.prepare('SELECT COUNT(*) n FROM projects').get()).toEqual({ n: 1 });
+    expect((await t.q('SELECT COUNT(*) n FROM projects'))[0]).toEqual({ n: 1 });
   });
 
   it('openedAt счетов — дата в APP_TIMEZONE (Review Focus 5)', async () => {
@@ -130,7 +130,7 @@ describe('projects API', () => {
     const blocked = await req('POST', `/api/v1/companies/${cid}/projects/${project.id}/archive`);
     expect(blocked.statusCode).toBe(422);
     expect(blocked.json().error.code).toBe('ARCHIVED_REFERENCE');
-    t.sqlite.prepare("UPDATE accounts SET archived_at = 'x' WHERE project_id = ?").run(project.id);
+    await t.q("UPDATE accounts SET archived_at = 'x' WHERE project_id = ?", project.id);
     expect((await req('POST', `/api/v1/companies/${cid}/projects/${project.id}/archive`)).json().project.archivedAt).not.toBeNull();
     expect((await req('PATCH', `/api/v1/companies/${cid}/projects/${project.id}`, { name: 'Z' })).statusCode).toBe(422);
     expect((await req('POST', `/api/v1/companies/${cid}/projects/${project.id}/unarchive`)).json().project.archivedAt).toBeNull();
@@ -144,7 +144,7 @@ describe('projects API', () => {
     expect((await req('POST', `/api/v1/companies/${cid}/projects/${project.id}/archive`)).statusCode).toBe(404);
     expect((await req('GET', '/api/v1/companies/999/projects')).statusCode).toBe(404);
     expect((await req('GET', '/api/v1/companies/999/categories')).statusCode).toBe(404);
-    expect((t.sqlite.prepare('SELECT name FROM projects WHERE id = ?').get(project.id) as { name: string }).name).toBe('Чужой');
+    expect(((await t.q('SELECT name FROM projects WHERE id = ?', project.id))[0] as { name: string }).name).toBe('Чужой');
   });
 
   it('в архивной компании проект не создаётся', async () => {

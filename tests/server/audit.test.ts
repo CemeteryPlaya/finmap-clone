@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createAuditService, sanitizeDiff } from '../../src/server/modules/audit/service';
-import { createTestDb } from '../helpers/test-db';
+import { createTestDb, type TestDb } from '../helpers/test-db';
 
-let t: ReturnType<typeof createTestDb>;
+let t: TestDb;
 afterEach(() => t?.cleanup());
 
 describe('audit', () => {
@@ -19,7 +19,7 @@ describe('audit', () => {
   });
 
   it('записывает и отдаёт события компании от новых к старым', async () => {
-    t = createTestDb();
+    t = await createTestDb();
     let n = 0;
     const audit = createAuditService(t.db, () => new Date(Date.UTC(2026, 9, 5, 10, 0, n++)));
     await audit.record({ companyId: 1, userId: 7, entity: 'account', entityId: 3, action: 'create', diff: { name: 'Касса' } });
@@ -37,7 +37,7 @@ describe('audit', () => {
   });
 
   it('не сохраняет секретные поля в diff', async () => {
-    t = createTestDb();
+    t = await createTestDb();
     const audit = createAuditService(t.db);
     await audit.record({ userId: 1, entity: 'user', entityId: 1, action: 'password_change', diff: { passwordHash: 'h' } });
     expect((await audit.list({ companyId: null }))[0]!.diff).toEqual({});

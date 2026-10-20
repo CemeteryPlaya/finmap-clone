@@ -6,7 +6,7 @@ afterEach(async () => t?.cleanup());
 
 async function setup() {
   t = await createTestApp();
-  t.sqlite.prepare("INSERT INTO currencies (code,name,symbol,minor_units) VALUES ('KZT','Тенге','₸',2),('USD','Доллар','$',2)").run();
+  await t.q("INSERT INTO currencies (code,name,symbol,minor_units) VALUES ('KZT','Тенге','₸',2),('USD','Доллар','$',2)");
   await seedUser(t);
   const cookie = await loginAs(t);
   const req = (method: 'GET' | 'POST' | 'PATCH', url: string, payload?: object) =>
@@ -21,9 +21,9 @@ describe('companies API', () => {
     expect(res.statusCode).toBe(201);
     const { company } = res.json();
     expect(company).toMatchObject({ name: 'ТОО Ромашка', baseCurrency: 'KZT', archivedAt: null });
-    const n = t.sqlite.prepare('SELECT COUNT(*) n FROM categories WHERE company_id = ? AND system_key IS NOT NULL').get(company.id) as { n: number };
+    const n = (await t.q('SELECT COUNT(*) n FROM categories WHERE company_id = ? AND system_key IS NOT NULL', company.id))[0] as { n: number };
     expect(n.n).toBe(9);
-    const audit = t.sqlite.prepare("SELECT action, company_id FROM audit_log WHERE entity = 'company'").all();
+    const audit = (await t.q("SELECT action, company_id FROM audit_log WHERE entity = 'company'"));
     expect(audit).toEqual([{ action: 'create', company_id: company.id }]);
     const list = await req('GET', '/api/v1/companies');
     expect(list.json().companies.map((c: { name: string }) => c.name)).toEqual(['ТОО Ромашка']);
@@ -54,14 +54,12 @@ describe('companies API', () => {
   it('архив: только без активных счетов; архивная компания только для чтения', async () => {
     const { req } = await setup();
     const { company } = (await req('POST', '/api/v1/companies', { name: 'A' })).json();
-    t.sqlite
-      .prepare("INSERT INTO accounts (company_id, name, currency, starting_balance, opened_at, order_index, created_at) VALUES (?,'К','KZT',0,'2026-10-06',0,'x')")
-      .run(company.id);
+    await t.q("INSERT INTO accounts (company_id, name, currency, starting_balance, opened_at, order_index, created_at) VALUES (?,'К','KZT',0,'2026-10-06',0,'x')", company.id);
     const blocked = await req('POST', `/api/v1/companies/${company.id}/archive`);
     expect(blocked.statusCode).toBe(422);
     expect(blocked.json().error.code).toBe('ARCHIVED_REFERENCE');
 
-    t.sqlite.prepare("UPDATE accounts SET archived_at = 'x' WHERE company_id = ?").run(company.id);
+    await t.q("UPDATE accounts SET archived_at = 'x' WHERE company_id = ?", company.id);
     const ok = await req('POST', `/api/v1/companies/${company.id}/archive`);
     expect(ok.statusCode).toBe(200);
     expect(ok.json().company.archivedAt).not.toBeNull();
@@ -72,7 +70,7 @@ describe('companies API', () => {
 
     const back = await req('POST', `/api/v1/companies/${company.id}/unarchive`);
     expect(back.json().company.archivedAt).toBeNull();
-    const actions = t.sqlite.prepare("SELECT action FROM audit_log WHERE entity = 'company' ORDER BY id").all() as { action: string }[];
+    const actions = (await t.q("SELECT action FROM audit_log WHERE entity = 'company' ORDER BY id")) as { action: string }[];
     expect(actions.map((a) => a.action)).toEqual(['create', 'archive', 'unarchive']);
   });
 

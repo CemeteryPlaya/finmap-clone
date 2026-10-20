@@ -19,7 +19,7 @@ async function world(): Promise<StockWorld> {
 
 const patch = (world: StockWorld, id: number, body: Record<string, unknown>) => world.h.req('PATCH', `${world.stock}/docs/${id}`, body);
 const getDoc = async (world: StockWorld, id: number) => (await world.h.req('GET', `${world.stock}/docs/${id}`)).json().doc;
-const rows = <T>(world: StockWorld, sql: string, ...args: unknown[]) => world.h.t.sqlite.prepare(sql).all(...args) as T[];
+const rows = async <T>(world: StockWorld, sql: string, ...args: unknown[]) => (await world.h.t.q(sql, ...args)) as T[];
 
 describe('правка документа: версия и 409', () => {
   it('правка увеличивает версию и пишет историю с изменёнными полями', async () => {
@@ -29,7 +29,7 @@ describe('правка документа: версия и 409', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().doc).toMatchObject({ version: 2, comment: 'пересчитали', total: 96_000, lines: [{ qty: 8000, amount: 96_000 }] });
     expect(res.json().impact).toEqual({ sales: 0, writeoffs: 0, since: null });
-    const audit = rows<{ diff: string }>(w, "SELECT diff FROM audit_log WHERE entity = 'stock_doc' AND action = 'update'");
+    const audit = await rows<{ diff: string }>(w, "SELECT diff FROM audit_log WHERE entity = 'stock_doc' AND action = 'update'");
     expect(audit).toHaveLength(1);
     const diff = JSON.parse(audit[0]!.diff);
     expect(diff.after.comment).toBe('пересчитали');
@@ -44,7 +44,7 @@ describe('правка документа: версия и 409', () => {
     const second = await patch(w, r.id, { version: 1, comment: 'вторая вкладка' });
     expect([second.statusCode, second.json().error.code]).toEqual([409, 'VERSION_CONFLICT']);
     expect(await getDoc(w, r.id)).toMatchObject({ comment: 'первая вкладка', version: 2 });
-    expect(w.h.auditCount('stock_doc', 'update')).toBe(1);
+    expect(await w.h.auditCount('stock_doc', 'update')).toBe(1);
   });
 
   it('удалённый документ править нельзя — 409', async () => {
@@ -61,7 +61,7 @@ describe('правка документа: версия и 409', () => {
     const res = await patch(w, r.id, { version: 1, comment: 'тот же', at: D1, counterpartyId: w.supplier, lines: [{ itemId: w.cola, qty: 1000, amount: 100 }] });
     expect(res.statusCode).toBe(200);
     expect(res.json().doc.version).toBe(1);
-    expect(w.h.auditCount('stock_doc', 'update')).toBe(0);
+    expect(await w.h.auditCount('stock_doc', 'update')).toBe(0);
   });
 
   it('чужая компания — 404; тип документа не меняется; неверная версия и пустая правка — 400', async () => {
@@ -125,7 +125,7 @@ describe('правка прошлого: пересчёт последующих
     expect(res.json()).toEqual({ doc: null, impact: { sales: 1, writeoffs: 0, since: D1 } });
     expect(await getDoc(w, r.id)).toMatchObject({ version: 1, total: 100_000 });
     expect((await getDoc(w, s.id)).lines[0].cost).toBe(40_000);
-    expect(w.h.auditCount('stock_doc', 'update')).toBe(0);
+    expect(await w.h.auditCount('stock_doc', 'update')).toBe(0);
   });
 
   it('правка продажи, из-за которой следующему ручному списанию не хватит, — 422 и откат', async () => {
@@ -137,14 +137,14 @@ describe('правка прошлого: пересчёт последующих
     expect(res.statusCode).toBe(422);
     expect(res.json().error).toMatchObject({ code: 'INSUFFICIENT_STOCK', message: 'Не хватает «Кола 0,5»: на складе 3 шт на 03.10.2026' });
     expect(await getDoc(w, s.id)).toMatchObject({ version: 1, total: 50_000 });
-    expect(rows(w, 'SELECT qty_left q, cost_left c FROM stock_batches')).toEqual([{ q: 0, c: 0 }]);
+    expect(await rows(w, 'SELECT qty_left q, cost_left c FROM stock_batches')).toEqual([{ q: 0, c: 0 }]);
   });
 
   it('смена склада переносит движение: старая пара освобождается, новая получает партию', async () => {
     const w = await world();
     const r = await w.receipt(D1, [[w.cola, 4000, 40_000]]);
     await patch(w, r.id, { version: 1, warehouseId: w.wh2 });
-    expect(rows(w, 'SELECT warehouse_id w, qty_left q FROM stock_batches')).toEqual([{ w: w.wh2, q: 4000 }]);
+    expect(await rows(w, 'SELECT warehouse_id w, qty_left q FROM stock_batches')).toEqual([{ w: w.wh2, q: 4000 }]);
     const res = await w.h.req('POST', `${w.stock}/docs`, { type: 'writeoff', at: D2, warehouseId: w.wh, reason: 'defect', lines: [{ itemId: w.cola, qty: 1000 }] });
     expect(res.json().error.code).toBe('INSUFFICIENT_STOCK'); // на прежнем складе товара уже нет
   });
@@ -156,6 +156,6 @@ describe('правка прошлого: пересчёт последующих
     expect((await getDoc(w, s.id)).lines[0].cost).toBe(10_000);
     await patch(w, r.id, { version: 1, lines: [{ itemId: w.chips, qty: 4000, amount: 40_000 }] });
     expect((await getDoc(w, s.id)).lines[0]).toMatchObject({ cost: null, uncovered: 1000 });
-    expect(rows(w, 'SELECT item_id i, qty_left q FROM stock_batches')).toEqual([{ i: w.chips, q: 4000 }]);
+    expect(await rows(w, 'SELECT item_id i, qty_left q FROM stock_batches')).toEqual([{ i: w.chips, q: 4000 }]);
   });
 });

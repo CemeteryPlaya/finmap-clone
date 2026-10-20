@@ -30,7 +30,7 @@ describe('группы товаров', () => {
     expect(again.json().error.code).toBe('ARCHIVED_DUPLICATE');
     expect((await w.h.req('POST', `${stock}/groups/${g.id}/unarchive`)).json().group.archivedAt).toBeNull();
     expect((await w.h.req('GET', `${stock}/groups`)).json().groups).toHaveLength(1);
-    expect(w.h.auditCount('stock_group')).toBe(4);
+    expect(await w.h.auditCount('stock_group')).toBe(4);
   });
 });
 
@@ -85,9 +85,9 @@ describe('товары', () => {
     const back = await w.h.req('PATCH', `${stock}/items/${item.id}`, { groupId: g2 });
     expect(back.statusCode).toBe(422);
     expect(back.json().error.code).toBe('ARCHIVED_REFERENCE');
-    const noop = w.h.auditCount('stock_item', 'update');
+    const noop = await w.h.auditCount('stock_item', 'update');
     await w.h.req('PATCH', `${stock}/items/${item.id}`, { name: 'Кола 0,33' });
-    expect(w.h.auditCount('stock_item', 'update')).toBe(noop); // без изменений история не пишется
+    expect(await w.h.auditCount('stock_item', 'update')).toBe(noop); // без изменений история не пишется
   });
 
   it('удаление: товар без документов удаляется, архив и возврат работают', async () => {
@@ -97,7 +97,7 @@ describe('товары', () => {
     expect((await w.h.req('POST', `${stock}/items/${item.id}/unarchive`)).json().item.archivedAt).toBeNull();
     expect((await w.h.req('DELETE', `${stock}/items/${item.id}`)).statusCode).toBe(204);
     expect((await w.h.req('GET', `${stock}/items/${item.id}`)).statusCode).toBe(404);
-    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM stock_item_prices').get()).toEqual({ n: 0 });
+    expect((await w.h.t.q('SELECT COUNT(*) n FROM stock_item_prices'))[0]).toEqual({ n: 0 });
   });
 });
 
@@ -137,9 +137,9 @@ describe('история цены продажи (§3.1)', () => {
   it('вторая такая же цена на ту же дату ничего не пишет', async () => {
     const { w, stock } = await setup();
     const item = (await w.post(`${stock}/items`, { name: 'Кола 0,5', unit: 'pcs', salePrice: 50000 })).item;
-    const before = w.h.auditCount('stock_item', 'update');
+    const before = await w.h.auditCount('stock_item', 'update');
     await w.h.req('POST', `${stock}/items/${item.id}/price`, { price: 50000, validFrom: '2026-10-06' });
-    expect(w.h.auditCount('stock_item', 'update')).toBe(before);
+    expect(await w.h.auditCount('stock_item', 'update')).toBe(before);
   });
 });
 
@@ -148,7 +148,7 @@ describe('архивная компания', () => {
     const { w, stock } = await setup();
     const item = (await w.post(`${stock}/items`, { name: 'Кола 0,5', unit: 'pcs', salePrice: 50000 })).item;
     const group = (await w.post(`${stock}/groups`, { name: 'Напитки' })).group;
-    w.h.t.sqlite.prepare("UPDATE companies SET archived_at = '2026-10-06T00:00:00.000Z' WHERE id = ?").run(w.cid);
+    await w.h.t.q("UPDATE companies SET archived_at = '2026-10-06T00:00:00.000Z' WHERE id = ?", w.cid);
     expect((await w.h.req('GET', `${stock}/items`)).statusCode).toBe(200);
     const writes: [string, string, unknown][] = [
       ['POST', `${stock}/items`, { name: 'Чипсы', unit: 'pcs' }],

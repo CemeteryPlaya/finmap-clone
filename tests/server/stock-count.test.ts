@@ -20,7 +20,7 @@ async function world(): Promise<StockWorld> {
 
 const balanceOf = async (world: StockWorld, item: number) =>
   ((await world.h.req('GET', `${world.stock}/balance?warehouse=${world.wh}`)).json().items as any[]).find((i) => i.itemId === item);
-const count = (world: StockWorld, table: string) => (world.h.t.sqlite.prepare(`SELECT COUNT(*) n FROM ${table}`).get() as { n: number }).n;
+const count = async (world: StockWorld, table: string) => ((await world.h.t.q(`SELECT COUNT(*) n FROM ${table}`))[0] as { n: number }).n;
 const get = async (world: StockWorld, id: number) => (await world.h.req('GET', `${world.stock}/docs/${id}`)).json().doc;
 
 describe('инвентаризация (§7, Склад-2)', () => {
@@ -28,8 +28,8 @@ describe('инвентаризация (§7, Склад-2)', () => {
     const w = await world();
     await w.receipt(D1, [[w.cola, 10_000, 100_000], [w.chips, 5000, 25_000]]);
     await w.sale(D2, [[w.cola, 12_000, 600_000]]);
-    const batches = count(w, 'stock_batches');
-    const allocations = count(w, 'stock_allocations');
+    const batches = await count(w, 'stock_batches');
+    const allocations = await count(w, 'stock_allocations');
     const draft = await w.count(D3, [], { fill: true });
     expect(draft).toMatchObject({ number: `${I}-0001`, type: 'count', status: 'draft', warehouseId: w.wh, countSummary: null });
     // по названию: «Кола 0,5», «Чипсы»; сиропа нет — остаток 0. У колы партий нет, но есть долг «Нет партии» 2 шт:
@@ -38,7 +38,7 @@ describe('инвентаризация (§7, Склад-2)', () => {
       [w.cola, 0, 2000, null, 0],
       [w.chips, 5000, 0, null, 0],
     ]);
-    expect([count(w, 'stock_batches'), count(w, 'stock_allocations')]).toEqual([batches, allocations]);
+    expect([await count(w, 'stock_batches'), await count(w, 'stock_allocations')]).toEqual([batches, allocations]);
     expect(await balanceOf(w, w.cola)).toMatchObject({ qty: -2000 });
     // учёт черновика — на сейчас: поступление до даты черновика меняет его
     await w.receipt(D2, [[w.chips, 1000, 5000]]);
@@ -58,14 +58,14 @@ describe('инвентаризация (§7, Склад-2)', () => {
       [w.cola, 3000, 1000, 2000],
       [w.chips, 5000, 7000, 2000],
     ]);
-    const stored = w.h.t.sqlite.prepare('SELECT expected_qty e, qty FROM stock_doc_lines WHERE doc_id = ? ORDER BY position').all(draft.id);
+    const stored = (await w.h.t.q('SELECT expected_qty e, qty FROM stock_doc_lines WHERE doc_id = ? ORDER BY position', draft.id));
     expect(stored).toEqual([
       { e: 3000, qty: 2000 },
       { e: 5000, qty: 2000 },
     ]);
     expect(await balanceOf(w, w.cola)).toMatchObject({ qty: 1000, cost: 12_000 });
     expect(await balanceOf(w, w.chips)).toMatchObject({ qty: 7000, cost: 35_000 });
-    const history = w.h.t.sqlite.prepare("SELECT diff FROM audit_log WHERE entity = 'stock_doc' AND action = 'update' ORDER BY id DESC LIMIT 1").get() as { diff: string };
+    const history = (await w.h.t.q("SELECT diff FROM audit_log WHERE entity = 'stock_doc' AND action = 'update' ORDER BY id DESC LIMIT 1"))[0] as { diff: string };
     expect(JSON.parse(history.diff)).toMatchObject({ number: `${I}-0001`, type: 'count', before: { status: 'draft' }, after: { status: 'posted' }, shortage: 24_000, surplus: 10_000 });
   });
 
@@ -107,7 +107,7 @@ describe('инвентаризация (§7, Склад-2)', () => {
     const posted = await w.postCount(await w.count(D2, [[w.cola, 3000]]));
     expect(posted.countSummary).toEqual({ shortage: 0, surplus: 0, unknownCost: 0 });
     expect(posted.lines[0]).toMatchObject({ expected: 3000, countedQty: 3000, qty: 0 });
-    expect(count(w, 'stock_batches')).toBe(1);
+    expect(await count(w, 'stock_batches')).toBe(1);
   });
 
   it('черновик правится и удаляется; проведённая — только удаляется, с пересчётом и dryRun', async () => {
@@ -135,16 +135,16 @@ describe('инвентаризация (§7, Склад-2)', () => {
     const other = await w.count(D3, [[w.cola, 1000]]);
     expect((await w.h.req('DELETE', `${w.stock}/docs/${other.id}`)).statusCode).toBe(200);
     // история черновика: создание, правка, проведение (как правка статуса), удаление
-    const actions = w.h.t.sqlite.prepare("SELECT action FROM audit_log WHERE entity = 'stock_doc' AND entity_id = ? ORDER BY id").all(draft.id) as { action: string }[];
+    const actions = (await w.h.t.q("SELECT action FROM audit_log WHERE entity = 'stock_doc' AND entity_id = ? ORDER BY id", draft.id)) as { action: string }[];
     expect(actions.map((a) => a.action)).toEqual(['create', 'update', 'update', 'delete']);
-    expect(w.h.auditCount('stock_doc', 'delete')).toBe(2);
+    expect(await w.h.auditCount('stock_doc', 'delete')).toBe(2);
   });
 
   it('у инвентаризации нет пробного расчёта', async () => {
     const w = await world();
     const res = await w.h.req('POST', `${w.stock}/docs`, { type: 'count', at: D2, warehouseId: w.wh, lines: [], dryRun: true });
     expect([res.statusCode, res.json().error.fields]).toEqual([400, { dryRun: 'У инвентаризации нет пробного расчёта' }]);
-    expect(count(w, 'stock_docs')).toBe(0);
+    expect(await count(w, 'stock_docs')).toBe(0);
   });
 
   it('ошибки: пустой факт и пустой документ при проведении, комплект, повтор товара, дробные штуки, 409', async () => {

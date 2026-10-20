@@ -174,13 +174,13 @@ describe('«Финансовые показатели»: настройка ча
       includeStock: false,
       isDefault: false,
     });
-    expect(w.h.auditCount('indicator_part', 'update')).toBe(2);
+    expect(await w.h.auditCount('indicator_part', 'update')).toBe(2);
     const reset = await w.h.req('DELETE', `${base()}/indicators/parts/cogs`);
     expect(reset.statusCode, reset.body).toBe(200);
     expect((reset.json() as { parts: Parts }).parts.cogs).toEqual({ allCategories: false, categoryIds: [], includeStock: true, isDefault: true });
     // уже по умолчанию — ничего не пишется
     expect((await w.h.req('DELETE', `${base()}/indicators/parts/cogs`)).statusCode).toBe(200);
-    expect(w.h.auditCount('indicator_part', 'reset')).toBe(1);
+    expect(await w.h.auditCount('indicator_part', 'reset')).toBe(1);
     const history = (await get<{ entries: { action: string; userName: string; diff: { part: string; before: { text: string }; after: { text: string; categories: string[] } } }[] }>(
       `/api/v1/companies/${w.cid}/audit?entity=indicator_part`,
     )).entries;
@@ -199,7 +199,7 @@ describe('«Финансовые показатели»: настройка ча
     const other = (await q.s.post(`/api/v1/companies/${q.s.cid}/categories`, { kind: 'expense', name: 'Расходники' })).category.id as number;
     await put('variable', { allCategories: false, categoryIds: [q.supply, other], includeStock: true });
     await put('variable', { allCategories: false, categoryIds: [other, q.supply], includeStock: true });
-    expect(w.h.auditCount('indicator_part')).toBe(1);
+    expect(await w.h.auditCount('indicator_part')).toBe(1);
   });
 
   it('удалённая категория выпадает из сохранённой части, и следующее «Сохранить» проходит', async () => {
@@ -227,7 +227,7 @@ describe('«Финансовые показатели»: настройка ча
       expect(res.statusCode).toBe(400);
       expect(res.json().error.fields).toEqual({ categoryIds: 'Инвестиции, дивиденды, займы и кредиты в показатели не входят' });
     }
-    expect(w.h.auditCount('indicator_part')).toBe(0);
+    expect(await w.h.auditCount('indicator_part')).toBe(0);
   });
 
   it('400 — чужая или не того вида категория, неверное тело; 404 — неизвестная часть; архивная компания — только чтение', async () => {
@@ -237,12 +237,12 @@ describe('«Финансовые показатели»: настройка ча
     expect(bad.json().error.fields).toEqual({ categoryIds: 'Неизвестная категория дохода' });
     expect((await w.h.req('PUT', `${base()}/indicators/parts/cogs`, { allCategories: 'да' })).statusCode).toBe(400);
     expect((await w.h.req('PUT', `${base()}/indicators/parts/profit`, { allCategories: true, categoryIds: [], includeStock: true })).statusCode).toBe(404);
-    w.h.t.sqlite.prepare('UPDATE companies SET archived_at = ? WHERE id = ?').run('2026-10-06T00:00:00.000Z', w.cid);
+    await w.h.t.q('UPDATE companies SET archived_at = ? WHERE id = ?', '2026-10-06T00:00:00.000Z', w.cid);
     const archived = await w.h.req('PUT', `${base()}/indicators/parts/cogs`, { allCategories: true, categoryIds: [], includeStock: true });
     expect(archived.statusCode).toBe(422);
     expect((await w.h.req('DELETE', `${base()}/indicators/parts/cogs`)).statusCode).toBe(422);
     expect((await w.h.req('GET', `${base()}/indicators?${Q3}`)).statusCode).toBe(200);
-    expect(w.h.auditCount('indicator_part')).toBe(0);
+    expect(await w.h.auditCount('indicator_part')).toBe(0);
   });
 });
 

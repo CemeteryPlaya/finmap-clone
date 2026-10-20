@@ -46,7 +46,7 @@ describe('оплата закупки из расхода журнала (§6.1)
     const list = (await w.h.req('GET', `${w.stock}/docs`)).json().docs[0];
     expect([list.total, list.paid]).toEqual([250_000, 100_000]);
     expect((await w.h.req('GET', `${w.ops}/${op.id}`)).json().operation.stockPayments).toHaveLength(1);
-    expect(w.h.auditCount('operation', 'create')).toBe(1);
+    expect(await w.h.auditCount('operation', 'create')).toBe(1);
   });
 
   it('несколько документов одним расходом; один документ несколькими расходами; долг считается по всем', async () => {
@@ -78,8 +78,8 @@ describe('оплата закупки из расхода журнала (§6.1)
     const res = await expense(w, { amount: 100_000, stockPayments: [{ docId: r1.id, amount: 80_000 }, { docId: r2.id, amount: 30_000 }] });
     expect(res.statusCode).toBe(422);
     expect(res.json().error).toMatchObject({ code: 'STOCK_PAYMENTS_EXCEED', message: 'Оплаты закупок больше суммы расхода', fields: { stockPayments: 'Оплаты закупок больше суммы расхода' } });
-    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM operations').get()).toEqual({ n: 0 });
-    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM stock_doc_payments').get()).toEqual({ n: 0 });
+    expect((await w.h.t.q('SELECT COUNT(*) n FROM operations'))[0]).toEqual({ n: 0 });
+    expect((await w.h.t.q('SELECT COUNT(*) n FROM stock_doc_payments'))[0]).toEqual({ n: 0 });
   });
 
   it('проверки: только расход, поставщик обязателен и тот же, документ — неудалённое поступление, без повторов, счёт в валюте компании, сумма больше нуля', async () => {
@@ -174,7 +174,7 @@ describe('правка расхода с оплатами и 409', () => {
     const cleared = await w.h.req('PATCH', `${w.ops}/${op.id}`, { version: 3, stockPayments: [] });
     expect(cleared.json().operation.stockPayments).toEqual([]);
     expect((await getDoc(w, r2.id)).paid).toBe(0);
-    const diff = w.h.t.sqlite.prepare("SELECT diff FROM audit_log WHERE entity = 'operation' AND action = 'update' ORDER BY id DESC LIMIT 1").get() as { diff: string };
+    const diff = (await w.h.t.q("SELECT diff FROM audit_log WHERE entity = 'operation' AND action = 'update' ORDER BY id DESC LIMIT 1"))[0] as { diff: string };
     expect(JSON.parse(diff.diff).before.stockPayments).toEqual([{ docId: r2.id, amount: 40_000 }]);
   });
 
@@ -234,7 +234,7 @@ describe('подсказка категории и архивная компан
   it('в архивной компании список долгов читается, расход с оплатой создать нельзя', async () => {
     const w = await world();
     const r = await w.receipt(D1, [[w.cola, 1000, 100_000]]);
-    w.h.t.sqlite.prepare("UPDATE companies SET archived_at = '2026-10-06T00:00:00.000Z' WHERE id = ?").run(w.cid);
+    await w.h.t.q("UPDATE companies SET archived_at = '2026-10-06T00:00:00.000Z' WHERE id = ?", w.cid);
     expect((await unpaid(w)).docs).toHaveLength(1);
     const res = await expense(w, { stockPayments: [{ docId: r.id, amount: 100_000 }] });
     expect([res.statusCode, res.json().error.code]).toEqual([422, 'ARCHIVED_REFERENCE']);
@@ -250,7 +250,7 @@ describe('R1/R3: отмена импорта и смена поставщика 
       [fr({ paidAt: xl('2026-10-03', '22:07:30'), amount: 8500, from: 'Касса', category: 'Зарплата', counterparty: 'Поставщик Б' })],
       { accounts: mappings },
     );
-    const row = w.h.t.sqlite.prepare('SELECT id, counterparty_id cp FROM operations WHERE import_id = ?').get(r.import.id) as { id: number; cp: number };
+    const row = (await w.h.t.q('SELECT id, counterparty_id cp FROM operations WHERE import_id = ?', r.import.id))[0] as { id: number; cp: number };
     const doc = await w.doc({ type: 'receipt', at: D1, warehouseId: w.wh, counterpartyId: row.cp, lines: [{ itemId: w.cola, qty: 1000, amount: 850_000 }] });
     const edit = await w.h.req('PATCH', `${w.ops}/${row.id}`, { version: 1, stockPayments: [{ docId: doc.id, amount: 850_000 }] });
     expect(edit.statusCode, edit.body).toBe(200);
@@ -258,8 +258,8 @@ describe('R1/R3: отмена импорта и смена поставщика 
 
     const res = await w.h.req('POST', `/api/v1/companies/${w.cid}/imports/${r.import.id}/undo`, { includeEdited: true, edited: 1 });
     expect(res.statusCode, res.body).toBe(200);
-    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM stock_doc_payments').get()).toEqual({ n: 0 });
-    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM operations WHERE id = ?').get(row.id)).toEqual({ n: 0 });
+    expect((await w.h.t.q('SELECT COUNT(*) n FROM stock_doc_payments'))[0]).toEqual({ n: 0 });
+    expect((await w.h.t.q('SELECT COUNT(*) n FROM operations WHERE id = ?', row.id))[0]).toEqual({ n: 0 });
     expect(await getDoc(w, doc.id)).toMatchObject({ total: 850_000, paid: 0, payments: [] });
   });
 
@@ -294,11 +294,11 @@ describe('история создания расхода (R9)', () => {
   it('создание расхода без оплат складских документов не пишет stockPayments в историю; с оплатами — пишет', async () => {
     const w = await world();
     const r = await w.receipt(D1, [[w.cola, 1000, 100_000]]);
-    const diffs = () =>
-      (w.h.t.sqlite.prepare("SELECT diff FROM audit_log WHERE entity = 'operation' AND action = 'create' ORDER BY id").all() as { diff: string }[]).map((x) => JSON.parse(x.diff) as Record<string, unknown>);
+    const diffs = async () =>
+      ((await w.h.t.q("SELECT diff FROM audit_log WHERE entity = 'operation' AND action = 'create' ORDER BY id")) as { diff: string }[]).map((x) => JSON.parse(x.diff) as Record<string, unknown>);
     expect((await expense(w)).statusCode).toBe(201);
-    expect(diffs()[0]).not.toHaveProperty('stockPayments');
+    expect((await diffs())[0]).not.toHaveProperty('stockPayments');
     expect((await expense(w, { stockPayments: [{ docId: r.id, amount: 100_000 }] })).statusCode).toBe(201);
-    expect(diffs()[1]).toMatchObject({ stockPayments: [{ docId: r.id, amount: 100_000 }] });
+    expect((await diffs())[1]).toMatchObject({ stockPayments: [{ docId: r.id, amount: 100_000 }] });
   });
 });

@@ -157,7 +157,7 @@ describe('маршруты PWA', () => {
   });
 
   it('неизвестный путь /pwa/... — 404, а не страница приложения (даже когда клиент собран)', async () => {
-    const db = createTestDb();
+    const db = await createTestDb();
     const clientDir = path.join(db.dir, 'client');
     fs.mkdirSync(clientDir, { recursive: true });
     fs.writeFileSync(path.join(clientDir, 'index.html'), '<!doctype html><title>SPA</title>');
@@ -170,7 +170,7 @@ describe('маршруты PWA', () => {
       expect(spa.statusCode).toBe(200);
     } finally {
       await app.close();
-      db.cleanup();
+      await db.cleanup();
     }
   });
 });

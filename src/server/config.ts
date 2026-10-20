@@ -7,7 +7,7 @@ export type DeployMode = 'local' | 'cloudflare' | 'ngrok' | 'vps';
  * Где лежат данные (Р1 плана 2026-10-20-vercel-postgres): DATABASE_URL postgres:// — Postgres (Neon), иначе файл SQLite
  * в DATA_DIR. pglite — Postgres в памяти процесса (тесты).
  */
-export type DbConfig = { kind: 'sqlite'; path: string } | { kind: 'neon'; url: string } | { kind: 'pglite'; dataDir?: string };
+export type DbConfig = { kind: 'sqlite'; path: string } | { kind: 'neon'; url: string } | { kind: 'pglite'; dataDir?: string; snapshot?: Blob };
 
 export interface Config {
   appName: string;

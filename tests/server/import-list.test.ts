@@ -8,7 +8,7 @@ let w: OpsWorld;
 afterEach(async () => w?.h.t.cleanup());
 
 const NOW = '2026-10-06T12:00:00.000Z';
-const one = (sql: string, ...args: unknown[]) => w.h.t.sqlite.prepare(sql).get(...args) as Record<string, any>;
+const one = async (sql: string, ...args: unknown[]) => (await w.h.t.q(sql, ...args))[0] as Record<string, any>;
 const listUrl = (cid = w.cid) => `/api/v1/companies/${cid}/imports`;
 
 async function list(query = '', cid = w.cid): Promise<ImportListPage> {
@@ -50,20 +50,18 @@ describe('GET …/imports — список «Импорты» (§6.2, §7.2 сп
   it('pending.edited: правка (version > 1) и вложение — изменённые; мягко удалённая — не изменённая, но в operations', async () => {
     w = await opsWorld(NOW);
     const r = await importRows(w, FILE_A);
-    const ids = (w.h.t.sqlite.prepare('SELECT id FROM operations WHERE import_id = ? ORDER BY id').all(r.import.id) as { id: number }[]).map((o) => o.id);
+    const ids = ((await w.h.t.q('SELECT id FROM operations WHERE import_id = ? ORDER BY id', r.import.id)) as { id: number }[]).map((o) => o.id);
     // правка комментария — version 2
     const edit = await w.h.req('PATCH', `${w.ops}/${ids[0]}`, { version: 1, comment: 'проверено' });
     expect(edit.statusCode, edit.body).toBe(200);
     // вложение (версия не меняется) — тоже изменение, даже удалённое
-    w.h.t.sqlite
-      .prepare("INSERT INTO attachments (company_id, operation_id, original_name, stored_name, mime, size, created_at, deleted_at) VALUES (?, ?, 'чек.png', 'x.png', 'image/png', 1, ?, ?)")
-      .run(w.cid, ids[1], NOW, NOW);
+    await w.h.t.q("INSERT INTO attachments (company_id, operation_id, original_name, stored_name, mime, size, created_at, deleted_at) VALUES (?, ?, 'чек.png', 'x.png', 'image/png', 1, ?, ?)", w.cid, ids[1], NOW, NOW);
     // мягкое удаление: удаляется отменой всегда, изменённой не считается
     const del = await w.h.req('DELETE', `${w.ops}/${ids[2]}`);
     expect(del.statusCode, del.body).toBe(200);
 
     expect((await list()).items[0]!.pending).toEqual({ operations: 3, edited: 2 });
-    expect(one('SELECT version FROM operations WHERE id = ?', ids[1]).version).toBe(1);
+    expect((await one('SELECT version FROM operations WHERE id = ?', ids[1])).version).toBe(1);
   });
 
   it('«Показать ещё»: limit и beforeId; чужая компания не видна; архивная — список есть; неверный limit — 400; нет компании — 404', async () => {

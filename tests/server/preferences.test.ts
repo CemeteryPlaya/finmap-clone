@@ -45,6 +45,6 @@ describe('preferences API', () => {
     expect(over.statusCode).toBe(400);
     expect(over.json().error.fields.key).toBe('Слишком много настроек');
     expect((await h.req('PUT', '/api/v1/preferences/k0', { value: 'обновление' })).statusCode).toBe(200); // существующий ключ можно
-    expect(h.auditCount('preference')).toBe(0);
+    expect(await h.auditCount('preference')).toBe(0);
   });
 });

@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { exec, first, one, rows } from '../../src/server/db/raw';
 import { withTx } from '../../src/server/db/tx';
 import { currencies } from '../../src/server/db/schema';
-import { createTestDb } from '../helpers/test-db';
+import { createTestDb, type TestDb } from '../helpers/test-db';
 
-let t: ReturnType<typeof createTestDb>;
-beforeEach(() => {
-  t = createTestDb();
+let t: TestDb;
+beforeEach(async () => {
+  t = await createTestDb();
 });
 afterEach(() => t.cleanup());
 

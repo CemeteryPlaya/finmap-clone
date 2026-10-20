@@ -38,9 +38,7 @@ describe('ledger: балансы и ссылки операций', () => {
     expect(await ledger.accountBalance({ id: w.kzt, startingBalance: 100000 })).toBe(82488);
 
     // независимый пересчёт по всем операциям (критерий §12)
-    const rows = w.h.t.sqlite
-      .prepare("SELECT type, account_id a, amount, to_account_id t, to_amount ta FROM operations WHERE deleted_at IS NULL AND status = 'actual'")
-      .all() as { type: string; a: number; amount: number; t: number | null; ta: number | null }[];
+    const rows = (await w.h.t.q("SELECT type, account_id a, amount, to_account_id t, to_amount ta FROM operations WHERE deleted_at IS NULL AND status = 'actual'")) as { type: string; a: number; amount: number; t: number | null; ta: number | null }[];
     const js = new Map<number, number>();
     for (const r of rows) {
       js.set(r.a, (js.get(r.a) ?? 0) + (r.type === 'income' ? r.amount : -r.amount));

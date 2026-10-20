@@ -37,7 +37,7 @@ describe('rates API', () => {
     expect((await h.req('GET', '/api/v1/rates/manual')).json().rates).toHaveLength(1);
     expect((await h.req('DELETE', `/api/v1/rates/manual/${id}`)).statusCode).toBe(204);
     expect((await h.req('DELETE', `/api/v1/rates/manual/${id}`)).statusCode).toBe(404);
-    const audit = h.t.sqlite.prepare("SELECT action, company_id FROM audit_log WHERE entity = 'rate' ORDER BY id").all();
+    const audit = (await h.t.q("SELECT action, company_id FROM audit_log WHERE entity = 'rate' ORDER BY id"));
     expect(audit).toEqual([
       { action: 'create', company_id: null },
       { action: 'update', company_id: null },
@@ -71,6 +71,6 @@ describe('rates API', () => {
     expect((await h.req('PATCH', `/api/v1/companies/${other}/fixed-rates/${id}`, { rate: '1' })).statusCode).toBe(404);
     expect((await h.req('DELETE', `/api/v1/companies/${other}/fixed-rates/${id}`)).statusCode).toBe(404);
     expect((await h.req('DELETE', `${base}/${id}`)).statusCode).toBe(204);
-    expect(h.auditCount('fixed_rate')).toBe(4); // create ×2, update, delete
+    expect(await h.auditCount('fixed_rate')).toBe(4); // create ×2, update, delete
   });
 });

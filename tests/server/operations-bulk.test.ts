@@ -39,7 +39,7 @@ describe('массовые действия: POST /companies/:cid/operations/bul
     const tr = await op({ type: 'transfer', accountId: w.kzt, amount: 47512, toAccountId: w.usd, toAmount: 100 });
     const gone = await op({});
     await w.h.req('DELETE', `${w.ops}/${gone}`);
-    const before = w.h.auditCount('operation', 'update');
+    const before = await w.h.auditCount('operation', 'update');
 
     const r = await ok({ action: 'setCategory', categoryId: w.expense, ids: [single, income, splitOp, tr, gone, 999999, single] });
     expect(r.changed).toEqual([single]);
@@ -52,12 +52,12 @@ describe('массовые действия: POST /companies/:cid/operations/bul
     ]);
     expect(await getOp(single)).toMatchObject({ version: 2, lines: [{ categoryId: w.expense, projectId: w.project, amount: 1000 }] });
     expect((await getOp(income)).version).toBe(1);
-    expect(w.h.auditCount('operation', 'update')).toBe(before + 1);
+    expect(await w.h.auditCount('operation', 'update')).toBe(before + 1);
 
     // повтор — значение уже такое: операция в changed, версия и история не меняются
     expect(await ok({ action: 'setCategory', categoryId: w.expense, ids: [single] })).toEqual({ changed: [single], skipped: [] });
     expect((await getOp(single)).version).toBe(2);
-    expect(w.h.auditCount('operation', 'update')).toBe(before + 1);
+    expect(await w.h.auditCount('operation', 'update')).toBe(before + 1);
   });
 
   it('«Проект»: меняет единственную строку, переводу без строк создаёт строку, разбитые пропускает', async () => {
@@ -102,7 +102,7 @@ describe('массовые действия: POST /companies/:cid/operations/bul
     });
     expect((await getOp(a)).deletedAt).not.toBeNull();
     expect((await getOp(b)).version).toBe(2); // удалена раньше — версия не выросла второй раз
-    expect(w.h.auditCount('operation', 'delete')).toBe(2);
+    expect(await w.h.auditCount('operation', 'delete')).toBe(2);
 
     // «Отменить» шлёт changed из ответа; неудалённая операция в списке пропускается
     const back = await ok({ action: 'restore', ids: [...del.changed, locked] });
@@ -196,11 +196,11 @@ describe('массовые действия: POST /companies/:cid/operations/bul
         return real.update(...args);
       },
     };
-    const before = w.h.auditCount('operation', 'update');
+    const before = await w.h.auditCount('operation', 'update');
     await expect(createBulkService({ db, operations: flaky }).run(w.cid, { action: 'setCounterparty', counterpartyId: w.counterparty, ids: [a, b] }, 1)).rejects.toThrow(
       'диск отвалился',
     );
     expect(await getOp(a)).toMatchObject({ counterpartyId: null, version: 1 });
-    expect(w.h.auditCount('operation', 'update')).toBe(before);
+    expect(await w.h.auditCount('operation', 'update')).toBe(before);
   });
 });

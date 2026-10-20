@@ -9,17 +9,17 @@ import { startServer } from '../../src/server/main';
 import { createTestDb } from '../helpers/test-db';
 import { testConfig } from '../helpers/test-app';
 
-let cleanup: (() => void) | null = null;
-afterEach(() => {
-  cleanup?.();
+let cleanup: (() => void | Promise<void>) | null = null;
+afterEach(async () => {
+  await cleanup?.();
   cleanup = null;
 });
 
 describe('миграция 0001', () => {
-  it('создаёт таблицы и уникальные индексы категорий', () => {
-    const t = createTestDb();
+  it('создаёт таблицы и уникальные индексы категорий', async () => {
+    const t = await createTestDb();
     cleanup = t.cleanup;
-    const s = t.sqlite;
+    const s = t.sqlite!;
     s.prepare("INSERT INTO currencies (code,name,symbol,minor_units) VALUES ('KZT','Тенге','₸',2)").run();
     s.prepare("INSERT INTO companies (name, base_currency, created_at) VALUES ('ТОО', 'KZT', 'x')").run();
     const ins = s.prepare(

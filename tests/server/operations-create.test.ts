@@ -11,7 +11,7 @@ const fail = (res: LightMyRequestResponse, status: number, code: string) => {
   return res.json().error as { message: string; fields?: Record<string, string> };
 };
 const create = (body: object) => w.h.req('POST', w.ops, body);
-const opCount = () => (w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM operations').get() as { n: number }).n;
+const opCount = async () => ((await w.h.t.q('SELECT COUNT(*) n FROM operations'))[0] as { n: number }).n;
 
 describe('operations: создание', () => {
   it('доход в базовой валюте: строка по умолчанию, курс 1, версия 1, теги без повторов, история', async () => {
@@ -41,7 +41,7 @@ describe('operations: создание', () => {
       tagIds: [w.tag],
       lines: [{ position: 0, categoryId: null, projectId: null, amount: 150000, baseAmount: 150000 }],
     });
-    expect(w.h.auditCount('operation', 'create')).toBe(1);
+    expect(await w.h.auditCount('operation', 'create')).toBe(1);
     expect((await w.h.req('GET', `${w.ops}/${op.id}`)).json().operation).toEqual(op);
   });
 
@@ -66,10 +66,10 @@ describe('operations: создание', () => {
 
   it('нет курса на дату — 422 RATE_UNAVAILABLE, операция не создаётся (Review Focus 1)', async () => {
     w = await opsWorld('2026-10-20T12:00:00.000Z');
-    const before = opCount();
+    const before = await opCount();
     const err = fail(await create({ type: 'expense', paidAt: '2026-10-09T10:00:00Z', accountId: w.usd, amount: 100 }), 422, 'RATE_UNAVAILABLE');
     expect(err.message).toBe('Нет курса USD на 09.10.2026');
-    expect(opCount()).toBe(before);
+    expect(await opCount()).toBe(before);
   });
 
   it('инвариант 1: сумма строк не равна сумме операции', async () => {

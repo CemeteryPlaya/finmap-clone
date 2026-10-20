@@ -46,7 +46,7 @@ describe('split-presets API', () => {
     });
     const onlyProjects = await h.req('POST', base(w.cid), { name: 'Проекты', lines: [{ projectId: w.p1, bp: 10000 }] });
     expect(onlyProjects.json().splitPreset.lines).toEqual([{ categoryId: null, projectId: w.p1, bp: 10000 }]);
-    expect(h.auditCount('split_preset', 'create')).toBe(2);
+    expect(await h.auditCount('split_preset', 'create')).toBe(2);
   });
 
   it('проверки строк: сумма ≠ 100%, пустая строка, повтор, разные виды категорий', async () => {
@@ -80,7 +80,7 @@ describe('split-presets API', () => {
     expect((await h.req('PATCH', `${base(w.cid)}/${a.id}`, { name: 'A2' })).json().splitPreset.name).toBe('A2');
     expect((await h.req('PATCH', `${base(w.cid)}/${a.id}`, { lines: [{ projectId: w.p2, bp: 10000 }] })).statusCode).toBe(200); // не изменились
     expect((await h.req('PATCH', `${base(w.cid)}/${a.id}`, { lines: [{ projectId: w.p2, bp: 5000 }, { projectId: w.p1, bp: 5000 }] })).statusCode).toBe(422);
-    expect(h.auditCount('split_preset', 'update')).toBe(1);
+    expect(await h.auditCount('split_preset', 'update')).toBe(1);
 
     expect((await h.req('POST', `${base(w.cid)}/reorder`, { ids: [b.id, a.id] })).json().splitPresets.map((p: { name: string }) => p.name)).toEqual(['B', 'A2']);
     expect((await h.req('POST', `${base(w.cid)}/${a.id}/archive`)).json().splitPreset.archivedAt).not.toBeNull();

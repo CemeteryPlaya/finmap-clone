@@ -1,36 +1,36 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createTestDb } from '../helpers/test-db';
+import { createTestDb, type TestDb } from '../helpers/test-db';
 import { ulower } from '../../src/server/db/client';
 import { appliedMigrationsCount, codeMigrationsCount } from '../../src/server/db/migrate';
 import { seedCurrencies } from '../../src/server/db/seed';
 import { currencies } from '../../src/server/db/schema';
 
-let t: ReturnType<typeof createTestDb>;
+let t: TestDb;
 afterEach(() => t?.cleanup());
 
 describe('db', () => {
-  it('включает WAL и внешние ключи', () => {
-    t = createTestDb();
-    expect(t.sqlite.pragma('journal_mode', { simple: true })).toBe('wal');
-    expect(t.sqlite.pragma('foreign_keys', { simple: true })).toBe(1);
+  it('включает WAL и внешние ключи', async () => {
+    t = await createTestDb();
+    expect(t.sqlite!.pragma('journal_mode', { simple: true })).toBe('wal');
+    expect(t.sqlite!.pragma('foreign_keys', { simple: true })).toBe(1);
   });
 
-  it('применяет все миграции кода', () => {
-    t = createTestDb();
+  it('применяет все миграции кода', async () => {
+    t = await createTestDb();
     expect(codeMigrationsCount()).toBeGreaterThan(0);
-    expect(appliedMigrationsCount(t.sqlite)).toBe(codeMigrationsCount());
+    expect(appliedMigrationsCount(t.sqlite!)).toBe(codeMigrationsCount());
   });
 
-  it('ulower приводит кириллицу к нижнему регистру и ё→е', () => {
+  it('ulower приводит кириллицу к нижнему регистру и ё→е', async () => {
     expect(ulower('АРЕНДА Ёлки')).toBe('аренда елки');
     expect(ulower(null)).toBeNull();
-    t = createTestDb();
-    const row = t.sqlite.prepare("SELECT ulower('ЗАКУП Бара') AS v").get() as { v: string };
+    t = await createTestDb();
+    const row = (await t.q("SELECT ulower('ЗАКУП Бара') AS v"))[0] as { v: string };
     expect(row.v).toBe('закуп бара');
   });
 
   it('seedCurrencies идемпотентен', async () => {
-    t = createTestDb();
+    t = await createTestDb();
     await seedCurrencies(t.db);
     await seedCurrencies(t.db);
     const rows = t.db.select().from(currencies).all();

@@ -31,7 +31,7 @@ describe('комплекты (§2, §5.2, Склад-2)', () => {
     expect(await qtyOf(w, w.cola)).toBe(8000);
     expect(await qtyOf(w, w.chips)).toBe(8000);
     expect((await balance(w)).some((i) => i.itemId === combo)).toBe(false);
-    const allocs = w.h.t.sqlite.prepare('SELECT component_item_id c, qty, cost FROM stock_allocations WHERE line_id = ? ORDER BY c').all(doc.lines[0].id);
+    const allocs = (await w.h.t.q('SELECT component_item_id c, qty, cost FROM stock_allocations WHERE line_id = ? ORDER BY c', doc.lines[0].id));
     expect(allocs).toEqual(
       [
         { c: w.cola, qty: 2000, cost: 20_000 },
@@ -93,7 +93,7 @@ describe('комплекты (§2, §5.2, Склад-2)', () => {
     const ok = await patch({ parts: [{ itemId: w.cola, qty: 2000 }] });
     expect(ok.statusCode, ok.body).toBe(200);
     expect(ok.json().item.parts).toEqual([{ itemId: w.cola, qty: 2000 }]);
-    const history = w.h.t.sqlite.prepare("SELECT diff FROM audit_log WHERE entity = 'stock_item' AND action = 'update' ORDER BY id DESC LIMIT 1").get() as { diff: string };
+    const history = (await w.h.t.q("SELECT diff FROM audit_log WHERE entity = 'stock_item' AND action = 'update' ORDER BY id DESC LIMIT 1"))[0] as { diff: string };
     expect(JSON.parse(history.diff)).toEqual({ before: { parts: ['Чипсы × 1', 'Кола 0,5 × 1'] }, after: { parts: ['Кола 0,5 × 2'] } });
     await w.receipt(D1, [[w.cola, 10_000, 100_000]]);
     await sale(w, D2, combo, 1000, 100_000);
@@ -125,14 +125,14 @@ describe('комплекты (§2, §5.2, Склад-2)', () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(await qtyOf(w, w.chips)).toBe(10_000);
     expect(await qtyOf(w, w.cola)).toBe(9000);
-    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM stock_allocations WHERE component_item_id IS NOT NULL').get()).toEqual({ n: 0 });
+    expect((await w.h.t.q('SELECT COUNT(*) n FROM stock_allocations WHERE component_item_id IS NOT NULL'))[0]).toEqual({ n: 0 });
   });
 
   it('каталог (R3): удаление комплекта без документов удаляет состав; составляющую удалить и сменить ей единицу нельзя', async () => {
     const w = await world();
     const loose = await w.combo('Пустой набор', [[w.cola, 1000]]);
     expect((await w.h.req('DELETE', `${w.stock}/items/${loose}`)).statusCode).toBe(204);
-    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM stock_combo_parts WHERE combo_id = ?').get(loose)).toEqual({ n: 0 });
+    expect((await w.h.t.q('SELECT COUNT(*) n FROM stock_combo_parts WHERE combo_id = ?', loose))[0]).toEqual({ n: 0 });
 
     await w.combo('Чипсы + кола', [[w.chips, 1000], [w.cola, 1000]]);
     const del = await w.h.req('DELETE', `${w.stock}/items/${w.chips}`);

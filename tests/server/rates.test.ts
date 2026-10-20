@@ -5,15 +5,15 @@ import { AppError } from '../../src/server/errors';
 import { createAuditService } from '../../src/server/modules/audit/service';
 import { createRatesService } from '../../src/server/modules/rates/service';
 import { DEC_ONE } from '../../src/shared/decimal';
-import { createTestDb } from '../helpers/test-db';
+import { createTestDb, type TestDb } from '../helpers/test-db';
 
-let t: ReturnType<typeof createTestDb>;
+let t: TestDb;
 afterEach(() => t?.cleanup());
 
 async function setup(base = 'KZT') {
-  t = createTestDb();
+  t = await createTestDb();
   await seedCurrencies(t.db);
-  t.sqlite.prepare("INSERT INTO users (login, name, password_hash, created_at) VALUES ('u','U','h','x')").run();
+  await t.q("INSERT INTO users (login, name, password_hash, created_at) VALUES ('u','U','h','x')");
   const company = t.db.insert(companies).values({ name: 'ТОО', baseCurrency: base, createdAt: 'x' }).returning().get();
   const svc = createRatesService({ db: t.db, audit: createAuditService(t.db), now: () => new Date('2026-10-20T00:00:00.000Z') });
   return { svc, cid: company.id };

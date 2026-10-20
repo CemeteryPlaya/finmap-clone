@@ -103,9 +103,9 @@ describe('сохранённые фильтры: граница дат и пов
     const ok = (await w.h.req('POST', url(), { name: 'Целый', filter: { types: ['expense'] } })).json().savedFilter;
     const broken = (await w.h.req('POST', url(), { name: 'Битый', filter: {} })).json().savedFilter;
     const wrong = (await w.h.req('POST', url(), { name: 'Не схема', filter: {} })).json().savedFilter;
-    const set = w.h.t.sqlite.prepare('UPDATE saved_filters SET filter = ? WHERE id = ?');
-    set.run('{не json', broken.id);
-    set.run(JSON.stringify({ to: 5 }), wrong.id);
+    const set = (...a: unknown[]) => w.h.t.q('UPDATE saved_filters SET filter = ? WHERE id = ?', ...a);
+    await set('{не json', broken.id);
+    await set(JSON.stringify({ to: 5 }), wrong.id);
     const res = await w.h.req('GET', url());
     expect(res.statusCode, res.body).toBe(200);
     const rows = res.json().savedFilters as { id: number; filter: object; invalid?: boolean }[];

@@ -10,7 +10,7 @@ afterEach(async () => cleanup?.());
 
 describe('SPA', () => {
   it('отдаёт index.html для клиентских маршрутов и JSON 404 для /api', async () => {
-    const t = createTestDb();
+    const t = await createTestDb();
     const clientDir = path.join(t.dir, 'client');
     fs.mkdirSync(path.join(clientDir, 'assets'), { recursive: true });
     fs.writeFileSync(path.join(clientDir, 'index.html'), '<!doctype html><title>SPA</title>');
@@ -18,7 +18,7 @@ describe('SPA', () => {
     const app = await buildApp({ config: testConfig(t.dir), db: t.db, sqlite: t.sqlite, clientDir });
     cleanup = async () => {
       await app.close();
-      t.cleanup();
+      await t.cleanup();
     };
 
     const page = await app.inject({ method: 'GET', url: '/c/1/log' });

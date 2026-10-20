@@ -10,7 +10,7 @@ describe('balances API', () => {
     const accounts = `/api/v1/companies/${w.cid}/accounts`;
     await w.h.req('PATCH', `${accounts}/${w.kzt}`, { startingBalance: 100000 });
     await w.post(w.ops, { type: 'transfer', paidAt: '2026-10-02T10:00:00Z', accountId: w.kzt, toAccountId: w.usd, amount: 47512, toAmount: 100 });
-    w.h.t.sqlite.prepare("INSERT INTO currencies (code,name,symbol,minor_units) VALUES ('EUR','Евро','€',2)").run();
+    await w.h.t.q("INSERT INTO currencies (code,name,symbol,minor_units) VALUES ('EUR','Евро','€',2)");
     const eur = (await w.post(accounts, { name: 'Евро', currency: 'EUR', openedAt: '2026-10-01', startingBalance: 1000 })).account.id;
 
     const res = await w.h.req('GET', `/api/v1/companies/${w.cid}/balances`);

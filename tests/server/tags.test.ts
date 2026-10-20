@@ -52,13 +52,13 @@ describe('tags API', () => {
     const c1 = await h.company();
     const c2 = await h.company();
     const x = (await h.req('POST', base(c2), { name: 'чужой' })).json().tag;
-    const before = h.auditCount('tag');
+    const before = await h.auditCount('tag');
     const attempts = [
       ['PATCH', `${base(c1)}/${x.id}`, { name: 'X' }],
       ['POST', `${base(c1)}/${x.id}/archive`, undefined],
       ['DELETE', `${base(c1)}/${x.id}`, undefined],
     ] as const;
     for (const [method, url, body] of attempts) expect((await h.req(method, url, body)).statusCode).toBe(404);
-    expect(h.auditCount('tag')).toBe(before);
+    expect(await h.auditCount('tag')).toBe(before);
   });
 });

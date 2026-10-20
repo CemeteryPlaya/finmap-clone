@@ -265,7 +265,7 @@ describe('операции ячейки «Прибыли»: «полностью
       ],
       20_000, // оплата равна сумме расхода: старое условие «сумма больше оплат» убрало бы его из списка
     );
-    w.h.t.sqlite.prepare('UPDATE operation_lines SET amount = -5000, base_amount = -5000 WHERE operation_id = ? AND category_id = ?').run(op, s);
+    await w.h.t.q('UPDATE operation_lines SET amount = -5000, base_amount = -5000 WHERE operation_id = ? AND category_id = ?', op, s);
     expect((await cell(`row=expense:category:${r}&col=total`)).items.map((i) => [i.id, i.part])).toEqual([[op, 15_000]]);
     const report = await pnl(Q3);
     expect(find(report.rows, `expense:category:${r}`).total).toBe(15_000);

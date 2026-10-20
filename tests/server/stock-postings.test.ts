@@ -20,7 +20,7 @@ async function world(): Promise<StockWorld> {
 const journal = (world: StockWorld, docId: number, body?: Record<string, unknown>) =>
   world.h.req('POST', `${world.stock}/docs/${docId}/journal`, body ?? { accountId: world.kzt, categoryId: world.income });
 const getDoc = async (world: StockWorld, id: number) => (await world.h.req('GET', `${world.stock}/docs/${id}`)).json().doc;
-const opCount = (world: StockWorld) => (world.h.t.sqlite.prepare('SELECT COUNT(*) n FROM operations').get() as { n: number }).n;
+const opCount = async (world: StockWorld) => ((await world.h.t.q('SELECT COUNT(*) n FROM operations'))[0] as { n: number }).n;
 
 describe('продажа → доход журнала (§6.3)', () => {
   it('создаёт доход на выбранный счёт: сумма документа, категория, проект склада, поставщик-покупатель, комментарий «Продажа {номер}»', async () => {
@@ -48,7 +48,7 @@ describe('продажа → доход журнала (§6.3)', () => {
     expect(balances.total.amount).toBe(170_000);
     expect((await w.h.req('GET', `${w.stock}/docs`)).json().docs[0]).toMatchObject({ id: sale.id, posted: true });
     // себестоимость расходом в журнал не попадает
-    expect(opCount(w)).toBe(1);
+    expect(await opCount(w)).toBe(1);
   });
 
   it('повтор невозможен; после удаления операции продажу можно провести снова', async () => {
@@ -57,7 +57,7 @@ describe('продажа → доход журнала (§6.3)', () => {
     const first = (await journal(w, sale.id)).json();
     const again = await journal(w, sale.id);
     expect([again.statusCode, again.json().error.code, again.json().error.message]).toEqual([422, 'ALREADY_POSTED', 'Продажа уже проведена в журнал']);
-    expect(opCount(w)).toBe(1);
+    expect(await opCount(w)).toBe(1);
 
     await w.h.req('DELETE', `${w.ops}/${first.operationId}`);
     expect((await getDoc(w, sale.id)).posting).toBeNull();
@@ -66,7 +66,7 @@ describe('продажа → доход журнала (§6.3)', () => {
     expect(second.statusCode).toBe(201);
     expect(second.json().operationId).not.toBe(first.operationId);
     expect((await getDoc(w, sale.id)).posting).toMatchObject({ operationId: second.json().operationId });
-    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM stock_doc_postings').get()).toEqual({ n: 1 });
+    expect((await w.h.t.q('SELECT COUNT(*) n FROM stock_doc_postings'))[0]).toEqual({ n: 1 });
   });
 
   it('правка продажи операцию не меняет: в документе видно две суммы', async () => {
@@ -116,14 +116,14 @@ describe('правила проведения и откат', () => {
     const o = await w.writeoff(D1, [[w.cola, 1000]]);
     const free = await w.sale(D1, [[w.chips, 1000, 0]]);
     const fromSenet = await w.sale(D1, [[w.chips, 1000, 100]]);
-    w.h.t.sqlite.prepare("UPDATE stock_docs SET source = 'senet', source_ref = 'смена-1' WHERE id = ?").run(fromSenet.id);
+    await w.h.t.q("UPDATE stock_docs SET source = 'senet', source_ref = 'смена-1' WHERE id = ?", fromSenet.id);
     const msg = async (id: number) => (await journal(w, id)).json().error.message;
     expect(await msg(r.id)).toBe('В журнал проводится только продажа');
     expect(await msg(o.id)).toBe('В журнал проводится только продажа');
     expect(await msg(free.id)).toBe('Сумма продажи равна нулю — проводить нечего');
     expect(await msg(fromSenet.id)).toBe('Выручка бара проводится из смены в «Сверке Senet»');
     expect((await journal(w, 99_999)).statusCode).toBe(404);
-    expect(opCount(w)).toBe(0);
+    expect(await opCount(w)).toBe(0);
   });
 
   it('ошибка операции журнала откатывает проведение целиком: операции и связи нет', async () => {
@@ -138,8 +138,8 @@ describe('правила проведения и откат', () => {
     const early = await w.sale('2026-09-20T10:00:00.000Z', [[w.cola, 1000, 50_000]]); // раньше открытия счёта 2026-10-01
     const tooEarly = await journal(w, early.id);
     expect([tooEarly.statusCode, tooEarly.json().error.code]).toEqual([422, 'INVARIANT_6']);
-    expect(opCount(w)).toBe(0);
-    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM stock_doc_postings').get()).toEqual({ n: 0 });
+    expect(await opCount(w)).toBe(0);
+    expect((await w.h.t.q('SELECT COUNT(*) n FROM stock_doc_postings'))[0]).toEqual({ n: 0 });
     expect((await getDoc(w, sale.id)).posting).toBeNull();
   });
 
@@ -150,25 +150,25 @@ describe('правила проведения и откат', () => {
     expect([usd.statusCode, usd.json().error.code, usd.json().error.message]).toEqual([422, 'VALIDATION', 'Выручка проводится на счёт в валюте компании (KZT)']);
     const missing = await journal(w, sale.id, { accountId: 99_999, categoryId: w.income });
     expect([missing.statusCode, missing.json().error.code]).toEqual([422, 'INVARIANT_5']);
-    expect(opCount(w)).toBe(0);
+    expect(await opCount(w)).toBe(0);
   });
 
   it('архивная компания: проведение запрещено; поля тела обязательны', async () => {
     const w = await world();
     const sale = await w.sale(D2, [[w.cola, 1000, 50_000]]);
     expect((await journal(w, sale.id, { accountId: w.kzt })).statusCode).toBe(400);
-    w.h.t.sqlite.prepare("UPDATE companies SET archived_at = '2026-10-06T00:00:00.000Z' WHERE id = ?").run(w.cid);
+    await w.h.t.q("UPDATE companies SET archived_at = '2026-10-06T00:00:00.000Z' WHERE id = ?", w.cid);
     const res = await journal(w, sale.id);
     expect([res.statusCode, res.json().error.code]).toEqual([422, 'ARCHIVED_REFERENCE']);
-    expect(opCount(w)).toBe(0);
+    expect(await opCount(w)).toBe(0);
   });
 
   it('история: проведение записывается у документа, создание операции — у операции', async () => {
     const w = await world();
     const sale = await w.sale(D2, [[w.cola, 1000, 50_000]]);
     await journal(w, sale.id);
-    expect(w.h.auditCount('operation', 'create')).toBe(1);
-    expect(w.h.auditCount('stock_doc', 'update')).toBe(1);
+    expect(await w.h.auditCount('operation', 'create')).toBe(1);
+    expect(await w.h.auditCount('stock_doc', 'update')).toBe(1);
   });
 });
 
@@ -176,15 +176,15 @@ describe('проект склада в архиве (R13)', () => {
   it('проведение продажи склада с архивным проектом — понятный 422 до создания операции', async () => {
     const w = await world();
     const sale = await w.sale(D2, [[w.cola, 1000, 50_000]]);
-    w.h.t.sqlite.prepare("UPDATE projects SET archived_at = '2026-10-06T00:00:00.000Z' WHERE id = ?").run(w.project);
+    await w.h.t.q("UPDATE projects SET archived_at = '2026-10-06T00:00:00.000Z' WHERE id = ?", w.project);
     const res = await journal(w, sale.id);
     expect([res.statusCode, res.json().error.code, res.json().error.message]).toEqual([
       422,
       'ARCHIVED_REFERENCE',
       'Проект склада в архиве — верните проект из архива, чтобы провести продажу',
     ]);
-    expect(opCount(w)).toBe(0);
-    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM stock_doc_postings').get()).toEqual({ n: 0 });
+    expect(await opCount(w)).toBe(0);
+    expect((await w.h.t.q('SELECT COUNT(*) n FROM stock_doc_postings'))[0]).toEqual({ n: 0 });
   });
 });
 
@@ -197,21 +197,21 @@ describe('защита проведения (R15)', () => {
     expect((await getDoc(w, sale.id)).posting).toEqual({ operationId: first.operationId, amount: 50_000 });
     const again = await journal(w, sale.id, { accountId: w.kzt, categoryId: w.income });
     expect([again.statusCode, again.json().error.code]).toEqual([422, 'ALREADY_POSTED']);
-    expect(opCount(w)).toBe(1);
+    expect(await opCount(w)).toBe(1);
     // на уровне БД вторая связь с тем же документом невозможна
-    const spareOp = w.h.t.sqlite.prepare('SELECT id FROM operations LIMIT 1').get() as { id: number };
-    expect(() => w.h.t.sqlite.prepare('INSERT INTO stock_doc_postings (doc_id, operation_id) VALUES (?, ?)').run(sale.id, spareOp.id)).toThrow(/UNIQUE|PRIMARY KEY/);
-    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM stock_doc_postings').get()).toEqual({ n: 1 });
+    const spareOp = (await w.h.t.q('SELECT id FROM operations LIMIT 1'))[0] as { id: number };
+    await expect(w.h.t.q('INSERT INTO stock_doc_postings (doc_id, operation_id) VALUES (?, ?)', sale.id, spareOp.id)).rejects.toThrow(/UNIQUE|PRIMARY KEY/);
+    expect((await w.h.t.q('SELECT COUNT(*) n FROM stock_doc_postings'))[0]).toEqual({ n: 1 });
   });
 
   it('жёсткое удаление операции проведения убирает строку stock_doc_postings (каскад), продажу можно провести снова', async () => {
     const w = await world();
     const sale = await w.sale(D2, [[w.cola, 1000, 50_000]]);
     const { operationId } = (await journal(w, sale.id)).json();
-    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM stock_doc_postings').get()).toEqual({ n: 1 });
-    w.h.t.sqlite.prepare('DELETE FROM operation_lines WHERE operation_id = ?').run(operationId);
-    w.h.t.sqlite.prepare('DELETE FROM operations WHERE id = ?').run(operationId);
-    expect(w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM stock_doc_postings').get()).toEqual({ n: 0 });
+    expect((await w.h.t.q('SELECT COUNT(*) n FROM stock_doc_postings'))[0]).toEqual({ n: 1 });
+    await w.h.t.q('DELETE FROM operation_lines WHERE operation_id = ?', operationId);
+    await w.h.t.q('DELETE FROM operations WHERE id = ?', operationId);
+    expect((await w.h.t.q('SELECT COUNT(*) n FROM stock_doc_postings'))[0]).toEqual({ n: 0 });
     expect((await getDoc(w, sale.id)).posting).toBeNull();
     expect((await journal(w, sale.id)).statusCode).toBe(201);
   });

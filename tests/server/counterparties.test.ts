@@ -21,7 +21,7 @@ describe('counterparties API', () => {
     expect(bad.json().error.fields.type).toBe('Выберите тип контрагента');
     const list = (await h.req('GET', base(cid))).json().counterparties;
     expect(list).toHaveLength(COUNTERPARTY_TYPES.length);
-    expect(h.auditCount('counterparty', 'create')).toBe(COUNTERPARTY_TYPES.length);
+    expect(await h.auditCount('counterparty', 'create')).toBe(COUNTERPARTY_TYPES.length);
   });
 
   it('правка, архив, порядок и удаление; PATCH без изменений не пишет историю', async () => {
@@ -32,7 +32,7 @@ describe('counterparties API', () => {
     const upd = await h.req('PATCH', `${base(cid)}/${a.id}`, { type: 'employee', comment: '' });
     expect(upd.json().counterparty).toMatchObject({ type: 'employee', name: 'ИП Иванов', comment: null });
     await h.req('PATCH', `${base(cid)}/${a.id}`, { name: 'ИП  Иванов', comment: null });
-    expect(h.auditCount('counterparty', 'update')).toBe(1);
+    expect(await h.auditCount('counterparty', 'update')).toBe(1);
 
     const order = await h.req('POST', `${base(cid)}/reorder`, { ids: [b.id, a.id] });
     expect(order.json().counterparties.map((c: { id: number }) => c.id)).toEqual([b.id, a.id]);
@@ -50,7 +50,7 @@ describe('counterparties API', () => {
     const c1 = await h.company();
     const c2 = await h.company();
     const x = (await h.req('POST', base(c2), { type: 'client', name: 'Чужой' })).json().counterparty;
-    const before = h.auditCount('counterparty');
+    const before = await h.auditCount('counterparty');
     const attempts = [
       ['PATCH', `${base(c1)}/${x.id}`, { name: 'X' }],
       ['POST', `${base(c1)}/${x.id}/archive`, undefined],
@@ -60,7 +60,7 @@ describe('counterparties API', () => {
     for (const [method, url, body] of attempts) expect((await h.req(method, url, body)).statusCode).toBe(404);
     // в списке порядка компании 1 чужого id нет — список не совпадает с текущим
     expect((await h.req('POST', `${base(c1)}/reorder`, { ids: [x.id] })).statusCode).toBe(409);
-    expect(h.auditCount('counterparty')).toBe(before);
+    expect(await h.auditCount('counterparty')).toBe(before);
     expect((await h.req('GET', base(c2))).json().counterparties[0]).toMatchObject({ name: 'Чужой', archivedAt: null });
   });
 });

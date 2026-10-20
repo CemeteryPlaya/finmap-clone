@@ -65,7 +65,7 @@ const patch = async (id: number, body: object) => {
 };
 const del = async (id: number) => expect((await w.h.req('DELETE', `${w.ops}/${id}`)).statusCode).toBe(200);
 const restore = async (id: number) => expect((await w.h.req('POST', `${w.ops}/${id}/restore`)).statusCode).toBe(200);
-const undoMarks = () => (w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM audit_undo').get() as { n: number }).n;
+const undoMarks = async () => ((await w.h.t.q('SELECT COUNT(*) n FROM audit_undo'))[0] as { n: number }).n;
 
 describe('отмена действий с операциями (план 2026-10-20, задача 2)', () => {
   it('отмена правки: поля «было», одна запись «Отмена», без новых правок', async () => {
@@ -80,8 +80,8 @@ describe('отмена действий с операциями (план 2026-1
     const after = await getOp(op.id);
     expect(after).toMatchObject({ amount: 1_000_000, comment: null, version: 3, deletedAt: null });
     expect(after.lines[0]).toMatchObject({ amount: 1_000_000, baseAmount: 1_000_000 });
-    expect(w.h.auditCount('operation', 'update')).toBe(1);
-    expect(w.h.auditCount('operation', 'undo')).toBe(1);
+    expect(await w.h.auditCount('operation', 'update')).toBe(1);
+    expect(await w.h.auditCount('operation', 'undo')).toBe(1);
     const undone = await entry(u!);
     expect(undone.undoneBy).toBe(r.undoId);
     expect(undone.undoable).toBe(false);
@@ -105,7 +105,7 @@ describe('отмена действий с операциями (план 2026-1
     expect(await getOp(op.id)).toMatchObject({ amount: 1_000_000, comment: null });
     expect((await entry(u1!)).undoneBy).toBe(r.undoId);
     expect((await entry(u2!)).undoneBy).toBe(r.undoId);
-    expect(undoMarks()).toBe(2);
+    expect(await undoMarks()).toBe(2);
   });
 
   it('отмена удаления восстанавливает, отмена восстановления — снова удаляет', async () => {
@@ -121,8 +121,8 @@ describe('отмена действий с операциями (план 2026-1
     expect((await undo(r!)).operation.deleted).toBe(true);
     expect((await getOp(op.id)).deletedAt).not.toBeNull();
     // обычных записей удаления и восстановления отмена не пишет
-    expect(w.h.auditCount('operation', 'delete')).toBe(2);
-    expect(w.h.auditCount('operation', 'restore')).toBe(1);
+    expect(await w.h.auditCount('operation', 'delete')).toBe(2);
+    expect(await w.h.auditCount('operation', 'restore')).toBe(1);
   });
 
   it('отмена добавления удаляет операцию; у её действий «Отмены» больше нет', async () => {
@@ -191,7 +191,7 @@ describe('отмена действий с операциями (план 2026-1
     ]);
     await undo(u1!);
     expect(await getOp(op.id)).toMatchObject({ amount: 1_000_000, comment: null, deletedAt: null });
-    expect(undoMarks()).toBe(4);
+    expect(await undoMarks()).toBe(4);
   });
 
   it('«Изменить в перевод» отменяется: расход с датой сделки, контрагентом и категорией (Review Focus 3)', async () => {
@@ -233,7 +233,7 @@ describe('отмена действий с операциями (план 2026-1
     const version = (await getOp(op.id)).version;
     expect(fail(await undoRes(u!, [u!]), 422, 'ARCHIVED_REFERENCE').message).toBe('Категория «Аренда» в архиве — выберите другую');
     expect(await getOp(op.id)).toMatchObject({ version, lines: [{ categoryId: light }] });
-    expect(w.h.auditCount('operation', 'undo')).toBe(0);
+    expect(await w.h.auditCount('operation', 'undo')).toBe(0);
     expect((await entry(u!)).undoable).toBe(true);
   });
 
@@ -247,7 +247,7 @@ describe('отмена действий с операциями (план 2026-1
     const [u1, u2] = await ids(op.id, 'update');
     fail(await undoRes(u1!, [u2!, u1!]), 422, 'ARCHIVED_REFERENCE');
     expect(await getOp(op.id)).toMatchObject({ amount: 1_200_000, lines: [{ categoryId: light, amount: 1_200_000 }] });
-    expect(undoMarks()).toBe(0);
+    expect(await undoMarks()).toBe(0);
     expect((await entry(u2!)).undoable).toBe(true);
   });
 
@@ -260,7 +260,7 @@ describe('отмена действий с операциями (план 2026-1
     await patch(op.id, { comment: 'Клуб 2' });
     expect(fail(await undoRes(u1!, [u1!]), 409, 'VERSION_CONFLICT').message).toBe('Действия с операцией изменились — обновите историю');
     expect(await getOp(op.id)).toMatchObject({ amount: 2_000_000, comment: 'Клуб 2' });
-    expect(undoMarks()).toBe(0);
+    expect(await undoMarks()).toBe(0);
   });
 
   it('что отменить нельзя: не операция, чужая компания, жёстко удалённая операция, архивная компания', async () => {
@@ -281,14 +281,14 @@ describe('отмена действий с операциями (план 2026-1
     // операция удалена жёстко (так удаляет отмена импорта): отменять нечего
     const gone = await create();
     const [cg] = await ids(gone.id, 'create');
-    w.h.t.sqlite.prepare('DELETE FROM operations WHERE id = ?').run(gone.id);
+    await w.h.t.q('DELETE FROM operations WHERE id = ?', gone.id);
     expect((await entry(cg!)).undoable).toBe(false);
     expect(fail(await previewRes(cg!), 404, 'NOT_FOUND').message).toBe('Операция больше не существует');
 
     // компания в архиве (архив компании требует архива её счетов — здесь проверяется только отказ отмены)
-    w.h.t.sqlite.prepare('UPDATE companies SET archived_at = ? WHERE id = ?').run('2026-10-06T00:00:00.000Z', w.cid);
+    await w.h.t.q('UPDATE companies SET archived_at = ? WHERE id = ?', '2026-10-06T00:00:00.000Z', w.cid);
     expect(fail(await undoRes(c!, [c!]), 422, 'ARCHIVED_REFERENCE').message).toBe('Компания в архиве — изменения недоступны');
-    expect(undoMarks()).toBe(0);
+    expect(await undoMarks()).toBe(0);
   });
 
   it('пустой или слишком длинный список ids — 400; каскад длиннее предела — 422 UNDO_TOO_LONG', async () => {

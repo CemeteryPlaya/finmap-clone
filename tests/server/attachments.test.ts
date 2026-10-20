@@ -50,8 +50,8 @@ describe('attachments', () => {
     expect((await w.h.req('GET', `${w.ops}/${opId}/attachments`)).json().attachments).toEqual([]);
     expect((await w.h.req('GET', `/api/v1/companies/${w.cid}/attachments/${att.id}`)).statusCode).toBe(404);
     expect(fs.existsSync(onDisk)).toBe(true); // §4.5: физический файл не удаляется
-    expect(w.h.auditCount('attachment', 'create')).toBe(1);
-    expect(w.h.auditCount('attachment', 'delete')).toBe(1);
+    expect(await w.h.auditCount('attachment', 'create')).toBe(1);
+    expect(await w.h.auditCount('attachment', 'delete')).toBe(1);
   });
 
   it('HTML со скриптом не принимается: тип определяется по содержимому (Review Focus 2)', async () => {
@@ -153,10 +153,10 @@ describe('attachments', () => {
     w = await opsWorld();
     const opId = await newOp();
     const before = uploadsCount();
-    w.h.t.sqlite.exec("CREATE TEMP TRIGGER audit_down BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'audit down'); END");
+    await w.h.t.failOn('audit_down', { table: 'audit_log', event: 'INSERT', message: 'audit down' });
     expect((await upload(`${w.ops}/${opId}/attachments`, PNG)).statusCode).toBe(500);
-    w.h.t.sqlite.exec('DROP TRIGGER audit_down');
+    await w.h.t.dropFail('audit_down', 'audit_log');
     expect(uploadsCount()).toBe(before);
-    expect((w.h.t.sqlite.prepare('SELECT COUNT(*) n FROM attachments').get() as { n: number }).n).toBe(0);
+    expect(((await w.h.t.q('SELECT COUNT(*) n FROM attachments'))[0] as { n: number }).n).toBe(0);
   });
 });

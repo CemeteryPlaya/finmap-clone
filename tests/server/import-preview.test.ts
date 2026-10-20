@@ -25,8 +25,8 @@ function preview(rows: FinmapLikeValue[][], mappings: AccountMapping[] = [], sha
     mappings,
   );
 }
-const one = (sql: string, ...args: unknown[]) => w.h.t.sqlite.prepare(sql).get(...args) as Record<string, number>;
-const systemId = (key: string) => one('SELECT id FROM categories WHERE company_id = ? AND system_key = ?', w.cid, key).id!;
+const one = async (sql: string, ...args: unknown[]) => (await w.h.t.q(sql, ...args))[0] as Record<string, number>;
+const systemId = async (key: string) => (await one('SELECT id FROM categories WHERE company_id = ? AND system_key = ?', w.cid, key)).id!;
 
 describe('предпросмотр: счета, движение, остатки (§5.4 спецификации импорта)', () => {
   it('сопоставление по умолчанию, движение, дата открытия, оба режима остатка и «Остаток после импорта»', async () => {
@@ -170,7 +170,7 @@ describe('предпросмотр: суммы и валюты (§4.2)', () => {
 describe('предпросмотр: дубликаты (§5.5)', () => {
   it('ключ с категорией и контрагентом («22:07»), кратность, разбитая операция, перевод; удалённые не считаются; новые счета — не дубликаты', async () => {
     w = await opsWorld();
-    const salary = systemId('salary');
+    const salary = await systemId('salary');
     const cp = async (name: string) => (await w.post(`/api/v1/companies/${w.cid}/counterparties`, { type: 'employee', name })).counterparty.id as number;
     const a = await cp('Сотрудник А');
     const b = await cp('Сотрудник Б');
@@ -204,12 +204,10 @@ describe('предпросмотр: дубликаты (§5.5)', () => {
     w = await opsWorld();
     await w.post(w.ops, { type: 'income', paidAt: '2026-10-05T05:00:00Z', accountId: w.kzt, amount: 10000 });
     const rows = [fr({ paidAt: at('2026-10-05', '10:00:00'), amount: 100, to: 'Касса' })];
-    const ins = w.h.t.sqlite.prepare(
-      "INSERT INTO imports (company_id, user_id, file_name, file_size, file_sha256, status, counts, created, account_changes, created_at) VALUES (?, 1, 'f', 1, ?, ?, '{}', '{}', '[]', '2026-10-06T12:00:00.000Z')",
-    );
-    ins.run(w.cid, 'sha-old', 'undone');
+    const ins = (...a: unknown[]) => w.h.t.q("INSERT INTO imports (company_id, user_id, file_name, file_size, file_sha256, status, counts, created, account_changes, created_at) VALUES (?, 1, 'f', 1, ?, ?, '{}', '{}', '[]', '2026-10-06T12:00:00.000Z')", ...a);
+    await ins(w.cid, 'sha-old', 'undone');
     expect((await preview(rows, [], 'sha-old')).preview.warnings).toEqual([]);
-    ins.run(w.cid, 'sha-old', 'done');
+    await ins(w.cid, 'sha-old', 'done');
     const { preview: p } = await preview(rows, [], 'sha-old');
     expect(p.counts).toMatchObject({ add: 0, duplicates: 1 });
     expect(p.canImport).toBe(false);
@@ -347,7 +345,7 @@ describe('предпросмотр: перенесено из ревью зад�
   it('валюта нового счёта меняет округление E: KWD — три знака без W10, KZT — W10; F ≠ E у счёта в валюте компании — W9', async () => {
     w = await opsWorld();
     // в тестовой базе только KZT и USD; KWD — три знака после запятой
-    w.h.t.sqlite.prepare("INSERT INTO currencies (code, name, symbol, minor_units) VALUES ('KWD', 'Кувейтский динар', 'KD', 3)").run();
+    await w.h.t.q("INSERT INTO currencies (code, name, symbol, minor_units) VALUES ('KWD', 'Кувейтский динар', 'KD', 3)");
     const rows = [fr({ paidAt: at('2026-10-05', '10:00:00'), amount: '1,001', baseAmount: 1000, to: 'Динар' })];
     const kwd = await preview(rows, [{ key: 'динар', kind: 'new', name: 'Динар', currency: 'KWD', balance: null }]);
     expect(kwd.plan.rows.map((r) => [r.amount, r.baseAmount, r.rate])).toEqual([[1001, 100_000, '999.000999']]);
@@ -419,7 +417,7 @@ describe('предпросмотр: правки по ревью задачи 6'
 
   it('сумма зачисления перевода после пересчёта по курсу — ноль: R06 (0,01 ₸ → USD; 0,01 сум → ₸ без F), а не R07', async () => {
     w = await opsWorld();
-    w.h.t.sqlite.prepare("INSERT INTO currencies (code, name, symbol, minor_units) VALUES ('UZS', 'Узбекский сум', 'сўм', 2)").run();
+    await w.h.t.q("INSERT INTO currencies (code, name, symbol, minor_units) VALUES ('UZS', 'Узбекский сум', 'сўм', 2)");
     await w.post('/api/v1/rates/manual', { date: '2026-10-01', currency: 'UZS', rate: '0.04' });
     const sum = { key: 'сумовой', kind: 'new', name: 'Сумовой', currency: 'UZS', balance: null } as const;
     const { preview: p, plan } = await preview(

@@ -24,9 +24,9 @@ async function world(): Promise<StockWorld> {
   return w;
 }
 
-const rows = <T>(world: StockWorld, sql: string, ...args: unknown[]) => world.h.t.sqlite.prepare(sql).all(...args) as T[];
-const state = (world: StockWorld, item: number) =>
-  rows<{ qty_left: number; cost_left: number }>(world, 'SELECT qty_left, cost_left FROM stock_batches WHERE item_id = ? ORDER BY at, id', item).map((b) => [b.qty_left, b.cost_left]);
+const rows = async <T>(world: StockWorld, sql: string, ...args: unknown[]) => (await world.h.t.q(sql, ...args)) as T[];
+const state = async (world: StockWorld, item: number) =>
+  (await rows<{ qty_left: number; cost_left: number }>(world, 'SELECT qty_left, cost_left FROM stock_batches WHERE item_id = ? ORDER BY at, id', item)).map((b) => [b.qty_left, b.cost_left]);
 
 describe('документы: номера, создание, чтение', () => {
   it('номера по типу в компании: П-0001, Р-0001, С-0001; удалённый документ номер не освобождает', async () => {
@@ -74,7 +74,7 @@ describe('документы: номера, создание, чтение', () 
   it('история: создание документа пишется один раз', async () => {
     const w = await world();
     await w.receipt(D1, [[w.cola, 1000, 100]]);
-    expect(w.h.auditCount('stock_doc', 'create')).toBe(1);
+    expect(await w.h.auditCount('stock_doc', 'create')).toBe(1);
   });
 });
 
@@ -85,8 +85,8 @@ describe('FIFO по документам (§5.2)', () => {
     await w.receipt(D2, [[w.cola, 10_000, 150_000]]);
     const sale = await w.sale(D3, [[w.cola, 12_000, 600_000]]);
     expect((await w.h.req('GET', `${w.stock}/docs/${sale.id}`)).json().doc.lines[0]).toMatchObject({ cost: 100_000 + 30_000, uncovered: 0 });
-    expect(state(w, w.cola)).toEqual([[0, 0], [8000, 120_000]]);
-    const allocs = rows<{ qty: number; cost: number }>(w, 'SELECT qty, cost FROM stock_allocations ORDER BY id');
+    expect(await state(w, w.cola)).toEqual([[0, 0], [8000, 120_000]]);
+    const allocs = await rows<{ qty: number; cost: number }>(w, 'SELECT qty, cost FROM stock_allocations ORDER BY id');
     expect(allocs).toEqual([{ qty: 10_000, cost: 100_000 }, { qty: 2000, cost: 30_000 }]);
   });
 
@@ -99,7 +99,7 @@ describe('FIFO по документам (§5.2)', () => {
       costs.push((await w.h.req('GET', `${w.stock}/docs/${s.id}`)).json().doc.lines[0].cost);
     }
     expect(costs).toEqual([33, 33, 34]);
-    expect(state(w, w.cola)).toEqual([[0, 0]]);
+    expect(await state(w, w.cola)).toEqual([[0, 0]]);
   });
 
   it('пары независимы: другой товар и другой склад не влияют друг на друга', async () => {
@@ -108,7 +108,7 @@ describe('FIFO по документам (§5.2)', () => {
     await w.doc({ type: 'receipt', at: D1, warehouseId: w.wh2, lines: [{ itemId: w.cola, qty: 5000, amount: 70_000 }] });
     const s = await w.sale(D2, [[w.cola, 2000, 100_000], [w.chips, 1000, 70_000]]);
     expect((await w.h.req('GET', `${w.stock}/docs/${s.id}`)).json().doc.lines.map((l: any) => l.cost)).toEqual([20_000, 18_000]);
-    expect(rows(w, 'SELECT warehouse_id w, item_id i, qty_left q FROM stock_batches ORDER BY warehouse_id, item_id')).toEqual([
+    expect(await rows(w, 'SELECT warehouse_id w, item_id i, qty_left q FROM stock_batches ORDER BY warehouse_id, item_id')).toEqual([
       { w: w.wh, i: w.cola, q: 3000 },
       { w: w.wh, i: w.chips, q: 4000 },
       { w: w.wh2, i: w.cola, q: 5000 },
@@ -129,7 +129,7 @@ describe('нехватка остатка (§5.3)', () => {
     const w = await world();
     const s = await w.sale(D2, [[w.cola, 2000, 100_000]]);
     expect((await w.h.req('GET', `${w.stock}/docs/${s.id}`)).json().doc.lines[0]).toMatchObject({ cost: null, uncovered: 2000 });
-    expect(rows(w, 'SELECT batch_id, qty, cost FROM stock_allocations')).toEqual([{ batch_id: null, qty: 2000, cost: null }]);
+    expect(await rows(w, 'SELECT batch_id, qty, cost FROM stock_allocations')).toEqual([{ batch_id: null, qty: 2000, cost: null }]);
   });
 
   it('поступление с более ранней датой, введённое позже, закрывает долг продажи', async () => {
@@ -138,7 +138,7 @@ describe('нехватка остатка (§5.3)', () => {
     const res = await w.post(`${w.stock}/docs`, { type: 'receipt', at: D1, warehouseId: w.wh, lines: [{ itemId: w.cola, qty: 5000, amount: 50_000 }] });
     expect(res.impact).toEqual({ sales: 1, writeoffs: 0, since: D1 });
     expect((await w.h.req('GET', `${w.stock}/docs/${s.id}`)).json().doc.lines[0]).toMatchObject({ cost: 20_000, uncovered: 0 });
-    expect(state(w, w.cola)).toEqual([[3000, 30_000]]);
+    expect(await state(w, w.cola)).toEqual([[3000, 30_000]]);
   });
 
   it('поступление позже продажи долг не закрывает', async () => {
@@ -155,8 +155,8 @@ describe('нехватка остатка (§5.3)', () => {
     const res = await w.h.req('POST', `${w.stock}/docs`, { type: 'writeoff', at: D2, warehouseId: w.wh, reason: 'defect', lines: [{ itemId: w.cola, qty: 5000 }] });
     expect(res.statusCode).toBe(422);
     expect(res.json().error).toMatchObject({ code: 'INSUFFICIENT_STOCK', message: 'Не хватает «Кола 0,5»: на складе 2 шт на 02.10.2026', details: { itemId: w.cola, available: 2000 } });
-    expect(rows(w, 'SELECT COUNT(*) n FROM stock_docs')).toEqual([{ n: 1 }]);
-    expect(state(w, w.cola)).toEqual([[2000, 20_000]]);
+    expect(await rows(w, 'SELECT COUNT(*) n FROM stock_docs')).toEqual([{ n: 1 }]);
+    expect(await state(w, w.cola)).toEqual([[2000, 20_000]]);
     // следующий номер не потерян откатом
     expect((await w.writeoff(D2, [[w.cola, 1000]])).number).toBe(`${S}-0001`);
   });
@@ -180,19 +180,19 @@ describe('изменение прошлого (§5.4)', () => {
     expect(res.impact).toEqual({ sales: 1, writeoffs: 0, since: D1 });
     // теперь сначала 4 по 100,00, затем 8 по 10,00 (партия D2)
     expect((await w.h.req('GET', `${w.stock}/docs/${s.id}`)).json().doc.lines[0].cost).toBe(400_000 + 80_000);
-    expect(state(w, w.cola)).toEqual([[0, 0], [2000, 20_000], [10_000, 300_000]]);
+    expect(await state(w, w.cola)).toEqual([[0, 0], [2000, 20_000], [10_000, 300_000]]);
   });
 
   it('dryRun считает последствия и не пишет: ни документа, ни номера, ни истории', async () => {
     const w = await world();
     await w.receipt(D2, [[w.cola, 10_000, 100_000]]);
     const s = await w.sale(D3, [[w.cola, 2000, 100_000]]);
-    const before = w.h.auditCount('stock_doc');
+    const before = await w.h.auditCount('stock_doc');
     const res = await w.h.req('POST', `${w.stock}/docs`, { type: 'receipt', at: D1, warehouseId: w.wh, lines: [{ itemId: w.cola, qty: 1000, amount: 999_000 }], dryRun: true });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ doc: null, impact: { sales: 1, writeoffs: 0, since: D1 } });
-    expect(rows(w, 'SELECT COUNT(*) n FROM stock_docs')).toEqual([{ n: 2 }]);
-    expect(w.h.auditCount('stock_doc')).toBe(before);
+    expect(await rows(w, 'SELECT COUNT(*) n FROM stock_docs')).toEqual([{ n: 2 }]);
+    expect(await w.h.auditCount('stock_doc')).toBe(before);
     expect((await w.h.req('GET', `${w.stock}/docs/${s.id}`)).json().doc.lines[0].cost).toBe(20_000);
     expect((await w.receipt(D4, [[w.cola, 1000, 1]])).number).toBe(`${P}-0002`);
   });
@@ -209,12 +209,12 @@ describe('изменение прошлого (§5.4)', () => {
     expect(del.json().impact).toEqual({ sales: 1, writeoffs: 0, since: D1 });
     expect(del.json().doc).toMatchObject({ version: 2 });
     expect((await w.h.req('GET', `${w.stock}/docs/${s.id}`)).json().doc.lines[0]).toMatchObject({ cost: null, uncovered: 4000 });
-    expect(rows(w, 'SELECT COUNT(*) n FROM stock_batches')).toEqual([{ n: 0 }]);
+    expect(await rows(w, 'SELECT COUNT(*) n FROM stock_batches')).toEqual([{ n: 0 }]);
     expect((await w.h.req('GET', `${w.stock}/docs`)).json().docs.map((d: any) => d.id)).toEqual([s.id]);
     // повторное удаление — без последствий и без второй записи в истории
     const again = await w.h.req('DELETE', `${w.stock}/docs/${r.id}`);
     expect(again.json().impact).toEqual({ sales: 0, writeoffs: 0, since: null });
-    expect(w.h.auditCount('stock_doc', 'delete')).toBe(1);
+    expect(await w.h.auditCount('stock_doc', 'delete')).toBe(1);
   });
 
   it('удаление поступления, из которого уже списали вручную, — 422, всё остаётся как было', async () => {
@@ -225,17 +225,17 @@ describe('изменение прошлого (§5.4)', () => {
     expect(res.statusCode).toBe(422);
     expect(res.json().error).toMatchObject({ code: 'INSUFFICIENT_STOCK', message: 'Не хватает «Кола 0,5»: на складе 0 шт на 02.10.2026' });
     expect((await w.h.req('GET', `${w.stock}/docs/${r.id}`)).json().doc).toMatchObject({ deletedAt: null, version: 1 });
-    expect(state(w, w.cola)).toEqual([[6000, 60_000]]);
+    expect(await state(w, w.cola)).toEqual([[6000, 60_000]]);
   });
 
   it('удаление продажи возвращает партии на склад', async () => {
     const w = await world();
     await w.receipt(D1, [[w.cola, 10_000, 100_000]]);
     const s = await w.sale(D2, [[w.cola, 4000, 200_000]]);
-    expect(state(w, w.cola)).toEqual([[6000, 60_000]]);
+    expect(await state(w, w.cola)).toEqual([[6000, 60_000]]);
     await w.h.req('DELETE', `${w.stock}/docs/${s.id}`);
-    expect(state(w, w.cola)).toEqual([[10_000, 100_000]]);
-    expect(rows(w, 'SELECT COUNT(*) n FROM stock_allocations')).toEqual([{ n: 0 }]);
+    expect(await state(w, w.cola)).toEqual([[10_000, 100_000]]);
+    expect(await rows(w, 'SELECT COUNT(*) n FROM stock_allocations')).toEqual([{ n: 0 }]);
   });
 });
 
@@ -314,7 +314,7 @@ describe('архивная компания', () => {
   it('документы читаются, любая запись — 422 ARCHIVED_REFERENCE', async () => {
     const w = await world();
     const r = await w.receipt(D1, [[w.cola, 1000, 100]]);
-    w.h.t.sqlite.prepare("UPDATE companies SET archived_at = '2026-10-06T00:00:00.000Z' WHERE id = ?").run(w.cid);
+    await w.h.t.q("UPDATE companies SET archived_at = '2026-10-06T00:00:00.000Z' WHERE id = ?", w.cid);
     expect((await w.h.req('GET', `${w.stock}/docs`)).statusCode).toBe(200);
     expect((await w.h.req('GET', `${w.stock}/docs/${r.id}`)).statusCode).toBe(200);
     const writes: [string, string, unknown][] = [
@@ -327,7 +327,7 @@ describe('архивная компания', () => {
       const res = await w.h.req(method as 'POST', url, payload);
       expect([res.statusCode, res.json().error.code], `${method} ${url}`).toEqual([422, 'ARCHIVED_REFERENCE']);
     }
-    expect(rows(w, 'SELECT COUNT(*) n FROM stock_docs')).toEqual([{ n: 1 }]);
+    expect(await rows(w, 'SELECT COUNT(*) n FROM stock_docs')).toEqual([{ n: 1 }]);
   });
 });
 
@@ -352,7 +352,7 @@ describe('оплаты поступления и отмена импорта', (
       })
     ).operation.id as number;
     // оплаты появятся в задаче 5 (API); здесь строка вставлена напрямую
-    w.h.t.sqlite.prepare('INSERT INTO stock_doc_payments (doc_id, operation_id, amount) VALUES (?, ?, 100)').run(r.id, op);
+    await w.h.t.q('INSERT INTO stock_doc_payments (doc_id, operation_id, amount) VALUES (?, ?, 100)', r.id, op);
     const res = await w.h.req('PATCH', `${w.stock}/docs/${r.id}`, { version: 1, counterpartyId: other });
     expect([res.statusCode, res.json().error.code, res.json().error.message]).toEqual([422, 'STOCK_DOC_HAS_PAYMENTS', 'У поступления есть оплаты — сначала снимите их в расходах']);
     expect((await w.h.req('PATCH', `${w.stock}/docs/${r.id}`, { version: 1, counterpartyId: w.supplier, comment: 'x' })).statusCode).toBe(200);
@@ -366,9 +366,9 @@ describe('оплаты поступления и отмена импорта', (
       [fr({ paidAt: xl('2026-10-03', '22:07:30'), amount: 8500, from: 'Касса', category: 'Зарплата', counterparty: 'Поставщик Б', project: 'Клуб 9' })],
       { accounts: mappings },
     );
-    const sql = (q: string) => w.h.t.sqlite.prepare(q).get() as { id: number };
-    const cp = sql("SELECT id FROM counterparties WHERE name = 'Поставщик Б'").id;
-    const project = sql("SELECT id FROM projects WHERE name = 'Клуб 9'").id;
+    const sql = async (q: string) => (await w.h.t.q(q))[0] as { id: number };
+    const cp = (await sql("SELECT id FROM counterparties WHERE name = 'Поставщик Б'")).id;
+    const project = (await sql("SELECT id FROM projects WHERE name = 'Клуб 9'")).id;
     const wh = (await w.post(`${w.stock}/warehouses`, { projectId: project, name: 'Бар Клуб 9' })).warehouse.id as number;
     await w.doc({ type: 'receipt', at: D1, warehouseId: wh, counterpartyId: cp, lines: [{ itemId: w.cola, qty: 1000, amount: 100 }] });
     const res = await w.h.req('POST', `/api/v1/companies/${w.cid}/imports/${r.import.id}/undo`, { includeEdited: false, edited: 0 });
@@ -377,8 +377,8 @@ describe('оплаты поступления и отмена импорта', (
     expect(result.kept.names).toEqual(expect.arrayContaining([{ entity: 'counterparty', name: 'Поставщик Б' }, { entity: 'project', name: 'Клуб 9' }]));
     expect(result.deleted.counterparties).toBe(0);
     expect(result.deleted.projects).toBe(0);
-    expect(sql("SELECT id FROM counterparties WHERE name = 'Поставщик Б'").id).toBe(cp);
-    expect(sql("SELECT id FROM projects WHERE name = 'Клуб 9'").id).toBe(project);
+    expect((await sql("SELECT id FROM counterparties WHERE name = 'Поставщик Б'")).id).toBe(cp);
+    expect((await sql("SELECT id FROM projects WHERE name = 'Клуб 9'")).id).toBe(project);
   });
 });
 
