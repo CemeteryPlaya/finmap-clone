@@ -324,6 +324,9 @@ export interface BackupStatus {
   last: { file: string; createdAt: string; size: number } | null;
   copyDir: string | null;
   lastCopyError: string | null;
+  /** Где копии: на диске или в Vercel Blob (режим vercel); сколько последних хранится. */
+  storage: 'disk' | 'blob';
+  keep: number;
 }
 
 export function useBackupStatus() {

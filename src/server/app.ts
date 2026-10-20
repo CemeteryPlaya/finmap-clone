@@ -23,6 +23,7 @@ import { createAccountsService } from './modules/accounts/service';
 import { registerAuditRoutes } from './modules/audit/routes';
 import { createAuditService } from './modules/audit/service';
 import { registerBackupRoutes } from './modules/backup/routes';
+import { registerCronRoutes } from './modules/cron/routes';
 import { unavailableBackup, createBackupService, type BackupService } from './modules/backup/service';
 import { LoginLimiter } from './modules/auth/login-limiter';
 import { readSessionToken, registerAuth } from './modules/auth/plugin';
@@ -214,7 +215,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           log: (m, e) => (e ? app.log.error({ err: e }, m) : app.log.info(m)),
         })
       : unavailableBackup());
-  registerBackupRoutes(app, { backup, db });
+  const cloud = uploads === 'blob' ? { files, timezone: config.timezone, now } : undefined;
+  registerBackupRoutes(app, { backup, db, keep: config.backupKeep, cloud });
+  if (cloud && config.cronSecret) registerCronRoutes(app, { ...cloud, db, keep: config.backupKeep, secret: config.cronSecret });
 
   // интерфейс отдаёт приложение — и на Vercel: у Fastify Vercel не отдаёт public/ с CDN, dist/client едет в бандле функции.
   // Файлы assets/ с хэшем в имени не меняются — кэш на год

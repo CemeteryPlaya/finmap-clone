@@ -10,7 +10,8 @@ declare module 'fastify' {
   }
 }
 
-const PUBLIC_ROUTES = new Set(['/api/v1/health', '/api/v1/meta', '/api/v1/auth/login']);
+// ежедневное задание Vercel входит не сессией, а ключом CRON_SECRET (проверяет сам маршрут)
+const PUBLIC_ROUTES = new Set(['/api/v1/health', '/api/v1/meta', '/api/v1/auth/login', '/api/v1/cron/daily']);
 
 export function readSessionToken(req: import('fastify').FastifyRequest): string | null {
   const raw = req.cookies.sid;

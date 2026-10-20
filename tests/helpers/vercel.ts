@@ -15,9 +15,10 @@ export const VERCEL_ENV = {
   EXTRA_ORIGINS: 'http://localhost:3000',
 };
 
-/** Хранилище в памяти со ссылками скачивания, как у Blob. */
+/** Хранилище в памяти со ссылками скачивания, как у Blob; uploadedAt — время загрузки (по умолчанию — сейчас). */
 export function memoryStore() {
   const files = new Map<string, Buffer>();
+  const uploadedAt = new Map<string, Date>();
   const store: FileStore = {
     async put(key, data) {
       files.set(key, data);
@@ -32,18 +33,19 @@ export function memoryStore() {
       return [...files]
         .filter(([k]) => k.startsWith(prefix))
         .sort(([a], [b]) => (a < b ? -1 : 1))
-        .map(([key, data]) => ({ key, size: data.length, uploadedAt: new Date() }));
+        .map(([key, data]) => ({ key, size: data.length, uploadedAt: uploadedAt.get(key) ?? new Date() }));
     },
     async downloadUrl(key) {
       return `https://store.private.blob.vercel-storage.com/${key}?presign=1`;
     },
   };
-  return { store, files };
+  return { store, files, uploadedAt };
 }
 
 export interface VercelWorld {
   t: TestApp;
   files: Map<string, Buffer>;
+  uploadedAt: Map<string, Date>;
   cookie: string;
   req(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, payload?: object, withCookie?: boolean): Promise<LightMyRequestResponse>;
   cid: number;
@@ -52,9 +54,13 @@ export interface VercelWorld {
 }
 
 /** Приложение в режиме vercel (или с env) с хранилищем в памяти, вошедшим admin, компанией, счётом KZT и операцией. */
-export async function vercelWorld(env: Record<string, string> = VERCEL_ENV, deps: Pick<AppDeps, 'importCache' | 'exportInlineMaxBytes'> = {}): Promise<VercelWorld> {
+export async function vercelWorld(
+  env: Record<string, string> = VERCEL_ENV,
+  deps: Pick<AppDeps, 'importCache' | 'exportInlineMaxBytes'> = {},
+  now?: Date,
+): Promise<VercelWorld> {
   const mem = memoryStore();
-  const t = await createTestApp(env, undefined, undefined, { files: mem.store, ...deps });
+  const t = await createTestApp(env, undefined, now ? () => now : undefined, { files: mem.store, ...deps });
   await t.q("INSERT INTO currencies (code,name,symbol,minor_units) VALUES ('KZT','Тенге','₸',2)");
   await seedUser(t);
   const cookie = await loginAs(t);
@@ -63,5 +69,5 @@ export async function vercelWorld(env: Record<string, string> = VERCEL_ENV, deps
   const cid = (await req('POST', '/api/v1/companies', { name: 'ТОО' })).json().company.id as number;
   const account = (await req('POST', `/api/v1/companies/${cid}/accounts`, { name: 'Касса', currency: 'KZT', openedAt: '2026-10-01', startingBalance: 0 })).json().account.id as number;
   const op = (await req('POST', `/api/v1/companies/${cid}/operations`, { type: 'income', paidAt: '2026-10-05T10:00:00Z', accountId: account, amount: 100 })).json().operation.id as number;
-  return { t, files: mem.files, cookie, req, cid, account, op };
+  return { t, files: mem.files, uploadedAt: mem.uploadedAt, cookie, req, cid, account, op };
 }

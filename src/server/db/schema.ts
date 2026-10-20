@@ -161,3 +161,8 @@ export function bindSchema(dialect: Dialect): void {
 export function currentDialect(): Dialect {
   return bound ?? 'sqlite';
 }
+
+/** Все таблицы привязанного диалекта по имени свойства (выгрузка и загрузка базы целиком). */
+export function boundTables(): typeof sqliteTables {
+  return currentDialect() === 'pg' ? (pgTables as unknown as typeof sqliteTables) : sqliteTables;
+}
