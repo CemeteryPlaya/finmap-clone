@@ -18,44 +18,44 @@ function setup() {
 }
 
 describe('categories', () => {
-  it('seedSystem создаёт 9 системных категорий верхнего уровня', () => {
+  it('seedSystem создаёт 9 системных категорий верхнего уровня', async () => {
     const { svc, companyId } = setup();
-    svc.seedSystem(t.db, companyId);
-    const tree = svc.listTree(companyId);
+    await svc.seedSystem(t.db, companyId);
+    const tree = await svc.listTree(companyId);
     expect(tree.income.map((c) => c.name)).toEqual(['Инвестиции', 'Возврат займа', 'Получение кредита']);
     expect(tree.expense.map((c) => c.systemKey)).toEqual(['salary', 'tax', 'vat', 'dividends', 'credit_repayment', 'loan_issued']);
     expect(tree.expense.every((c) => c.parentId === null && c.effectiveSystemKey === c.systemKey)).toBe(true);
   });
 
-  it('mergeTemplate кладёт детей underSystem под системную категорию и наследует systemKey', () => {
+  it('mergeTemplate кладёт детей underSystem под системную категорию и наследует systemKey', async () => {
     const { svc, companyId } = setup();
-    svc.seedSystem(t.db, companyId);
-    const created = svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!);
+    await svc.seedSystem(t.db, companyId);
+    const created = await svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!);
     expect(created).toBeGreaterThan(20);
-    const salary = svc.listTree(companyId).expense.find((c) => c.systemKey === 'salary')!;
+    const salary = (await svc.listTree(companyId)).expense.find((c) => c.systemKey === 'salary')!;
     expect(salary.children.map((c) => c.name)).toEqual(['Администраторы', 'Премии']);
     expect(salary.children.every((c) => c.systemKey === null && c.effectiveSystemKey === 'salary')).toBe(true);
-    const premises = svc.listTree(companyId).expense.find((c) => c.templateRef === 'computer-club:premises')!;
+    const premises = (await svc.listTree(companyId)).expense.find((c) => c.templateRef === 'computer-club:premises')!;
     expect(premises.children.map((c) => c.name)).toEqual(['Аренда', 'Коммунальные услуги', 'Электроэнергия', 'Интернет']);
     expect(premises.effectiveSystemKey).toBeNull();
   });
 
-  it('mergeTemplate идемпотентен', () => {
+  it('mergeTemplate идемпотентен', async () => {
     const { svc, companyId } = setup();
-    svc.seedSystem(t.db, companyId);
-    svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!);
-    const before = JSON.stringify(svc.listTree(companyId));
-    expect(svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!)).toBe(0);
-    expect(JSON.stringify(svc.listTree(companyId))).toBe(before);
+    await svc.seedSystem(t.db, companyId);
+    await svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!);
+    const before = JSON.stringify(await svc.listTree(companyId));
+    expect(await svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!)).toBe(0);
+    expect(JSON.stringify(await svc.listTree(companyId))).toBe(before);
   });
 
-  it('mergeTemplate не трогает переименованные и архивные категории шаблона (Review Focus 2)', () => {
+  it('mergeTemplate не трогает переименованные и архивные категории шаблона (Review Focus 2)', async () => {
     const { svc, companyId } = setup();
-    svc.seedSystem(t.db, companyId);
-    svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!);
+    await svc.seedSystem(t.db, companyId);
+    await svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!);
     t.sqlite.prepare("UPDATE categories SET name = 'Аренда зала' WHERE template_ref = 'computer-club:rent'").run();
     t.sqlite.prepare("UPDATE categories SET archived_at = 'x' WHERE template_ref = 'computer-club:charity'").run();
-    expect(svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!)).toBe(0);
+    expect(await svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!)).toBe(0);
     const rows = t.sqlite
       .prepare("SELECT name, archived_at FROM categories WHERE template_ref IN ('computer-club:rent','computer-club:charity') ORDER BY template_ref")
       .all() as { name: string; archived_at: string | null }[];
@@ -65,29 +65,29 @@ describe('categories', () => {
     ]);
   });
 
-  it('mergeTemplate без системных категорий падает понятной ошибкой', () => {
+  it('mergeTemplate без системных категорий падает понятной ошибкой', async () => {
     const { svc, companyId } = setup();
-    expect(() => svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!)).toThrow(/salary/);
+    await expect(svc.mergeTemplate(t.db, companyId, getTemplate('computer-club')!)).rejects.toThrow(/salary/);
   });
 
   it.each(['moved', 'archived'] as const)(
     'mergeTemplate: группа шаблона %s — новые дочерние встают на верхний уровень (Review Focus 3)',
-    (variant) => {
+    async (variant) => {
       const { svc, companyId } = setup();
       const club = getTemplate('computer-club')!;
-      svc.seedSystem(t.db, companyId);
-      svc.mergeTemplate(t.db, companyId, club);
+      await svc.seedSystem(t.db, companyId);
+      await svc.mergeTemplate(t.db, companyId, club);
       const s = t.sqlite;
       const premises = s.prepare("SELECT id FROM categories WHERE template_ref = 'computer-club:premises'").get() as { id: number };
       // пользователь убрал дочерние «Помещения», затем перенёс группу в свою или отправил в архив
       s.prepare('DELETE FROM categories WHERE parent_id = ?').run(premises.id);
       if (variant === 'moved') {
-        const mine = svc.add(companyId, { kind: 'expense', name: 'Моя группа', parentId: null }, 1);
+        const mine = await svc.add(companyId, { kind: 'expense', name: 'Моя группа', parentId: null }, 1);
         s.prepare('UPDATE categories SET parent_id = ? WHERE id = ?').run(mine.id, premises.id);
       } else {
         s.prepare("UPDATE categories SET archived_at = 'x' WHERE id = ?").run(premises.id);
       }
-      expect(svc.mergeTemplate(t.db, companyId, club)).toBe(4);
+      expect(await svc.mergeTemplate(t.db, companyId, club)).toBe(4);
       const depth3 = s
         .prepare('SELECT COUNT(*) n FROM categories c JOIN categories p ON p.id = c.parent_id WHERE p.parent_id IS NOT NULL')
         .get() as { n: number };

@@ -21,7 +21,7 @@ export function registerAuditRoutes(app: FastifyInstance, deps: { audit: AuditSe
 
   app.get<{ Params: { cid: string } }>('/api/v1/companies/:cid/audit', async (req) => {
     const cid = parseId(req.params.cid);
-    deps.companies.require(cid);
+    await deps.companies.require(cid);
     return page(cid, req.query);
   });
 

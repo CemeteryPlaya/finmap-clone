@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Db, Executor } from '../../db/client';
+import { first, rows as sqlRows } from '../../db/raw';
 import { operationLines, operations, stockDocPayments, stockDocs } from '../../db/schema';
 import { AppError } from '../../errors';
 import { requireCompany } from '../companies/guard';
@@ -44,36 +45,41 @@ export interface UnpaidResult {
 const activeOp = (opAlias = 'o') => sql.raw(`${opAlias}.deleted_at IS NULL`);
 
 /** Оплаты операции с номерами документов; оплаты удалённых документов не показываются. */
-export function operationPayments(ex: Executor, operationId: number): StockPaymentDto[] {
+export function operationPayments(ex: Executor, operationId: number): Promise<StockPaymentDto[]> {
   return ex
     .select({ docId: stockDocPayments.docId, amount: stockDocPayments.amount, number: stockDocs.number })
     .from(stockDocPayments)
     .innerJoin(stockDocs, and(eq(stockDocs.id, stockDocPayments.docId), isNull(stockDocs.deletedAt)))
     .where(eq(stockDocPayments.operationId, operationId))
-    .orderBy(asc(stockDocPayments.docId))
-    .all();
+    .orderBy(asc(stockDocPayments.docId));
 }
 
 /** Сколько оплачено по каждому документу неудалёнными расходами. */
-export function paidByDoc(ex: Executor, docIds: readonly number[]): Map<number, number> {
+export async function paidByDoc(ex: Executor, docIds: readonly number[]): Promise<Map<number, number>> {
   const out = new Map<number, number>();
   if (docIds.length === 0) return out;
-  const rows = ex.all<{ docId: number; paid: number }>(sql`
+  const rows = await sqlRows<{ docId: number; paid: number }>(
+    ex,
+    sql`
     SELECT p.doc_id AS docId, SUM(p.amount) AS paid
       FROM stock_doc_payments p JOIN operations o ON o.id = p.operation_id
      WHERE ${activeOp()} AND p.doc_id IN (${sql.join(docIds.map((id) => sql`${id}`), sql`, `)})
-     GROUP BY p.doc_id`);
-  for (const r of rows) out.set(r.docId, r.paid);
+     GROUP BY p.doc_id`,
+  );
+  for (const r of rows) out.set(r.docId, Number(r.paid));
   return out;
 }
 
 /** Оплаты документа: расходы, которые не удалены. */
-export function docPayments(ex: Executor, docId: number): DocPayment[] {
-  return ex.all<DocPayment>(sql`
+export function docPayments(ex: Executor, docId: number): Promise<DocPayment[]> {
+  return sqlRows<DocPayment>(
+    ex,
+    sql`
     SELECT p.operation_id AS operationId, p.amount AS amount, o.paid_at AS paidAt
       FROM stock_doc_payments p JOIN operations o ON o.id = p.operation_id
      WHERE ${activeOp()} AND p.doc_id = ${docId}
-     ORDER BY o.paid_at, o.id`);
+     ORDER BY o.paid_at, o.id`,
+  );
 }
 
 /**
@@ -81,12 +87,12 @@ export function docPayments(ex: Executor, docId: number): DocPayment[] {
  * неудалённые поступления этого контрагента из этой компании; без повторов; сумма оплат не больше суммы расхода.
  * Переплата документа допустима.
  */
-export function assertOperationPayments(
+export async function assertOperationPayments(
   ex: Executor,
   companyId: number,
   op: { type: string; amount: number; counterpartyId: number | null; accountCurrency: string; baseCurrency: string },
   payments: readonly StockPaymentInput[],
-): void {
+): Promise<void> {
   if (payments.length === 0) return;
   const fail = (code: string, message: string) => new AppError(422, code, message, { stockPayments: message });
   if (op.type !== 'expense') throw fail('VALIDATION', 'Оплата закупки — только у расхода');
@@ -94,12 +100,12 @@ export function assertOperationPayments(
   if (op.counterpartyId === null) throw fail('VALIDATION', 'Для оплаты закупки выберите поставщика');
   if (new Set(payments.map((p) => p.docId)).size !== payments.length) throw fail('VALIDATION', 'Документ указан в оплатах дважды');
   const docs = new Map(
-    ex
-      .select()
-      .from(stockDocs)
-      .where(and(eq(stockDocs.companyId, companyId), inArray(stockDocs.id, payments.map((p) => p.docId))))
-      .all()
-      .map((d) => [d.id, d]),
+    (
+      await ex
+        .select()
+        .from(stockDocs)
+        .where(and(eq(stockDocs.companyId, companyId), inArray(stockDocs.id, payments.map((p) => p.docId))))
+    ).map((d) => [d.id, d]),
   );
   for (const p of payments) {
     const doc = docs.get(p.docId);
@@ -110,41 +116,46 @@ export function assertOperationPayments(
 }
 
 /** Записать оплаты операции вместо прежних (в транзакции записи операции). */
-export function replaceOperationPayments(tx: Executor, operationId: number, payments: readonly StockPaymentInput[]): void {
-  tx.delete(stockDocPayments).where(eq(stockDocPayments.operationId, operationId)).run();
-  for (const p of payments) tx.insert(stockDocPayments).values({ docId: p.docId, operationId, amount: p.amount }).run();
+export async function replaceOperationPayments(tx: Executor, operationId: number, payments: readonly StockPaymentInput[]): Promise<void> {
+  await tx.delete(stockDocPayments).where(eq(stockDocPayments.operationId, operationId));
+  for (const p of payments) await tx.insert(stockDocPayments).values({ docId: p.docId, operationId, amount: p.amount });
 }
 
 /** Поступления поставщика с долгом — для поля «Оплата закупки» расхода и для «Оплатить» у документа. */
-export function unpaidDocs(db: Db, companyId: number, counterpartyId: number, operationId: number | null): UnpaidResult {
-  requireCompany(db, companyId);
-  const rows = db.all<{ docId: number; number: string; at: string; total: number }>(sql`
+export async function unpaidDocs(db: Db, companyId: number, counterpartyId: number, operationId: number | null): Promise<UnpaidResult> {
+  await requireCompany(db, companyId);
+  const rows = (
+    await sqlRows<{ docId: number; number: string; at: string; total: number }>(
+      db,
+      sql`
     SELECT d.id AS docId, d.number AS number, d.at AS at, COALESCE((SELECT SUM(l.amount) FROM stock_doc_lines l WHERE l.doc_id = d.id), 0) AS total
       FROM stock_docs d
      WHERE d.company_id = ${companyId} AND d.counterparty_id = ${counterpartyId} AND d.type = 'receipt' AND d.deleted_at IS NULL AND d.status = 'posted'
-     ORDER BY d.at, d.id`);
-  const paid = paidByDoc(db, rows.map((r) => r.docId));
+     ORDER BY d.at, d.id`,
+    )
+  ).map((r) => ({ ...r, total: Number(r.total) }));
+  const paid = await paidByDoc(db, rows.map((r) => r.docId));
   const own = new Map<number, number>();
   if (operationId !== null && rows.length > 0) {
-    for (const p of db
+    for (const p of await db
       .select({ docId: stockDocPayments.docId, amount: stockDocPayments.amount })
       .from(stockDocPayments)
-      .where(eq(stockDocPayments.operationId, operationId))
-      .all()) {
+      .where(eq(stockDocPayments.operationId, operationId))) {
       own.set(p.docId, p.amount);
     }
   }
   const docs = rows
     .map((r) => ({ ...r, paid: paid.get(r.docId) ?? 0, own: own.get(r.docId) ?? 0, debt: r.total - (paid.get(r.docId) ?? 0) }))
     .filter((r) => r.debt > 0 || r.own > 0);
-  const last = db
-    .select({ categoryId: operationLines.categoryId })
+  const last = await first(
+    db
+      .select({ categoryId: operationLines.categoryId })
     .from(operations)
     .innerJoin(operationLines, eq(operationLines.operationId, operations.id))
     .innerJoin(stockDocPayments, eq(stockDocPayments.operationId, operations.id))
     .where(and(eq(operations.companyId, companyId), eq(operations.counterpartyId, counterpartyId), isNull(operations.deletedAt)))
-    .orderBy(desc(operations.paidAt), desc(operations.id), asc(operationLines.position))
-    .limit(1)
-    .get();
+      .orderBy(desc(operations.paidAt), desc(operations.id), asc(operationLines.position))
+      .limit(1),
+  );
   return { docs, lastCategoryId: last?.categoryId ?? null };
 }

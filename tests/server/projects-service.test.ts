@@ -11,7 +11,7 @@ let t: ReturnType<typeof createTestDb>;
 afterEach(() => t?.cleanup());
 
 describe('projects service: атомарность создания', () => {
-  it('сбой на втором счёте откатывает проект, категории шаблона, счета и историю', () => {
+  it('сбой на втором счёте откатывает проект, категории шаблона, счета и историю', async () => {
     t = createTestDb();
     seedCurrencies(t.db);
     const now = () => new Date('2026-10-06T00:00:00.000Z');
@@ -20,7 +20,7 @@ describe('projects service: атомарность создания', () => {
     const accounts = createAccountsService({ db: t.db, audit, timezone: 'Asia/Almaty', now });
     const companies = createCompaniesService({ db: t.db, audit, categories, accounts, now });
     const projects = createProjectsService({ db: t.db, audit, companies, categories, accounts, timezone: 'Asia/Almaty', now });
-    const company = companies.create({ name: 'ТОО', baseCurrency: 'KZT' }, 1);
+    const company = await companies.create({ name: 'ТОО', baseCurrency: 'KZT' }, 1);
     const auditBefore = (t.sqlite.prepare("SELECT COUNT(*) n FROM audit_log WHERE entity = 'project'").get() as { n: number }).n;
     expect(auditBefore).toBe(0);
 
@@ -32,9 +32,7 @@ describe('projects service: атомарность создания', () => {
       return realCreate(ex, input);
     });
 
-    expect(() =>
-      projects.create(company.id, { name: 'Клуб', templateKey: 'computer-club', templateParams: { pcCount: 30 } }, 1),
-    ).toThrow('сбой на втором счёте');
+    await expect(projects.create(company.id, { name: 'Клуб', templateKey: 'computer-club', templateParams: { pcCount: 30 } }, 1)).rejects.toThrow('сбой на втором счёте');
     expect(calls).toBe(2);
 
     const n = (sql: string) => (t.sqlite.prepare(sql).get(company.id) as { n: number }).n;

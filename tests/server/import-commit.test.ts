@@ -177,7 +177,7 @@ describe('POST …/imports: запись одной транзакцией (§6.
     ]);
     // каждая импортированная операция проходит check() сервиса операций (§6.4 п. 4)
     const operations = operationsService();
-    for (const o of ops) expect(operations.update(w.cid, o.id, { version: 1 }, adminId()).version).toBe(1);
+    for (const o of ops) expect((await operations.update(w.cid, o.id, { version: 1 }, adminId())).version).toBe(1);
 
     // справочники: вид, родитель (системная «Зарплата» и новая «Связь»), тип контрагента по категории
     expect(all('SELECT c.name, c.kind, p.name parent FROM categories c LEFT JOIN categories p ON p.id = c.parent_id WHERE c.id IN (SELECT value FROM json_each((SELECT created FROM imports WHERE id = ?), \'$.categories\')) ORDER BY c.id', importId)).toEqual([
@@ -448,7 +448,7 @@ describe('писатель получает только корректные с
     ]);
     expect(ops[1]!.to_account_id).toBe(kassa2);
     const operations = operationsService();
-    for (const o of ops) expect(operations.update(w.cid, o.id, { version: 1 }, adminId()).version).toBe(1);
+    for (const o of ops) expect((await operations.update(w.cid, o.id, { version: 1 }, adminId())).version).toBe(1);
   });
 
   it('комментарий с пробелами по краям записывается без них; из одних пробелов — пустой', async () => {
@@ -462,7 +462,7 @@ describe('писатель получает только корректные с
     const ops = all('SELECT id, comment FROM operations ORDER BY id');
     expect(ops.map((o) => o.comment)).toEqual(['Свет  за октябрь', null]);
     const operations = operationsService();
-    for (const o of ops) expect(operations.update(w.cid, o.id, { version: 1 }, adminId()).version).toBe(1);
+    for (const o of ops) expect((await operations.update(w.cid, o.id, { version: 1 }, adminId())).version).toBe(1);
   });
 });
 

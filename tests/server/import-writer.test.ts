@@ -77,19 +77,21 @@ describe('низкоуровневое создание справочников
     w = await opsWorld();
     const s = services();
     const before = one('SELECT COUNT(*) n FROM categories').n;
-    expect(() =>
-      w.h.t.db.transaction((tx) => {
-        s.categories.createIn(tx, { companyId: w.cid, kind: 'expense', parentId: null, name: 'Новая' });
-        s.categories.createIn(tx, { companyId: w.cid, kind: 'expense', parentId: w.income, name: 'Чужой вид' });
+    await expect(
+      withTx(w.h.t.db, async (tx) => {
+        await s.categories.createIn(tx, { companyId: w.cid, kind: 'expense', parentId: null, name: 'Новая' });
+        await s.categories.createIn(tx, { companyId: w.cid, kind: 'expense', parentId: w.income, name: 'Чужой вид' });
       }),
-    ).toThrow(expect.objectContaining({ code: 'VALIDATION', fields: { parentId: 'Родительская категория из другого дерева' } }));
+    ).rejects.toThrow(expect.objectContaining({ code: 'VALIDATION', fields: { parentId: 'Родительская категория из другого дерева' } }));
     expect(one('SELECT COUNT(*) n FROM categories').n).toBe(before);
     // родитель в архиве — как у add()
-    const archived = s.categories.add(w.cid, { kind: 'expense', name: 'Архивная', parentId: null }, adminId());
-    s.categories.archive(w.cid, archived.id, adminId());
-    expect(() => w.h.t.db.transaction((tx) => s.categories.createIn(tx, { companyId: w.cid, kind: 'expense', parentId: archived.id, name: 'Дочерняя' }))).toThrow('Родительская категория в архиве');
+    const archived = await s.categories.add(w.cid, { kind: 'expense', name: 'Архивная', parentId: null }, adminId());
+    await s.categories.archive(w.cid, archived.id, adminId());
+    await expect(withTx(w.h.t.db, (tx) => s.categories.createIn(tx, { companyId: w.cid, kind: 'expense', parentId: archived.id, name: 'Дочерняя' }))).rejects.toThrow(
+      'Родительская категория в архиве',
+    );
     // проект с занятым названием (без учёта регистра) — 400, как у обычного создания
-    expect(() => w.h.t.db.transaction((tx) => s.projects.createIn(tx, { companyId: w.cid, name: 'клуб 1' }))).toThrow('Проверьте заполнение полей');
+    await expect(withTx(w.h.t.db, (tx) => s.projects.createIn(tx, { companyId: w.cid, name: 'клуб 1' }))).rejects.toThrow('Проверьте заполнение полей');
   });
 
   it('add() по-прежнему пишет историю создания (переписан на createIn)', async () => {
@@ -130,15 +132,15 @@ describe('OperationsWriter.insertImported (§6.4 п. 3.5)', () => {
       ['transfer', 'actual', '2026-10-04T04:00:00.000Z', 1, adminId(), at, at, null],
       ['transfer', 'actual', '2026-10-05T04:00:00.000Z', 1, adminId(), at, at, null],
     ]);
-    const income = s.operations.get(w.cid, ids[0]!);
+    const income = await s.operations.get(w.cid, ids[0]!);
     expect(income).toMatchObject({ accrualDate: '2026-10-01', counterpartyId: w.counterparty, comment: 'выручка', tagIds: [w.tag], baseAmount: 150_000, rate: '1' });
     expect(income.lines).toEqual([{ id: expect.any(Number), position: 0, categoryId: w.income, projectId: w.project, amount: 150_000, baseAmount: 150_000 }]);
-    expect(s.operations.get(w.cid, ids[1]!).lines).toMatchObject([{ categoryId: w.expense, projectId: null, amount: 50_000 }]);
-    expect(s.operations.get(w.cid, ids[2]!).lines).toMatchObject([{ categoryId: null, projectId: w.project2, amount: 47_512, baseAmount: 47_512 }]);
-    expect(s.operations.get(w.cid, ids[3]!).lines).toEqual([]);
+    expect((await s.operations.get(w.cid, ids[1]!)).lines).toMatchObject([{ categoryId: w.expense, projectId: null, amount: 50_000 }]);
+    expect((await s.operations.get(w.cid, ids[2]!)).lines).toMatchObject([{ categoryId: null, projectId: w.project2, amount: 47_512, baseAmount: 47_512 }]);
+    expect((await s.operations.get(w.cid, ids[3]!)).lines).toEqual([]);
 
     // инварианты: правка без изменений проходит check() и ничего не меняет
-    for (const id of ids) expect(s.operations.update(w.cid, id, { version: 1 }, adminId()).version).toBe(1);
+    for (const id of ids) expect((await s.operations.update(w.cid, id, { version: 1 }, adminId())).version).toBe(1);
     // балансы считаются по записанным операциям, как по обычным
     const balances = new Map(createLedgerBalances(w.h.t.db).companyBalances(w.cid).map((b) => [b.accountId, b.balance]));
     expect(balances.get(w.kzt)).toBe(150_000 - 50_000 - 47_512 + 4_751);
@@ -184,7 +186,8 @@ describe('OperationsWriter.insertImported (§6.4 п. 3.5)', () => {
         { ...base, type: 'transfer', paidAt: day(5), accountId: w.usd, amount: 10, toAccountId: w.kzt, toAmount: 4_751, rate: '475.12', baseAmount: 4_751 },
       ],
     ];
-    const viaService = cases.map(([input]) => s.operations.create(w.cid, input, adminId()).id);
+    const viaService: number[] = [];
+    for (const [input] of cases) viaService.push((await s.operations.create(w.cid, input, adminId())).id);
     const importId = importRow();
     const viaWriter = w.h.t.db.transaction((tx) => writer.insertImported(tx, { companyId: w.cid, importId, userId: adminId(), at: NOW.toISOString(), rows: cases.map(([, row]) => row) }));
     // без id, import_id и меток времени (у create их ставит now(), у импорта — batch.at; в тесте оба равны NOW, но не часть эквивалентности)

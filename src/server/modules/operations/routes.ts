@@ -47,7 +47,7 @@ export function registerOperationsRoutes(
   app.post<C>(BASE, async (req, reply) => {
     const cid = parseId(req.params.cid);
     const body = operationCreateSchema.parse(req.body);
-    return reply.status(201).send({ operation: operations.create(cid, { ...body, comment: body.comment ?? null }, req.user!.id) });
+    return reply.status(201).send({ operation: await operations.create(cid, { ...body, comment: body.comment ?? null }, req.user!.id) });
   });
 
   app.post<C>(`${BASE}/bulk`, async (req) => {
@@ -56,18 +56,18 @@ export function registerOperationsRoutes(
     return bulk.run(cid, body, req.user!.id);
   });
 
-  app.get<P>(`${BASE}/:id`, async (req) => ({ operation: operations.get(parseId(req.params.cid), parseId(req.params.id)) }));
+  app.get<P>(`${BASE}/:id`, async (req) => ({ operation: await operations.get(parseId(req.params.cid), parseId(req.params.id)) }));
 
   app.patch<P>(`${BASE}/:id`, async (req) => {
     const cid = parseId(req.params.cid);
     const id = parseId(req.params.id);
     const body = operationUpdateSchema.parse(req.body);
-    return { operation: operations.update(cid, id, body, req.user!.id) };
+    return { operation: await operations.update(cid, id, body, req.user!.id) };
   });
 
-  app.delete<P>(`${BASE}/:id`, async (req) => ({ operation: operations.remove(parseId(req.params.cid), parseId(req.params.id), req.user!.id) }));
+  app.delete<P>(`${BASE}/:id`, async (req) => ({ operation: await operations.remove(parseId(req.params.cid), parseId(req.params.id), req.user!.id) }));
 
   app.post<P>(`${BASE}/:id/restore`, async (req) => ({
-    operation: operations.restore(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
+    operation: await operations.restore(parseId(req.params.cid), parseId(req.params.id), req.user!.id),
   }));
 }

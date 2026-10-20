@@ -22,9 +22,9 @@ export function registerBalancesRoutes(
   const now = deps.now ?? (() => new Date());
 
   /** «Всего на счетах» (§4.7): неархивные счета в базовой валюте по курсу на сегодня. */
-  function total(company: CompanyRow): CompanyTotal {
+  async function total(company: CompanyRow): Promise<CompanyTotal> {
     const sums = new Map<string, number>();
-    for (const b of deps.ledger.companyBalances(company.id)) {
+    for (const b of await deps.ledger.companyBalances(company.id)) {
       if (!b.archived) sums.set(b.currency, (sums.get(b.currency) ?? 0) + b.balance);
     }
     const today = todayInTimezone(deps.timezone, now());
@@ -34,29 +34,30 @@ export function registerBalancesRoutes(
     for (const [currency, sum] of sums) {
       if (sum === 0) continue; // пустой счёт без курса не должен вечно показывать «курс недоступен»
       try {
-        const { rate } = deps.rates.resolve(company.id, company.baseCurrency, currency, today);
+        const { rate } = await deps.rates.resolve(company.id, company.baseCurrency, currency, today);
         amount += convertMinor(sum, rate, getCurrency(currency).minorUnits, baseMinor);
       } catch (e) {
         if (!(e instanceof AppError && e.code === 'RATE_UNAVAILABLE')) throw e;
         // нет курса либо самой валюты, либо базовой: называем ту, которой действительно не хватает
-        unavailable.add(deps.rates.kztRate(currency, today) ? company.baseCurrency : currency);
+        unavailable.add((await deps.rates.kztRate(currency, today)) ? company.baseCurrency : currency);
       }
     }
     return { currency: company.baseCurrency, amount, unavailable: [...unavailable].sort() };
   }
 
-  app.get('/api/v1/companies/summary', async () => ({
-    companies: deps.companies
-      .list()
-      .filter((c) => !c.archivedAt)
-      .map((c) => ({ id: c.id, name: c.name, total: total(c) })),
-  }));
+  app.get('/api/v1/companies/summary', async () => {
+    const companies: { id: number; name: string; total: CompanyTotal }[] = [];
+    for (const c of await deps.companies.list()) {
+      if (!c.archivedAt) companies.push({ id: c.id, name: c.name, total: await total(c) });
+    }
+    return { companies };
+  });
 
   app.get<{ Params: { cid: string } }>('/api/v1/companies/:cid/balances', async (req) => {
-    const company = deps.companies.require(parseId(req.params.cid));
+    const company = await deps.companies.require(parseId(req.params.cid));
     return {
-      accounts: deps.ledger.companyBalances(company.id).map(({ accountId, currency, balance }) => ({ accountId, currency, balance })),
-      total: total(company),
+      accounts: (await deps.ledger.companyBalances(company.id)).map(({ accountId, currency, balance }) => ({ accountId, currency, balance })),
+      total: await total(company),
     };
   });
 }

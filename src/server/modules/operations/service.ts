@@ -4,9 +4,10 @@ import { formatDateRu, todayInTimezone } from '../../../shared/dates';
 import { convertMinor } from '../../../shared/decimal';
 import { allocate } from '../../../shared/money';
 import type { Db, Executor } from '../../db/client';
+import { first } from '../../db/raw';
 import { accounts, categories, counterparties, operationLines, operations, operationTags, projects, tags } from '../../db/schema';
 import { AppError } from '../../errors';
-import { changedFields, mutate } from '../audit/mutate';
+import { changedFields, mutateAsync } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
 import type { RatesService } from '../rates/service';
@@ -60,18 +61,18 @@ export interface OperationPatch extends Partial<Omit<OperationInput, 'type'>> {
 }
 
 export interface OperationsService {
-  get(companyId: number, id: number): OperationDto;
-  create(companyId: number, input: OperationInput, userId: number): OperationDto;
-  update(companyId: number, id: number, patch: OperationPatch, userId: number): OperationDto;
+  get(companyId: number, id: number): Promise<OperationDto>;
+  create(companyId: number, input: OperationInput, userId: number): Promise<OperationDto>;
+  update(companyId: number, id: number, patch: OperationPatch, userId: number): Promise<OperationDto>;
   /** Мягкое удаление. */
-  remove(companyId: number, id: number, userId: number): OperationDto;
-  restore(companyId: number, id: number, userId: number): OperationDto;
+  remove(companyId: number, id: number, userId: number): Promise<OperationDto>;
+  restore(companyId: number, id: number, userId: number): Promise<OperationDto>;
   /**
    * Шаг отмены действия из «Истории действий» (план 2026-10-20, решение 4): тем же кодом и с теми же проверками, что
    * правка, удаление и восстановление, но без обычной записи истории — её пишет отмена одной записью «Отмена».
    * Вызывается только внутри транзакции вызывающего (operations/undo.ts).
    */
-  revert(companyId: number, id: number, step: RevertStep, userId: number): void;
+  revert(companyId: number, id: number, step: RevertStep, userId: number): Promise<void>;
 }
 
 /** Шаг отмены: вернуть поля к «было» правки, удалить или восстановить операцию. */
@@ -102,24 +103,14 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
   /** Календарная дата момента в APP_TIMEZONE. */
   const dateOf = (iso: string) => todayInTimezone(d.timezone, new Date(iso));
 
-  function load(companyId: number, id: number): OperationDto {
-    const row = db.select().from(operations).where(and(eq(operations.id, id), eq(operations.companyId, companyId))).get();
+  async function load(companyId: number, id: number): Promise<OperationDto> {
+    const row = await first(db.select().from(operations).where(and(eq(operations.id, id), eq(operations.companyId, companyId))));
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Операция не найдена');
-    const lines = db
-      .select()
-      .from(operationLines)
-      .where(eq(operationLines.operationId, id))
-      .orderBy(asc(operationLines.position))
-      .all()
-      .map((l) => ({ id: l.id, position: l.position, categoryId: l.categoryId, projectId: l.projectId, amount: l.amount, baseAmount: l.baseAmount }));
-    const tagIds = db
-      .select({ tagId: operationTags.tagId })
-      .from(operationTags)
-      .where(eq(operationTags.operationId, id))
-      .all()
+    const lines = (await db.select().from(operationLines).where(eq(operationLines.operationId, id)).orderBy(asc(operationLines.position))).map((l) => ({ id: l.id, position: l.position, categoryId: l.categoryId, projectId: l.projectId, amount: l.amount, baseAmount: l.baseAmount }));
+    const tagIds = (await db.select({ tagId: operationTags.tagId }).from(operationTags).where(eq(operationTags.operationId, id)))
       .map((t) => t.tagId)
       .sort((a, b) => a - b);
-    return { ...row, lines, tagIds, stockPayments: operationPayments(db, id) };
+    return { ...row, lines, tagIds, stockPayments: await operationPayments(db, id) };
   }
 
   function draftOf(op: OperationDto): OperationInput {
@@ -140,13 +131,13 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
   }
 
   /** Архивный счёт, который затрагивает операция (инвариант 7); null — таких нет. */
-  function archivedAccountOf(op: OperationRow): AccountRow | null {
+  async function archivedAccountOf(op: OperationRow): Promise<AccountRow | null> {
     const ids = [op.accountId, op.toAccountId].filter((x): x is number => x !== null);
-    return db.select().from(accounts).where(inArray(accounts.id, ids)).all().find((a) => a.archivedAt) ?? null;
+    return (await db.select().from(accounts).where(inArray(accounts.id, ids))).find((a) => a.archivedAt) ?? null;
   }
 
-  function account(companyId: number, id: number, field: string): AccountRow {
-    const row = db.select().from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))).get();
+  async function account(companyId: number, id: number, field: string): Promise<AccountRow> {
+    const row = await first(db.select().from(accounts).where(and(eq(accounts.id, id), eq(accounts.companyId, companyId))));
     if (!row) throw inv(5, 'Счёт не найден в этой компании', { [field]: 'Счёт не найден в этой компании' });
     return row;
   }
@@ -155,7 +146,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
    * Инварианты 1, 3–7 на черновике (§4.6) и его нормализация. prev — операция до правки или восстановления:
    * ссылки, которые у неё уже были, могут оставаться архивными (архив запрещает только новый выбор, инварианты 7 и 11).
    */
-  function check(companyId: number, input: OperationInput, prev: OperationInput | null): Checked {
+  async function check(companyId: number, input: OperationInput, prev: OperationInput | null): Promise<Checked> {
     const draft: OperationInput = {
       ...input,
       paidAt: new Date(input.paidAt).toISOString(),
@@ -163,13 +154,13 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
       tagIds: [...new Set(input.tagIds)].sort((a, b) => a - b),
       stockPayments: (input.stockPayments ?? []).map((p) => ({ docId: p.docId, amount: p.amount })).sort((a, b) => a.docId - b.docId),
     };
-    const acc = account(companyId, draft.accountId, 'accountId');
+    const acc = await account(companyId, draft.accountId, 'accountId');
     let toAcc: AccountRow | null = null;
 
     if (draft.type === 'transfer') {
       if (draft.toAccountId === null) throw invalid({ toAccountId: 'Выберите счёт зачисления' });
       if (draft.toAccountId === draft.accountId) throw inv(4, 'Счета списания и зачисления совпадают', { toAccountId: 'Выберите другой счёт' });
-      toAcc = account(companyId, draft.toAccountId, 'toAccountId');
+      toAcc = await account(companyId, draft.toAccountId, 'toAccountId');
       if (toAcc.currency === acc.currency) {
         if (draft.toAmount === null) draft.toAmount = draft.amount;
         else if (draft.toAmount !== draft.amount) {
@@ -212,7 +203,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
 
     // категории строк: та же компания (5), вид по типу операции (3), архив — только уже выбранные (7)
     const catIds = uniqueIds(draft.lines.map((l) => l.categoryId));
-    const cats = catIds.length ? db.select().from(categories).where(and(eq(categories.companyId, companyId), inArray(categories.id, catIds))).all() : [];
+    const cats = catIds.length ? await db.select().from(categories).where(and(eq(categories.companyId, companyId), inArray(categories.id, catIds))) : [];
     if (cats.length !== catIds.length) throw inv(5, 'Категория не найдена в этой компании', { lines: 'Категория не найдена в этой компании' });
     const kind = draft.type === 'income' ? 'income' : 'expense';
     if (cats.some((c) => c.kind !== kind)) {
@@ -224,7 +215,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
 
     // проекты строк
     const projIds = uniqueIds(draft.lines.map((l) => l.projectId));
-    const projs = projIds.length ? db.select().from(projects).where(and(eq(projects.companyId, companyId), inArray(projects.id, projIds))).all() : [];
+    const projs = projIds.length ? await db.select().from(projects).where(and(eq(projects.companyId, companyId), inArray(projects.id, projIds))) : [];
     if (projs.length !== projIds.length) throw inv(5, 'Проект не найден в этой компании', { lines: 'Проект не найден в этой компании' });
     const prevProjs = new Set(prev?.lines.map((l) => l.projectId) ?? []);
     const archivedProj = projs.find((p) => p.archivedAt && !prevProjs.has(p.id));
@@ -232,18 +223,14 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
 
     // контрагент
     if (draft.counterpartyId !== null) {
-      const cp = db
-        .select()
-        .from(counterparties)
-        .where(and(eq(counterparties.id, draft.counterpartyId), eq(counterparties.companyId, companyId)))
-        .get();
+      const cp = await first(db.select().from(counterparties).where(and(eq(counterparties.id, draft.counterpartyId), eq(counterparties.companyId, companyId))));
       if (!cp) throw inv(5, 'Контрагент не найден в этой компании', { counterpartyId: 'Контрагент не найден в этой компании' });
       if (cp.archivedAt && cp.id !== prev?.counterpartyId) throw archivedRef(`Контрагент «${cp.name}» в архиве — выберите другого`);
     }
 
     // теги
     if (draft.tagIds.length) {
-      const rows = db.select().from(tags).where(and(eq(tags.companyId, companyId), inArray(tags.id, draft.tagIds))).all();
+      const rows = await db.select().from(tags).where(and(eq(tags.companyId, companyId), inArray(tags.id, draft.tagIds)));
       if (rows.length !== draft.tagIds.length) throw inv(5, 'Тег не найден в этой компании', { tagIds: 'Тег не найден в этой компании' });
       const prevTags = new Set(prev?.tagIds ?? []);
       const archivedTag = rows.find((t) => t.archivedAt && !prevTags.has(t.id));
@@ -251,10 +238,10 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
     }
 
     // оплаты закупок: расход со счёта в валюте компании, поставщик и поступления из этой компании (§6.1)
-    assertOperationPayments(
+    await assertOperationPayments(
       db,
       companyId,
-      { type: draft.type, amount: draft.amount, counterpartyId: draft.counterpartyId, accountCurrency: acc.currency, baseCurrency: requireCompany(db, companyId).baseCurrency },
+      { type: draft.type, amount: draft.amount, counterpartyId: draft.counterpartyId, accountCurrency: acc.currency, baseCurrency: (await requireCompany(db, companyId)).baseCurrency },
       draft.stockPayments ?? [],
     );
 
@@ -262,30 +249,28 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
   }
 
   /** Курс к базовой валюте на дату оплаты и сумма исходной стороны в базовой валюте (§4.3). */
-  function baseOf(companyId: number, baseCurrency: string, c: Checked): { rate: string; baseAmount: number } {
-    const { rate, display } = rates.resolve(companyId, baseCurrency, c.account.currency, dateOf(c.draft.paidAt));
+  async function baseOf(companyId: number, baseCurrency: string, c: Checked): Promise<{ rate: string; baseAmount: number }> {
+    const { rate, display } = await rates.resolve(companyId, baseCurrency, c.account.currency, dateOf(c.draft.paidAt));
     const baseAmount = convertMinor(c.draft.amount, rate, getCurrency(c.account.currency).minorUnits, getCurrency(baseCurrency).minorUnits);
     if (!Number.isSafeInteger(baseAmount)) throw invalid({ amount: 'Слишком большая сумма' });
     return { rate: display, baseAmount };
   }
 
   /** Строки (baseAmount распределяется наибольшим остатком — инвариант 2) и теги операции. */
-  function writeLinesAndTags(tx: Executor, operationId: number, draft: OperationInput, baseAmount: number): void {
-    tx.delete(operationLines).where(eq(operationLines.operationId, operationId)).run();
+  async function writeLinesAndTags(tx: Executor, operationId: number, draft: OperationInput, baseAmount: number): Promise<void> {
+    await tx.delete(operationLines).where(eq(operationLines.operationId, operationId));
     const bases = draft.lines.length ? allocate(baseAmount, draft.lines.map((l) => l.amount)) : [];
-    draft.lines.forEach((l, i) => {
-      tx.insert(operationLines)
-        .values({ operationId, position: i, categoryId: l.categoryId, projectId: l.projectId, amount: l.amount, baseAmount: bases[i]! })
-        .run();
-    });
-    tx.delete(operationTags).where(eq(operationTags.operationId, operationId)).run();
-    for (const tagId of draft.tagIds) tx.insert(operationTags).values({ operationId, tagId }).run();
+    for (const [i, l] of draft.lines.entries()) {
+      await tx.insert(operationLines).values({ operationId, position: i, categoryId: l.categoryId, projectId: l.projectId, amount: l.amount, baseAmount: bases[i]! });
+    }
+    await tx.delete(operationTags).where(eq(operationTags.operationId, operationId));
+    for (const tagId of draft.tagIds) await tx.insert(operationTags).values({ operationId, tagId });
   }
 
   /** Правка (§10.1 этапа 1.5); history = false — шаг отмены (revert): обычная запись истории не пишется. */
-  function updateOp(companyId: number, id: number, patch: UpdatePatch, userId: number, history: boolean): OperationDto {
-    const company = requireCompany(db, companyId, { writable: true });
-    const current = load(companyId, id);
+  async function updateOp(companyId: number, id: number, patch: UpdatePatch, userId: number, history: boolean): Promise<OperationDto> {
+    const company = await requireCompany(db, companyId, { writable: true });
+    const current = await load(companyId, id);
     if (current.deletedAt) throw new AppError(409, 'VERSION_CONFLICT', 'Операция удалена — обновите страницу');
     if (patch.version !== current.version) throw new AppError(409, 'VERSION_CONFLICT', 'Операция изменена другим пользователем');
     const prev = draftOf(current);
@@ -314,7 +299,7 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
 
     // инвариант 7 — до остальных проверок, чтобы пользователь видел настоящую причину отказа.
     // Сравниваются реальные значения (paidAt уже нормализован, toAmount сброшен только при настоящей смене).
-    const locked = archivedAccountOf(current);
+    const locked = await archivedAccountOf(current);
     if (locked && typeChange) throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — тип менять нельзя`);
     if (locked && MONEY_FIELDS.some((f) => JSON.stringify(next[f] ?? null) !== JSON.stringify(prev[f] ?? null))) {
       throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — сумму, дату и счета менять нельзя`);
@@ -322,15 +307,15 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
     // у перевода нет даты сделки; только при смене типа в перевод — создание и правку прежних переводов правило не трогает
     if (typeChange && next.type === 'transfer' && next.accrualDate !== null) throw invalid({ accrualDate: 'У перевода нет даты сделки' });
 
-    const c = check(companyId, next, prev);
+    const c = await check(companyId, next, prev);
     const changes = changedFields(prev, c.draft);
     if (!changes) return current;
     // смена типа пересчитывает курс и сумму в базовой валюте всегда — по стороне списания (§10.1 п. 5)
     const recalc = typeChange || MONEY_FIELDS.some((f) => f in changes.after);
-    const { rate, baseAmount } = recalc ? baseOf(companyId, company.baseCurrency, c) : { rate: current.rate, baseAmount: current.baseAmount };
+    const { rate, baseAmount } = recalc ? await baseOf(companyId, company.baseCurrency, c) : { rate: current.rate, baseAmount: current.baseAmount };
     const { draft } = c;
-    mutate(db, audit, (tx, record) => {
-      const updated = tx
+    await mutateAsync(db, audit, async (tx, record) => {
+      const [updated] = await tx
         .update(operations)
         .set({
           type: draft.type,
@@ -348,13 +333,12 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
           version: current.version + 1,
         })
         .where(and(eq(operations.id, id), eq(operations.version, current.version)))
-        .returning({ id: operations.id })
-        .get();
+        .returning({ id: operations.id });
       if (!updated) throw new AppError(409, 'VERSION_CONFLICT', 'Операция изменена другим пользователем');
-      writeLinesAndTags(tx, id, draft, baseAmount);
-      if (changes.after.stockPayments !== undefined) replaceOperationPayments(tx, id, draft.stockPayments ?? []);
+      await writeLinesAndTags(tx, id, draft, baseAmount);
+      if (changes.after.stockPayments !== undefined) await replaceOperationPayments(tx, id, draft.stockPayments ?? []);
       if (history) {
-        record({
+        await record({
           companyId,
           userId,
           entity: 'operation',
@@ -369,54 +353,48 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
     return load(companyId, id);
   }
 
-  function removeOp(companyId: number, id: number, userId: number, history: boolean): OperationDto {
-    requireCompany(db, companyId, { writable: true });
-    const current = load(companyId, id);
+  async function removeOp(companyId: number, id: number, userId: number, history: boolean): Promise<OperationDto> {
+    await requireCompany(db, companyId, { writable: true });
+    const current = await load(companyId, id);
     if (current.deletedAt) return current;
-    const locked = archivedAccountOf(current);
+    const locked = await archivedAccountOf(current);
     if (locked) throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — удалить её нельзя`);
-    mutate(db, audit, (tx, record) => {
-      tx.update(operations)
-        .set({ deletedAt: now().toISOString(), updatedAt: now().toISOString(), version: current.version + 1 })
-        .where(eq(operations.id, id))
-        .run();
-      if (history) record({ companyId, userId, entity: 'operation', entityId: id, action: 'delete', diff: { type: current.type, amount: current.amount, accountId: current.accountId, paidAt: current.paidAt } });
+    await mutateAsync(db, audit, async (tx, record) => {
+      await tx.update(operations).set({ deletedAt: now().toISOString(), updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(operations.id, id));
+      if (history) await record({ companyId, userId, entity: 'operation', entityId: id, action: 'delete', diff: { type: current.type, amount: current.amount, accountId: current.accountId, paidAt: current.paidAt } });
     });
     return load(companyId, id);
   }
 
-  function restoreOp(companyId: number, id: number, userId: number, history: boolean): OperationDto {
-    requireCompany(db, companyId, { writable: true });
-    const current = load(companyId, id);
+  async function restoreOp(companyId: number, id: number, userId: number, history: boolean): Promise<OperationDto> {
+    await requireCompany(db, companyId, { writable: true });
+    const current = await load(companyId, id);
     if (!current.deletedAt) return current;
-    const locked = archivedAccountOf(current);
+    const locked = await archivedAccountOf(current);
     if (locked) throw archivedRef(`Счёт «${locked.name}» в архиве — сначала верните его из архива`);
     // инвариант 11: 3–7 на текущем состоянии справочников; уже выбранные архивные ссылки не мешают
-    check(companyId, draftOf(current), draftOf(current));
-    mutate(db, audit, (tx, record) => {
-      tx.update(operations)
-        .set({ deletedAt: null, updatedAt: now().toISOString(), version: current.version + 1 })
-        .where(eq(operations.id, id))
-        .run();
-      if (history) record({ companyId, userId, entity: 'operation', entityId: id, action: 'restore', diff: { type: current.type, amount: current.amount, accountId: current.accountId, paidAt: current.paidAt } });
+    await check(companyId, draftOf(current), draftOf(current));
+    await mutateAsync(db, audit, async (tx, record) => {
+      await tx.update(operations).set({ deletedAt: null, updatedAt: now().toISOString(), version: current.version + 1 }).where(eq(operations.id, id));
+      if (history) await record({ companyId, userId, entity: 'operation', entityId: id, action: 'restore', diff: { type: current.type, amount: current.amount, accountId: current.accountId, paidAt: current.paidAt } });
     });
     return load(companyId, id);
   }
 
   const svc: OperationsService = {
-    get(companyId, id) {
-      requireCompany(db, companyId);
+    async get(companyId, id) {
+      await requireCompany(db, companyId);
       return load(companyId, id);
     },
 
-    create(companyId, input, userId) {
-      const company = requireCompany(db, companyId, { writable: true });
-      const c = check(companyId, input, null);
-      const { rate, baseAmount } = baseOf(companyId, company.baseCurrency, c);
+    async create(companyId, input, userId) {
+      const company = await requireCompany(db, companyId, { writable: true });
+      const c = await check(companyId, input, null);
+      const { rate, baseAmount } = await baseOf(companyId, company.baseCurrency, c);
       const { draft } = c;
-      const id = mutate(db, audit, (tx, record) => {
+      const id = await mutateAsync(db, audit, async (tx, record) => {
         const t = now().toISOString();
-        const row = tx
+        const [row] = await tx
           .insert(operations)
           .values({
             companyId,
@@ -437,13 +415,13 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
             updatedAt: t,
             version: 1,
           })
-          .returning({ id: operations.id })
-          .get();
-        writeLinesAndTags(tx, row.id, draft, baseAmount);
-        if (draft.stockPayments?.length) replaceOperationPayments(tx, row.id, draft.stockPayments);
+          .returning({ id: operations.id });
+        if (!row) throw new Error('operations: вставка не вернула строку');
+        await writeLinesAndTags(tx, row.id, draft, baseAmount);
+        if (draft.stockPayments?.length) await replaceOperationPayments(tx, row.id, draft.stockPayments);
         const { stockPayments, ...rest } = draft;
         const auditDiff = { ...rest, ...(stockPayments?.length ? { stockPayments } : {}), rate, baseAmount };
-        record({ companyId, userId, entity: 'operation', entityId: row.id, action: 'create', diff: auditDiff });
+        await record({ companyId, userId, entity: 'operation', entityId: row.id, action: 'create', diff: auditDiff });
         return row.id;
       });
       return load(companyId, id);
@@ -453,10 +431,10 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
     remove: (companyId, id, userId) => removeOp(companyId, id, userId, true),
     restore: (companyId, id, userId) => restoreOp(companyId, id, userId, true),
 
-    revert(companyId, id, step, userId) {
-      if (step.kind === 'delete') removeOp(companyId, id, userId, false);
-      else if (step.kind === 'restore') restoreOp(companyId, id, userId, false);
-      else updateOp(companyId, id, { ...step.before, version: load(companyId, id).version }, userId, false);
+    async revert(companyId, id, step, userId) {
+      if (step.kind === 'delete') await removeOp(companyId, id, userId, false);
+      else if (step.kind === 'restore') await restoreOp(companyId, id, userId, false);
+      else await updateOp(companyId, id, { ...step.before, version: (await load(companyId, id)).version }, userId, false);
     },
   };
   return svc;
