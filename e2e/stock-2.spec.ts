@@ -171,12 +171,17 @@ test('импорт каталога: ошибка строки — «Загру�
   await page.goto(`/c/${cid}/stock/items`);
   await main(page).getByRole('button', { name: 'Импорт из Excel' }).click();
   const dialog = page.getByRole('dialog', { name: 'Импорт товаров из Excel' });
-  await dialog.getByLabel('Файл', { exact: true }).setInputFiles({ name: 'каталог.csv', mimeType: 'text/csv', buffer: Buffer.from('Название;Единица\nВода;ящ\n', 'utf8') });
+  // явная кнопка «Выбрать файл» и имя файла рядом (план 2026-10-20, задача 7); само поле скрыто
+  const files = dialog.getByRole('group', { name: 'Файл' });
+  await expect(files.getByRole('button', { name: 'Выбрать файл' })).toBeVisible();
+  await expect(files).toContainText('Файл не выбран');
+  await dialog.locator('[data-stock-import-file]').setInputFiles({ name: 'каталог.csv', mimeType: 'text/csv', buffer: Buffer.from('Название;Единица\nВода;ящ\n', 'utf8') });
+  await expect(files).toContainText('каталог.csv');
   await dialog.getByRole('button', { name: 'Проверить' }).click();
   await expect(dialog.getByRole('list', { name: 'Ошибки файла' })).toContainText('Строка 2, «Единица»: Неизвестная единица «ящ»');
   await expect(dialog.getByRole('button', { name: 'Загрузить' })).toHaveAttribute('aria-disabled', 'true');
 
-  await dialog.getByLabel('Файл', { exact: true }).setInputFiles({ name: 'каталог.csv', mimeType: 'text/csv', buffer: Buffer.from('Название;Единица;Цена продажи\nВода;шт;300\nКола 0,5;шт;500\n', 'utf8') });
+  await dialog.locator('[data-stock-import-file]').setInputFiles({ name: 'каталог.csv', mimeType: 'text/csv', buffer: Buffer.from('Название;Единица;Цена продажи\nВода;шт;300\nКола 0,5;шт;500\n', 'utf8') });
   await dialog.getByRole('button', { name: 'Проверить' }).click();
   const check = dialog.getByRole('region', { name: 'Проверка файла' });
   await expect(check).toContainText('Товаров будет создано: 1 — Вода');
@@ -185,6 +190,29 @@ test('импорт каталога: ошибка строки — «Загру�
   await expect(dialog.getByRole('status')).toContainText('Товаров создано: 1');
   await dialog.getByRole('button', { name: 'Готово' }).click();
   await expect(main(page).getByRole('table', { name: 'Товары' }).getByRole('row').filter({ hasText: 'Вода' })).toContainText(/300\s*₸/);
+});
+
+test('«Скачать шаблон» поступлений: файл со списками проходит проверку импорта', async ({ page }) => {
+  await login(page);
+  const cid = await createCompany(page, `ТОО Шаблон склада ${Date.now()}`);
+  const s = await stockSetup(page, cid);
+  await page.goto(`/c/${cid}/stock/docs?warehouse=${s.warehouse}`);
+  await main(page).getByRole('button', { name: 'Импорт поступлений' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Импорт поступлений' });
+  const link = dialog.getByRole('link', { name: 'Скачать шаблон' });
+  await expect(link).toHaveAttribute('href', `/api/v1/companies/${cid}/stock/import/receipts/template.xlsx`);
+  const file = await page.request.get((await link.getAttribute('href'))!);
+  expect(file.status()).toBe(200);
+  await dialog.locator('[data-stock-import-file]').setInputFiles({
+    name: 'Шаблон поступлений.xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: await file.body(),
+  });
+  await expect(dialog.getByRole('group', { name: 'Файл' })).toContainText('Шаблон поступлений.xlsx');
+  await dialog.getByRole('button', { name: 'Проверить' }).click();
+  await expect(dialog.getByRole('region', { name: 'Проверка файла' })).toContainText('Строк в файле: 2');
+  await expect(dialog.getByRole('list', { name: 'Ошибки файла' })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Загрузить' })).not.toHaveAttribute('aria-disabled', 'true');
 });
 
 test('телефон: «+ Инвентаризация» — окно на весь экран, без горизонтальной прокрутки', async ({ page }) => {

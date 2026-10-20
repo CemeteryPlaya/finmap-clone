@@ -24,3 +24,13 @@ export function importFileError(e: { status: number; message: string }): string 
   if (e.status === 413) return 'Файл больше 5 МБ — разделите его на части';
   return e.message;
 }
+
+/** Ссылка «Скачать шаблон» (спецификация 2026-10-19, часть 4): файл собирается по текущим данным компании. */
+export function stockTemplateHref(companyId: number, kind: StockImportKind): string {
+  return `/api/v1/companies/${companyId}/stock/import/${kind}/template.xlsx`;
+}
+
+/** Подпись рядом с «Выбрать файл»: имя выбранного файла или «Файл не выбран». */
+export function chosenFileText(file: { name: string } | null): string {
+  return file?.name ?? 'Файл не выбран';
+}

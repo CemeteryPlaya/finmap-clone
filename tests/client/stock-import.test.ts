@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { importFileError, importSummary } from '../../src/client/lib/stock-import';
+import { chosenFileText, importFileError, importSummary, stockTemplateHref } from '../../src/client/lib/stock-import';
 import type { StockImportResult } from '../../src/shared/schemas/stock';
 
 const result = (over: Partial<StockImportResult> = {}): StockImportResult => ({
@@ -39,5 +39,14 @@ describe('импорт склада: тексты проверки (§9.1, Ск�
   it('ошибка файла — понятным текстом', () => {
     expect(importFileError({ status: 413, message: 'x' })).toBe('Файл больше 5 МБ — разделите его на части');
     expect(importFileError({ status: 422, message: 'В файле больше 5 000 строк' })).toBe('В файле больше 5 000 строк');
+  });
+});
+
+describe('окно импорта склада: файл и шаблон (план 2026-10-20, задача 7)', () => {
+  it('ссылка на шаблон и подпись выбранного файла', () => {
+    expect(stockTemplateHref(5, 'items')).toBe('/api/v1/companies/5/stock/import/items/template.xlsx');
+    expect(stockTemplateHref(5, 'receipts')).toBe('/api/v1/companies/5/stock/import/receipts/template.xlsx');
+    expect(chosenFileText(null)).toBe('Файл не выбран');
+    expect(chosenFileText({ name: 'каталог.xlsx' })).toBe('каталог.xlsx');
   });
 });

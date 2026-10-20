@@ -2,7 +2,7 @@ import { useId, useRef, useState } from 'react';
 import type { StockImportKind, StockImportResult } from '../../../shared/schemas/stock';
 import { api, ApiError } from '../../lib/api';
 import { invalidateStock } from '../../lib/stock';
-import { importFileError, importSummary } from '../../lib/stock-import';
+import { chosenFileText, importFileError, importSummary, stockTemplateHref } from '../../lib/stock-import';
 import { Modal } from '../Modal';
 import { alertClass, btnPrimary, btnSecondary, noticeClass, phoneFullScreenModal } from '../ui';
 
@@ -72,20 +72,34 @@ export function StockImportDialog(props: { companyId: number; kind: StockImportK
             {props.kind === 'receipts' && ' Строки с одной датой и поставщиком станут одним поступлением; новые товары и поставщики создадутся.'}
             {props.kind === 'items' && ' Товары, которые уже есть в каталоге, пропускаются.'}
           </p>
-          <label className="grid gap-1 text-sm font-medium">
-            Файл
+          <a href={stockTemplateHref(props.companyId, props.kind)} download className="inline-flex items-center justify-self-start text-sm font-semibold text-income-strong underline pointer-coarse:min-h-11">
+            Скачать шаблон
+          </a>
+          {/* явная кнопка выбора файла и имя файла рядом (спецификация 2026-10-19, часть 4); само поле скрыто */}
+          <div role="group" aria-label="Файл" className="flex min-w-0 flex-wrap items-center gap-3">
+            <button type="button" onClick={() => input.current?.click()} className={btnSecondary}>
+              Выбрать файл
+            </button>
+            <span aria-live="polite" title={file?.name} className={`min-w-0 flex-1 truncate text-sm ${file ? 'text-ink' : 'text-muted'}`}>
+              {chosenFileText(file)}
+            </span>
             <input
               ref={input}
               type="file"
               accept=".xlsx,.csv"
+              data-stock-import-file=""
+              tabIndex={-1}
+              aria-hidden="true"
+              className="hidden"
               onChange={(e) => {
                 setFile(e.target.files?.[0] ?? null);
                 setCheck(null);
                 setError(null);
+                // тот же файл после исправления можно выбрать снова
+                e.target.value = '';
               }}
-              className="text-sm"
             />
-          </label>
+          </div>
           {check && (
             <section aria-label="Проверка файла" className="grid gap-2 rounded-xl bg-field px-4 py-3 text-sm">
               <ul className="grid gap-1">

@@ -643,7 +643,7 @@ const SCENARIOS: Scenario[] = [
       await p.getByRole('main').getByRole('button', { name: 'Импорт из Excel' }).click();
       const dialog = p.getByRole('dialog', { name: 'Импорт товаров из Excel' });
       const csv = 'Название;Группа;Единица;Цена продажи\nСок;Напитки;л;450\nЖвачка;;;150\nВода;;ящ;300\n';
-      await dialog.getByLabel('Файл', { exact: true }).setInputFiles({ name: 'каталог.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
+      await dialog.locator('[data-stock-import-file]').setInputFiles({ name: 'каталог.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
       await dialog.getByRole('button', { name: 'Проверить' }).click();
       await dialog.getByRole('region', { name: 'Проверка файла' }).waitFor();
     },
@@ -825,6 +825,23 @@ const SCENARIOS: Scenario[] = [
       // ждём строки списка «Списания» — поступлений по расходной категории нет
       await p.waitForFunction(() => !document.querySelector('main [aria-busy="true"]'));
       await p.locator('section[data-report-operations]').nth(1).locator('tbody tr, li').first().waitFor();
+    },
+  },
+  {
+    // импорт склада (план 2026-10-20, задача 7): «Выбрать файл» с именем файла и «Скачать шаблон». Пары в Finmap нет — m67 заглушка
+    ours: 'c67-stock-import-file.png',
+    finmap: 'm67-stock-import-file.png',
+    path: 'stock/docs',
+    act: async (p) => {
+      await seedStock(p);
+      await p.reload();
+      await p.getByRole('main').getByRole('button', { name: 'Импорт поступлений' }).click();
+      const dialog = p.getByRole('dialog', { name: 'Импорт поступлений' });
+      const href = await dialog.getByRole('link', { name: 'Скачать шаблон' }).getAttribute('href');
+      const file = await p.request.get(href!);
+      if (!file.ok()) throw new Error(`Шаблон: ${file.status()}`);
+      await dialog.locator('[data-stock-import-file]').setInputFiles({ name: 'Шаблон поступлений.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: await file.body() });
+      await dialog.getByRole('group', { name: 'Файл' }).getByText('Шаблон поступлений.xlsx').waitFor();
     },
   },
   {
