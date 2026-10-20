@@ -138,9 +138,11 @@ export interface AnalyticsCard {
   inactive?: string;
 }
 
-const PLANNED = 'Появится с плановыми операциями';
-
-/** Карточки по порядку §2.1. «План/Факт», «Дебиторка», «Кредиторка», «Баланс» — неактивные (этап 3). */
+/**
+ * Карточки по порядку §2.1. «План/Факт», «Дебиторка», «Кредиторка» и «Баланс» убраны до плановых операций (решение
+ * владельца 2026-10-20: неработающих карточек не показывать); неактивная карточка (href: null, inactive) остаётся
+ * возможной.
+ */
 export const ANALYTICS_CARDS: readonly AnalyticsCard[] = [
   {
     key: 'cashflow',
@@ -190,8 +192,4 @@ export const ANALYTICS_CARDS: readonly AnalyticsCard[] = [
     icon: 'history',
     href: (cid) => `/c/${cid}/settings/audit`,
   },
-  { key: 'plan', title: 'План/Факт', description: 'Сравнение плановых и фактических результатов', help: 'Плановые суммы по категориям и их выполнение.', icon: 'plan', href: null, inactive: PLANNED },
-  { key: 'receivables', title: 'Дебиторка', description: 'Кто и сколько должен вам', help: 'Долги клиентов по плановым поступлениям.', icon: 'in', href: null, inactive: PLANNED },
-  { key: 'payables', title: 'Кредиторка', description: 'Кому и сколько должны вы', help: 'Ваши долги по плановым списаниям.', icon: 'out', href: null, inactive: PLANNED },
-  { key: 'balance', title: 'Баланс', description: 'Активы и обязательства', help: 'Сколько бизнес стоит на самом деле: активы минус долги.', icon: 'scale', href: null, inactive: PLANNED },
 ];

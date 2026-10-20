@@ -69,7 +69,7 @@ test('«Аналитика»: вкладка между «Журналом» и 
   await expect(page).toHaveURL(new RegExp(`/c/${cid}/analytics$`));
 
   const cards = main(page).getByRole('list', { name: 'Отчёты' }).getByRole('listitem');
-  await expect(cards).toHaveCount(10);
+  await expect(cards).toHaveCount(6);
   await expect(cards.nth(0)).toContainText('Деньги / Cash flow');
   await expect(cards.nth(0).getByRole('link')).toHaveAttribute('href', `/c/${cid}/analytics/cashflow`);
   await expect(cards.nth(1)).toContainText('Прибыль / P&L');
@@ -81,17 +81,8 @@ test('«Аналитика»: вкладка между «Журналом» и 
   await expect(cards.nth(4)).toContainText('Финансовые показатели');
   await expect(cards.nth(4).getByRole('link')).toHaveAttribute('href', `/c/${cid}/analytics/indicators`);
   await expect(cards.nth(5).getByRole('link')).toHaveAttribute('href', `/c/${cid}/settings/audit`);
-  // «План/Факт», «Дебиторка», «Кредиторка», «Баланс» — без ссылки, с подписью
-  for (const i of [6, 7, 8, 9]) {
-    await expect(cards.nth(i).getByRole('link')).toHaveCount(0);
-    await expect(cards.nth(i)).toContainText('Появится с плановыми операциями');
-  }
-  await expect(cards.nth(9)).toContainText('Баланс');
-  // неактивная карточка: приглушены рисунок и рамка, подпись и название — нет (контраст AA)
-  const dim = cards.nth(6).locator('div.h-full');
-  expect(await dim.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
-  expect(await dim.locator('span').first().evaluate((el) => getComputedStyle(el).opacity)).toBe('0.5');
-  expect(await dim.locator('span').nth(2).evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+  // «План/Факт», «Дебиторка», «Кредиторка», «Баланс» убраны до плановых операций (решение владельца 2026-10-20)
+  await expect(main(page).getByRole('list', { name: 'Отчёты' })).not.toContainText('План/Факт');
 
   // «?» — подсказка поверх карточки; Esc закрывает и возвращает фокус на кнопку
   const help = cards.nth(0).getByRole('button', { name: 'Подсказка: Деньги / Cash flow' });
