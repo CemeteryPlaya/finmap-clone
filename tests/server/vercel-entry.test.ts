@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createServerlessApp, disposeServerlessApp } from '../../src/server/serverless';
+import { createServerlessApp, disposeServerlessApp, startupErrorApp } from '../../src/server/serverless';
 import { pgSnapshot } from '../helpers/test-db';
 
 /** Точка входа Vercel (план 2026-10-20-vercel-postgres, задача 13): приложение на уже размеченной базе, без миграций и блокировки. */
@@ -62,5 +62,22 @@ describe('createServerlessApp', () => {
 
   it('без DATABASE_URL Postgres — та же понятная ошибка конфигурации, приложение не создаётся', async () => {
     await expect(createServerlessApp({ ...ENV, DATABASE_URL: undefined })).rejects.toThrow('На Vercel нужен Postgres');
+  });
+});
+
+describe('startupErrorApp', () => {
+  it('приложение не запустилось — на любой адрес 503 с причиной: ошибка конфигурации называет переменную, прочие — без подробностей', async () => {
+    const config = startupErrorApp(new Error('Ошибка конфигурации — CRON_SECRET обязателен в режиме vercel, не короче 16 символов'));
+    const res = await config.inject({ method: 'GET', url: '/c/1/journal' });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toEqual({ error: { code: 'STARTUP_FAILED', message: 'Ошибка конфигурации — CRON_SECRET обязателен в режиме vercel, не короче 16 символов' } });
+    expect((await config.inject({ method: 'POST', url: '/api/v1/auth/login', payload: {} })).statusCode).toBe(503);
+    await config.close();
+
+    const other = startupErrorApp(new Error('connect ECONNREFUSED postgres://user:secret@host/db'));
+    const body = (await other.inject({ method: 'GET', url: '/api/v1/health' })).json();
+    expect(body.error.message).toBe('Сервер не запустился — причина в журнале Vercel (Logs)');
+    expect(JSON.stringify(body)).not.toContain('secret');
+    await other.close();
   });
 });

@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import { buildApp } from './app';
 import { type DbConfig, loadConfig } from './config';
 import { openDatabase, type OpenedDatabase } from './db/client';
@@ -38,4 +38,17 @@ export async function disposeServerlessApp(): Promise<void> {
   const { app, opened } = await current.catch(() => ({ app: null, opened: null }));
   await app?.close();
   await opened?.close();
+}
+
+/**
+ * Приложение не запустилось (чаще всего — не хватает переменной окружения): вместо падения функции, которое Vercel
+ * показывает безликим FUNCTION_INVOCATION_FAILED, на любой адрес — 503 с причиной. Текст ошибки конфигурации называет
+ * только переменную, без значений; прочие ошибки (в них бывают адреса и пароли) — только в журнале Vercel.
+ */
+export function startupErrorApp(e: unknown): FastifyInstance {
+  const text = e instanceof Error ? e.message : String(e);
+  const message = text.startsWith('Ошибка конфигурации') ? text : 'Сервер не запустился — причина в журнале Vercel (Logs)';
+  const app = Fastify({ logger: false });
+  app.all('/*', async (_req, reply) => reply.status(503).header('Cache-Control', 'no-store').send({ error: { code: 'STARTUP_FAILED', message } }));
+  return app;
 }
