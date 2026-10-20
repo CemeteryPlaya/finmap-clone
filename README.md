@@ -258,6 +258,30 @@ $env:PORT=3457; npm start
 
 Сайт работает на Vercel (бесплатный план Hobby), база — Postgres в Neon, файлы (вложения, загрузки импорта, бэкапы) — в Vercel Blob. Компьютер клуба и туннели не нужны. Локальный режим от этого не меняется: `npm start` по-прежнему работает с файлом `data/app.db`.
 
+**Через сайт Vercel: импорт ветки из GitHub** (без Vercel CLI; каждый push в ветку выкладывается сам):
+
+1. **Импорт.** vercel.com → **Add New… → Project** → **Import Git Repository** → GitHub → разрешите доступ к репозиторию `finmap-clone` → **Import**.
+2. **Настройки проекта на экране импорта:**
+   - **Framework Preset — Fastify.** Если Vercel сам выбрал Vite или Other, смените на Fastify: иначе соберётся только интерфейс без сервера, и все запросы `/api` получат 404.
+   - **Root Directory** — `./`. **Build Command**, **Output Directory**, **Install Command** не трогайте: команду сборки задаёт `vercel.json` (`npm run vercel-build`).
+   - **Environment Variables** — добавьте сразу `SESSION_SECRET` (32+ случайных символа) и `CRON_SECRET` (16+). Значения: вывод `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`, у каждого свой.
+3. **Deploy.** Первая сборка остановится на шаге миграций с сообщением «Миграции: нужен DATABASE_URL» — это ожидаемо: базы ещё нет.
+4. **База.** В проекте: **Storage → Create Database → Neon** (бесплатный план, регион **Frankfurt / aws-eu-central-1**) → **Connect** к проекту, окружения **Production** и **Preview**, поле префикса переменных оставьте пустым — нужна переменная `DATABASE_URL`.
+5. **Файлы.** **Storage → Create → Blob**, доступ **Private** (если спрашивают) → подключить к проекту так же, без префикса — переменная `BLOB_READ_WRITE_TOKEN`.
+6. **Проверьте переменные:** **Settings → Environment Variables** — у Production и Preview есть `DATABASE_URL`, `BLOB_READ_WRITE_TOKEN`, `SESSION_SECRET`, `CRON_SECRET` (по желанию `APP_NAME`, `APP_TIMEZONE`). **Settings → Build and Deployment → Node.js Version** — 24.x. **Settings → Git → Production Branch** — `stage1/plan1-skeleton` (основная ветка репозитория).
+7. **Повторная сборка:** **Deployments** → последняя → **⋯ → Redeploy**. Теперь сборка применит миграции к Neon и соберёт функцию.
+8. **Данные** — переносятся с компьютера клуба (шаг «Перенос данных» ниже). Адрес базы — **Storage → Neon → .env.local / Show secret** (строка `DATABASE_URL`), токен Blob — **Storage → Blob →** `BLOB_READ_WRITE_TOKEN`. В PowerShell:
+   ```powershell
+   $env:BLOB_READ_WRITE_TOKEN = "<токен Blob>"
+   npm run db:to-pg -- --from <копия app.db> --to "<DATABASE_URL>" --files
+   ```
+   Нечего переносить — создайте пользователя: `$env:DATABASE_URL = "<адрес>"; npm run user:add` (после этого закройте окно PowerShell, чтобы адрес не остался в переменной для `npm start`).
+9. **Проверка:** откройте `https://<проект>.vercel.app/api/v1/health` — ответ `{"ok":true}`; войдите в приложение. **Settings → Cron Jobs** — задание `/api/v1/cron/daily`; кнопка **Run** запускает его сразу: в Blob появится `backups/<дата>.json.gz`. Ошибки — во вкладке **Logs**.
+
+Дальше любой push в `stage1/plan1-skeleton` выкладывается в Production сам, push в другие ветки — в Preview со своим адресом (база — та, что подключена к Preview). Ежедневное задание Vercel запускает только у Production.
+
+Тот же результат через Vercel CLI:
+
 Один раз, в аккаунте Vercel:
 
 1. Установите Vercel CLI и войдите: `npm i -g vercel`, `vercel login`. В папке проекта: `vercel link` (новый проект).
