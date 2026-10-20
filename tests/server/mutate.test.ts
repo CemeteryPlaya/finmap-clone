@@ -5,6 +5,7 @@ import { sql } from 'drizzle-orm';
 import { changedFields, mutate } from '../../src/server/modules/audit/mutate';
 import { createAuditService } from '../../src/server/modules/audit/service';
 import { createApi, type ApiHarness } from '../helpers/api';
+import { onPg } from '../helpers/test-db';
 
 let h: ApiHarness;
 afterEach(async () => h?.t.cleanup());
@@ -19,7 +20,8 @@ describe('changedFields', () => {
 });
 
 describe('mutate: транзакция и история', () => {
-  it('immediate — блокировка с начала транзакции и после await; deferred — до первой записи её нет', async () => {
+  // блокировка файла SQLite вторым соединением; у Postgres запись сериализует advisory-блокировка (db-open, Neon)
+  it.skipIf(onPg)('immediate — блокировка с начала транзакции и после await; deferred — до первой записи её нет', async () => {
     h = await createApi();
     const other = new Database(path.join(h.t.dir, 'app.db'), { timeout: 0 });
     try {

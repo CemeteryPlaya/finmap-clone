@@ -39,7 +39,8 @@ export async function createTestApp(
 ): Promise<TestApp> {
   const t = await createTestDb();
   const config = testConfig(t.dir, overrides);
-  const app = await buildApp({ config, db: t.db, sqlite: t.sqlite, logger: false, extraRoutes, now });
+  // TEST_LOG=1 — журнал ошибок сервера в консоль (разбор 500 в тестах)
+  const app = await buildApp({ config, db: t.db, sqlite: t.sqlite, logger: process.env.TEST_LOG ? { level: 'error' } : false, extraRoutes, now });
   await app.ready();
   return {
     app,

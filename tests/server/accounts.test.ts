@@ -14,8 +14,8 @@ afterEach(() => t?.cleanup());
 async function setup() {
   t = await createTestDb();
   await seedCurrencies(t.db);
-  const c1 = t.db.insert(companies).values({ name: 'A', baseCurrency: 'KZT', createdAt: 'x' }).returning().get();
-  const c2 = t.db.insert(companies).values({ name: 'B', baseCurrency: 'KZT', createdAt: 'x' }).returning().get();
+  const c1 = (await t.db.insert(companies).values({ name: 'A', baseCurrency: 'KZT', createdAt: 'x' }).returning())[0]!;
+  const c2 = (await t.db.insert(companies).values({ name: 'B', baseCurrency: 'KZT', createdAt: 'x' }).returning())[0]!;
   const svc = createAccountsService({
     db: t.db,
     audit: createAuditService(t.db),
@@ -55,11 +55,9 @@ describe('accounts', () => {
     ).toEqual(['startingBalance']);
     expect(await fieldsOf(() => svc.create(t.db, { companyId: c1, name: 'X', currency: 'KZT', openedAt: '06.10.2026' }))).toEqual(['openedAt']);
     expect(await fieldsOf(() => svc.create(t.db, { companyId: c1, name: 'X', currency: 'KZT', openedAt: '2026-02-31' }))).toEqual(['openedAt']);
-    const foreignProject = t.db
+    const foreignProject = (await t.db
       .insert(projects)
-      .values({ companyId: c2, name: 'Чужой', templateKey: 'general', templateParams: '{}', orderIndex: 0, createdAt: 'x' })
-      .returning()
-      .get();
+      .values({ companyId: c2, name: 'Чужой', templateKey: 'general', templateParams: '{}', orderIndex: 0, createdAt: 'x' }).returning())[0]!;
     expect(
       await fieldsOf(() => svc.create(t.db, { companyId: c1, projectId: foreignProject.id, name: 'X', currency: 'KZT', openedAt: '2026-10-06' })),
     ).toEqual(['projectId']);
@@ -67,11 +65,9 @@ describe('accounts', () => {
 
   it('countActive считает неархивные счета компании и отдельно проекта', async () => {
     const { svc, c1 } = await setup();
-    const p = t.db
+    const p = (await t.db
       .insert(projects)
-      .values({ companyId: c1, name: 'Клуб', templateKey: 'general', templateParams: '{}', orderIndex: 0, createdAt: 'x' })
-      .returning()
-      .get();
+      .values({ companyId: c1, name: 'Клуб', templateKey: 'general', templateParams: '{}', orderIndex: 0, createdAt: 'x' }).returning())[0]!;
     await svc.create(t.db, { companyId: c1, name: 'A', currency: 'KZT', openedAt: '2026-10-06' });
     await svc.create(t.db, { companyId: c1, projectId: p.id, name: 'P1', currency: 'KZT', openedAt: '2026-10-06' });
     const b = await svc.create(t.db, { companyId: c1, projectId: p.id, name: 'P2', currency: 'KZT', openedAt: '2026-10-06' });
@@ -85,7 +81,7 @@ describe('accounts: ссылки операций и баланс (заглуш�
   it('удаление, смена валюты, сдвиг openedAt и архив учитывают операции и баланс', async () => {
     t = await createTestDb();
     await seedCurrencies(t.db);
-    const company = t.db.insert(companies).values({ name: 'A', baseCurrency: 'KZT', createdAt: 'x' }).returning().get();
+    const company = (await t.db.insert(companies).values({ name: 'A', baseCurrency: 'KZT', createdAt: 'x' }).returning())[0]!;
     const references: ReferencesService = { countOperations: async () => 1, earliestOperationDate: async () => '2026-10-01' };
     const balances: BalancesService = { accountBalance: async () => 500 };
     const svc = createAccountsService({ db: t.db, audit: createAuditService(t.db), references, balances, timezone: 'Asia/Almaty' });

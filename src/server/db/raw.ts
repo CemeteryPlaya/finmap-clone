@@ -33,19 +33,21 @@ interface PgExecutor {
 
 /**
  * Postgres приводит псевдонимы без кавычек к нижнему регистру (AS paidAt → paidat); сами запросы от этого не ломаются —
- * ссылки на псевдоним сводятся так же. Ключи строк возвращаются к написанию из запроса: по всем «AS имя» его текста.
+ * ссылки на псевдоним сводятся так же. Ключи строк возвращаются к написанию из запроса: по всем словам вида camelCase в его
+ * тексте (псевдоним может быть и без AS; столбцы базы — snake_case, их это не задевает).
  */
 function restoreCase(ex: Executor, q: SQL, list: Record<string, unknown>[]): Record<string, unknown>[] {
-  const text = (ex as unknown as PgExecutor).dialect.sqlToQuery(q).sql;
+  return restoreKeys((ex as unknown as PgExecutor).dialect.sqlToQuery(q).sql, list);
+}
+
+/** Ключи строк Postgres — в написании из текста запроса (см. restoreCase); нужен и тестам с сырым SQL. */
+export function restoreKeys<T>(text: string, list: T[]): T[] {
   const names = new Map<string, string>();
-  for (const m of text.matchAll(/\bAS\s+"?([A-Za-z_][A-Za-z0-9_]*)"?/gi)) {
-    const name = m[1]!;
-    if (name !== name.toLowerCase()) names.set(name.toLowerCase(), name);
-  }
+  for (const [name] of text.matchAll(/\b[a-z][a-z0-9_]*[A-Z][A-Za-z0-9_]*\b/g)) names.set(name.toLowerCase(), name);
   if (names.size === 0) return list;
   return list.map((r) => {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(r)) out[names.get(k) ?? k] = v;
-    return out;
+    for (const [k, v] of Object.entries(r as Record<string, unknown>)) out[names.get(k) ?? k] = v;
+    return out as T;
   });
 }

@@ -22,7 +22,7 @@ describe('sessions', () => {
   it('хранит только хэш токена и находит пользователя по токену', async () => {
     const { svc, u } = await setup();
     const s = await svc.create({ userId: u.id, remember: false, ip: '1.1.1.1', userAgent: 'test' });
-    const row = t.db.select().from(sessions).all()[0]!;
+    const row = (await t.db.select().from(sessions))[0]!;
     expect(row.tokenHash).not.toBe(s.token);
     expect(row.tokenHash).toMatch(/^[0-9a-f]{64}$/);
     expect(await svc.touch(s.token)).toEqual({ id: s.id, user: { id: u.id, login: 'admin', name: 'В' }, renewed: null });
@@ -52,10 +52,10 @@ describe('sessions', () => {
     const s = await svc.create({ userId: u.id, remember: false, ip: null, userAgent: null });
     clock.set('2026-10-05T10:04:00.000Z');
     await svc.touch(s.token);
-    expect(t.db.select().from(sessions).all()[0]!.lastSeenAt).toBe('2026-10-05T10:00:00.000Z');
+    expect((await t.db.select().from(sessions))[0]!.lastSeenAt).toBe('2026-10-05T10:00:00.000Z');
     clock.set('2026-10-05T10:06:00.000Z');
     await svc.touch(s.token);
-    expect(t.db.select().from(sessions).all()[0]!.lastSeenAt).toBe('2026-10-05T10:06:00.000Z');
+    expect((await t.db.select().from(sessions))[0]!.lastSeenAt).toBe('2026-10-05T10:06:00.000Z');
   });
 
   it('revoke и revokeAllForUser удаляют сессии; отключённый пользователь не проходит', async () => {

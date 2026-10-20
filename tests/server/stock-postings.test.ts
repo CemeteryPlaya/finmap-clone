@@ -200,7 +200,7 @@ describe('защита проведения (R15)', () => {
     expect(await opCount(w)).toBe(1);
     // на уровне БД вторая связь с тем же документом невозможна
     const spareOp = (await w.h.t.q('SELECT id FROM operations LIMIT 1'))[0] as { id: number };
-    await expect(w.h.t.q('INSERT INTO stock_doc_postings (doc_id, operation_id) VALUES (?, ?)', sale.id, spareOp.id)).rejects.toThrow(/UNIQUE|PRIMARY KEY/);
+    await expect(w.h.t.q('INSERT INTO stock_doc_postings (doc_id, operation_id) VALUES (?, ?)', sale.id, spareOp.id)).rejects.toThrow(/UNIQUE|PRIMARY KEY|duplicate key/);
     expect((await w.h.t.q('SELECT COUNT(*) n FROM stock_doc_postings'))[0]).toEqual({ n: 1 });
   });
 

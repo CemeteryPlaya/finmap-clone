@@ -4,6 +4,7 @@ import { seedDemo } from '../../scripts/lib/demo';
 import { nameKey } from '../../src/shared/finmap-format';
 import type { AccountMapping } from '../../src/shared/schemas/imports';
 import { createApi } from '../helpers/api';
+import { onPg } from '../helpers/test-db';
 import { importXlsx } from '../helpers/imports';
 import { opsWorld, type OpsWorld } from '../helpers/ops';
 import { sheetRows } from '../helpers/xlsx-rows';
@@ -18,8 +19,8 @@ let w: OpsWorld;
 afterEach(async () => w?.h.t.cleanup());
 
 const sqlite = () => w.h.t.sqlite!;
-const all = <T = Record<string, any>>(sql: string, ...args: unknown[]) => sqlite().prepare(sql).all(...args) as T[];
-const one = <T = Record<string, any>>(sql: string, ...args: unknown[]) => sqlite().prepare(sql).get(...args) as T;
+const all = async <T = Record<string, any>>(sql: string, ...args: unknown[]) => (await w.h.t.q(sql, ...args)) as T[];
+const one = async <T = Record<string, any>>(sql: string, ...args: unknown[]) => (await all<T>(sql, ...args))[0]!;
 const base = (cid: number) => `/api/v1/companies/${cid}`;
 const NOW = '2026-10-06T12:00:00.000Z';
 
@@ -34,13 +35,13 @@ async function exportFile(cid: number, qs = 'format=finmap'): Promise<Buffer> {
 async function balances(cid: number): Promise<Record<string, number>> {
   const res = await w.h.req('GET', `${base(cid)}/balances`);
   expect(res.statusCode, res.body).toBe(200);
-  const names = new Map(all<{ id: number; name: string }>('SELECT id, name FROM accounts WHERE company_id = ?', cid).map((a) => [a.id, a.name]));
+  const names = new Map((await all<{ id: number; name: string }>('SELECT id, name FROM accounts WHERE company_id = ?', cid)).map((a) => [a.id, a.name]));
   return Object.fromEntries((res.json().accounts as { accountId: number; balance: number }[]).map((a) => [names.get(a.accountId)!, a.balance]));
 }
 
 /** Сопоставления для импорта: у каждого счёта источника — новый счёт с той же валютой и тем же стартовым балансом (честная проверка, не «Текущий остаток»). */
-function newAccounts(cid: number): AccountMapping[] {
-  return all<{ name: string; currency: string; start: number }>('SELECT name, currency, starting_balance AS start FROM accounts WHERE company_id = ?', cid).map((a) => ({
+async function newAccounts(cid: number): Promise<AccountMapping[]> {
+  return (await all<{ name: string; currency: string; start: number }>('SELECT name, currency, starting_balance AS start FROM accounts WHERE company_id = ?', cid)).map((a) => ({
     key: nameKey(a.name),
     kind: 'new' as const,
     name: a.name,
@@ -88,15 +89,15 @@ interface SnapRow {
 }
 
 /** Операции по строкам: у разбитой — строка на строку (так она возвращается после круга), у остальных — одна. */
-function lineSnapshot(cid: number): SnapRow[] {
+async function lineSnapshot(cid: number): Promise<SnapRow[]> {
   const tags = new Map<number, string[]>();
-  for (const t of all<{ id: number; name: string }>(
+  for (const t of await all<{ id: number; name: string }>(
     'SELECT ot.operation_id AS id, t.name AS name FROM operation_tags ot JOIN tags t ON t.id = ot.tag_id JOIN operations o ON o.id = ot.operation_id WHERE o.company_id = ?',
     cid,
   )) {
     tags.set(t.id, [...(tags.get(t.id) ?? []), t.name].sort());
   }
-  return all<Omit<SnapRow, 'tags'> & { id: number }>(
+  return (await all<Omit<SnapRow, 'tags'> & { id: number }>(
     `SELECT o.id AS id, o.comment AS comment, o.type AS type, o.paid_at AS paidAt, o.accrual_date AS accrualDate, a.name AS account, ta.name AS toAccount,
             o.to_amount AS toAmount, CASE WHEN o.type = 'transfer' THEN o.amount ELSE l.amount END AS amount,
             CASE WHEN o.type = 'transfer' THEN o.base_amount ELSE l.base_amount END AS baseAmount, cp.name AS counterparty,
@@ -110,7 +111,7 @@ function lineSnapshot(cid: number): SnapRow[] {
        LEFT JOIN projects p ON p.id = l.project_id
       WHERE o.company_id = ? AND o.deleted_at IS NULL`,
     cid,
-  )
+  ))
     .map(({ id, ...row }) => ({ ...row, tags: (tags.get(id) ?? []).join(',') }))
     .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 }
@@ -133,7 +134,7 @@ interface World {
  */
 async function sourceWorld(opts: { crossToForeign: boolean }): Promise<World> {
   w = await opsWorld(NOW);
-  sqlite().prepare("INSERT INTO currencies (code,name,symbol,minor_units) VALUES ('JPY','Иена','¥',0)").run();
+  await w.h.t.q("INSERT INTO currencies (code,name,symbol,minor_units) VALUES ('JPY','Иена','¥',0)");
   await w.post('/api/v1/rates/manual', { date: '2026-10-01', currency: 'JPY', rate: '3.15' });
   const b = base(w.cid);
   const bank = (await w.post(`${b}/accounts`, { name: 'Банк-2', currency: 'KZT', openedAt: '2026-10-01', startingBalance: 250000 })).account.id as number;
@@ -207,27 +208,28 @@ describe('круг через «Excel»: компания → файл → но�
 
     // в новую компанию: каждый счёт — новый, с тем же стартовым балансом (не «Текущий остаток»)
     const target = await w.h.company('ТОО Круг');
-    const imported = await importXlsx(w, file, { cid: target, accounts: newAccounts(w.cid), name: 'круг.xlsx' });
+    const imported = await importXlsx(w, file, { cid: target, accounts: await newAccounts(w.cid), name: 'круг.xlsx' });
     expect(imported.counts).toMatchObject({ rows: world.expectedAfter, added: world.expectedAfter, duplicates: 0, skippedFuture: 0 });
 
     // балансы счетов — до копейки, в том числе в иенах и долларах; число операций — по строкам разбитых
     expect(await balances(target)).toEqual(await balances(w.cid));
     expect(Object.keys(await balances(target)).sort()).toEqual(['Архив', 'Банк-2', 'Валютный', 'Иена', 'Касса']);
-    expect(one('SELECT COUNT(*) n FROM operations WHERE company_id = ?', target).n).toBe(world.expectedAfter);
+    expect((await one('SELECT COUNT(*) n FROM operations WHERE company_id = ?', target)).n).toBe(world.expectedAfter);
     // итоги по категориям (вид, категория, подкатегория) и по проектам — как в источнике
-    expect(categoryTotals(target)).toEqual(categoryTotals(w.cid));
-    expect(projectTotals(target)).toEqual(projectTotals(w.cid));
-    expect(categoryTotals(target).some((r) => r.category === 'Зарплата → Администраторы')).toBe(true);
+    expect(await categoryTotals(target)).toEqual(await categoryTotals(w.cid));
+    expect(await projectTotals(target)).toEqual(await projectTotals(w.cid));
+    expect((await categoryTotals(target)).some((r) => r.category === 'Зарплата → Администраторы')).toBe(true);
     // каждая строка источника — операция новой компании: те же момент, счета, суммы, категория, проект, контрагент, теги, комментарий и дата начисления
-    expect(lineSnapshot(target)).toEqual(lineSnapshot(w.cid));
+    expect(await lineSnapshot(target)).toEqual(await lineSnapshot(w.cid));
     // операция эпохи UTC+6: тот же момент (23:30 по Алматы 15.06.2023), в файле и после круга
-    expect(one("SELECT paid_at p FROM operations WHERE company_id = ? AND comment = 'старый доход 23:30'", target).p).toBe('2023-06-15T17:30:00.000Z');
+    expect((await one("SELECT paid_at p FROM operations WHERE company_id = ? AND comment = 'старый доход 23:30'", target)).p).toBe('2023-06-15T17:30:00.000Z');
     expect(Number(rows.find((r) => r[15] === 'старый доход 23:30')![0])).toBeCloseTo(45092 + 23.5 / 24, 9); // 15.06.2023 23:30 в серийном числе Excel
     // справочники: системные категории компании подхвачены, а не созданы заново
-    expect(one("SELECT COUNT(*) n FROM categories WHERE company_id = ? AND system_key = 'salary'", target).n).toBe(1);
-    expect(one("SELECT c.name n, p.name parent FROM categories c JOIN categories p ON p.id = c.parent_id WHERE c.company_id = ? AND c.name = 'Администраторы'", target)).toEqual({ n: 'Администраторы', parent: 'Зарплата' });
+    expect((await one("SELECT COUNT(*) n FROM categories WHERE company_id = ? AND system_key = 'salary'", target)).n).toBe(1);
+    expect(await one("SELECT c.name n, p.name parent FROM categories c JOIN categories p ON p.id = c.parent_id WHERE c.company_id = ? AND c.name = 'Администраторы'", target)).toEqual({ n: 'Администраторы', parent: 'Зарплата' });
 
-    // import:check на новой компании: тот же файл сверяется независимо от кода записи
+    // import:check на новой компании: тот же файл сверяется независимо от кода записи (import:check читает файл SQLite)
+    if (onPg) return;
     const report = checkImport({ sqlite: sqlite(), companyId: target, data: file, fileName: 'круг.xlsx', timezone: 'Asia/Almaty', today: '2026-10-06' });
     expect(formatReport(report).at(-1)).toBe('Итог: Совпадает');
     expect(isMatch(report)).toBe(true);
@@ -244,7 +246,7 @@ describe('круг: файл по фильтру и пустой файл', () =
       ['60.00', '28507.20', 'Аренда', 'Клуб 1'],
       ['40.00', '19004.80', 'Связь', ''],
     ]);
-    const mapping = newAccounts(w.cid).filter((a) => a.kind === 'new' && a.name === 'Валютный');
+    const mapping = (await newAccounts(w.cid)).filter((a) => a.kind === 'new' && a.name === 'Валютный');
     expect((await importXlsx(w, usd, { cid: target, accounts: mapping, name: 'доллары.xlsx' })).counts.added).toBe(2);
     expect(Object.keys(await balances(target))).toEqual(['Валютный']);
     expect((await balances(target))['Валютный']).toBe(-10000);
@@ -265,12 +267,13 @@ describe('круг: перевод между валютами (§4.2, §8.2)', 
     const transfer = rows.find((r) => r[15] === 'перевод в доллары')!;
     expect([transfer[4], transfer[5], transfer[6], transfer[7]]).toEqual(['47512.00', '47512.00', 'Касса', 'Валютный']);
     const target = await w.h.company('ТОО Круг');
-    await importXlsx(w, file, { cid: target, accounts: newAccounts(w.cid), name: 'круг.xlsx' });
-    expect(one('SELECT COUNT(*) n FROM operations WHERE company_id = ?', target).n).toBe(world.expectedAfter);
+    await importXlsx(w, file, { cid: target, accounts: await newAccounts(w.cid), name: 'круг.xlsx' });
+    expect((await one('SELECT COUNT(*) n FROM operations WHERE company_id = ?', target)).n).toBe(world.expectedAfter);
     expect(await balances(target)).toEqual(await balances(w.cid));
-    expect(lineSnapshot(target)).toEqual(lineSnapshot(w.cid));
-    expect(categoryTotals(target)).toEqual(categoryTotals(w.cid));
+    expect(await lineSnapshot(target)).toEqual(await lineSnapshot(w.cid));
+    expect(await categoryTotals(target)).toEqual(await categoryTotals(w.cid));
     // import:check не может проверить зачисление в долларах по файлу (оно считается по курсам): «Не сверено» без ложного расхождения
+    if (onPg) return;
     const report = checkImport({ sqlite: sqlite(), companyId: target, data: file, fileName: 'круг.xlsx', timezone: 'Asia/Almaty', today: '2026-10-06' });
     expect(report.mismatches).toBe(0);
     expect(report.accounts.find((a) => a.what === 'Валютный, USD')?.unverified).toBe(true);
@@ -285,10 +288,10 @@ describe('круг: перевод между валютами (§4.2, §8.2)', 
     await w.post(w.ops, { type: 'transfer', accountId: w.kzt, toAccountId: w.usd, paidAt: '2026-10-04T12:00:00.000Z', amount: 4751200, toAmount: 9900, comment: 'с комиссией', lines: [] });
     const file = await exportFile(w.cid);
     const target = await w.h.company('ТОО Круг');
-    await importXlsx(w, file, { cid: target, accounts: newAccounts(w.cid), name: 'круг.xlsx' });
-    const credited = (cid: number) => one('SELECT to_amount n FROM operations WHERE company_id = ?', cid).n;
-    expect(credited(w.cid)).toBe(9900);
-    expect(credited(target)).toBe(10000);
+    await importXlsx(w, file, { cid: target, accounts: await newAccounts(w.cid), name: 'круг.xlsx' });
+    const credited = async (cid: number) => (await one('SELECT to_amount n FROM operations WHERE company_id = ?', cid)).n;
+    expect(await credited(w.cid)).toBe(9900);
+    expect(await credited(target)).toBe(10000);
     expect((await balances(w.cid))['Валютный']).toBe(9900);
     expect((await balances(target))['Валютный']).toBe(10000);
     expect((await balances(target))['Касса']).toBe((await balances(w.cid))['Касса']);
@@ -304,18 +307,18 @@ describe('круг на демо-наборе (§11.2)', () => {
     const file = await exportFile(source);
     const rows = sheetRows(file);
     const target = await h.company('ТОО Круг демо');
-    const imported = await importXlsx({ h, cid: target } as OpsWorld, file, { cid: target, accounts: newAccounts(source), name: 'демо.xlsx' });
+    const imported = await importXlsx({ h, cid: target } as OpsWorld, file, { cid: target, accounts: await newAccounts(source), name: 'демо.xlsx' });
     expect(imported.counts.added).toBe(rows.length - 1);
     expect(imported.counts.duplicates).toBe(0);
-    expect(one('SELECT COUNT(*) n FROM operations WHERE company_id = ?', target).n).toBe(rows.length - 1);
-    expect(categoryTotals(target)).toEqual(categoryTotals(source));
-    expect(projectTotals(target)).toEqual(projectTotals(source));
+    expect((await one('SELECT COUNT(*) n FROM operations WHERE company_id = ?', target)).n).toBe(rows.length - 1);
+    expect(await categoryTotals(target)).toEqual(await categoryTotals(source));
+    expect(await projectTotals(target)).toEqual(await projectTotals(source));
     // балансы совпадают у всех счетов, кроме получателей переводов между валютами: сумма зачисления из файла не восстанавливается
     // (в формате Finmap её нет), а считается по нашим курсам — разница ровно в сумме этих пересчётов (§8.2)
     const key = (r: SnapRow) => `${r.paidAt}|${r.account}|${r.toAccount}|${r.amount}`;
-    const credited = (cid: number) => new Map(lineSnapshot(cid).filter((r) => r.type === 'transfer').map((r) => [key(r), r]));
-    const before = credited(source);
-    const after = credited(target);
+    const credited = async (cid: number) => new Map((await lineSnapshot(cid)).filter((r) => r.type === 'transfer').map((r) => [key(r), r]));
+    const before = await credited(source);
+    const after = await credited(target);
     expect(after.size).toBe(before.size);
     const delta: Record<string, number> = {};
     for (const [k, r] of before) {

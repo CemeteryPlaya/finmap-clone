@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { openDatabase, type Db, type Sqlite } from '../../src/server/db/client';
 import { migrateDatabase } from '../../src/server/db/migrate';
+import { restoreKeys } from '../../src/server/db/raw';
 
 /**
  * Диалект тестов (план 2026-10-20-vercel-postgres, Р16): TEST_DB=pg — Postgres в памяти (PGlite), иначе файл SQLite.
@@ -24,6 +25,11 @@ export interface TestDb {
   failOn(name: string, o: { table: string; event: 'INSERT' | 'UPDATE' | 'DELETE'; message: string; when?: string }): Promise<void>;
   dropFail(name: string, table: string): Promise<void>;
   cleanup(): Promise<void>;
+}
+
+/** Подзапрос: значения `expr` строк `from` по возрастанию id через запятую (group_concat / string_agg). */
+export function listSql(expr: string, from: string): string {
+  return onPg ? `(SELECT string_agg(${expr}, ',' ORDER BY id) FROM ${from})` : `(SELECT group_concat(v) FROM (SELECT ${expr} AS v FROM ${from} ORDER BY id))`;
 }
 
 /** «?» → $1, $2… вне строковых литералов. */
@@ -85,13 +91,14 @@ export async function createTestDb(): Promise<TestDb> {
     };
   }
   const o = await openDatabase({ kind: 'pglite', snapshot: await pgSnapshot() });
+  let closed = false;
   const client = (o.db as unknown as { $client: { query<T>(t: string, p?: unknown[]): Promise<{ rows: T[] }>; exec(t: string): Promise<unknown> } }).$client;
   return {
     db: o.db,
     sqlite: null,
     dir,
     async q<T>(text: string, ...params: unknown[]) {
-      return (await client.query<T>(pgPlaceholders(text), params)).rows;
+      return restoreKeys(text, (await client.query<T>(pgPlaceholders(text), params)).rows);
     },
     async exec(text) {
       await client.exec(text);
@@ -105,7 +112,10 @@ export async function createTestDb(): Promise<TestDb> {
     async dropFail(name, table) {
       await client.exec(`DROP TRIGGER ${name} ON ${table}; DROP FUNCTION ${name}_fn();`);
     },
+    // afterEach закрывает базу прошлого теста ещё раз, если тест свою не создал: PGlite второго закрытия не прощает
     async cleanup() {
+      if (closed) return;
+      closed = true;
       await o.close();
       removeDir();
     },

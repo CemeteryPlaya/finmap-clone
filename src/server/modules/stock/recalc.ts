@@ -63,7 +63,7 @@ export async function storedSigs(tx: Executor, g: Group): Promise<Map<string, Li
       JOIN stock_docs d ON d.id = l.doc_id
      WHERE d.warehouse_id IN (${ids(g.warehouseIds)}) AND d.deleted_at IS NULL AND d.status = 'posted'
        AND ((a.component_item_id IS NULL AND l.item_id = ${g.itemId}) OR a.component_item_id = ${g.itemId})
-     GROUP BY l.id, a.component_item_id`,
+     GROUP BY l.id, a.component_item_id, l.doc_id, d.type, d.at, l.qty`,
   );
   return new Map(
     rows.map(({ comp, ...r }) => {

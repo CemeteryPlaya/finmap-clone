@@ -14,6 +14,7 @@ import { excelSerial as at, finmapLikeMany, finmapLikeRow as fr, finmapLikeXlsx 
 import { importRows } from '../helpers/imports';
 import { opsWorld, type OpsWorld } from '../helpers/ops';
 import { ORIGIN_HEADERS } from '../helpers/test-app';
+import { listSql } from '../helpers/test-db';
 
 let w: OpsWorld;
 afterEach(async () => w?.h.t.cleanup());
@@ -31,10 +32,10 @@ const dataState = async () =>
     `SELECT (SELECT COUNT(*) FROM operations) ops, (SELECT COUNT(*) FROM operation_lines) lines, (SELECT COUNT(*) FROM operation_tags) optags,
             (SELECT COUNT(*) FROM attachments) files, (SELECT COUNT(*) FROM accounts) accounts, (SELECT COUNT(*) FROM categories) categories,
             (SELECT COUNT(*) FROM counterparties) cps, (SELECT COUNT(*) FROM projects) projects, (SELECT COUNT(*) FROM tags) tags,
-            (SELECT group_concat(id || ':' || starting_balance || '/' || opened_at) FROM accounts) accountState`,
+            ${listSql("id || ':' || starting_balance || '/' || opened_at", 'accounts')} accountState`,
   );
 /** Вместе с историей и imports: «ничего не изменилось». */
-const fullState = async () => ({ ...(await dataState()), audit: (await one('SELECT COUNT(*) n FROM audit_log')).n, imports: (await one("SELECT group_concat(id || ':' || status) s FROM imports")).s });
+const fullState = async () => ({ ...(await dataState()), audit: (await one('SELECT COUNT(*) n FROM audit_log')).n, imports: (await one(`SELECT ${listSql("id || ':' || status", 'imports')} s`)).s });
 
 /** Остатки счетов компании через API (GET …/balances): то, что видит человек. */
 const balances = async () => {
@@ -426,7 +427,8 @@ describe('POST …/imports/:id/undo — отмена (§7.3 спецификац
     const bank = (await one("SELECT id FROM accounts WHERE name = 'Банк-2'")).id as number;
     const start = (await one('SELECT starting_balance FROM accounts WHERE id = ?', bank)).starting_balance as number;
     // как у импорта, записанного раньше: в imports.created нет computedStarts
-    await w.h.t.q("UPDATE imports SET created = json_remove(created, '$.computedStarts') WHERE id = ?", r.import.id);
+    const { computedStarts: _, ...created } = JSON.parse((await one('SELECT created FROM imports WHERE id = ?', r.import.id)).created) as Record<string, unknown>;
+    await w.h.t.q('UPDATE imports SET created = ? WHERE id = ?', JSON.stringify(created), r.import.id);
     expect(JSON.parse((await one('SELECT created FROM imports WHERE id = ?', r.import.id)).created)).not.toHaveProperty('computedStarts');
     await w.post(w.ops, {
       type: 'income',

@@ -24,7 +24,7 @@ describe('users', () => {
     const { svc, audit } = await setup();
     const u = await svc.create({ login: ' Admin ', name: 'Владелец', password: 'correct-horse-1' }, null);
     expect(u).toEqual({ id: u.id, login: 'admin', name: 'Владелец' });
-    const row = t.db.select().from(users).all()[0]!;
+    const row = (await t.db.select().from(users))[0]!;
     expect(row.passwordHash.startsWith('$argon2id$')).toBe(true);
     expect((await audit.list({ companyId: null }))[0]).toMatchObject({ entity: 'user', action: 'create', diff: { login: 'admin', name: 'Владелец' } });
   });
@@ -116,7 +116,7 @@ describe('users', () => {
   it('setPasswordByLogin (user:passwd): новый пароль, все сессии пользователя завершены', async () => {
     const { svc } = await setup();
     const u = await svc.create({ login: 'admin', name: 'А', password: 'correct-horse-1' }, null);
-    await t.q("INSERT INTO sessions (token_hash, user_id, remember, created_at, expires_at, last_seen_at) VALUES ('h', ?, 0, 'x', 'x', 'x')", u.id);
+    await t.q("INSERT INTO sessions (token_hash, user_id, remember, created_at, expires_at, last_seen_at) VALUES ('h', ?, FALSE, 'x', 'x', 'x')", u.id);
     expect(await svc.setPasswordByLogin(' ADMIN ', 'console-pass-1')).toMatchObject({ login: 'admin', disabledAt: null });
     expect(await svc.verifyCredentials('admin', 'console-pass-1')).toMatchObject({ id: u.id });
     expect(((await t.q('SELECT COUNT(*) n FROM sessions'))[0] as { n: number }).n).toBe(0);

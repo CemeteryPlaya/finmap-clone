@@ -14,7 +14,7 @@ async function setup(base = 'KZT') {
   t = await createTestDb();
   await seedCurrencies(t.db);
   await t.q("INSERT INTO users (login, name, password_hash, created_at) VALUES ('u','U','h','x')");
-  const company = t.db.insert(companies).values({ name: 'ТОО', baseCurrency: base, createdAt: 'x' }).returning().get();
+  const company = (await t.db.insert(companies).values({ name: 'ТОО', baseCurrency: base, createdAt: 'x' }).returning())[0]!;
   const svc = createRatesService({ db: t.db, audit: createAuditService(t.db), now: () => new Date('2026-10-20T00:00:00.000Z') });
   return { svc, cid: company.id };
 }

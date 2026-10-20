@@ -81,7 +81,9 @@ describe('seed:demo', () => {
   it('сбой посередине откатывает всё: база пуста и пригодна для повторного запуска', async () => {
     const t = await freshDb();
     await t.failOn('stop_ops', { table: 'operations', event: 'INSERT', message: 'stop', when: '(SELECT COUNT(*) FROM operations) >= 20' });
-    await expect(seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 50 })).rejects.toThrow('stop');
+    // у Postgres текст ошибки базы — в cause (Drizzle оборачивает её в «Failed query»)
+    const err = (await seedDemo({ db: t.db, timezone: 'Asia/Almaty', now: NOW, operations: 50 }).catch((e: unknown) => e)) as Error & { cause?: Error };
+    expect(`${err.message} ${err.cause?.message ?? ''}`).toContain('stop');
     await t.dropFail('stop_ops', 'operations');
     const n = async (table: string) => ((await t.q(`SELECT COUNT(*) n FROM ${table}`))[0] as { n: number }).n;
     expect([await n('companies'), await n('operations'), await n('exchange_rates'), await n('audit_log')]).toEqual([0, 0, 0, 0]);

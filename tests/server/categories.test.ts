@@ -12,7 +12,7 @@ afterEach(() => t?.cleanup());
 async function setup() {
   t = await createTestDb();
   await seedCurrencies(t.db);
-  const company = t.db.insert(companies).values({ name: 'ТОО', baseCurrency: 'KZT', createdAt: 'x' }).returning().get();
+  const company = (await t.db.insert(companies).values({ name: 'ТОО', baseCurrency: 'KZT', createdAt: 'x' }).returning())[0]!;
   const svc = createCategoriesService({ db: t.db, audit: createAuditService(t.db), now: () => new Date('2026-10-06T00:00:00.000Z') });
   return { svc, companyId: company.id };
 }

@@ -55,6 +55,7 @@ import type { SystemKey } from '../../../shared/system-categories';
 import { TEMPLATES } from '../../../templates';
 import type { Db } from '../../db/client';
 import { first, one, rows } from '../../db/raw';
+import { groupConcat } from '../../db/sql';
 import { accounts, analyticsIndicatorParts, categories, counterparties, projects, tags } from '../../db/schema';
 import { AppError } from '../../errors';
 import { exportFileName } from '../../http/export-name';
@@ -422,7 +423,7 @@ export function createAnalyticsService(d: {
         JOIN stock_docs d ON d.id = l.doc_id
         JOIN stock_warehouses w ON w.id = d.warehouse_id
        WHERE ${scope} AND d.type IN ('sale', 'writeoff', 'count') AND a.cost IS NOT NULL
-       GROUP BY d.id`);
+       GROUP BY d.id, w.project_id`);
     const noBatch = await rows<{ at: string; projectId: number }>(db, sql`
       SELECT d.at AS at, w.project_id AS projectId
         FROM stock_docs d JOIN stock_warehouses w ON w.id = d.warehouse_id
@@ -832,7 +833,7 @@ export function createAnalyticsService(d: {
         rows<Found>(
           db,
           sql`
-        SELECT o.id AS id, o.paid_at AS paidAt, SUM(l.amount) AS part, COUNT(*) AS matched, GROUP_CONCAT(l.id) AS lineIds,
+        SELECT o.id AS id, o.paid_at AS paidAt, SUM(l.amount) AS part, COUNT(*) AS matched, ${groupConcat(sql`l.id`)} AS lineIds,
                (SELECT COUNT(*) FROM operation_lines x WHERE x.operation_id = o.id) AS lines
           FROM operation_lines l JOIN operations o ON o.id = l.operation_id
          WHERE ${sql.join(after ? [...where, sql`(o.paid_at, o.id) < (${after.v}, ${after.id})`] : where, sql` AND `)}

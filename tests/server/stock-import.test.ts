@@ -3,6 +3,7 @@ import { buildXlsx, type XlsxCell } from '../../src/server/http/xlsx';
 import { finmapLikeXlsx } from '../helpers/finmap-like';
 import { stockWorld, type StockWorld } from '../helpers/stock';
 import { ORIGIN_HEADERS } from '../helpers/test-app';
+import { onPg } from '../helpers/test-db';
 
 let w: StockWorld | null = null;
 afterEach(async () => {
@@ -238,6 +239,8 @@ describe('импорт поступлений (§9.1, Склад-2)', () => {
     const ms = performance.now() - started;
     expect(res.statusCode, res.body.slice(0, 300)).toBe(201);
     expect(res.json()).toMatchObject({ lines: 5000, create: { items: 50, suppliers: 3 } });
-    expect(ms).toBeLessThan(10_000);
-  }, 30_000);
+    // бюджет — для SQLite; PGlite (WASM) под полной загрузкой ядер параллельными файлами медленнее в разы, бюджет Postgres
+    // проверяет bench:import --pg (план 2026-10-20-vercel-postgres, задача 12)
+    expect(ms).toBeLessThan(onPg ? 60_000 : 10_000);
+  }, onPg ? 120_000 : 30_000);
 });

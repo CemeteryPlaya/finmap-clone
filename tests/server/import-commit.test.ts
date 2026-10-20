@@ -19,6 +19,7 @@ import type { AccountMapping, ImportCommitResult, ImportPreview, ImportPreviewAc
 import { excelSerial as at, finmapLikeMany, finmapLikeRow as fr, finmapLikeXlsx, type FinmapLikeValue } from '../helpers/finmap-like';
 import { opsWorld, type OpsWorld } from '../helpers/ops';
 import { loginAs, ORIGIN_HEADERS, seedUser } from '../helpers/test-app';
+import { listSql, onPg } from '../helpers/test-db';
 
 let w: OpsWorld;
 afterEach(async () => w?.h.t.cleanup());
@@ -33,7 +34,7 @@ const tableCounts = async () =>
     `SELECT (SELECT COUNT(*) FROM operations) ops, (SELECT COUNT(*) FROM operation_lines) lines, (SELECT COUNT(*) FROM operation_tags) optags,
             (SELECT COUNT(*) FROM accounts) accounts, (SELECT COUNT(*) FROM categories) categories, (SELECT COUNT(*) FROM counterparties) cps,
             (SELECT COUNT(*) FROM projects) projects, (SELECT COUNT(*) FROM tags) tags, (SELECT COUNT(*) FROM imports) imports,
-            (SELECT COUNT(*) FROM audit_log) audit, (SELECT group_concat(starting_balance || '/' || opened_at) FROM accounts) accountState`,
+            (SELECT COUNT(*) FROM audit_log) audit, ${listSql("starting_balance || '/' || opened_at", 'accounts')} accountState`,
   );
 
 const importsUrl = (cid = w.cid) => `/api/v1/companies/${cid}/imports`;
@@ -180,7 +181,8 @@ describe('POST …/imports: запись одной транзакцией (§6.
     for (const o of ops) expect((await operations.update(w.cid, o.id, { version: 1 }, await adminId())).version).toBe(1);
 
     // справочники: вид, родитель (системная «Зарплата» и новая «Связь»), тип контрагента по категории
-    expect(await all('SELECT c.name, c.kind, p.name parent FROM categories c LEFT JOIN categories p ON p.id = c.parent_id WHERE c.id IN (SELECT value FROM json_each((SELECT created FROM imports WHERE id = ?), \'$.categories\')) ORDER BY c.id', importId)).toEqual([
+    const createdCategories = (JSON.parse((await one('SELECT created FROM imports WHERE id = ?', importId)).created) as { categories: number[] }).categories;
+    expect(await all(`SELECT c.name, c.kind, p.name parent FROM categories c LEFT JOIN categories p ON p.id = c.parent_id WHERE c.id IN (${createdCategories.join(', ')}) ORDER BY c.id`)).toEqual([
       { name: 'Связь', kind: 'expense', parent: null },
       { name: 'Администраторы', kind: 'expense', parent: 'Зарплата' },
       { name: 'Интернет', kind: 'expense', parent: 'Связь' },
@@ -511,7 +513,9 @@ describe('гонки между проверкой и записью', () => {
 
   it('компания ушла в архив после проверки перед транзакцией (другое соединение) — проверка под блокировкой записи: 422, ничего не записано', async () => {
     w = await opsWorld();
-    const other = new Database(path.join(w.h.t.dir, 'app.db'));
+    // другое соединение: у SQLite — второй дескриптор файла; у PGlite соединение одно — запрос встаёт в его очередь раньше транзакции записи
+    const other = onPg ? null : new Database(path.join(w.h.t.dir, 'app.db'));
+    let pending: Promise<unknown> = Promise.resolve();
     try {
       const real = createImportCache({ now: () => NOW.getTime() });
       let archiveOnGet = false;
@@ -520,7 +524,10 @@ describe('гонки между проверкой и записью', () => {
         ...real,
         get(token, companyId, userId) {
           const entry = real.get(token, companyId, userId);
-          if (archiveOnGet) other.prepare('UPDATE companies SET archived_at = ? WHERE id = ?').run(NOW.toISOString(), companyId);
+          if (archiveOnGet) {
+            if (other) other.prepare('UPDATE companies SET archived_at = ? WHERE id = ?').run(NOW.toISOString(), companyId);
+            else pending = w.h.t.q('UPDATE companies SET archived_at = ? WHERE id = ?', NOW.toISOString(), companyId);
+          }
           return entry;
         },
       };
@@ -535,11 +542,12 @@ describe('гонки между проверкой и записью', () => {
       } catch (e) {
         err = e;
       }
+      await pending;
       expect(err).toBeInstanceOf(AppError);
       expect((err as AppError).code).toBe('ARCHIVED_REFERENCE');
       expect(await tableCounts()).toEqual(before);
     } finally {
-      other.close();
+      other?.close();
     }
   });
 

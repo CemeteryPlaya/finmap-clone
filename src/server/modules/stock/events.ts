@@ -87,7 +87,7 @@ export async function loadRows(
            l.item_id AS itemId, l.qty AS qty, l.amount AS amount, l.counted_qty AS countedQty, l.expected_qty AS expectedQty,
            NULL AS comboItemId
       FROM stock_doc_lines l JOIN stock_docs d ON d.id = l.doc_id JOIN stock_items i ON i.id = l.item_id
-     WHERE ${scope} AND i.is_combo = 0 ${only(sql`l.item_id`)}
+     WHERE ${scope} AND NOT i.is_combo ${only(sql`l.item_id`)}
     UNION ALL
     SELECT l.id, d.id, d.number, d.type, d.at, l.position, d.warehouse_id, d.to_warehouse_id, d.counterparty_id,
            p.item_id, (l.qty * p.qty) / 1000, NULL, NULL, NULL, l.item_id
