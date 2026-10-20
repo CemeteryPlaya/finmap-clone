@@ -25,6 +25,7 @@
     "shots:ux": "npm run build:client && tsx scripts/ux-shots.ts",
     "backup": "tsx scripts/backup.ts",
     "restore": "tsx scripts/restore.ts",
+    "db:to-pg": "tsx scripts/sqlite-to-pg.ts",
     "db:generate": "drizzle-kit generate && drizzle-kit generate --config drizzle.pg.config.ts",
     "test": "vitest run",
     "test:e2e": "playwright test",
