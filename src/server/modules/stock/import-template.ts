@@ -52,13 +52,13 @@ const LETTERS = ['A', 'B'] as const;
  * Лист «Списки» и выпадающие списки листа данных: столбец «Списки» на каждый список; список пустой — у столбца данных
  * выпадающего списка нет (решение 12). target — номер столбца листа данных.
  */
-function listsOf(lists: { header: string; values: string[]; target: number }[]): { sheet: XlsxSheet; validations: XlsxListValidation[] } {
+function listsOf(lists: { header: string; values: string[]; target: number; strict?: boolean }[]): { sheet: XlsxSheet; validations: XlsxListValidation[] } {
   const height = Math.max(0, ...lists.map((l) => l.values.length));
   const rows: XlsxCell[][] = Array.from({ length: height }, (_, r) => lists.map((l) => (r < l.values.length ? text(l.values[r]!) : null)));
   const validations = lists.flatMap((l, i) =>
     l.values.length === 0
       ? []
-      : [{ column: l.target, fromRow: 2, toRow: STOCK_IMPORT_MAX_ROWS + 1, source: `'${LISTS}'!$${LETTERS[i]}$2:$${LETTERS[i]}$${l.values.length + 1}` }],
+      : [{ column: l.target, fromRow: 2, toRow: STOCK_IMPORT_MAX_ROWS + 1, source: `'${LISTS}'!$${LETTERS[i]}$2:$${LETTERS[i]}$${l.values.length + 1}`, ...(l.strict ? { strict: true } : {}) }],
   );
   return { sheet: { name: LISTS, columns: lists.map((l) => ({ header: l.header, width: 28 })), rows, hidden: true }, validations };
 }
@@ -77,7 +77,8 @@ export function stockTemplateSheets(ex: Executor, companyId: number, kind: Stock
     const units = STOCK_UNITS.map((u) => UNIT_LABELS[u]);
     const { sheet, validations } = listsOf([
       { header: ITEM_COLUMNS.group, values: groups, target: 1 },
-      { header: ITEM_COLUMNS.unit, values: units, target: 2 },
+      // единицы — только из списка: других импорт не знает
+      { header: ITEM_COLUMNS.unit, values: units, target: 2, strict: true },
     ]);
     const data: XlsxSheet = {
       name: DATA_SHEET.items,

@@ -77,6 +77,8 @@ describe('шаблоны импорта склада (спецификация 2
     ]);
     expect(v[0]!.attrs).toMatchObject({ type: 'list', errorStyle: 'information', allowBlank: '1', showErrorMessage: '1', errorTitle: 'Нет в списке' });
     expect(v[0]!.attrs.error).toBe('Такого значения нет в списке — при импорте оно будет создано');
+    // «Единица» — только из списка: других единиц импорт не знает
+    expect(v[1]!.attrs).toMatchObject({ type: 'list', errorStyle: 'stop', error: 'Выберите значение из списка' });
 
     const book = stockTemplateSheets(s.h.t.db, s.cid, 'items', TODAY);
     expect(book.map((x) => x.name)).toEqual(['Товары', 'Как заполнять', 'Списки']);
@@ -135,7 +137,7 @@ describe('шаблоны импорта склада (спецификация 2
     const wh = (await h.req('POST', `/api/v1/companies/${cid}/stock/warehouses`, { projectId: project, name: 'Бар Клуб 1' })).json().warehouse.id as number;
     const empty = { h, cid, stock: `/api/v1/companies/${cid}/stock`, wh } as unknown as StockWorld;
     const items = stockTemplateSheets(h.t.db, cid, 'items', TODAY);
-    expect(items[0]!.validations).toEqual([{ column: 2, fromRow: 2, toRow: 5001, source: "'Списки'!$B$2:$B$5" }]);
+    expect(items[0]!.validations).toEqual([{ column: 2, fromRow: 2, toRow: 5001, source: "'Списки'!$B$2:$B$5", strict: true }]);
     expect(stockTemplateSheets(h.t.db, cid, 'receipts', TODAY)[0]!.validations).toEqual([]);
     for (const [kind, query] of [
       ['items', 'commit=0'],

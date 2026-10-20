@@ -40,6 +40,8 @@ export interface XlsxListValidation {
   fromRow: number;
   toRow: number;
   source: string;
+  /** Только значения из списка (errorStyle="stop"): так у «Единицы» — импорт знает лишь шт, л, кг, уп. */
+  strict?: boolean;
 }
 
 export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -173,14 +175,19 @@ function sheetXml(sheet: XlsxSheet, shared: SharedStrings | null): string {
   return `<worksheet xmlns="${NS_MAIN}"><sheetViews><sheetView workbookViewId="0"><pane ySplit="${headRow}" topLeftCell="A${headRow + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${cols}</cols><sheetData>${top.join('')}${header}${body.join('')}</sheetData>${validationsXml(sheet.validations ?? [])}</worksheet>`;
 }
 
-/** Текст предупреждения выпадающего списка: значение не из списка Excel принимает (errorStyle="information"). */
+/**
+ * Текст предупреждения выпадающего списка: значение не из списка Excel принимает (errorStyle="information"); у строгого
+ * списка — не принимает (errorStyle="stop").
+ */
 const LIST_HINT = { title: 'Нет в списке', text: 'Такого значения нет в списке — при импорте оно будет создано' };
+const STRICT_HINT = { title: 'Нет в списке', text: 'Выберите значение из списка' };
 
 function validationsXml(list: readonly XlsxListValidation[]): string {
   if (list.length === 0) return '';
   const items = list.map((v) => {
     const col = columnName(v.column);
-    return `<dataValidation type="list" errorStyle="information" allowBlank="1" showErrorMessage="1" errorTitle="${xmlText(LIST_HINT.title)}" error="${xmlText(LIST_HINT.text)}" sqref="${col}${v.fromRow}:${col}${v.toRow}"><formula1>${xmlText(v.source)}</formula1></dataValidation>`;
+    const hint = v.strict ? STRICT_HINT : LIST_HINT;
+    return `<dataValidation type="list" errorStyle="${v.strict ? 'stop' : 'information'}" allowBlank="1" showErrorMessage="1" errorTitle="${xmlText(hint.title)}" error="${xmlText(hint.text)}" sqref="${col}${v.fromRow}:${col}${v.toRow}"><formula1>${xmlText(v.source)}</formula1></dataValidation>`;
   });
   return `<dataValidations count="${list.length}">${items.join('')}</dataValidations>`;
 }
