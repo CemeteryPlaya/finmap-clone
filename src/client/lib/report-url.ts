@@ -39,6 +39,11 @@ export interface ReportUrlState {
   withoutCategory: boolean;
   withoutProject: boolean;
   withoutCounterparty: boolean;
+  /**
+   * Выбранная нажатием категория (спецификация 2026-10-19, часть 3): в адресе — `cat=<id>`. Пока выбрана, в запросе
+   * отчёта она заменяет категории фильтра («Без категории» тоже); прочие условия фильтра действуют.
+   */
+  focusCategoryId: number | null;
 }
 
 /** Значения по умолчанию (§2.2–§2.4): «график», «За текущий год», «По категориям», «По месяцам», без процентов, без фильтра. */
@@ -59,6 +64,7 @@ export const DEFAULT_REPORT_STATE: ReportUrlState = {
   withoutCategory: false,
   withoutProject: false,
   withoutCounterparty: false,
+  focusCategoryId: null,
 };
 
 /** Ключи адреса для списков и флагов — те же, что у журнала (`?account=5`). */
@@ -70,6 +76,8 @@ const API_LIST = { accountIds: 'accounts', categoryIds: 'categories', projectIds
 const FLAG_KEYS = { withoutCategory: 'noCategory', withoutProject: 'noProject', withoutCounterparty: 'noCounterparty' } as const;
 type FlagField = keyof typeof FLAG_KEYS;
 const FLAG_FIELDS = Object.keys(FLAG_KEYS) as FlagField[];
+/** Ключ адреса выбранной категории. */
+const FOCUS_KEY = 'cat';
 
 export const BY_LABELS: Record<ReportBy, string> = { category: 'По категориям', counterparty: 'По контрагентам', project: 'По проектам' };
 export const STEP_LABELS: Record<ReportStep, string> = { day: 'По дням', week: 'По неделям', month: 'По месяцам', quarter: 'По кварталам' };
@@ -135,6 +143,7 @@ export function parseReportSearch(params: URLSearchParams): ReportUrlState {
   if (params.get('mode') === 'categories') state.mode = 'categories';
   for (const field of LIST_FIELDS) state[field] = ids(params.getAll(LIST_KEYS[field]));
   for (const field of FLAG_FIELDS) state[field] = params.get(FLAG_KEYS[field]) === '1';
+  state.focusCategoryId = ids(params.getAll(FOCUS_KEY).slice(0, 1))[0] ?? null;
   return state;
 }
 
@@ -154,7 +163,13 @@ export function reportSearch(state: ReportUrlState): URLSearchParams {
   if (state.mode !== DEFAULT_REPORT_STATE.mode) p.set('mode', state.mode);
   for (const field of LIST_FIELDS) for (const id of state[field]) p.append(LIST_KEYS[field], String(id));
   for (const field of FLAG_FIELDS) if (state[field]) p.set(FLAG_KEYS[field], '1');
+  if (state.focusCategoryId !== null) p.set(FOCUS_KEY, String(state.focusCategoryId));
   return p;
+}
+
+/** Настройки запроса отчёта: выбранная категория заменяет категории фильтра и «Без категории» (решение 9 плана 2026-10-20). */
+export function withFocus(state: ReportUrlState): ReportUrlState {
+  return state.focusCategoryId === null ? state : { ...state, categoryIds: [state.focusCategoryId], withoutCategory: false };
 }
 
 /** «Деньги» и «Прибыль»: статуса и режима «Проектов» у них нет — значения из адреса не действуют. */
@@ -171,7 +186,8 @@ export function projectsState(s: ReportUrlState): ReportUrlState {
 }
 
 /** Параметры API «Проектов» (§9): период датами, статус, режим, фильтр без проектов, склад. */
-export function projectsApiParams(state: ReportUrlState, today: string): URLSearchParams {
+export function projectsApiParams(view: ReportUrlState, today: string): URLSearchParams {
+  const state = withFocus(view);
   const range = reportRange(state, today);
   const p = new URLSearchParams();
   p.set('from', range.from);
@@ -215,7 +231,8 @@ export function withFittingStep(state: ReportUrlState, today: string): ReportUrl
 }
 
 /** Параметры API отчёта (§9): период датами, шаг, разрез и фильтр; списки — повтором ключа, флаги — `true`. */
-export function reportApiParams(state: ReportUrlState, today: string): URLSearchParams {
+export function reportApiParams(view: ReportUrlState, today: string): URLSearchParams {
+  const state = withFocus(view);
   const range = reportRange(state, today);
   const p = new URLSearchParams();
   p.set('from', range.from);
@@ -254,7 +271,7 @@ export function reportFilterCount(state: ReportUrlState): number {
 export function changedControls(
   state: ReportUrlState,
   range?: { from: string; to: string },
-): { period: boolean; by: boolean; step: boolean; percent: boolean; stock: boolean; status: boolean; mode: boolean; filter: boolean } {
+): { period: boolean; by: boolean; step: boolean; percent: boolean; stock: boolean; status: boolean; mode: boolean; filter: boolean; category: boolean } {
   return {
     period: state.period !== DEFAULT_REPORT_STATE.period,
     by: state.by !== DEFAULT_REPORT_STATE.by,
@@ -265,6 +282,8 @@ export function changedControls(
     status: state.status !== DEFAULT_REPORT_STATE.status,
     mode: state.mode !== DEFAULT_REPORT_STATE.mode,
     filter: reportFilterCount(state) > 0,
+    // выбранная категория видна плашкой; в число на «Фильтрах» телефона не входит, «Сбросить» её снимает
+    category: state.focusCategoryId !== null,
   };
 }
 
@@ -293,7 +312,7 @@ const LIST_NAMES: Record<ListField, string> = { accountIds: 'счета', catego
 
 /** Есть ли в настройках id справочников (адрес с такими id нужно сверить со справочниками до запроса отчёта). */
 export function usesIds(state: ReportUrlState): boolean {
-  return LIST_FIELDS.some((field) => state[field].length > 0);
+  return state.focusCategoryId !== null || LIST_FIELDS.some((field) => state[field].length > 0);
 }
 
 /**
@@ -308,6 +327,10 @@ export function dropUnknownIds(state: ReportUrlState, known: KnownIds): { state:
     if (kept.length === state[field].length) continue;
     next = { ...next, [field]: kept };
     dropped.push(LIST_NAMES[field]);
+  }
+  if (next.focusCategoryId !== null && !known.categoryIds.has(next.focusCategoryId)) {
+    next = { ...next, focusCategoryId: null };
+    dropped.push('выбранная категория');
   }
   return { state: next, dropped };
 }

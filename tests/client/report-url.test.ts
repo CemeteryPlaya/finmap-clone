@@ -193,7 +193,7 @@ describe('параметры API и изменённые контролы', () =
 
   it('точки у изменённых контролов и счётчик фильтра', () => {
     const s: ReportUrlState = { ...DEFAULT_REPORT_STATE, view: 'table', step: 'quarter', percent: true, categoryIds: [1], withoutCategory: true, tagIds: [2] };
-    expect(changedControls(s)).toEqual({ period: false, by: false, step: true, percent: true, stock: false, status: false, mode: false, filter: true });
+    expect(changedControls(s)).toEqual({ period: false, by: false, step: true, percent: true, stock: false, status: false, mode: false, filter: true, category: false });
     expect(reportFilterCount(s)).toBe(2);
     expect(isReportChanged(s)).toBe(true);
     expect(isReportChanged({ ...DEFAULT_REPORT_STATE, withoutCounterparty: true })).toBe(true);
@@ -262,5 +262,47 @@ describe('параметры API и изменённые контролы', () =
     expect(customRangeError({ from: '2022-01-01', to: '2026-12-31' })).toBeNull();
     expect(customRangeError({ from: '2022-01-01', to: '2027-01-01' })).toBe('Период больше 5 лет');
     expect(customRangeError({ from: '2027-01-01', to: '2022-01-01' })).toBe('Период больше 5 лет');
+  });
+  it('выбранная категория в адресе (cat, план 2026-10-20, решение 9): разбор мягкий, в адресе — последней', () => {
+    expect(parseReportSearch(new URLSearchParams('cat=12')).focusCategoryId).toBe(12);
+    for (const q of ['cat=0', 'cat=abc', 'cat=-3', '']) expect(parseReportSearch(new URLSearchParams(q)).focusCategoryId, q).toBeNull();
+    expect(parseReportSearch(new URLSearchParams('cat=5&cat=7')).focusCategoryId).toBe(5);
+    expect(reportSearch({ ...DEFAULT_REPORT_STATE, period: 'month', categoryIds: [3], focusCategoryId: 12 }).toString()).toBe('period=month&category=3&cat=12');
+    expect(reportSearch({ ...DEFAULT_REPORT_STATE, period: 'month' }).has('cat')).toBe(false);
+  });
+
+  it('выбор заменяет категории фильтра в запросе, остальные условия действуют', () => {
+    const state: ReportUrlState = { ...DEFAULT_REPORT_STATE, categoryIds: [3, 4], withoutCategory: true, accountIds: [9], focusCategoryId: 12 };
+    const p = reportApiParams(state, '2026-10-20');
+    expect(p.getAll('categories')).toEqual(['12']);
+    expect(p.has('withoutCategory')).toBe(false);
+    expect(p.getAll('accounts')).toEqual(['9']);
+    const pp = projectsApiParams({ ...state, mode: 'categories' }, '2026-10-20');
+    expect(pp.getAll('categories')).toEqual(['12']);
+    expect(pp.has('withoutCategory')).toBe(false);
+    expect(pp.getAll('accounts')).toEqual(['9']);
+    expect(reportExcelHref(1, 'cashflow', state, '2026-10-20')).toContain('categories=12');
+    // без выбора — категории фильтра
+    const plain = reportApiParams({ ...state, focusCategoryId: null }, '2026-10-20');
+    expect(plain.getAll('categories')).toEqual(['3', '4']);
+    expect(plain.get('withoutCategory')).toBe('true');
+  });
+
+  it('выбор: неизвестная категория снимается, «Сбросить» его снимает, точка — у «Сбросить», не у «Фильтров» телефона', () => {
+    const known: KnownIds = { accountIds: new Set(), categoryIds: new Set([3, 12]), projectIds: new Set(), counterpartyIds: new Set(), tagIds: new Set() };
+    const bad: ReportUrlState = { ...DEFAULT_REPORT_STATE, focusCategoryId: 99 };
+    const r = dropUnknownIds(bad, known);
+    expect(r.state.focusCategoryId).toBeNull();
+    expect(r.dropped).toEqual(['выбранная категория']);
+    const good: ReportUrlState = { ...DEFAULT_REPORT_STATE, focusCategoryId: 12 };
+    expect(dropUnknownIds(good, known).state).toBe(good);
+    expect(usesIds(good)).toBe(true);
+    expect(changedControls(good).category).toBe(true);
+    expect(changedControls(DEFAULT_REPORT_STATE).category).toBe(false);
+    expect(isReportChanged(good)).toBe(true);
+    expect(phoneReportCount(good)).toBe(0);
+    expect(resetReportState(good).focusCategoryId).toBeNull();
+    expect(projectsState(good).focusCategoryId).toBe(12);
+    expect(columnsReportState(good).focusCategoryId).toBe(12);
   });
 });

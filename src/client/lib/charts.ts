@@ -188,6 +188,18 @@ export function stackColumn(series: readonly StackSeries[], column: number): Seg
   return out;
 }
 
+/**
+ * Ряд, чей сегмент колонки содержит значение (щелчок мышью по стеку, план 2026-10-20, R4): у положительного сегмента
+ * нижняя граница входит, верхняя — нет; у отрицательного — наоборот (ближняя к нулю входит). Вне сегментов — null.
+ */
+export function segmentAt(series: readonly StackSeries[], column: number, value: number): string | null {
+  for (const seg of stackColumn(series, column)) {
+    const inside = seg.to > seg.from ? value >= seg.from && value < seg.to : value <= seg.from && value > seg.to;
+    if (inside) return seg.id;
+  }
+  return null;
+}
+
 /** Высота и глубина стеков по всем колонкам — для шкалы. */
 export function stackExtent(series: readonly StackSeries[], columns: number): number[] {
   const out: number[] = [];

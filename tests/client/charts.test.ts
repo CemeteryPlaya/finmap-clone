@@ -12,6 +12,7 @@ import {
   niceScale,
   OTHER_ID,
   reportChart,
+  segmentAt,
   sliceShare,
   stackColumn,
   stackExtent,
@@ -217,5 +218,23 @@ describe('цвета графиков — только токены темы', (
     }
     const css = fs.readFileSync(path.resolve('src/client/styles.css'), 'utf8');
     for (const token of ['chart-expense', 'chart-line', 'chart-1', 'chart-8', 'chart-other']) expect(css).toContain(`--color-${token}:`);
+  });
+});
+
+describe('сегмент стека под курсором (план 2026-10-20, R4)', () => {
+  it('значение → ряд сегмента колонки: нижняя граница входит, верхняя — нет; вне сегментов — null', () => {
+    const series = [
+      { id: 'a', label: 'А', color: 0 as const, values: [300, 0] },
+      { id: 'b', label: 'Б', color: 1 as const, values: [200, 0] },
+      { id: 'c', label: 'В', color: 2 as const, values: [-100, 0] },
+    ];
+    expect(segmentAt(series, 0, 150)).toBe('a');
+    expect(segmentAt(series, 0, 0)).toBe('a');
+    expect(segmentAt(series, 0, 300)).toBe('b');
+    expect(segmentAt(series, 0, 450)).toBe('b');
+    expect(segmentAt(series, 0, -50)).toBe('c');
+    expect(segmentAt(series, 0, 600)).toBeNull();
+    expect(segmentAt(series, 0, -150)).toBeNull();
+    expect(segmentAt(series, 1, 0)).toBeNull();
   });
 });
