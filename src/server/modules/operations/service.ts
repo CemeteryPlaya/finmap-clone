@@ -66,7 +66,19 @@ export interface OperationsService {
   /** Мягкое удаление. */
   remove(companyId: number, id: number, userId: number): OperationDto;
   restore(companyId: number, id: number, userId: number): OperationDto;
+  /**
+   * Шаг отмены действия из «Истории действий» (план 2026-10-20, решение 4): тем же кодом и с теми же проверками, что
+   * правка, удаление и восстановление, но без обычной записи истории — её пишет отмена одной записью «Отмена».
+   * Вызывается только внутри транзакции вызывающего (operations/undo.ts).
+   */
+  revert(companyId: number, id: number, step: RevertStep, userId: number): void;
 }
+
+/** Шаг отмены: вернуть поля к «было» правки, удалить или восстановить операцию. */
+export type RevertStep = { kind: 'fields'; before: Partial<OperationInput> } | { kind: 'delete' } | { kind: 'restore' };
+
+/** Правка изнутри сервиса: тип — любой (отмена возвращает расход из перевода), у публичной правки — только 'transfer'. */
+type UpdatePatch = Partial<OperationInput> & { version: number };
 
 /** Поля, правка которых пересчитывает курс и сумму в базовой валюте (§4.3) и запрещена на архивном счёте (инвариант 7). */
 const MONEY_FIELDS = ['paidAt', 'amount', 'accountId', 'toAccountId', 'toAmount'] as const;
@@ -270,6 +282,127 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
     for (const tagId of draft.tagIds) tx.insert(operationTags).values({ operationId, tagId }).run();
   }
 
+  /** Правка (§10.1 этапа 1.5); history = false — шаг отмены (revert): обычная запись истории не пишется. */
+  function updateOp(companyId: number, id: number, patch: UpdatePatch, userId: number, history: boolean): OperationDto {
+    const company = requireCompany(db, companyId, { writable: true });
+    const current = load(companyId, id);
+    if (current.deletedAt) throw new AppError(409, 'VERSION_CONFLICT', 'Операция удалена — обновите страницу');
+    if (patch.version !== current.version) throw new AppError(409, 'VERSION_CONFLICT', 'Операция изменена другим пользователем');
+    const prev = draftOf(current);
+    // «Изменить в перевод» (§10.1 этапа 1.5): схема публичной правки пропускает только 'transfer'; отмена такой правки
+    // (revert) возвращает доход или расход. Сервер ничего не подставляет сам: счёт зачисления, контрагента, строки и
+    // дату сделки присылают явно (клиент или поля «было» отмены)
+    const typeChange = patch.type !== undefined && patch.type !== current.type;
+    const next: OperationInput = { ...prev, lines: prev.lines, tagIds: prev.tagIds };
+    for (const [key, value] of Object.entries(patch)) {
+      if (key !== 'version' && value !== undefined) (next as unknown as Record<string, unknown>)[key] = value;
+    }
+    if (patch.paidAt !== undefined) next.paidAt = new Date(patch.paidAt).toISOString();
+    // новая сумма без новых строк: единственная строка следует за суммой
+    if (patch.amount !== undefined && patch.lines === undefined && prev.lines.length === 1) {
+      next.lines = [{ ...prev.lines[0]!, amount: next.amount }];
+    }
+    // перевод: при реальной смене суммы или счетов сумма зачисления при одной валюте пересчитывается в check();
+    // те же значения в PATCH (форма шлёт поля целиком) ничего не сбрасывают
+    if (
+      next.type === 'transfer' &&
+      patch.toAmount === undefined &&
+      (next.amount !== prev.amount || next.accountId !== prev.accountId || next.toAccountId !== prev.toAccountId)
+    ) {
+      next.toAmount = null;
+    }
+
+    // инвариант 7 — до остальных проверок, чтобы пользователь видел настоящую причину отказа.
+    // Сравниваются реальные значения (paidAt уже нормализован, toAmount сброшен только при настоящей смене).
+    const locked = archivedAccountOf(current);
+    if (locked && typeChange) throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — тип менять нельзя`);
+    if (locked && MONEY_FIELDS.some((f) => JSON.stringify(next[f] ?? null) !== JSON.stringify(prev[f] ?? null))) {
+      throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — сумму, дату и счета менять нельзя`);
+    }
+    // у перевода нет даты сделки; только при смене типа в перевод — создание и правку прежних переводов правило не трогает
+    if (typeChange && next.type === 'transfer' && next.accrualDate !== null) throw invalid({ accrualDate: 'У перевода нет даты сделки' });
+
+    const c = check(companyId, next, prev);
+    const changes = changedFields(prev, c.draft);
+    if (!changes) return current;
+    // смена типа пересчитывает курс и сумму в базовой валюте всегда — по стороне списания (§10.1 п. 5)
+    const recalc = typeChange || MONEY_FIELDS.some((f) => f in changes.after);
+    const { rate, baseAmount } = recalc ? baseOf(companyId, company.baseCurrency, c) : { rate: current.rate, baseAmount: current.baseAmount };
+    const { draft } = c;
+    mutate(db, audit, (tx, record) => {
+      const updated = tx
+        .update(operations)
+        .set({
+          type: draft.type,
+          paidAt: draft.paidAt,
+          accrualDate: draft.accrualDate,
+          accountId: draft.accountId,
+          amount: draft.amount,
+          toAccountId: draft.toAccountId,
+          toAmount: draft.toAmount,
+          counterpartyId: draft.counterpartyId,
+          comment: draft.comment,
+          rate,
+          baseAmount,
+          updatedAt: now().toISOString(),
+          version: current.version + 1,
+        })
+        .where(and(eq(operations.id, id), eq(operations.version, current.version)))
+        .returning({ id: operations.id })
+        .get();
+      if (!updated) throw new AppError(409, 'VERSION_CONFLICT', 'Операция изменена другим пользователем');
+      writeLinesAndTags(tx, id, draft, baseAmount);
+      if (changes.after.stockPayments !== undefined) replaceOperationPayments(tx, id, draft.stockPayments ?? []);
+      if (history) {
+        record({
+          companyId,
+          userId,
+          entity: 'operation',
+          entityId: id,
+          action: 'update',
+          // тип после правки — для панели «История действий» («Изменён расход», §3.4 этапа 1.5); смена типа
+          // (план 1.5-6) видна ещё и в before.type / after.type, как любое изменённое поле
+          diff: { type: draft.type, ...changes, ...(recalc ? { recalculated: { rate: [current.rate, rate], baseAmount: [current.baseAmount, baseAmount] } } : {}) },
+        });
+      }
+    });
+    return load(companyId, id);
+  }
+
+  function removeOp(companyId: number, id: number, userId: number, history: boolean): OperationDto {
+    requireCompany(db, companyId, { writable: true });
+    const current = load(companyId, id);
+    if (current.deletedAt) return current;
+    const locked = archivedAccountOf(current);
+    if (locked) throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — удалить её нельзя`);
+    mutate(db, audit, (tx, record) => {
+      tx.update(operations)
+        .set({ deletedAt: now().toISOString(), updatedAt: now().toISOString(), version: current.version + 1 })
+        .where(eq(operations.id, id))
+        .run();
+      if (history) record({ companyId, userId, entity: 'operation', entityId: id, action: 'delete', diff: { type: current.type, amount: current.amount, accountId: current.accountId, paidAt: current.paidAt } });
+    });
+    return load(companyId, id);
+  }
+
+  function restoreOp(companyId: number, id: number, userId: number, history: boolean): OperationDto {
+    requireCompany(db, companyId, { writable: true });
+    const current = load(companyId, id);
+    if (!current.deletedAt) return current;
+    const locked = archivedAccountOf(current);
+    if (locked) throw archivedRef(`Счёт «${locked.name}» в архиве — сначала верните его из архива`);
+    // инвариант 11: 3–7 на текущем состоянии справочников; уже выбранные архивные ссылки не мешают
+    check(companyId, draftOf(current), draftOf(current));
+    mutate(db, audit, (tx, record) => {
+      tx.update(operations)
+        .set({ deletedAt: null, updatedAt: now().toISOString(), version: current.version + 1 })
+        .where(eq(operations.id, id))
+        .run();
+      if (history) record({ companyId, userId, entity: 'operation', entityId: id, action: 'restore', diff: { type: current.type, amount: current.amount, accountId: current.accountId, paidAt: current.paidAt } });
+    });
+    return load(companyId, id);
+  }
+
   const svc: OperationsService = {
     get(companyId, id) {
       requireCompany(db, companyId);
@@ -316,121 +449,14 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
       return load(companyId, id);
     },
 
-    update(companyId, id, patch, userId) {
-      const company = requireCompany(db, companyId, { writable: true });
-      const current = load(companyId, id);
-      if (current.deletedAt) throw new AppError(409, 'VERSION_CONFLICT', 'Операция удалена — обновите страницу');
-      if (patch.version !== current.version) throw new AppError(409, 'VERSION_CONFLICT', 'Операция изменена другим пользователем');
-      const prev = draftOf(current);
-      // «Изменить в перевод» (§10.1 этапа 1.5): схема пропускает только 'transfer', значит исходный тип — доход или расход.
-      // Сервер ничего не подставляет сам: счёт зачисления, сброс контрагента, строки и дату сделки клиент присылает явно
-      const typeChange = patch.type !== undefined && patch.type !== current.type;
-      const next: OperationInput = { ...prev, lines: prev.lines, tagIds: prev.tagIds };
-      for (const [key, value] of Object.entries(patch)) {
-        if (key !== 'version' && value !== undefined) (next as unknown as Record<string, unknown>)[key] = value;
-      }
-      if (patch.paidAt !== undefined) next.paidAt = new Date(patch.paidAt).toISOString();
-      // новая сумма без новых строк: единственная строка следует за суммой
-      if (patch.amount !== undefined && patch.lines === undefined && prev.lines.length === 1) {
-        next.lines = [{ ...prev.lines[0]!, amount: next.amount }];
-      }
-      // перевод: при реальной смене суммы или счетов сумма зачисления при одной валюте пересчитывается в check();
-      // те же значения в PATCH (форма шлёт поля целиком) ничего не сбрасывают
-      if (
-        next.type === 'transfer' &&
-        patch.toAmount === undefined &&
-        (next.amount !== prev.amount || next.accountId !== prev.accountId || next.toAccountId !== prev.toAccountId)
-      ) {
-        next.toAmount = null;
-      }
+    update: (companyId, id, patch, userId) => updateOp(companyId, id, patch, userId, true),
+    remove: (companyId, id, userId) => removeOp(companyId, id, userId, true),
+    restore: (companyId, id, userId) => restoreOp(companyId, id, userId, true),
 
-      // инвариант 7 — до остальных проверок, чтобы пользователь видел настоящую причину отказа.
-      // Сравниваются реальные значения (paidAt уже нормализован, toAmount сброшен только при настоящей смене).
-      const locked = archivedAccountOf(current);
-      if (locked && typeChange) throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — тип менять нельзя`);
-      if (locked && MONEY_FIELDS.some((f) => JSON.stringify(next[f] ?? null) !== JSON.stringify(prev[f] ?? null))) {
-        throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — сумму, дату и счета менять нельзя`);
-      }
-      // у перевода нет даты сделки; только при смене типа — создание и правку прежних переводов правило не трогает
-      if (typeChange && next.accrualDate !== null) throw invalid({ accrualDate: 'У перевода нет даты сделки' });
-
-      const c = check(companyId, next, prev);
-      const changes = changedFields(prev, c.draft);
-      if (!changes) return current;
-      // смена типа пересчитывает курс и сумму в базовой валюте всегда — по стороне списания (§10.1 п. 5)
-      const recalc = typeChange || MONEY_FIELDS.some((f) => f in changes.after);
-      const { rate, baseAmount } = recalc ? baseOf(companyId, company.baseCurrency, c) : { rate: current.rate, baseAmount: current.baseAmount };
-      const { draft } = c;
-      mutate(db, audit, (tx, record) => {
-        const updated = tx
-          .update(operations)
-          .set({
-            type: draft.type,
-            paidAt: draft.paidAt,
-            accrualDate: draft.accrualDate,
-            accountId: draft.accountId,
-            amount: draft.amount,
-            toAccountId: draft.toAccountId,
-            toAmount: draft.toAmount,
-            counterpartyId: draft.counterpartyId,
-            comment: draft.comment,
-            rate,
-            baseAmount,
-            updatedAt: now().toISOString(),
-            version: current.version + 1,
-          })
-          .where(and(eq(operations.id, id), eq(operations.version, current.version)))
-          .returning({ id: operations.id })
-          .get();
-        if (!updated) throw new AppError(409, 'VERSION_CONFLICT', 'Операция изменена другим пользователем');
-        writeLinesAndTags(tx, id, draft, baseAmount);
-        if (changes.after.stockPayments !== undefined) replaceOperationPayments(tx, id, draft.stockPayments ?? []);
-        record({
-          companyId,
-          userId,
-          entity: 'operation',
-          entityId: id,
-          action: 'update',
-          // тип после правки — для панели «История действий» («Изменён расход», §3.4 этапа 1.5); смена типа
-          // (план 1.5-6) видна ещё и в before.type / after.type, как любое изменённое поле
-          diff: { type: draft.type, ...changes, ...(recalc ? { recalculated: { rate: [current.rate, rate], baseAmount: [current.baseAmount, baseAmount] } } : {}) },
-        });
-      });
-      return load(companyId, id);
-    },
-
-    remove(companyId, id, userId) {
-      requireCompany(db, companyId, { writable: true });
-      const current = load(companyId, id);
-      if (current.deletedAt) return current;
-      const locked = archivedAccountOf(current);
-      if (locked) throw archivedRef(`Операция затрагивает счёт «${locked.name}» в архиве — удалить её нельзя`);
-      mutate(db, audit, (tx, record) => {
-        tx.update(operations)
-          .set({ deletedAt: now().toISOString(), updatedAt: now().toISOString(), version: current.version + 1 })
-          .where(eq(operations.id, id))
-          .run();
-        record({ companyId, userId, entity: 'operation', entityId: id, action: 'delete', diff: { type: current.type, amount: current.amount, accountId: current.accountId, paidAt: current.paidAt } });
-      });
-      return load(companyId, id);
-    },
-
-    restore(companyId, id, userId) {
-      requireCompany(db, companyId, { writable: true });
-      const current = load(companyId, id);
-      if (!current.deletedAt) return current;
-      const locked = archivedAccountOf(current);
-      if (locked) throw archivedRef(`Счёт «${locked.name}» в архиве — сначала верните его из архива`);
-      // инвариант 11: 3–7 на текущем состоянии справочников; уже выбранные архивные ссылки не мешают
-      check(companyId, draftOf(current), draftOf(current));
-      mutate(db, audit, (tx, record) => {
-        tx.update(operations)
-          .set({ deletedAt: null, updatedAt: now().toISOString(), version: current.version + 1 })
-          .where(eq(operations.id, id))
-          .run();
-        record({ companyId, userId, entity: 'operation', entityId: id, action: 'restore', diff: { type: current.type, amount: current.amount, accountId: current.accountId, paidAt: current.paidAt } });
-      });
-      return load(companyId, id);
+    revert(companyId, id, step, userId) {
+      if (step.kind === 'delete') removeOp(companyId, id, userId, false);
+      else if (step.kind === 'restore') restoreOp(companyId, id, userId, false);
+      else updateOp(companyId, id, { ...step.before, version: load(companyId, id).version }, userId, false);
     },
   };
   return svc;

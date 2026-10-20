@@ -10,6 +10,8 @@ interface Entry {
   action: string;
   userName: string | null;
   diff: Record<string, unknown> | null;
+  undoneBy: number | null;
+  undoable: boolean;
 }
 
 describe('audit API', () => {
@@ -21,6 +23,12 @@ describe('audit API', () => {
     const all = (await h.req('GET', `/api/v1/companies/${cid}/audit`)).json() as { entries: Entry[]; nextBeforeId: number | null };
     expect(all.entries.map((e) => e.entity)).toEqual(['tag', 'account', 'company']);
     expect(all.entries[0]).toMatchObject({ action: 'create', userName: 'Тест', diff: { name: 'Аренда' } });
+    // отменять можно только действия с операциями журнала (план 2026-10-20, задача 2)
+    expect(all.entries.map((e) => [e.undoneBy, e.undoable])).toEqual([
+      [null, false],
+      [null, false],
+      [null, false],
+    ]);
     expect(all.nextBeforeId).toBeNull();
 
     const accounts = (await h.req('GET', `/api/v1/companies/${cid}/audit?entity=account`)).json().entries as Entry[];

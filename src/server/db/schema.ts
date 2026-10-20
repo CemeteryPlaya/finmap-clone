@@ -38,8 +38,22 @@ export const auditLog = sqliteTable(
     diff: text('diff'),
     at: text('at').notNull(),
   },
-  (t) => [index('audit_company_idx').on(t.companyId, t.id)],
+  (t) => [
+    index('audit_company_idx').on(t.companyId, t.id),
+    // действия одной операции: каскад отмены и «нельзя раньше удаления» (план 2026-10-20, задача 2)
+    index('audit_entity_idx').on(t.companyId, t.entity, t.entityId),
+  ],
 );
+
+/** Отметка «отменено» (спецификация 2026-10-19, часть 2): запись истории → запись «Отмена», которая её отменила. */
+export const auditUndo = sqliteTable('audit_undo', {
+  auditId: integer('audit_id')
+    .primaryKey()
+    .references(() => auditLog.id),
+  undoId: integer('undo_id')
+    .notNull()
+    .references(() => auditLog.id),
+});
 
 export const currencies = sqliteTable('currencies', {
   code: text('code').primaryKey(),

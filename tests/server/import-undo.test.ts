@@ -551,8 +551,9 @@ describe('POST …/imports/:id/undo — отмена (§7.3 спецификац
       list: (q) => real.list(q),
       record(entry, ex) {
         if (entry.entity === 'import') throw new Error('сбой истории');
-        real.record(entry, ex);
+        const id = real.record(entry, ex);
         written.push(`${entry.entity} ${entry.action}`);
+        return id;
       },
     };
     const categories = createCategoriesService({ db, audit });

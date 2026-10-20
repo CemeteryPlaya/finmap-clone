@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { auditUndoSchema } from '../../../shared/schemas/audit';
 import { journalExportPreviewSchema, journalExportSchema, journalQuerySchema } from '../../../shared/schemas/journal';
 import { operationBulkSchema, operationCreateSchema, operationUpdateSchema } from '../../../shared/schemas/operations';
 import { contentDisposition } from '../../http/content-disposition';
@@ -7,6 +8,7 @@ import { XLSX_MIME } from '../../http/xlsx';
 import type { BulkService } from './bulk';
 import type { JournalService } from './journal';
 import type { OperationsService } from './service';
+import type { OperationUndoService } from './undo';
 
 type C = { Params: { cid: string } };
 type P = { Params: { cid: string; id: string } };
@@ -14,9 +16,17 @@ const BASE = '/api/v1/companies/:cid/operations';
 
 export function registerOperationsRoutes(
   app: FastifyInstance,
-  deps: { operations: OperationsService; journal: JournalService; bulk: BulkService },
+  deps: { operations: OperationsService; journal: JournalService; bulk: BulkService; undo: OperationUndoService },
 ): void {
-  const { operations, journal, bulk } = deps;
+  const { operations, journal, bulk, undo } = deps;
+
+  // «Отмена» в «Истории действий» (план 2026-10-20, решение 7): каскад для окна подтверждения и сама отмена
+  const UNDO = '/api/v1/companies/:cid/audit/:id/undo';
+  app.get<P>(UNDO, async (req) => undo.preview(parseId(req.params.cid), parseId(req.params.id)));
+  app.post<P>(UNDO, async (req) => {
+    const { ids } = auditUndoSchema.parse(req.body);
+    return undo.run(parseId(req.params.cid), parseId(req.params.id), ids, req.user!.id);
+  });
 
   // журнал: фильтр и курсор в строке запроса (§6)
   app.get<C>(BASE, async (req) => journal.list(parseId(req.params.cid), journalQuerySchema.parse(req.query)));

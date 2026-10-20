@@ -41,6 +41,7 @@ import { createJournal } from './modules/operations/journal';
 import { registerOperationsRoutes } from './modules/operations/routes';
 import { registerRatesRoutes } from './modules/rates/routes';
 import { createOperationsService } from './modules/operations/service';
+import { createOperationUndoService } from './modules/operations/undo';
 import { createOperationsWriter } from './modules/operations/writer';
 import { createRatesService } from './modules/rates/service';
 import { registerSavedFiltersRoutes } from './modules/saved-filters/routes';
@@ -146,7 +147,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerRatesRoutes(app, { db, rates });
   const operations = createOperationsService({ db, audit, rates, timezone: config.timezone, now });
   const journal = createJournal({ db, balances, timezone: config.timezone, now });
-  registerOperationsRoutes(app, { operations, journal, bulk: createBulkService({ db, operations }) });
+  registerOperationsRoutes(app, { operations, journal, bulk: createBulkService({ db, operations }), undo: createOperationUndoService({ db, audit, operations }) });
   registerAnalyticsRoutes(app, { analytics: createAnalyticsService({ db, rates, journal, audit, timezone: config.timezone, now }) });
   const stockBalance = createStockBalanceService({ db, timezone: config.timezone, now });
   registerStockRoutes(app, {

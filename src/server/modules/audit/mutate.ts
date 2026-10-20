@@ -9,7 +9,7 @@ import type { AuditEntry, AuditService } from './service';
 export function mutate<T>(
   db: Db,
   audit: AuditService,
-  fn: (tx: Executor, record: (entry: AuditEntry) => void) => T,
+  fn: (tx: Executor, record: (entry: AuditEntry) => number) => T,
   opts: { behavior?: 'deferred' | 'immediate' } = {},
 ): T {
   return db.transaction((tx) => fn(tx, (entry) => audit.record(entry, tx)), { behavior: opts.behavior ?? 'deferred' });
