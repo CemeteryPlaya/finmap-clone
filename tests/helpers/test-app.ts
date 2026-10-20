@@ -37,7 +37,7 @@ export async function createTestApp(
   extraRoutes?: (app: FastifyInstance) => void,
   now?: () => Date,
   /** Подмена зависимостей приложения (хранилище файлов). */
-  deps: Pick<AppDeps, 'files'> = {},
+  deps: Pick<AppDeps, 'files' | 'importCache' | 'exportInlineMaxBytes'> = {},
 ): Promise<TestApp> {
   const t = await createTestDb();
   const config = testConfig(t.dir, overrides);

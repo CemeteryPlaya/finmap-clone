@@ -14,8 +14,11 @@ export interface CachedImport {
 }
 
 export interface ImportCache {
-  /** Новый токен. Прежний файл того же пользователя в той же компании удаляется; сверх предела вытесняется самый давний. */
-  put(item: CachedImport): string;
+  /**
+   * Новый токен (или заданный — восстановление проверки из хранилища на другом экземпляре, режим vercel). Прежний файл того
+   * же пользователя в той же компании удаляется; сверх предела вытесняется самый давний.
+   */
+  put(item: CachedImport, token?: string): string;
   /** Файл по токену своей компании и своего пользователя; иначе или после срока — null. Обращение продлевает срок. */
   get(token: string, companyId: number, userId: number): CachedImport | null;
   remove(token: string): void;
@@ -68,7 +71,7 @@ export function createImportCache(opts: { now?: () => number; ttlMs?: number; ma
   };
 
   return {
-    put(item) {
+    put(item, given) {
       sweep();
       for (const [token, e] of entries) if (e.companyId === item.companyId && e.userId === item.userId) drop(token);
       const weight = cachedImportWeight(item);
@@ -78,7 +81,7 @@ export function createImportCache(opts: { now?: () => number; ttlMs?: number; ma
         for (const [token, e] of entries) if (oldest === null || e.lastUsed < entries.get(oldest)!.lastUsed) oldest = token;
         drop(oldest!);
       }
-      const token = crypto.randomBytes(16).toString('hex');
+      const token = given ?? crypto.randomBytes(16).toString('hex');
       // отдельная копия: строки разбора — срезы распакованного листа, общих строк и текста CSV и держали бы их
       // в памяти целиком (десятки МБ на файл), невидимо для веса выше; у копии строки свои (§6.3, решение 22)
       entries.set(token, { ...item, parsed: structuredClone(item.parsed), lastUsed: now(), weight });

@@ -11,6 +11,7 @@ import type {
   ImportPreviewAccount,
 } from '../../shared/schemas/imports';
 import { api } from './api';
+import { uploadMode, uploadToBlob } from './blob-upload';
 import { invalidateOperations } from './journal-mutations';
 import { pluralRu } from './journal-format';
 import { queryClient } from './query';
@@ -304,9 +305,17 @@ export function isImportPreview(x: unknown): x is ImportPreview {
 
 // ——— запросы ———
 
-/** Загрузка файла: байты телом application/octet-stream, имя — в X-File-Name (как у вложений, §6.2). */
-export function uploadImport(companyId: number, file: File): Promise<ImportPreview> {
-  return api<ImportPreview>(`/companies/${companyId}/imports/upload`, { method: 'POST', file: { data: file, name: file.name } });
+/**
+ * Загрузка файла (§6.2): локально — байты телом application/octet-stream, имя — в X-File-Name (как у вложений); на Vercel —
+ * сначала в Blob, проверка — по ключу файла (план 2026-10-20-vercel-postgres, Р11, Р12).
+ */
+export async function uploadImport(companyId: number, file: File): Promise<ImportPreview> {
+  const path = `/companies/${companyId}/imports/upload`;
+  if ((await uploadMode()) === 'blob') {
+    const blobKey = await uploadToBlob('import', file);
+    return api<ImportPreview>(path, { method: 'POST', body: { blobKey, fileName: file.name } });
+  }
+  return api<ImportPreview>(path, { method: 'POST', file: { data: file, name: file.name } });
 }
 
 export function previewImport(companyId: number, token: string, accounts: AccountMapping[]): Promise<ImportPreview> {

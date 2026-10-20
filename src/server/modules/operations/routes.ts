@@ -2,9 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { auditUndoSchema } from '../../../shared/schemas/audit';
 import { journalExportPreviewSchema, journalExportSchema, journalQuerySchema } from '../../../shared/schemas/journal';
 import { operationBulkSchema, operationCreateSchema, operationUpdateSchema } from '../../../shared/schemas/operations';
-import { contentDisposition } from '../../http/content-disposition';
+import { type Downloads, inlineDownloads, sendFile } from '../../http/download';
 import { parseId } from '../../http/params';
-import { XLSX_MIME } from '../../http/xlsx';
 import type { BulkService } from './bulk';
 import type { JournalService } from './journal';
 import type { OperationsService } from './service';
@@ -16,9 +15,10 @@ const BASE = '/api/v1/companies/:cid/operations';
 
 export function registerOperationsRoutes(
   app: FastifyInstance,
-  deps: { operations: OperationsService; journal: JournalService; bulk: BulkService; undo: OperationUndoService },
+  deps: { operations: OperationsService; journal: JournalService; bulk: BulkService; undo: OperationUndoService; downloads?: Downloads },
 ): void {
   const { operations, journal, bulk, undo } = deps;
+  const downloads = deps.downloads ?? inlineDownloads;
 
   // «Отмена» в «Истории действий» (план 2026-10-20, решение 7): каскад для окна подтверждения и сама отмена
   const UNDO = '/api/v1/companies/:cid/audit/:id/undo';
@@ -33,12 +33,7 @@ export function registerOperationsRoutes(
 
   // выгрузка по тому же фильтру; статические сегменты export.xlsx и export-preview важнее параметра :id
   app.get<C>(`${BASE}/export.xlsx`, async (req, reply) => {
-    const { fileName, data } = await journal.exportXlsx(parseId(req.params.cid), journalExportSchema.parse(req.query));
-    reply.header('Content-Type', XLSX_MIME);
-    reply.header('Content-Disposition', contentDisposition(fileName));
-    reply.header('X-Content-Type-Options', 'nosniff');
-    reply.header('Cache-Control', 'private, no-store');
-    return reply.send(data);
+    return sendFile(reply, await journal.exportXlsx(parseId(req.params.cid), journalExportSchema.parse(req.query)), downloads);
   });
 
   // превью окна «Собрать Excel» (§8.3): первые операции фильтра, текст колонок — как в файле

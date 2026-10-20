@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { storedAttachmentSchema } from '../../../shared/schemas/uploads';
+import { storedFileSchema } from '../../../shared/schemas/uploads';
 import { AppError } from '../../errors';
 import type { FileStore } from '../../files/store';
 import { contentDisposition } from '../../http/content-disposition';
@@ -35,7 +35,7 @@ export function registerAttachmentsRoutes(app: FastifyInstance, deps: { attachme
 
     scope.post<P>('/api/v1/companies/:cid/operations/:id/attachments', { bodyLimit: ATTACHMENT_MAX_BYTES }, async (req, reply) => {
       if (!Buffer.isBuffer(req.body)) {
-        const parsed = storedAttachmentSchema.safeParse(req.body);
+        const parsed = storedFileSchema.safeParse(req.body);
         if (!parsed.success) throw new AppError(400, 'VALIDATION', 'Проверьте файл', { file: 'Нет файла' });
         const attachment = await attachments.addStored(
           parseId(req.params.cid),
@@ -63,7 +63,7 @@ export function registerAttachmentsRoutes(app: FastifyInstance, deps: { attachme
       reply.header('Cache-Control', 'private, no-store');
       // Vercel Blob: подписанная ссылка на 5 минут — ответ функции Vercel не больше 4,5 МБ, а вложение — до 10 МБ
       const link = await files.downloadUrl(row.storedName);
-      if (link) return reply.redirect(link, 302);
+      if (link) return reply.redirect(new URL(link).href, 302);
       const data = await files.get(row.storedName);
       if (!data) throw new AppError(404, 'NOT_FOUND', 'Файл вложения не найден');
       // всегда как файл и без кэширования у посредников

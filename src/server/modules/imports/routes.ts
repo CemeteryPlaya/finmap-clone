@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { importCommitSchema, importListQuerySchema, importRequestSchema, importUndoSchema } from '../../../shared/schemas/imports';
+import { storedFileSchema } from '../../../shared/schemas/uploads';
 import { AppError } from '../../errors';
 import { contentDisposition } from '../../http/content-disposition';
 import { headerFileName, parseId } from '../../http/params';
@@ -11,7 +12,8 @@ import type { ImportsService } from './service';
 type C = { Params: { cid: string } };
 const BASE = '/api/v1/companies/:cid/imports';
 
-export function registerImportsRoutes(app: FastifyInstance, deps: { imports: ImportsService }): void {
+/** `stored` — режим vercel: файл уже в хранилище, в теле загрузки — его ключ и имя (Р11, Р12). */
+export function registerImportsRoutes(app: FastifyInstance, deps: { imports: ImportsService; stored: boolean }): void {
   const { imports } = deps;
 
   // отдельная область: парсер байтов и лимит 30 МБ действуют только на загрузку файла (§6.2)
@@ -19,13 +21,26 @@ export function registerImportsRoutes(app: FastifyInstance, deps: { imports: Imp
     // только байты файла: корневые парсеры JSON и текста с лимитом 30 МБ здесь не действуют — другой тип — 415
     scope.removeAllContentTypeParsers();
     scope.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: IMPORT_MAX_BYTES }, (_req, body, done) => done(null, body));
+    if (deps.stored) {
+      scope.addContentTypeParser('application/json', { parseAs: 'string', bodyLimit: 4096 }, (_req, body, done) => {
+        try {
+          done(null, JSON.parse(body as string));
+        } catch {
+          done(new AppError(400, 'VALIDATION', 'Неверный JSON'), undefined);
+        }
+      });
+    }
     // без куки сессии тело не читаем: полная проверка сеанса — как у всех маршрутов, в preHandler
     scope.addHook('onRequest', async (req) => {
       if (req.method === 'POST' && !readSessionToken(req)) throw new AppError(401, 'UNAUTHORIZED', 'Требуется вход');
     });
 
     scope.post<C>(`${BASE}/upload`, { bodyLimit: IMPORT_MAX_BYTES }, async (req) => {
-      if (!Buffer.isBuffer(req.body)) throw new AppError(400, 'VALIDATION', 'Проверьте файл', { file: 'Нет файла' });
+      if (!Buffer.isBuffer(req.body)) {
+        const stored = storedFileSchema.safeParse(req.body);
+        if (!stored.success) throw new AppError(400, 'VALIDATION', 'Проверьте файл', { file: 'Нет файла' });
+        return imports.uploadStored(parseId(req.params.cid), req.user!.id, { key: stored.data.blobKey, name: stored.data.fileName });
+      }
       return imports.upload(parseId(req.params.cid), req.user!.id, { name: headerFileName(req.headers['x-file-name']), data: req.body });
     });
   });

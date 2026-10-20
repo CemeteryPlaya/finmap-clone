@@ -14,6 +14,7 @@ import type {
 import { cleanName } from '../../../shared/text';
 import type { Db } from '../../db/client';
 import { AppError } from '../../errors';
+import type { FileStore } from '../../files/store';
 import { mutate } from '../audit/mutate';
 import type { AuditService } from '../audit/service';
 import { requireCompany } from '../companies/guard';
@@ -31,6 +32,11 @@ import { undoImport } from './undo';
 export interface ImportsService {
   /** Разбор файла, кэш и предпросмотр по сопоставлению счетов по умолчанию. */
   upload(companyId: number, userId: number, file: { name: string; data: Buffer }): Promise<ImportPreview>;
+  /**
+   * Режим vercel (Р12): файл уже в хранилище (ключ из POST /uploads/token, uploads/import/…). Рядом кладётся описание
+   * проверки (компания, пользователь, ключ, имя): промах кэша на другом экземпляре разбирает файл из хранилища заново.
+   */
+  uploadStored(companyId: number, userId: number, file: { key: string; name: string }): Promise<ImportPreview>;
   /** Предпросмотр по кэшу с сопоставлением счетов из запроса; токена нет — 410 IMPORT_EXPIRED. */
   preview(companyId: number, userId: number, body: ImportRequest): Promise<ImportPreview>;
   /**
@@ -76,42 +82,82 @@ export function importFileName(raw: string): string {
   return Array.from(name).slice(0, FILE_NAME_MAX).join('').trim() || 'Файл';
 }
 
+/** Файл импорта, загруженный браузером (uploadKey в modules/uploads/routes.ts), и описание проверки рядом с ним. */
+const STORED_KEY = /^uploads\/import\/[0-9a-f-]{36}(\.[a-z0-9]{1,8})?$/;
+const sidecarKey = (token: string) => `uploads/import/${token}.json`;
+interface StoredCheck {
+  companyId: number;
+  userId: number;
+  key: string;
+  name: string;
+}
+
 export function createImportsService(
-  d: { db: Db; audit: AuditService; rates: RatesService; timezone: string; now?: () => Date; cache?: ImportCache } & ImportWriterDeps,
+  d: { db: Db; audit: AuditService; rates: RatesService; timezone: string; now?: () => Date; cache?: ImportCache; files?: FileStore } & ImportWriterDeps,
 ): ImportsService {
   const { db, timezone } = d;
   const now = d.now ?? (() => new Date());
   const cache = d.cache ?? createImportCache({ now: () => now().getTime() });
   const deps = { db, rates: d.rates, timezone, now };
 
+  /** Разбор файла в кэш под новым или заданным токеном; архивная компания — 422 до разбора. */
+  async function parseToCache(companyId: number, userId: number, file: { name: string; data: Buffer }, token?: string) {
+    const company = await requireCompany(db, companyId, { writable: true });
+    if (file.data.length > IMPORT_MAX_BYTES) throw new AppError(413, 'TOO_LARGE', 'Файл больше 30 МБ');
+    const name = importFileName(file.name);
+    const sheet = readImportFile(file.data, name);
+    // дата 1904 — свойство листа: parseSheet берёт её из sheet.date1904
+    const parsed = parseSheet(sheet, {
+      timezone,
+      baseCurrency: company.baseCurrency,
+      today: todayInTimezone(timezone, now()),
+    });
+    const meta = { name, size: file.data.length, sha256: crypto.createHash('sha256').update(file.data).digest('hex') };
+    return { token: cache.put({ companyId, userId, file: meta, parsed }, token), meta, parsed };
+  }
+
+  /** Проверка по токену: из кэша или (режим vercel, другой экземпляр) заново из хранилища; иначе — 410. */
+  async function entryOf(token: string, companyId: number, userId: number) {
+    const cached = cache.get(token, companyId, userId);
+    if (cached || !d.files) return cached;
+    const raw = await d.files.get(sidecarKey(token));
+    if (!raw) return null;
+    const check = JSON.parse(raw.toString('utf8')) as StoredCheck;
+    if (check.companyId !== companyId || check.userId !== userId) return null;
+    const data = await d.files.get(check.key);
+    if (!data) return null;
+    await parseToCache(companyId, userId, { name: check.name, data }, token);
+    return cache.get(token, companyId, userId);
+  }
+
   return {
     async upload(companyId, userId, file) {
-      // архивная компания — 422 до разбора файла
-      const company = await requireCompany(db, companyId, { writable: true });
-      if (file.data.length > IMPORT_MAX_BYTES) throw new AppError(413, 'TOO_LARGE', 'Файл больше 30 МБ');
-      const name = importFileName(file.name);
-      const sheet = readImportFile(file.data, name);
-      // дата 1904 — свойство листа: parseSheet берёт её из sheet.date1904
-      const parsed = parseSheet(sheet, {
-        timezone,
-        baseCurrency: company.baseCurrency,
-        today: todayInTimezone(timezone, now()),
-      });
-      const meta = { name, size: file.data.length, sha256: crypto.createHash('sha256').update(file.data).digest('hex') };
-      const token = cache.put({ companyId, userId, file: meta, parsed });
+      const { token, meta, parsed } = await parseToCache(companyId, userId, file);
+      return (await buildPreview(deps, { token, companyId, file: meta, parsed }, [])).preview;
+    },
+
+    async uploadStored(companyId, userId, file) {
+      const notUploaded = () => new AppError(400, 'VALIDATION', 'Проверьте файл', { file: 'Файл не загружен — загрузите его снова' });
+      if (!d.files || !STORED_KEY.test(file.key)) throw notUploaded();
+      await requireCompany(db, companyId, { writable: true });
+      const data = await d.files.get(file.key);
+      if (!data) throw notUploaded();
+      const { token, meta, parsed } = await parseToCache(companyId, userId, { name: file.name, data });
+      const check: StoredCheck = { companyId, userId, key: file.key, name: file.name };
+      await d.files.put(sidecarKey(token), Buffer.from(JSON.stringify(check)), 'application/json');
       return (await buildPreview(deps, { token, companyId, file: meta, parsed }, [])).preview;
     },
 
     async preview(companyId, userId, body) {
       await requireCompany(db, companyId, { writable: true });
-      const entry = cache.get(body.token, companyId, userId);
+      const entry = await entryOf(body.token, companyId, userId);
       if (!entry) throw importExpired();
       return (await buildPreview(deps, { token: body.token, companyId, file: entry.file, parsed: entry.parsed }, body.accounts)).preview;
     },
 
     async commit(companyId, userId, body) {
       await requireCompany(db, companyId, { writable: true });
-      const entry = cache.get(body.token, companyId, userId);
+      const entry = await entryOf(body.token, companyId, userId);
       if (!entry) throw importExpired();
       const src = { token: body.token, companyId, file: entry.file, parsed: entry.parsed };
       // проверка заново — внутри транзакции записи: между проверкой и записью база не меняется (транзакции выстроены в очередь);
@@ -139,8 +185,13 @@ export function createImportsService(
         },
         { behavior: 'immediate' },
       );
-      // записанный файл повторно не записывается: второй запрос с тем же токеном — 410
+      // записанный файл повторно не записывается: второй запрос с тем же токеном — 410 (и на другом экземпляре)
       cache.remove(body.token);
+      if (d.files) {
+        const raw = await d.files.get(sidecarKey(body.token));
+        if (raw) await d.files.remove((JSON.parse(raw.toString('utf8')) as StoredCheck).key);
+        await d.files.remove(sidecarKey(body.token));
+      }
       return { import: record, counts: record.counts };
     },
 

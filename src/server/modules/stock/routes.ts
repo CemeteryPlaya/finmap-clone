@@ -24,6 +24,7 @@ import { AppError } from '../../errors';
 import { headerFileName, parseId } from '../../http/params';
 import { readSessionToken } from '../auth/plugin';
 import { contentDisposition } from '../../http/content-disposition';
+import { type Downloads, inlineDownloads, sendFile } from '../../http/download';
 import { XLSX_MIME } from '../../http/xlsx';
 import type { StockAnalyticsService } from './analytics';
 import type { StockImportService } from './import';
@@ -51,6 +52,7 @@ export function registerStockRoutes(
     imports: StockImportService;
     templates: StockTemplateService;
     analytics: StockAnalyticsService;
+    downloads?: Downloads;
   },
 ): void {
   const { db, catalog, warehouses, docs, balance, postings, imports, templates, analytics } = deps;
@@ -72,12 +74,7 @@ export function registerStockRoutes(
   app.get<C>(`${BASE}/analytics/lists`, async (req) => await analytics.lists(parseId(req.params.cid), stockListsSchema.parse(req.query)));
   app.get<P>(`${BASE}/analytics/prices/:id`, async (req) => await analytics.prices(parseId(req.params.cid), parseId(req.params.id), stockAnalyticsSchema.parse(req.query)));
   app.get<C>(`${BASE}/analytics/export.xlsx`, async (req, reply) => {
-    const file = await analytics.exportXlsx(parseId(req.params.cid), stockAnalyticsSchema.parse(req.query));
-    reply.header('Content-Type', XLSX_MIME);
-    reply.header('Content-Disposition', contentDisposition(file.fileName));
-    reply.header('X-Content-Type-Options', 'nosniff');
-    reply.header('Cache-Control', 'private, no-store');
-    return reply.send(file.data);
+    return sendFile(reply, await analytics.exportXlsx(parseId(req.params.cid), stockAnalyticsSchema.parse(req.query)), deps.downloads ?? inlineDownloads);
   });
 
   // ---- импорт каталога и поступлений (§9.1): байты файла, отдельная область с пределом 5 МБ

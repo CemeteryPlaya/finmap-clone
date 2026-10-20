@@ -13,5 +13,5 @@ export interface UploadTokenResponse {
   token: string;
 }
 
-/** Вложение по ключу файла, уже загруженного в хранилище. */
-export const storedAttachmentSchema = z.object({ blobKey: z.string().min(1).max(300), fileName: z.string().min(1).max(200) });
+/** Вложение или файл импорта по ключу файла, уже загруженного в хранилище. */
+export const storedFileSchema = z.object({ blobKey: z.string().min(1).max(300), fileName: z.string().min(1).max(200) });

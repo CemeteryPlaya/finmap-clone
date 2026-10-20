@@ -22,9 +22,11 @@ const mapping: AccountMapping = { key: 'касса', kind: 'existing', accountId
 
 describe('запросы панели импорта', () => {
   it('загрузка: байты файла телом, application/octet-stream и X-File-Name', async () => {
-    const calls = mockFetch();
+    const all = mockFetch();
     const file = new File([new Uint8Array([1, 2, 3])], 'выгрузка 1.xlsx');
     await uploadImport(5, file);
+    // способ загрузки берётся из /meta (на Vercel — через Blob, план 2026-10-20-vercel-postgres); здесь — локальный
+    const calls = all.filter((c) => c.url !== '/api/v1/meta');
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe('/api/v1/companies/5/imports/upload');
     expect(calls[0]!.init.method).toBe('POST');

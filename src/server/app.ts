@@ -33,9 +33,11 @@ import { createOperationsReferences } from './modules/references/service';
 import { createCategoriesService } from './modules/categories/service';
 import { registerBalancesRoutes } from './modules/balances/routes';
 import { createBlobStore } from './files/blob';
+import { type Downloads, INLINE_MAX_BYTES } from './http/download';
 import { createLocalStore } from './files/local';
 import type { FileStore } from './files/store';
 import { registerAttachmentsRoutes } from './modules/attachments/routes';
+import type { ImportCache } from './modules/imports/cache';
 import { registerImportsRoutes } from './modules/imports/routes';
 import { createImportsService } from './modules/imports/service';
 import { createAttachmentsService } from './modules/attachments/service';
@@ -85,6 +87,10 @@ export interface AppDeps {
   backup?: BackupService;
   /** Хранилище файлов; без него — Vercel Blob в режиме vercel, иначе папка uploads (тесты подменяют). */
   files?: FileStore;
+  /** Кэш проверки импорта (тесты: промах кэша — другой экземпляр функции). */
+  importCache?: ImportCache;
+  /** Режим vercel: выгрузка больше этого — через хранилище и ссылку (по умолчанию 4 МБ; тесты снижают). */
+  exportInlineMaxBytes?: number;
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -160,11 +166,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerRatesRoutes(app, { db, rates });
   const operations = createOperationsService({ db, audit, rates, timezone: config.timezone, now });
   const journal = createJournal({ db, balances, timezone: config.timezone, now });
-  registerOperationsRoutes(app, { operations, journal, bulk: createBulkService({ db, operations }), undo: createOperationUndoService({ db, audit, operations }) });
-  registerAnalyticsRoutes(app, { analytics: createAnalyticsService({ db, rates, journal, audit, timezone: config.timezone, now }) });
+  // большие выгрузки на Vercel — через хранилище и ссылку (ответ функции не больше 4,5 МБ)
+  const downloads: Downloads = { store: uploads === 'blob' ? files : null, inlineMax: deps.exportInlineMaxBytes ?? INLINE_MAX_BYTES };
+  registerOperationsRoutes(app, { operations, journal, bulk: createBulkService({ db, operations }), undo: createOperationUndoService({ db, audit, operations }), downloads });
+  registerAnalyticsRoutes(app, { analytics: createAnalyticsService({ db, rates, journal, audit, timezone: config.timezone, now }), downloads });
   const stockBalance = createStockBalanceService({ db, timezone: config.timezone, now });
   registerStockRoutes(app, {
     db,
+    downloads,
     catalog: createStockCatalogService({ db, audit, timezone: config.timezone, now }),
     warehouses: createStockWarehousesService({ db, audit, now }),
     docs: createStockDocsService({ db, audit, timezone: config.timezone, now }),
@@ -190,7 +199,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       projects,
       tags,
       writer: createOperationsWriter(deps.sqlite ?? undefined),
+      cache: deps.importCache,
+      files: uploads === 'blob' ? files : undefined,
     }),
+    stored: uploads === 'blob',
   });
   const backup =
     deps.backup ??

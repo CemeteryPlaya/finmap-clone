@@ -6,6 +6,7 @@ const put = vi.fn();
 vi.mock('@vercel/blob/client', () => ({ put }));
 
 const { uploadAttachment } = await import('../../src/client/lib/attachments');
+const { uploadImport } = await import('../../src/client/lib/import-panel');
 const { ApiError } = await import('../../src/client/lib/api');
 const { queryClient } = await import('../../src/client/lib/query');
 
@@ -21,6 +22,7 @@ function serve(uploads: 'blob' | 'body') {
     if (url === '/api/v1/meta') return json(200, { appName: 'Учёт', timezone: 'Asia/Almaty', uploads });
     if (url === '/api/v1/uploads/token') return json(200, { pathname: 'uploads/attachment/u-1.png', token: 'vercel_blob_client_x' });
     if (url.endsWith('/attachments')) return json(201, { attachment: { id: 5, originalName: 'чек.png' } });
+    if (url.endsWith('/imports/upload')) return json(200, { token: 'a'.repeat(32) });
     return json(404, { error: { code: 'NOT_FOUND', message: 'Не найдено' } });
   });
   return calls;
@@ -61,5 +63,22 @@ describe('uploadAttachment', () => {
     const post = calls.find((c) => c.url.endsWith('/attachments'))!;
     expect(post.contentType).toBe('application/octet-stream');
     expect(put).not.toHaveBeenCalled();
+  });
+});
+
+describe('uploadImport', () => {
+  it('на Vercel: файл импорта — в Blob, проверка — по ключу; локально — байтами, как раньше', async () => {
+    const calls = serve('blob');
+    put.mockResolvedValue({});
+    const file = new File([new Uint8Array(5)], 'журнал.xlsx');
+    expect(await uploadImport(3, file)).toEqual({ token: 'a'.repeat(32) });
+    expect(calls.filter((c) => c.url !== '/api/v1/meta').map((c) => [c.url, c.body])).toEqual([
+      ['/api/v1/uploads/token', { kind: 'import', fileName: 'журнал.xlsx', size: 5 }],
+      ['/api/v1/companies/3/imports/upload', { blobKey: 'uploads/attachment/u-1.png', fileName: 'журнал.xlsx' }],
+    ]);
+    queryClient.clear();
+    const local = serve('body');
+    await uploadImport(3, file);
+    expect(local.find((c) => c.url.endsWith('/imports/upload'))!.contentType).toBe('application/octet-stream');
   });
 });

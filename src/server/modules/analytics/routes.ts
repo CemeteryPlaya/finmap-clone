@@ -12,23 +12,14 @@ import {
   statementQuerySchema,
 } from '../../../shared/schemas/analytics';
 import { AppError } from '../../errors';
-import { contentDisposition } from '../../http/content-disposition';
+import { type Downloads, inlineDownloads, sendFile } from '../../http/download';
 import { parseId } from '../../http/params';
-import { XLSX_MIME } from '../../http/xlsx';
 import type { AnalyticsService } from './service';
 
 type C = { Params: { cid: string } };
 type P = { Params: { cid: string; part: string } };
 const BASE = '/api/v1/companies/:cid/analytics';
 
-/** Файл Excel (§2.6): ссылка без побочных эффектов, как у выгрузки журнала. */
-function sendXlsx(reply: FastifyReply, file: { fileName: string; data: Buffer }) {
-  reply.header('Content-Type', XLSX_MIME);
-  reply.header('Content-Disposition', contentDisposition(file.fileName));
-  reply.header('X-Content-Type-Options', 'nosniff');
-  reply.header('Cache-Control', 'private, no-store');
-  return reply.send(file.data);
-}
 
 /** Часть показателя из адреса (§8.2): revenue, cogs, variable или operating; иначе 404. */
 function partParam(raw: string): IndicatorPart {
@@ -40,7 +31,9 @@ function partParam(raw: string): IndicatorPart {
  * «Аналитика» (§9 спецификации «Аналитика»): отчёты только читают — сессия, компания из адреса (архивная тоже читается).
  * Изменение — только настройка частей «Финансовых показателей» (§8.2): CSRF, архивная компания — только чтение.
  */
-export function registerAnalyticsRoutes(app: FastifyInstance, deps: { analytics: AnalyticsService }): void {
+export function registerAnalyticsRoutes(app: FastifyInstance, deps: { analytics: AnalyticsService; downloads?: Downloads }): void {
+  /** Файл Excel (§2.6): ссылка без побочных эффектов, как у выгрузки журнала. */
+  const sendXlsx = (reply: FastifyReply, file: { fileName: string; data: Buffer }) => sendFile(reply, file, deps.downloads ?? inlineDownloads);
   const { analytics } = deps;
 
   app.get<C>(`${BASE}/cashflow`, async (req) => analytics.cashflow(parseId(req.params.cid), reportQuerySchema.parse(req.query)));
