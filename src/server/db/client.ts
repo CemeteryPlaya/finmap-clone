@@ -45,7 +45,11 @@ export interface OpenedDatabase {
 const toNumber = (v: string) => Number(v);
 
 /** База по конфигу (Р1): файл SQLite, Postgres в памяти процесса (PGlite, тесты) или Neon. Привязывает схему процесса. */
-export async function openDatabase(cfg: DbConfig): Promise<OpenedDatabase> {
+/**
+ * `onPoolError` — обрыв простаивающего соединения пула Neon (Neon уснул, WebSocket закрылся): без обработчика событие error
+ * роняет процесс функции; по умолчанию — в stderr (журнал Vercel).
+ */
+export async function openDatabase(cfg: DbConfig, opts: { onPoolError?: (e: unknown) => void } = {}): Promise<OpenedDatabase> {
   if (cfg.kind === 'sqlite') {
     bindSchema('sqlite');
     const { sqlite, db } = openDb(cfg.path);
@@ -73,6 +77,7 @@ export async function openDatabase(cfg: DbConfig): Promise<OpenedDatabase> {
   types.setTypeParser(20, toNumber);
   types.setTypeParser(1700, toNumber);
   const pool = new Pool({ connectionString: cfg.url });
+  pool.on('error', opts.onPoolError ?? ((e: unknown) => console.error('Соединение с базой Neon оборвалось (пул откроет новое):', e)));
   const db = ambient(neon({ client: pool, schema: pgTables }) as unknown as Db, 'pool');
   return { db, sqlite: null, dialect: 'pg', close: () => pool.end() };
 }

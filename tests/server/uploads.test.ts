@@ -102,14 +102,18 @@ describe('вложение по ключу загруженного файла',
     const res = await w.req('POST', `/api/v1/companies/${w.cid}/operations/${w.op}/attachments`, { blobKey: pathname, fileName: 'чек (1).png' });
     expect(res.statusCode).toBe(201);
     const att = res.json().attachment;
-    expect(att).toMatchObject({ operationId: w.op, originalName: 'чек (1).png', storedName: pathname, mime: 'image/png', size: PNG.length });
+    expect(att).toMatchObject({ operationId: w.op, originalName: 'чек (1).png', mime: 'image/png', size: PNG.length });
+    // файл переезжает из uploads/ (уборка через сутки) под постоянный ключ вложения
+    expect(att.storedName).toMatch(/^attachments\/[0-9a-f-]{36}\.png$/);
+    expect(w.files.get(att.storedName)?.equals(PNG)).toBe(true);
+    expect(w.files.has(pathname)).toBe(false);
 
     const file = await w.req('GET', `/api/v1/companies/${w.cid}/attachments/${att.id}`);
     expect(file.statusCode).toBe(302);
-    expect(file.headers.location).toBe(`https://store.private.blob.vercel-storage.com/${pathname}?presign=1`);
+    expect(file.headers.location).toBe(`https://store.private.blob.vercel-storage.com/${att.storedName}?presign=1`);
     expect(file.headers['cache-control']).toBe('private, no-store');
 
-    // тот же ключ второй раз — нельзя: файл уже принадлежит вложению
+    // тот же ключ второй раз — нельзя: загрузки больше нет (файл принадлежит вложению)
     const again = await w.req('POST', `/api/v1/companies/${w.cid}/operations/${w.op}/attachments`, { blobKey: pathname, fileName: 'чек.png' });
     expect([again.statusCode, again.json().error.fields]).toEqual([400, { file: 'Файл не загружен — загрузите его снова' }]);
   });
@@ -129,5 +133,20 @@ describe('вложение по ключу загруженного файла',
     expect(w.files.has(html)).toBe(false);
     expect(w.files.has('backups/2026-10-01.json.gz')).toBe(true);
     expect((await attach({ fileName: 'x.png' })).statusCode).toBe(400);
+  });
+});
+
+describe('CSP страниц', () => {
+  it('на Vercel браузеру можно грузить в Blob (https://vercel.com/api/blob); локально — только свой адрес', async () => {
+    const csp = async (overrides: Record<string, string>) => {
+      const w = await world(overrides);
+      return String((await w.req('GET', '/api/v1/health')).headers['content-security-policy']);
+    };
+    expect(await csp(VERCEL)).toContain("connect-src 'self' https://vercel.com");
+    await t?.cleanup();
+    t = null;
+    const local = await csp({});
+    expect(local).toContain("connect-src 'self'");
+    expect(local).not.toContain('vercel.com');
   });
 });

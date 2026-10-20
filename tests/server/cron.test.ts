@@ -40,6 +40,8 @@ describe('GET /api/v1/cron/daily', () => {
     put('uploads/import/old.xlsx', 25);
     put('uploads/import/' + 'a'.repeat(32) + '.json', 30);
     put('uploads/attachment/fresh.png', 1);
+    put('attachments/11111111-1111-4111-8111-111111111111.png', 30 * 24); // вложение месячной давности — не уборка
+    put('22222222-2222-4222-8222-222222222222.png', 30 * 24); // перенесённое db:to-pg --files
     put('exports/u1/журнал.xlsx', 25);
     put('exports/u2/журнал.xlsx', 2);
     await v.t.q("INSERT INTO sessions (token_hash, user_id, remember, created_at, expires_at, last_seen_at) VALUES ('old', 1, FALSE, 'x', '2026-10-20T10:00:00.000Z', 'x')");
@@ -55,7 +57,12 @@ describe('GET /api/v1/cron/daily', () => {
     const dump = JSON.parse(zlib.gunzipSync(v.files.get('backups/2026-10-21.json.gz')!).toString('utf8'));
     expect(dump).toMatchObject({ format: 'finmap-clone-dump', createdAt: NOW.toISOString() });
     expect(dump.tables.companies).toHaveLength(1);
-    expect([...v.files.keys()].filter((k) => !k.startsWith('backups/')).sort()).toEqual(['exports/u2/журнал.xlsx', 'uploads/attachment/fresh.png']);
+    expect([...v.files.keys()].filter((k) => !k.startsWith('backups/')).sort()).toEqual([
+      '22222222-2222-4222-8222-222222222222.png',
+      'attachments/11111111-1111-4111-8111-111111111111.png',
+      'exports/u2/журнал.xlsx',
+      'uploads/attachment/fresh.png',
+    ]);
     expect((await v.t.q("SELECT token_hash AS h FROM sessions WHERE token_hash = 'old'")).length).toBe(0);
     expect((await v.t.q('SELECT COUNT(*) AS n FROM sessions'))[0]).toEqual({ n: 1 }); // сессия входа теста жива
 

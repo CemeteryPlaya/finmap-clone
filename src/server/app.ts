@@ -110,7 +110,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", 'data:', 'blob:'],
-        connectSrc: ["'self'"],
+        // на Vercel браузер грузит файлы прямо в Blob: @vercel/blob/client ходит на https://vercel.com/api/blob (Р11)
+        connectSrc: config.deployMode === 'vercel' ? ["'self'", 'https://vercel.com'] : ["'self'"],
         fontSrc: ["'self'", 'data:'],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],

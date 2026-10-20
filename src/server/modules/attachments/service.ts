@@ -21,7 +21,8 @@ export interface AttachmentsService {
   add(companyId: number, operationId: number, file: { name: string; data: Buffer }, userId: number): Promise<AttachmentRow>;
   /**
    * Вложение из файла, который браузер уже загрузил в хранилище (режим vercel, Р11): ключ — из POST /uploads/token
-   * (uploads/attachment/…) и ещё ничьё; тип и размер — по содержимому. Недопустимый файл из хранилища удаляется.
+   * (uploads/attachment/…) и ещё ничьё; тип и размер — по содержимому. Файл переезжает под attachments/<uuid> (загрузки
+   * чистит ежедневное задание); недопустимый файл из хранилища удаляется.
    */
   addStored(companyId: number, operationId: number, file: { key: string; name: string }, userId: number): Promise<AttachmentRow>;
   /** Неудалённое вложение компании. */
@@ -133,7 +134,12 @@ export function createAttachmentsService(d: { db: Db; audit: AuditService; files
         await files.remove(file.key); // недопустимый файл в хранилище не оставляем
         throw e;
       }
-      return insert(companyId, operationId, { ...checked, storedName: file.key, size: data.length }, userId);
+      // загрузки (uploads/) ежедневное задание удаляет через сутки — файл вложения переезжает под постоянный ключ
+      const storedName = `attachments/${crypto.randomUUID()}${checked.type.ext}`;
+      await files.put(storedName, data, checked.type.mime);
+      const row = await insert(companyId, operationId, { ...checked, storedName, size: data.length }, userId);
+      await files.remove(file.key);
+      return row;
     },
 
     async open(companyId, id) {

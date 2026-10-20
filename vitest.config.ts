@@ -6,7 +6,7 @@ import { defineConfig } from 'vitest/config';
  * файла и восстановление, запуск процесса с блокировкой, проверка выгрузки по файлу базы (import:check).
  */
 /** Только Postgres: перенос SQLite → Postgres готовит SQLite-сторону в отдельном процессе. */
-const PG_ONLY = ['tests/server/sqlite-to-pg.test.ts'];
+const PG_ONLY = ['tests/server/sqlite-to-pg.test.ts', 'tests/server/neon-pool.test.ts'];
 
 const SQLITE_ONLY = [
   'tests/server/schema-0*.test.ts',
