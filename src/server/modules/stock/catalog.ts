@@ -80,7 +80,7 @@ export function createStockCatalogService(d: { db: Db; audit: AuditService; time
       .orderBy(asc(stockItemPrices.validFrom));
   }
 
-  /** Состав комплектов в порядке ввода (rowid). */
+  /** Состав комплектов в порядке ввода (position). */
   async function partsOf(ex: Executor, comboIds: readonly number[]): Promise<Map<number, ComboPart[]>> {
     const out = new Map<number, ComboPart[]>();
     if (comboIds.length === 0) return out;
@@ -91,7 +91,7 @@ export function createStockCatalogService(d: { db: Db; audit: AuditService; time
        WHERE combo_id IN (${sql.join(
          comboIds.map((id) => sql`${id}`),
          sql`, `,
-       )}) ORDER BY rowid`,
+       )}) ORDER BY combo_id, position`,
     );
     for (const r of rows) {
       const list = out.get(r.comboId);
@@ -172,7 +172,7 @@ export function createStockCatalogService(d: { db: Db; audit: AuditService; time
 
   async function writeParts(tx: Executor, comboId: number, parts: readonly ComboPart[]): Promise<void> {
     await tx.delete(stockComboParts).where(eq(stockComboParts.comboId, comboId));
-    for (const p of parts) await tx.insert(stockComboParts).values({ comboId, itemId: p.itemId, qty: p.qty });
+    for (const [position, p] of parts.entries()) await tx.insert(stockComboParts).values({ comboId, itemId: p.itemId, qty: p.qty, position });
   }
 
   /** Комплект, в состав которого входит товар: единица и удаление составляющей изменили бы смысл истории (R3). */

@@ -105,6 +105,17 @@ describe('комплекты (§2, §5.2, Склад-2)', () => {
     expect([plain.statusCode, fields(plain)]).toEqual([400, { parts: 'Состав — только у комплекта' }]);
   });
 
+  it('состав — в порядке ввода, а не по id товаров; правка состава задаёт новый порядок', async () => {
+    const w = await world();
+    const combo = await w.combo('Кола + чипсы', [[w.cola, 1000], [w.chips, 2000]]);
+    const parts = async () => (await w.h.req('GET', `${w.stock}/items/${combo}`)).json().item.parts as { itemId: number }[];
+    expect((await parts()).map((p) => p.itemId)).toEqual([w.cola, w.chips]);
+    await w.h.req('PATCH', `${w.stock}/items/${combo}`, { parts: [{ itemId: w.chips, qty: 2000 }, { itemId: w.cola, qty: 1000 }] });
+    expect((await parts()).map((p) => p.itemId)).toEqual([w.chips, w.cola]);
+    const list = (await w.h.req('GET', `${w.stock}/items`)).json().items as { id: number; parts: { itemId: number }[] }[];
+    expect(list.find((i) => i.id === combo)!.parts.map((p) => p.itemId)).toEqual([w.chips, w.cola]);
+  });
+
   it('комплект только в продаже', async () => {
     const w = await world();
     const combo = await w.combo('Чипсы + кола', [[w.chips, 1000], [w.cola, 1000]]);

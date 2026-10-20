@@ -1,0 +1,1 @@
+ALTER TABLE "stock_combo_parts" ADD COLUMN "position" bigint DEFAULT 0 NOT NULL;

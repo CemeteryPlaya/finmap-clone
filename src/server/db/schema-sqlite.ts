@@ -462,6 +462,8 @@ export const stockComboParts = sqliteTable(
       .notNull()
       .references(() => stockItems.id),
     qty: integer('qty').notNull(),
+    /** Порядок ввода состава (раньше — rowid SQLite; в Postgres его нет). */
+    position: integer('position').notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.comboId, t.itemId] })],
 );
