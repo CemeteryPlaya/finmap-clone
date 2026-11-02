@@ -69,7 +69,7 @@
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 37 | `[Docs]` `[lane:gate]` `[tdd:skip:research]` СА-1: пробный забор админ-API с владельцем (задача 1) | docs/research/senet-api.md: колонки shop_quantity, movements_of_goods, office_load*; список офисов; поведение токена | - | cc:TODO |
+| 37 | `[Docs]` `[lane:gate]` `[tdd:skip:research]` СА-1: пробный забор админ-API с владельцем (задача 1) | docs/research/senet-api.md: колонки shop_quantity, movements_of_goods, office_load*; список офисов; поведение токена | - | cc:完了 [64a8363] |
 | 38 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: схема 0013 / pg 0003 (задача 2) | schema-0013, schema-parity PASS на обоих диалектах | - | cc:完了 [c190a8e] |
 | 39 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: секретный ключ, шифрование, хеш телефона (задача 3) | secrets, config PASS; typecheck | 38 | cc:完了 [3d25bd3] |
 | 40 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: SenetSource и AdminTokenSource (задача 4) | senet-source, senet-xlsx PASS; typecheck | 39 | cc:完了 [ac27a45] |
@@ -83,5 +83,5 @@
 | 48 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: очередь «Разобрать» (задача 12) | senet-review, senet-suggest, client senet-review PASS | 46, 47 | cc:完了 [7ace1d1] |
 | 49 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: API сверки (задача 13) | senet-reconcile PASS на обоих диалектах | 47 | cc:完了 [750c863] |
 | 50 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: экран «Сверка Senet» (задача 14) | client senet-page PASS; typecheck | 48, 49 | cc:完了 [3547f11] |
-| 51 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: данные для склада и аналитики (задача 15) | senet-analytics-data PASS на обоих диалектах; stock/goods/load — после задачи 37 | 37, 42 | cc:完了 [0ad8294] |
+| 51 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: данные для склада и аналитики (задача 15) | senet-analytics-data PASS на обоих диалектах; stock/goods/load — после задачи 37 (сделано 64a8363) | 37, 42 | cc:完了 [64a8363] |
 | 52 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` СА-3: e2e, снимки, README, чек-лист приёмки (задача 16) | e2e/senet ×2 + E2E_DB=pg; shots:ux +7 (95/95); npm test, typecheck, lint:async | 43, 50, 51 | cc:完了 [2136507] |
