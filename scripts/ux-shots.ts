@@ -11,6 +11,7 @@ import { createAuditService } from '../src/server/modules/audit/service';
 import { createUsersService } from '../src/server/modules/users/service';
 import { excelSerial, finmapLikeRow, finmapLikeSample, finmapLikeXlsx, type FinmapLikeValue } from '../tests/helpers/finmap-like';
 import { seedDemo } from './lib/demo';
+import { seedSenet, startSenetDemo } from './lib/senet-demo';
 
 // Визуальная сверка с Finmap (§12.3 этапа 1.5): снимки наших экранов под парными к снимкам Finmap именами и
 // index.html «Finmap | наш». Инструмент разработчика, в CI не входит.
@@ -186,6 +187,17 @@ const projectsReady = (p: Page) => p.getByRole('main').getByRole('table', { name
 /** «Финансовые показатели» (план А-4): таблица демо-компании дождалась данных — строка «EBITDA» на месте. */
 const indicatorsReady = (p: Page) => p.getByRole('main').getByRole('table', { name: 'Финансовые показатели' }).getByRole('rowheader', { name: 'EBITDA' }).waitFor();
 /** Вид «график» (план А-2): рисунок отчёта и первые строки обоих списков операций под графиками загружены. */
+/** Подключение Senet демо-компании: один раз на прогон, через API, затем страница перечитывается. */
+let senetSeeded = false;
+const ensureSenet = async (p: Page) => {
+  if (!senetSeeded) {
+    await seedSenet(p, Number(p.url().match(/\/c\/(\d+)\//)![1]), NOW.getTime());
+    senetSeeded = true;
+  }
+  await p.reload();
+  await p.getByRole('main').getByRole('heading', { level: 1 }).waitFor();
+};
+
 const chartReady = async (p: Page, title: string) => {
   await p.getByRole('main').getByRole('img', { name: new RegExp(`^${title}\\. `) }).waitFor();
   for (const i of [0, 1]) await p.locator('section[data-report-operations]').nth(i).locator('tbody tr, li').first().waitFor();
@@ -890,6 +902,83 @@ const SCENARIOS: Scenario[] = [
       await p.getByRole('alertdialog', { name: 'Отменить действия?' }).getByRole('list', { name: 'Что отменится' }).waitFor();
     },
   },
+  {
+    // Senet (план 2026-11-02-senet-autopost, задача 16). Пары в Finmap нет — m68 заглушка
+    ours: 'c68-integrations.png',
+    finmap: 'm68-integrations.png',
+    path: 'settings/integrations',
+    act: async (p) => {
+      await ensureSenet(p);
+      await p.getByRole('main').getByText('забирается').waitFor();
+    },
+  },
+  {
+    // Senet (план 2026-11-02-senet-autopost, задача 16). Пары в Finmap нет — m69 заглушка
+    ours: 'c69-senet-connection.png',
+    finmap: 'm69-senet-connection.png',
+    path: 'settings/integrations',
+    act: async (p) => {
+      await ensureSenet(p);
+      await p.getByRole('main').getByRole('button', { name: '+ Подключить Senet' }).click();
+      await p.getByRole('dialog', { name: 'Подключить Senet' }).waitFor();
+    },
+  },
+  {
+    // Senet (план 2026-11-02-senet-autopost, задача 16). Пары в Finmap нет — m70 заглушка
+    ours: 'c70-senet-rules.png',
+    finmap: 'm70-senet-rules.png',
+    path: 'settings/integrations',
+    act: async (p) => {
+      await ensureSenet(p);
+      await p.getByRole('tab', { name: 'Правила разноски' }).click();
+      await p.getByRole('main').getByText('Сотрудники: алиасы').waitFor();
+    },
+  },
+  {
+    // Senet (план 2026-11-02-senet-autopost, задача 16). Пары в Finmap нет — m71 заглушка
+    ours: 'c71-senet-history-check.png',
+    finmap: 'm71-senet-history-check.png',
+    path: 'settings/integrations',
+    act: async (p) => {
+      await ensureSenet(p);
+      await p.getByRole('tab', { name: 'Правила разноски' }).click();
+      await p.getByLabel('С даты').fill('2026-10-08');
+      await p.getByLabel('По дату').fill('2026-10-10');
+      await p.getByRole('button', { name: 'Проверить на истории' }).click();
+      await p.getByRole('main').getByText(/Распознано \d+ из \d+/).waitFor();
+    },
+  },
+  {
+    // Senet (план 2026-11-02-senet-autopost, задача 16). Пары в Finmap нет — m72 заглушка
+    ours: 'c72-senet-shifts.png',
+    finmap: 'm72-senet-shifts.png',
+    path: 'senet/shifts',
+    act: async (p) => {
+      await ensureSenet(p);
+      await p.getByRole('main').locator('tbody tr[data-shift]').first().waitFor();
+    },
+  },
+  {
+    // Senet (план 2026-11-02-senet-autopost, задача 16). Пары в Finmap нет — m73 заглушка
+    ours: 'c73-senet-shift-open.png',
+    finmap: 'm73-senet-shift-open.png',
+    path: 'senet/shifts',
+    act: async (p) => {
+      await ensureSenet(p);
+      await p.getByRole('main').locator('tbody tr[data-shift]').last().click();
+      await p.getByRole('main').getByText('Доход «Касса»', { exact: false }).first().waitFor();
+    },
+  },
+  {
+    // Senet (план 2026-11-02-senet-autopost, задача 16). Пары в Finmap нет — m74 заглушка
+    ours: 'c74-senet-review.png',
+    finmap: 'm74-senet-review.png',
+    path: 'senet/review',
+    act: async (p) => {
+      await ensureSenet(p);
+      await p.getByRole('main').getByText('Правило не нашлось').waitFor();
+    },
+  },
 ];
 
 function fail(message: string): never {
@@ -946,7 +1035,9 @@ let failures = 0;
 let browser: Browser | null = null;
 let server: Awaited<ReturnType<typeof startServer>> | null = null;
 try {
-  const config = loadConfig({ SESSION_SECRET: 's'.repeat(40), DATA_DIR: dataDir, PORT: String(PORT), RATES_SOURCE: 'fixtures' });
+  // поддельный Senet со сменами накануне NOW (план 2026-11-02-senet-autopost, задача 16)
+  const senet = await startSenetDemo(NOW.getTime());
+  const config = loadConfig({ SESSION_SECRET: 's'.repeat(40), DATA_DIR: dataDir, PORT: String(PORT), RATES_SOURCE: 'fixtures', SENET_API_BASE: senet.base, SECRET_KEY: Buffer.alloc(32, 9).toString('base64') });
   fs.mkdirSync(config.dataDir, { recursive: true });
   const { sqlite, db } = openDb(config.dbPath);
   try {

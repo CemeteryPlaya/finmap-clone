@@ -45,7 +45,7 @@ function Shifts(props: { companyId: number; timeZone: string; readOnly: boolean 
   return (
     <section>
       <div className="mb-4 flex flex-wrap items-end gap-2">
-        <select aria-label="Клуб" value={project ?? ''} onChange={(e) => setProject(e.target.value ? Number(e.target.value) : null)} className={`${inputClass} w-auto`}>
+        <select aria-label="Клуб" value={project ?? ''} onChange={(e) => setProject(e.target.value ? Number(e.target.value) : null)} className={`${inputClass} sm:w-56`}>
           <option value="">Все клубы</option>
           {(projects.data ?? []).map((p) => (
             <option key={p.id} value={p.id}>
@@ -53,8 +53,8 @@ function Shifts(props: { companyId: number; timeZone: string; readOnly: boolean 
             </option>
           ))}
         </select>
-        <input aria-label="С даты" type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${inputClass} w-auto`} />
-        <input aria-label="По дату" type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`${inputClass} w-auto`} />
+        <input aria-label="С даты" type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${inputClass} sm:w-56`} />
+        <input aria-label="По дату" type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`${inputClass} sm:w-56`} />
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={onlyDiff} onChange={(e) => setOnlyDiff(e.target.checked)} />
           Только с расхождениями

@@ -34,15 +34,15 @@ export function HistoryCheck(props: { companyId: number; offices: { id: number; 
       <h3 className="font-semibold">Проверить на истории</h3>
       <p className="text-sm text-muted">Текущие правила по уже загруженным выемкам — ничего не записывается</p>
       <div className="mt-2 flex flex-wrap items-end gap-2">
-        <select aria-label="Клуб" value={officeId ?? ''} onChange={(e) => setOfficeId(Number(e.target.value))} className={`${inputClass} w-auto`}>
+        <select aria-label="Клуб" value={officeId ?? ''} onChange={(e) => setOfficeId(Number(e.target.value))} className={`${inputClass} sm:w-56`}>
           {props.offices.map((o) => (
             <option key={o.id} value={o.id}>
               {o.label}
             </option>
           ))}
         </select>
-        <input aria-label="С даты" type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${inputClass} w-auto`} />
-        <input aria-label="По дату" type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`${inputClass} w-auto`} />
+        <input aria-label="С даты" type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${inputClass} sm:w-56`} />
+        <input aria-label="По дату" type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`${inputClass} sm:w-56`} />
         <button type="button" className={btnPrimary} disabled={!officeId || !from || !to || check.isPending} onClick={() => check.mutate()}>
           Проверить на истории
         </button>

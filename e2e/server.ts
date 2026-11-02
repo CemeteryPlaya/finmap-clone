@@ -9,14 +9,19 @@ import { seedCurrencies } from '../src/server/db/seed';
 import { startServer } from '../src/server/main';
 import { createAuditService } from '../src/server/modules/audit/service';
 import { createUsersService } from '../src/server/modules/users/service';
+import { startSenetDemo } from '../scripts/lib/senet-demo';
 
 const E2E_PORT = Number(process.env.E2E_PORT ?? 41731);
+// поддельный Senet (план 2026-11-02-senet-autopost, задача 16): смены за последние сутки
+const senet = await startSenetDemo();
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-e2e-'));
 const config = loadConfig({
   SESSION_SECRET: 'e'.repeat(40),
   DATA_DIR: dataDir,
   PORT: String(E2E_PORT),
   RATES_SOURCE: 'fixtures',
+  SENET_API_BASE: senet.base,
+  SECRET_KEY: Buffer.alloc(32, 7).toString('base64'),
 });
 fs.mkdirSync(config.dataDir, { recursive: true });
 

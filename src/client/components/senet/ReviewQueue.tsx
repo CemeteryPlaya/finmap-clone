@@ -1,12 +1,13 @@
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
-import { formatDateTime } from '../../../shared/dates';
+
 import { formatMoney, parseAmount } from '../../../shared/money';
 import type { SenetReviewAnswer, SenetReviewItemDto } from '../../../shared/schemas/senet';
 import { api, type ApiError } from '../../lib/api';
 import { invalidateOperations } from '../../lib/journal-mutations';
 import { useCategories, useCounterparties, type CategoryNode } from '../../lib/queries';
 import { invalidateSenet } from '../../lib/senet';
+import { shiftPeriodLabel } from '../../lib/senet-reconcile';
 import { canRemember, REVIEW_REASONS, reviewAnswerKind, useSenetReview } from '../../lib/senet-review';
 import { Pending } from '../QueryState';
 import { alertClass, btnPrimary, btnSmall, inputClass } from '../ui';
@@ -15,7 +16,7 @@ type Option = { id: number; label: string };
 const flat = (nodes: CategoryNode[], depth = 0): Option[] =>
   nodes.filter((n) => !n.archivedAt).flatMap((n) => [{ id: n.id, label: `${'— '.repeat(depth)}${n.name}` }, ...flat(n.children, depth + 1)]);
 
-const shiftLabel = (i: SenetReviewItemDto, tz: string) => `${formatDateTime(i.shiftOpenedAt, tz)} — ${i.shiftClosedAt ? formatDateTime(i.shiftClosedAt, tz).slice(-5) : 'идёт'}`;
+const shiftLabel = (i: SenetReviewItemDto, tz: string) => shiftPeriodLabel(i.shiftOpenedAt, i.shiftClosedAt, tz);
 
 /** Карточка пункта (§8.4): смена, сумма, исходный комментарий, причина, предложения кнопками, ответ. */
 function ReviewCard(props: { companyId: number; item: SenetReviewItemDto; categories: Option[]; counterparties: Option[]; timeZone: string }) {
