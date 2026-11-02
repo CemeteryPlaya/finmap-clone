@@ -84,4 +84,4 @@
 | 49 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: API сверки (задача 13) | senet-reconcile PASS на обоих диалектах | 47 | cc:完了 [750c863] |
 | 50 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: экран «Сверка Senet» (задача 14) | client senet-page PASS; typecheck | 48, 49 | cc:完了 [3547f11] |
 | 51 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: данные для склада и аналитики (задача 15) | senet-analytics-data PASS на обоих диалектах; stock/goods/load — после задачи 37 | 37, 42 | cc:完了 [0ad8294] |
-| 52 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` СА-3: e2e, снимки, README, чек-лист приёмки (задача 16) | e2e/senet ×2 + E2E_DB=pg; shots:ux +7 (95/95); npm test, typecheck, lint:async | 43, 50, 51 | cc:完了 [HASH16] |
+| 52 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` СА-3: e2e, снимки, README, чек-лист приёмки (задача 16) | e2e/senet ×2 + E2E_DB=pg; shots:ux +7 (95/95); npm test, typecheck, lint:async | 43, 50, 51 | cc:完了 [2136507] |
