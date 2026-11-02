@@ -80,7 +80,7 @@
 | 45 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: план смены и сверка с эталоном (задача 9) | senet-plan PASS; локально senet-parity — 0 расхождений за 08–31.10.2026 | 44 | cc:完了 [bff9176] |
 | 46 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: правила разноски, «Проверить на истории» (задача 10) | senet-rules, client senet-rules PASS | 41, 45 | cc:完了 [2d21486] |
 | 47 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: автопроводка (задача 11) | senet-post, senet-undo, client operation-senet-delete PASS; npm test PASS | 42, 45 | cc:完了 [c6cdc2a] |
-| 48 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: очередь «Разобрать» (задача 12) | senet-review, senet-suggest, client senet-review PASS | 46, 47 | cc:TODO |
+| 48 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: очередь «Разобрать» (задача 12) | senet-review, senet-suggest, client senet-review PASS | 46, 47 | cc:完了 [7ace1d1] |
 | 49 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: API сверки (задача 13) | senet-reconcile PASS на обоих диалектах | 47 | cc:TODO |
 | 50 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: экран «Сверка Senet» (задача 14) | client senet-page PASS; typecheck | 48, 49 | cc:TODO |
 | 51 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: данные для склада и аналитики (задача 15) | senet-analytics-data PASS на обоих диалектах | 37, 42 | cc:TODO |

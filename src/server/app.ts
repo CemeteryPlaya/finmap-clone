@@ -26,6 +26,7 @@ import { registerBackupRoutes } from './modules/backup/routes';
 import { registerCronRoutes } from './modules/cron/routes';
 import { createSenetConnections } from './modules/senet/connections';
 import { createSenetPosting } from './modules/senet/post';
+import { createSenetReconcile } from './modules/senet/reconcile';
 import { createSenetReview, type SenetReview } from './modules/senet/review';
 import { createSenetRules } from './modules/senet/rules-service';
 import { registerSenetRoutes } from './modules/senet/routes';
@@ -204,7 +205,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const senetSync = createSenetSync({ db, connections: senetConnections, files, timezone: config.timezone, now, afterOffice: async (tx, officeId) => void (await senetPosting.postOffice(tx, officeId)) });
   const senetRules = createSenetRules({ db, audit, now });
   const senetReview = createSenetReview({ db, operations, rules: senetRules, audit, timezone: config.timezone, now });
-  registerSenetRoutes(app, { connections: senetConnections, sync: senetSync, rules: senetRules, posting: senetPosting, review: senetReview });
+  registerSenetRoutes(app, { connections: senetConnections, sync: senetSync, rules: senetRules, posting: senetPosting, review: senetReview, reconcile: createSenetReconcile({ db, posting: senetPosting }) });
   // задачи локального планировщика (main.ts): часовой забор и ночная уборка сырых файлов
   app.decorate('senet', { sync: senetSync, review: senetReview, cleanup: () => cleanupSenetRaw(db, files, now()) });
   registerSavedFiltersRoutes(app, { savedFilters: createSavedFiltersService({ db, now }) });

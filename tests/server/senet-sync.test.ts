@@ -98,7 +98,7 @@ describe('забор Senet', () => {
     const shifts = await q('SELECT opened_at, closed_at, end_balance, cash_in, cash_out, revenue, revenue_tx FROM senet_shifts ORDER BY opened_at');
     expect(shifts).toEqual([
       { opened_at: '2026-10-01T05:00:00.000Z', closed_at: '2026-10-01T17:00:00.000Z', end_balance: 1_000_000, cash_in: 800_000, cash_out: 350_000, revenue: 550_000, revenue_tx: 550_000 },
-      { opened_at: '2026-10-01T17:01:00.000Z', closed_at: '2026-10-02T05:00:00.000Z', end_balance: 1_200_000, cash_in: 1_000_000, cash_out: 400_000, revenue: 600_000, revenue_tx: 0 },
+      { opened_at: '2026-10-01T17:01:00.000Z', closed_at: '2026-10-02T05:00:00.000Z', end_balance: 1_200_000, cash_in: 1_000_000, cash_out: 400_000, revenue: 600_000, revenue_tx: null },
     ]);
     const perShift = await q('SELECT s.opened_at o, COUNT(m.id) n FROM senet_cash_moves m JOIN senet_shifts s ON s.id = m.shift_id GROUP BY s.opened_at ORDER BY s.opened_at');
     expect(perShift.map((r) => Number(r.n))).toEqual([3, 4]);

@@ -106,11 +106,13 @@ export async function writeOfficeBatch(tx: Executor, b: OfficeBatch, at: string)
         tx
           .select({
             v: sql<number>`COALESCE(SUM(CASE WHEN ${senetTransactions.kind} = 'refund' THEN -${senetTransactions.amount} ELSE ${senetTransactions.amount} END), 0)`,
+            n: sql<number>`COUNT(*)`,
           })
           .from(senetTransactions)
           .where(and(eq(senetTransactions.officeId, b.officeId), gte(senetTransactions.at, shift.openedAt), sql`${senetTransactions.at} <= ${shift.closedAt}`)),
       );
-      revenueTx = Number(sum?.v ?? 0);
+      // нет ни одной транзакции в окне смены — контроль неизвестен, а не «ноль выручки»
+      revenueTx = Number(sum?.n ?? 0) > 0 ? Number(sum!.v) : null;
     }
     await tx
       .update(senetShifts)

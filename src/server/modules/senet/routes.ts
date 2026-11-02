@@ -5,6 +5,7 @@ import { AppError } from '../../errors';
 import type { SenetConnections } from './connections';
 import { z } from 'zod';
 import type { SenetPosting } from './post';
+import type { SenetReconcile } from './reconcile';
 import type { SenetReview } from './review';
 import type { SenetRules } from './rules-service';
 import type { SenetSync } from './sync';
@@ -14,7 +15,7 @@ type P = { Params: { cid: string; id: string } };
 const BASE = '/api/v1/companies/:cid/senet';
 
 /** Senet (спецификация 2026-11-02-senet-autopost): подключения и клубы. */
-export function registerSenetRoutes(app: FastifyInstance, deps: { connections: SenetConnections; sync: SenetSync; rules: SenetRules; posting: SenetPosting; review: SenetReview }): void {
+export function registerSenetRoutes(app: FastifyInstance, deps: { connections: SenetConnections; sync: SenetSync; rules: SenetRules; posting: SenetPosting; review: SenetReview; reconcile: SenetReconcile }): void {
   const svc = deps.connections;
 
   app.get<C>(`${BASE}/connections`, async (req) => ({ connections: await svc.list(parseId(req.params.cid)) }));
@@ -94,4 +95,14 @@ export function registerSenetRoutes(app: FastifyInstance, deps: { connections: S
   app.post<P>(`${BASE}/review/:id/answer`, async (req) => ({
     item: await deps.review.answer(parseId(req.params.cid), parseId(req.params.id), senetReviewAnswerSchema.parse(req.body), { userId: req.user!.id, via: 'web' }),
   }));
+
+  // «Сверка Senet» (§8.3)
+  app.get<C>(`${BASE}/shifts`, async (req) => {
+    const q = z
+      .object({ project: z.coerce.number().int().positive().optional(), from: z.iso.datetime(), to: z.iso.datetime(), onlyDiff: z.enum(['0', '1', 'true', 'false']).optional() })
+      .parse(req.query);
+    return deps.reconcile.list(parseId(req.params.cid), { projectId: q.project, from: q.from, to: q.to, onlyDiff: q.onlyDiff === '1' || q.onlyDiff === 'true' });
+  });
+  app.get<P>(`${BASE}/shifts/:id`, async (req) => deps.reconcile.detail(parseId(req.params.cid), parseId(req.params.id)));
+  app.get<P>(`${BASE}/offices/:id/history-from-suggestion`, async (req) => deps.reconcile.historyFromSuggestion(parseId(req.params.cid), parseId(req.params.id)));
 }
