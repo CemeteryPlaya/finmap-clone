@@ -1,12 +1,4 @@
-/**
- * Нормализация комментария выемки (§4.3): нижний регистр, «ё» → «е», всё, кроме букв, цифр и «_», — пробел, пробелы
- * схлопнуты, края обрезаны. Латиница не переводится: кассиры пишут транслитом (`zp …`, `obed`).
- */
-export function normalize(comment: string): string {
-  return comment
-    .toLowerCase()
-    .replace(/ё/g, 'е')
-    .replace(/[^\p{L}\p{N}_]+/gu, ' ')
-    .trim()
-    .replace(/\s+/g, ' ');
-}
+import { normalizeComment } from '../../../../shared/senet-text';
+
+/** Нормализация комментария выемки (§4.3) — общая с экраном «Разобрать». */
+export const normalize = normalizeComment;

@@ -10,6 +10,7 @@ import { requireCompany } from '../companies/guard';
 import type { OperationInput, OperationsService } from '../operations/service';
 import { senetLinkOf, type SenetLink } from './links';
 import { lateOpTime, planShift, type PlannedOp, type ShiftPlan } from './posting/plan';
+import { syncReviewItems } from './review-items';
 import { loadRuleSet } from './rules-service';
 
 type Office = typeof senetOffices.$inferSelect;
@@ -251,6 +252,8 @@ export function createSenetPosting(d: { db: Db; operations: OperationsService; a
       const changed = plan.revenue !== shift.postedRevenue || amount('kaspi') !== postedAmount('kaspi') || amount('cash') !== postedAmount('cash');
       if (changed !== shift.changedAfterPost) await tx.update(senetShifts).set({ changedAfterPost: changed }).where(eq(senetShifts.id, shift.id));
     }
+    // очередь «Разобрать» — по тому же плану (§6.2)
+    await syncReviewItems(tx, { companyId, shift, plan, moves, at: now().toISOString() });
     if (created.length) {
       await d.audit.record({ companyId, userId, entity: 'senet_shift', entityId: shift.id, action: 'post', diff: { openedAt: shift.openedAt, closedAt: shift.closedAt, operations: created } }, tx);
     }

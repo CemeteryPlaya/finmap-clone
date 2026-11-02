@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { senetCheckSchema, senetConnectionCreateSchema, senetConnectionPatchSchema, senetCheckHistorySchema, senetOfficeSchema, senetRuleOrderSchema, senetRuleSchema, senetSyncSchema } from '../../../shared/schemas/senet';
+import { senetCheckSchema, senetConnectionCreateSchema, senetConnectionPatchSchema, senetCheckHistorySchema, senetOfficeSchema, senetReviewAnswerSchema, senetRuleOrderSchema, senetRuleSchema, senetSyncSchema } from '../../../shared/schemas/senet';
 import { parseId } from '../../http/params';
 import { AppError } from '../../errors';
 import type { SenetConnections } from './connections';
 import { z } from 'zod';
 import type { SenetPosting } from './post';
+import type { SenetReview } from './review';
 import type { SenetRules } from './rules-service';
 import type { SenetSync } from './sync';
 
@@ -13,7 +14,7 @@ type P = { Params: { cid: string; id: string } };
 const BASE = '/api/v1/companies/:cid/senet';
 
 /** Senet (спецификация 2026-11-02-senet-autopost): подключения и клубы. */
-export function registerSenetRoutes(app: FastifyInstance, deps: { connections: SenetConnections; sync: SenetSync; rules: SenetRules; posting: SenetPosting }): void {
+export function registerSenetRoutes(app: FastifyInstance, deps: { connections: SenetConnections; sync: SenetSync; rules: SenetRules; posting: SenetPosting; review: SenetReview }): void {
   const svc = deps.connections;
 
   app.get<C>(`${BASE}/connections`, async (req) => ({ connections: await svc.list(parseId(req.params.cid)) }));
@@ -84,4 +85,13 @@ export function registerSenetRoutes(app: FastifyInstance, deps: { connections: S
     await deps.posting.repostIncomes(parseId(req.params.cid), parseId(req.params.id), req.user!.id);
     return { ok: true };
   });
+
+  // очередь «Разобрать» (§6): тот же API для экрана и будущего Telegram-бота
+  app.get<C>(`${BASE}/review`, async (req) => {
+    const q = z.object({ status: z.enum(['open', 'answered', 'dismissed']).optional(), office: z.coerce.number().int().positive().optional() }).parse(req.query);
+    return { items: await deps.review.list(parseId(req.params.cid), { status: q.status, officeId: q.office }) };
+  });
+  app.post<P>(`${BASE}/review/:id/answer`, async (req) => ({
+    item: await deps.review.answer(parseId(req.params.cid), parseId(req.params.id), senetReviewAnswerSchema.parse(req.body), { userId: req.user!.id, via: 'web' }),
+  }));
 }

@@ -202,3 +202,34 @@ export interface SenetHistoryCheck {
   differs: { moveId: number; operationId: number; comment: string; was: { categoryId: number | null; counterpartyId: number | null }; would: { categoryId: number; counterpartyId: number | null } }[];
 }
 export type SenetCheckHistoryInput = z.infer<typeof senetCheckHistorySchema>;
+
+export type SenetReviewReason = 'unrecognized' | 'name_only' | 'salary_no_name' | 'rule_broken' | 'no_kaspi' | 'negative_cash';
+
+/** Ответ на пункт «Разобрать» (§6.3): тот же API для экрана и будущего Telegram-бота. */
+export const senetReviewAnswerSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('expense'),
+    categoryId: z.number().int().positive({ message: 'Выберите категорию' }),
+    counterpartyId: z.number().int().positive().nullable().default(null),
+    comment: z.string().trim().max(500).nullable().default(null),
+    remember: z.boolean().default(false),
+  }),
+  z.object({ kind: z.literal('kaspi'), amount: z.number().int().min(0) }),
+  z.object({ kind: z.literal('incomes'), kaspi: z.number().int().min(0), cash: z.number().int().min(0) }),
+  z.object({ kind: z.literal('dismiss') }),
+]);
+export type SenetReviewAnswer = z.infer<typeof senetReviewAnswerSchema>;
+
+export interface SenetReviewItemDto {
+  id: number;
+  shiftId: number;
+  shiftOpenedAt: string;
+  shiftClosedAt: string | null;
+  officeId: number;
+  cashMoveId: number | null;
+  amount: number | null;
+  comment: string | null;
+  reason: SenetReviewReason;
+  suggestions: { categoryId: number; counterpartyId: number | null; label: string }[];
+  status: 'open' | 'answered' | 'dismissed';
+}

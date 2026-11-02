@@ -26,6 +26,7 @@ import { registerBackupRoutes } from './modules/backup/routes';
 import { registerCronRoutes } from './modules/cron/routes';
 import { createSenetConnections } from './modules/senet/connections';
 import { createSenetPosting } from './modules/senet/post';
+import { createSenetReview, type SenetReview } from './modules/senet/review';
 import { createSenetRules } from './modules/senet/rules-service';
 import { registerSenetRoutes } from './modules/senet/routes';
 import { cleanupSenetRaw, createSenetSync, type SenetSync } from './modules/senet/sync';
@@ -84,7 +85,7 @@ import { installZodRu } from '../shared/zod-ru';
 declare module 'fastify' {
   interface FastifyInstance {
     /** Забор Senet для планировщика локального режима (спецификация 2026-11-02-senet-autopost, §7). */
-    senet: { sync: SenetSync; cleanup: () => Promise<number> };
+    senet: { sync: SenetSync; review: SenetReview; cleanup: () => Promise<number> };
   }
 }
 
@@ -202,9 +203,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const senetPosting = createSenetPosting({ db, operations, audit, timezone: config.timezone, now });
   const senetSync = createSenetSync({ db, connections: senetConnections, files, timezone: config.timezone, now, afterOffice: async (tx, officeId) => void (await senetPosting.postOffice(tx, officeId)) });
   const senetRules = createSenetRules({ db, audit, now });
-  registerSenetRoutes(app, { connections: senetConnections, sync: senetSync, rules: senetRules, posting: senetPosting });
+  const senetReview = createSenetReview({ db, operations, rules: senetRules, audit, timezone: config.timezone, now });
+  registerSenetRoutes(app, { connections: senetConnections, sync: senetSync, rules: senetRules, posting: senetPosting, review: senetReview });
   // задачи локального планировщика (main.ts): часовой забор и ночная уборка сырых файлов
-  app.decorate('senet', { sync: senetSync, cleanup: () => cleanupSenetRaw(db, files, now()) });
+  app.decorate('senet', { sync: senetSync, review: senetReview, cleanup: () => cleanupSenetRaw(db, files, now()) });
   registerSavedFiltersRoutes(app, { savedFilters: createSavedFiltersService({ db, now }) });
   registerAttachmentsRoutes(app, { attachments: createAttachmentsService({ db, audit, files, now }), files, stored: uploads === 'blob' });
   registerBalancesRoutes(app, { companies, ledger: balances, rates, timezone: config.timezone, now });
