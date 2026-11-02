@@ -82,6 +82,6 @@
 | 47 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: автопроводка (задача 11) | senet-post, senet-undo, client operation-senet-delete PASS; npm test PASS | 42, 45 | cc:完了 [c6cdc2a] |
 | 48 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: очередь «Разобрать» (задача 12) | senet-review, senet-suggest, client senet-review PASS | 46, 47 | cc:完了 [7ace1d1] |
 | 49 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: API сверки (задача 13) | senet-reconcile PASS на обоих диалектах | 47 | cc:完了 [750c863] |
-| 50 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: экран «Сверка Senet» (задача 14) | client senet-page PASS; typecheck | 48, 49 | cc:TODO |
+| 50 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: экран «Сверка Senet» (задача 14) | client senet-page PASS; typecheck | 48, 49 | cc:完了 [3547f11] |
 | 51 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: данные для склада и аналитики (задача 15) | senet-analytics-data PASS на обоих диалектах | 37, 42 | cc:TODO |
 | 52 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` СА-3: e2e, снимки, README, чек-лист приёмки (задача 16) | e2e/senet ×2 + E2E_DB=pg; shots:ux +7; npm test, typecheck, lint:async | 43, 50, 51 | cc:TODO |

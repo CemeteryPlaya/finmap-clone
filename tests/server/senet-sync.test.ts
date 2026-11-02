@@ -105,7 +105,7 @@ describe('забор Senet', () => {
     const obed = await q("SELECT senet_ref FROM senet_cash_moves WHERE comment = 'obed' ORDER BY senet_ref");
     expect(obed.map((r) => String(r.senet_ref).split('|').at(-1))).toEqual(['1', '2']);
 
-    const raw = await q('SELECT report, file_key FROM senet_raw ORDER BY report');
+    const raw = await q("SELECT report, file_key FROM senet_raw WHERE report IN ('sessions', 'cashMoves', 'transactions') ORDER BY report");
     expect(raw.map((r) => r.report)).toEqual(['cashMoves', 'sessions', 'transactions']);
     expect((await files.get(String(raw[0]!.file_key)))!.subarray(0, 2).toString()).toBe('PK');
     const [conn] = await q('SELECT last_sync_at, status FROM senet_connections');
@@ -121,7 +121,7 @@ describe('забор Senet', () => {
     expect(gets('cashdesk_session').at(-1)!.query.from_date).toBe('2026-10-01T04:00:00.000Z');
     expect((await q('SELECT COUNT(*) n FROM senet_shifts'))[0]!.n).toBe(2);
     expect((await q('SELECT COUNT(*) n FROM senet_cash_moves'))[0]!.n).toBe(7);
-    expect((await q('SELECT COUNT(*) n FROM senet_raw'))[0]!.n).toBe(4);
+    expect((await q("SELECT COUNT(*) n FROM senet_raw WHERE report IN ('sessions', 'cashMoves', 'transactions')"))[0]!.n).toBe(4);
     const flagged = (await q('SELECT comment, missing_in_senet m FROM senet_cash_moves')).filter((r) => Boolean(r.m)).map((r) => r.comment);
     expect(flagged).toEqual(['zp Оператор 1']);
   });
@@ -197,10 +197,10 @@ describe('забор Senet', () => {
 
   it('сырые файлы старше 90 дней удаляются вместе с записью', async () => {
     await sync.run({ trigger: 'manual', connectionId });
-    const [old] = await q('SELECT id, file_key FROM senet_raw ORDER BY id');
+    const [old] = await q("SELECT id, file_key FROM senet_raw WHERE report IN ('sessions', 'cashMoves', 'transactions') ORDER BY id");
     await q("UPDATE senet_raw SET fetched_at = '2026-06-01T00:00:00.000Z' WHERE id = ?", old!.id);
     expect(await cleanupSenetRaw(w.h.t.db, files, now)).toBe(1);
     expect(await files.get(String(old!.file_key))).toBeNull();
-    expect((await q('SELECT COUNT(*) n FROM senet_raw'))[0]!.n).toBe(2);
+    expect((await q("SELECT COUNT(*) n FROM senet_raw WHERE report IN ('sessions', 'cashMoves', 'transactions')"))[0]!.n).toBe(2);
   });
 });

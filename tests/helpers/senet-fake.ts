@@ -1,4 +1,8 @@
 import Fastify from 'fastify';
+import { senetSample } from './senet-samples';
+
+/** Отчёты для аналитики: пустые, если тест не просит их сам (ownAnalytics). */
+const ANALYTICS = { sold_check_items: 'soldItems', checks: 'checks', refill: 'refills' } as const;
 
 /**
  * Поддельный сервер Senet (план 2026-11-02-senet-autopost, задача 4): вход админ-панели и отчёты. Отчёт — функция от
@@ -30,7 +34,7 @@ export interface SenetFake {
   close(): Promise<void>;
 }
 
-export async function startSenetFake(o: { users?: Record<string, FakeUser>; report?: SenetFake['report'] } = {}): Promise<SenetFake> {
+export async function startSenetFake(o: { users?: Record<string, FakeUser>; report?: SenetFake['report']; ownAnalytics?: boolean } = {}): Promise<SenetFake> {
   const app = Fastify({ logger: false });
   const fake: SenetFake = {
     base: '',
@@ -58,7 +62,8 @@ export async function startSenetFake(o: { users?: Record<string, FakeUser>; repo
     const auth = req.headers.authorization ?? '';
     if (!auth.startsWith('Token ') || !fake.tokens.has(auth.slice(6))) return reply.code(401).send({ detail: 'Invalid token.' });
     const q = req.query as Record<string, string>;
-    const r = fake.report(q.type ?? '', q);
+    const analytics = ANALYTICS[q.type as keyof typeof ANALYTICS];
+    const r = analytics && !o.ownAnalytics ? senetSample(analytics, []) : fake.report(q.type ?? '', q);
     if (Buffer.isBuffer(r)) return reply.header('content-type', 'application/xlsx').send(r);
     for (const [k, v] of Object.entries(r.headers ?? {})) reply.header(k, v);
     return reply

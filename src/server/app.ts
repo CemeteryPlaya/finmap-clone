@@ -202,7 +202,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
   const senetConnections = createSenetConnections({ db, audit, config, secrets: (create) => loadSecrets(config, { create }), now });
   const senetPosting = createSenetPosting({ db, operations, audit, timezone: config.timezone, now });
-  const senetSync = createSenetSync({ db, connections: senetConnections, files, timezone: config.timezone, now, afterOffice: async (tx, officeId) => void (await senetPosting.postOffice(tx, officeId)) });
+  const senetSync = createSenetSync({ db, connections: senetConnections, files, timezone: config.timezone, now, secrets: () => loadSecrets(config), afterOffice: async (tx, officeId) => void (await senetPosting.postOffice(tx, officeId)) });
   const senetRules = createSenetRules({ db, audit, now });
   const senetReview = createSenetReview({ db, operations, rules: senetRules, audit, timezone: config.timezone, now });
   registerSenetRoutes(app, { connections: senetConnections, sync: senetSync, rules: senetRules, posting: senetPosting, review: senetReview, reconcile: createSenetReconcile({ db, posting: senetPosting }) });

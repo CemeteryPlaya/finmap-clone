@@ -8,7 +8,9 @@ import type { FileStore } from '../../files/store';
 import { SecretsError } from '../../secrets';
 import type { SenetConnections } from './connections';
 import { SenetError, type RawFile, type ReportKind, type SenetSource } from './source';
-import { writeOfficeBatch } from './store';
+import { writeAnalyticsDay, writeOfficeBatch } from './store';
+import { todayInTimezone } from '../../../shared/dates';
+import { phoneMask, type Secrets } from '../../secrets';
 
 export type SyncTrigger = 'hourly' | 'cron' | 'manual' | 'period';
 
@@ -42,6 +44,8 @@ const OVERLAP_MS = 26 * HOUR;
 const RAW_KEEP_MS = 90 * DAY;
 const RUNS_KEEP = 500;
 const STALE_RUN_MS = 10 * 60_000;
+/** Столько строк Senet отдаёт в отчёте самое большее (настоящие выгрузки: продажи за октябрь обрезаны на 2000). */
+const SENET_ROW_CAP = 2000;
 const OUT_OF_TIME = 'Не уложились во время — продолжим через час';
 
 /** Ключ файла без «:» (локальное хранилище на Windows): 2026-10-01T04:00:00.000Z → 20261001T040000Z. */
@@ -63,6 +67,8 @@ export function createSenetSync(d: {
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
   afterOffice?: AfterOfficeSync;
+  /** Ключ HMAC телефонов гостей (§9.3); null — телефон хранится только маской. */
+  secrets?: () => Secrets | null;
 }): SenetSync {
   const { db, files } = d;
   const now = d.now ?? (() => new Date());
@@ -153,6 +159,24 @@ export function createSenetSync(d: {
             counts.moves += written.moves;
             if (d.afterOffice) await d.afterOffice(tx, office.id);
           });
+          // продажи, чеки и пополнения — окнами по суткам: Senet обрезает отчёт продаж на 2000 строк (§9.3)
+          const secrets = d.secrets?.() ?? null;
+          const phone = (p: string | null) => (p ? { hash: secrets ? secrets.phoneHash(p) : null, mask: phoneMask(p) } : { hash: null, mask: null });
+          for (let t = Date.parse(from); t < Date.parse(to); t += DAY) {
+            const dayFrom = new Date(t).toISOString();
+            const dayTo = new Date(Math.min(t + DAY, Date.parse(to))).toISOString();
+            const sold = await fetch('soldItems', dayFrom, dayTo);
+            const checks = await fetch('checks', dayFrom, dayTo);
+            const refills = await fetch('refills', dayFrom, dayTo);
+            for (const [kind, rows] of [['sold_check_items', sold], ['checks', checks], ['refill', refills]] as const) {
+              if (rows && rows.length === SENET_ROW_CAP) {
+                partial = true;
+                const [y, m, dd] = todayInTimezone(d.timezone, new Date(dayFrom)).split('-');
+                error ??= `Отчёт «${kind}» за ${dd}.${m}.${y} пришёл ровно на ${SENET_ROW_CAP} строк — Senet мог его обрезать`;
+              }
+            }
+            await withTx(db, (tx) => writeAnalyticsDay(tx, { officeId: office.id, from: dayFrom, to: dayTo, sold, checks, refills, phone }));
+          }
           counts.done++;
         }
       }

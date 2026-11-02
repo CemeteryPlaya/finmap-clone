@@ -1,10 +1,10 @@
-import { and, asc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, lt, sql, type AnyColumn } from 'drizzle-orm';
 import type { Executor } from '../../db/client';
 import { first } from '../../db/raw';
-import { senetCashMoves, senetShifts, senetTransactions } from '../../db/schema';
+import { senetCashMoves, senetChecks, senetRefills, senetShifts, senetSoldItems, senetTransactions } from '../../db/schema';
 import { normalize } from './posting/normalize';
 import { shiftTotals, shiftWindows } from './posting/windows';
-import type { CashMoveRow, SessionRow, TransactionRow } from './source';
+import type { CashMoveRow, CheckRow, RefillRow, SessionRow, SoldItemRow, TransactionRow } from './source';
 
 /** Разобранные отчёты одного отрезка забора клуба. */
 export interface OfficeBatch {
@@ -120,4 +120,49 @@ export async function writeOfficeBatch(tx: Executor, b: OfficeBatch, at: string)
       .where(eq(senetShifts.id, shift.id));
   }
   return { shifts: b.sessions.length, moves };
+}
+
+/** Строки аналитики одних суток клуба (§9.3, П5): замена строк окна — удаление и вставка в транзакции вызывающего. */
+export async function writeAnalyticsDay(
+  tx: Executor,
+  o: { officeId: number; from: string; to: string; sold: SoldItemRow[] | null; checks: CheckRow[] | null; refills: RefillRow[] | null; phone: (p: string | null) => { hash: string | null; mask: string | null } },
+): Promise<void> {
+  const inDay = <T extends { officeId: AnyColumn; at: AnyColumn }>(t: T) => and(eq(t.officeId, o.officeId), gte(t.at, o.from), lt(t.at, o.to));
+  const insert = async <R>(rows: R[], write: (part: R[]) => Promise<unknown>) => {
+    for (let i = 0; i < rows.length; i += CHUNK) await write(rows.slice(i, i + CHUNK));
+  };
+  if (o.sold) {
+    const shifts = await tx
+      .select({ id: senetShifts.id, openedAt: senetShifts.openedAt, closedAt: senetShifts.closedAt })
+      .from(senetShifts)
+      .where(eq(senetShifts.officeId, o.officeId))
+      .orderBy(asc(senetShifts.openedAt));
+    const shiftOf = (at: string) => shifts.find((s) => s.openedAt <= at && (s.closedAt === null || at <= s.closedAt))?.id ?? null;
+    await tx.delete(senetSoldItems).where(inDay(senetSoldItems));
+    await insert(o.sold, (part) =>
+      tx.insert(senetSoldItems).values(part.map((r) => ({ officeId: o.officeId, shiftId: shiftOf(r.at), at: r.at, item: r.item, qty: r.qty === null ? null : Math.round(r.qty * 1000), amount: r.amount, payment: r.payment, refund: r.refund, comment: r.comment }))),
+    );
+  }
+  if (o.checks) {
+    await tx.delete(senetChecks).where(inDay(senetChecks));
+    await insert(o.checks, (part) =>
+      tx.insert(senetChecks).values(
+        part.map((r) => {
+          const p = o.phone(r.phone);
+          return { officeId: o.officeId, at: r.at, code: r.code, amount: r.amount, used: r.used, workstation: r.workstation, guestLogin: r.guestLogin, phoneHash: p.hash, phoneMask: p.mask, cashier: r.cashier };
+        }),
+      ),
+    );
+  }
+  if (o.refills) {
+    await tx.delete(senetRefills).where(inDay(senetRefills));
+    await insert(o.refills, (part) =>
+      tx.insert(senetRefills).values(
+        part.map((r) => {
+          const p = o.phone(r.phone);
+          return { officeId: o.officeId, at: r.at, guestLogin: r.guestLogin, accountType: r.accountType, amount: r.amount, workstation: r.workstation, phoneHash: p.hash, phoneMask: p.mask };
+        }),
+      ),
+    );
+  }
 }
