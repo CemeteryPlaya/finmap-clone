@@ -1,6 +1,7 @@
 # Ежечасный забор Senet для учёта на Vercel (спецификация 2026-11-02-senet-autopost, §7).
 # Бесплатный Vercel Cron срабатывает раз в сутки, поэтому каждый час маршрут вызывает GitHub Actions — с тем же
-# секретом, что у Vercel Cron. Секреты репозитория: CRON_SECRET (как в Vercel) и APP_URL (https://<проект>.vercel.app).
+# секретом, что у Vercel Cron. Секреты репозитория (Repository secrets): CRON_SECRET (как в Vercel), APP_URL (адрес из
+# Vercel → Domains) и, если включена Vercel Authentication, VERCEL_AUTOMATION_BYPASS_SECRET (Protection Bypass for Automation).
 # GitHub может запускать расписание с опозданием на несколько минут.
 name: senet-sync
 
@@ -20,6 +21,8 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           APP_URL: ${{ secrets.APP_URL }}
+          # адреса *.vercel.app закрыты Vercel Authentication: ключ «Protection Bypass for Automation» проекта
+          VERCEL_BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           if [ -z "$CRON_SECRET" ] || [ -z "$APP_URL" ]; then
             echo "Задайте секреты CRON_SECRET и APP_URL в настройках репозитория"; exit 1
@@ -28,6 +31,8 @@ jobs:
           case "$APP_URL" in http://*|https://*) ;; *) APP_URL="https://$APP_URL" ;; esac
           APP_URL="${APP_URL%/}"
           # 409 — забор уже идёт (предыдущий запуск не закончился): это не ошибка
-          code=$(curl -sS -o response.json -w '%{http_code}' --max-time 320 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/v1/cron/senet")
+          bypass=()
+          if [ -n "$VERCEL_BYPASS" ]; then bypass=(-H "x-vercel-protection-bypass: $VERCEL_BYPASS"); fi
+          code=$(curl -sS -o response.json -w '%{http_code}' --max-time 320 -H "Authorization: Bearer $CRON_SECRET" "${bypass[@]}" "$APP_URL/api/v1/cron/senet")
           cat response.json; echo
           if [ "$code" != "200" ] && [ "$code" != "409" ]; then echo "Ответ $code"; exit 1; fi

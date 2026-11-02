@@ -546,7 +546,7 @@ sudo systemctl start finmap-clone
 
 **Когда забирается.**
 - Локально, `vps`, `cloudflare`, `ngrok` — сам, в 5 минут каждого часа; сырые отчёты хранятся 90 дней.
-- `vercel` — бесплатный Vercel Cron срабатывает раз в сутки (`/api/v1/cron/senet`). Каждый час маршрут вызывает GitHub Actions (`.github/workflows/senet-sync.yml`): в настройках репозитория → Secrets and variables → Actions задайте `CRON_SECRET` (тот же, что в Vercel) и `APP_URL` (`https://<проект>.vercel.app`). GitHub может запускать расписание с опозданием на несколько минут.
+- `vercel` — бесплатный Vercel Cron срабатывает раз в сутки (`/api/v1/cron/senet`). Каждый час маршрут вызывает GitHub Actions (`.github/workflows/senet-sync.yml`): в настройках репозитория → Secrets and variables → Actions → **Repository secrets** (не Environment secrets — их задание не видит) задайте `CRON_SECRET` (тот же, что в Vercel) и `APP_URL` — рабочий адрес проекта из Vercel → Domains (например, `https://finmap-clone-<команда>.vercel.app`). Если в Vercel включена защита Vercel Authentication (Settings → Deployment Protection), GitHub получит 401: там же включите «Protection Bypass for Automation» и сохраните ключ в секрет `VERCEL_AUTOMATION_BYPASS_SECRET`. GitHub может запускать расписание с опозданием на несколько минут.
 - Вручную — «Обновить сейчас» и «Загрузить за период» (не больше 366 дней) в карточке подключения.
 
 **`SECRET_KEY` на Vercel.** Без него подключить Senet нельзя («Задайте SECRET_KEY в настройках Vercel»). Создайте ключ командой `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`, добавьте переменную `SECRET_KEY` в Vercel (Production) и сделайте Redeploy. Если ключ поменяется, данные входа не расшифруются — их нужно ввести заново.
