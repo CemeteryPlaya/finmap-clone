@@ -105,4 +105,11 @@ export function registerSenetRoutes(app: FastifyInstance, deps: { connections: S
   });
   app.get<P>(`${BASE}/shifts/:id`, async (req) => deps.reconcile.detail(parseId(req.params.cid), parseId(req.params.id)));
   app.get<P>(`${BASE}/offices/:id/history-from-suggestion`, async (req) => deps.reconcile.historyFromSuggestion(parseId(req.params.cid), parseId(req.params.id)));
+  app.patch<P>(`${BASE}/shifts/:id/no-repost`, async (req) => {
+    const b = z
+      .discriminatedUnion('kind', [z.object({ kind: z.literal('move'), moveId: z.number().int().positive(), noRepost: z.boolean() }), z.object({ kind: z.enum(['kaspi', 'cash']), noRepost: z.boolean() })])
+      .parse(req.body);
+    await deps.posting.setNoRepostRef(parseId(req.params.cid), parseId(req.params.id), b.kind === 'move' ? { kind: 'move', moveId: b.moveId } : { kind: b.kind }, b.noRepost);
+    return { ok: true };
+  });
 }

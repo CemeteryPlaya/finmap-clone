@@ -1,3 +1,5 @@
+import { useSenetConnections } from '../lib/senet';
+import { senetTabVisible } from '../lib/senet-reconcile';
 import { useEffect, useState, type MouseEvent } from 'react';
 import { Link, NavLink, useLocation, useMatch } from 'react-router';
 import { focusHeadingSoon, isPlainLeftClick, pathOf } from '../lib/focus-heading';
@@ -39,6 +41,9 @@ export function MobileTabBar({ company }: { company: Company }) {
   const inSettings = useMatch('/c/:companyId/settings/*') !== null;
   const inStock = useMatch('/c/:companyId/stock/*') !== null;
   const inAnalytics = useMatch('/c/:companyId/analytics/*') !== null;
+  const inSenet = useMatch('/c/:companyId/senet/*') !== null;
+  const senetConnections = useSenetConnections(company.id);
+  const senet = `/c/${company.id}/senet/shifts`;
   // запомненный адрес журнала обновляется после отрисовки страницы — в самом журнале берём текущий
   const journal = onJournal ? `${location.pathname}${location.search}` : journalBackHref(company.id, readLastJournal(company.id));
   const analytics = `/c/${company.id}/analytics`;
@@ -62,9 +67,16 @@ export function MobileTabBar({ company }: { company: Company }) {
         <NavLink to={journal} onClick={go(journal)} className={tabClass}>
           Журнал
         </NavLink>
-        <Popover key={mobile ? 'phone' : 'wide'} label="Ещё" align="right" buttonClassName={inSettings || inStock || inAnalytics ? `${tabBase} ${currentClass}` : tabClass} panelClassName="w-60">
+        <Popover key={mobile ? 'phone' : 'wide'} label="Ещё" align="right" buttonClassName={inSettings || inStock || inAnalytics || inSenet ? `${tabBase} ${currentClass}` : tabClass} panelClassName="w-60">
           {(close) => (
             <ul className="flex flex-col">
+              {senetTabVisible(senetConnections.data) && (
+                <li>
+                  <Link to={senet} onClick={go(senet, close)} className={itemClass}>
+                    Сверка Senet
+                  </Link>
+                </li>
+              )}
               <li>
                 <Link to={analytics} onClick={go(analytics, close)} className={itemClass}>
                   Аналитика

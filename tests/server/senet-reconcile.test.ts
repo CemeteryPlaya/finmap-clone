@@ -96,6 +96,20 @@ describe('сверка Senet', () => {
     expect((await shifts()).rows[0].states).toEqual(['not_posted']);
   });
 
+  it('«Не проводить повторно» снимается и ставится в раскрытой смене — по выемке и доходу', async () => {
+    await setup();
+    const [, b] = (await shifts()).rows;
+    const detail = (await x!.w.h.req('GET', `${x!.base}/shifts/${b.id}`)).json();
+    const obed = detail.moves.find((m: { comment: string }) => m.comment === 'obed');
+    const set = (body: object) => x!.w.h.req('PATCH', `${x!.base}/shifts/${b.id}/no-repost`, body);
+    expect((await set({ kind: 'move', moveId: obed.id, noRepost: true })).statusCode).toBe(200);
+    expect((await set({ kind: 'cash', noRepost: true })).statusCode).toBe(200);
+    const after = (await x!.w.h.req('GET', `${x!.base}/shifts/${b.id}`)).json();
+    expect(after.moves.find((m: { id: number }) => m.id === obed.id).noRepost).toBe(true);
+    expect(after.incomes.find((i: { kind: string }) => i.kind === 'cash').noRepost).toBe(true);
+    expect((await set({ kind: 'move', moveId: 999_999, noRepost: false })).statusCode).toBe(404);
+  });
+
   it('«Загружать с даты» — предложение: первая смена после последней операции на счёте кассы', async () => {
     await setup();
     const res = await x!.w.h.req('GET', `${x!.base}/offices/${x!.office}/history-from-suggestion`);

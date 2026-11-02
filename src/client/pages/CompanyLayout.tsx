@@ -8,6 +8,8 @@ import { ImportPanelHost } from '../components/import/ImportPanel';
 import { LoadError } from '../components/LoadError';
 import { MobileTabBar } from '../components/MobileTabBar';
 import { AccessBanner } from '../components/senet/AccessBanner';
+import { useSenetConnections } from '../lib/senet';
+import { senetTabVisible } from '../lib/senet-reconcile';
 import { NewOperationButtons, OperationFormHost } from '../components/operation/OperationFormHost';
 import { mainCardClass } from '../components/ui';
 import { savePreference, useCompanies, usePreferences, type Company } from '../lib/queries';
@@ -40,6 +42,12 @@ export function CompanyLayout() {
     return <div className="p-8 text-muted">Загрузка…</div>;
   }
   if (!company) return <Navigate to="/" replace />;
+  return <CompanyShell company={company} companies={companies.data} inSettings={inSettings} />;
+}
+
+/** Оболочка компании: хуки Senet нужны уже известной компании. */
+function CompanyShell({ company, companies: list, inSettings }: { company: Company; companies: Company[]; inSettings: boolean }) {
+  const senet = useSenetConnections(company.id);
 
   return (
     <OperationFormHost company={company}>
@@ -48,7 +56,7 @@ export function CompanyLayout() {
           <AppHeader
             // в зоне настроек панель счетов не нужна (§8.6)
             menuButton={inSettings ? undefined : <AccountsDrawerButton company={company} />}
-            company={<CompanyBlockButton current={company} companies={companies.data} />}
+            company={<CompanyBlockButton current={company} companies={list} />}
             // архивная компания — только чтение: кнопок новых операций нет ни на компьютере, ни на телефоне
             actions={company.archivedAt ? undefined : <NewOperationButtons />}
             tools={<HistoryButton company={company} />}
@@ -65,6 +73,11 @@ export function CompanyLayout() {
                     <NavLink to={`/c/${company.id}/log`} className={tab}>
                       Журнал
                     </NavLink>
+                    {senetTabVisible(senet.data) && (
+                      <NavLink to={`/c/${company.id}/senet/shifts`} className={tab}>
+                        Сверка Senet
+                      </NavLink>
+                    )}
                     <NavLink to={`/c/${company.id}/analytics`} className={tab}>
                       Аналитика
                     </NavLink>

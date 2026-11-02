@@ -35,6 +35,11 @@ export function OfficeForm(props: { companyId: number; connectionId: number; tim
   const [historyText, setHistoryText] = useState(isoToLocalInput(v.historyFrom, props.timeZone));
   const [offsetText, setOffsetText] = useState(String((o?.cashOffset ?? 0) / 100));
   const set = (patch: Partial<SenetOfficeInput>) => setV((x) => ({ ...x, ...patch }));
+  /** Начало первой смены, которой ещё нет в журнале (§5.5). */
+  const suggestHistory = async () => {
+    const r = await api<{ openedAt: string | null }>(`/companies/${props.companyId}/senet/offices/${o!.id}/history-from-suggestion`);
+    if (r.openedAt) setHistoryText(isoToLocalInput(r.openedAt, props.timeZone));
+  };
   const save = useMutation<unknown, ApiError>({
     mutationFn: () => {
       const body = { ...v, historyFrom: localInputToIso(historyText, props.timeZone), cashOffset: Math.round(Number(offsetText.replace(',', '.') || 0) * 100) };
@@ -98,7 +103,16 @@ export function OfficeForm(props: { companyId: number; connectionId: number; tim
         {select(v.incomeCategoryId, (id) => set({ incomeCategoryId: id }), flat(categories.data.income))}
       </Field>
       <Field label="Загружать с даты" hint="Смены раньше этой даты считаются уже внесёнными вручную" error={err('historyFrom')}>
-        {(c) => <input {...c} type="datetime-local" value={historyText} onChange={(e) => setHistoryText(e.target.value)} className={inputClass} />}
+        {(c) => (
+          <div className="flex gap-2">
+            <input {...c} type="datetime-local" value={historyText} onChange={(e) => setHistoryText(e.target.value)} className={inputClass} />
+            {o && (
+              <button type="button" className={btnSecondary} onClick={() => void suggestHistory()}>
+                Предложить
+              </button>
+            )}
+          </div>
+        )}
       </Field>
       <Field label="Постоянная разница кассы, ₸" hint="Учёт минус Senet: так «Сверка» сравнивает остаток кассы после смены" error={err('cashOffset')}>
         {(c) => <input {...c} inputMode="decimal" value={offsetText} onChange={(e) => setOffsetText(e.target.value)} className={inputClass} />}

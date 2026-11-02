@@ -8,6 +8,7 @@ import { StatementPage } from './pages/analytics/StatementPage';
 import { CompanyGate } from './pages/CompanyGate';
 import { CompanyLayout } from './pages/CompanyLayout';
 import { JournalPage } from './pages/JournalPage';
+import { SenetPage } from './pages/SenetPage';
 import { LoginPage } from './pages/LoginPage';
 import { NewCompanyPage } from './pages/NewCompanyPage';
 import { RequireAuth } from './pages/RequireAuth';
@@ -47,6 +48,8 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="log" replace /> },
           { path: 'log', element: <JournalPage /> },
+          { path: 'senet', element: <Navigate to="shifts" replace /> },
+          { path: 'senet/:tab', element: <SenetPage /> },
           {
             path: 'analytics',
             children: [

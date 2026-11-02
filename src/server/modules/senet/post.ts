@@ -30,6 +30,8 @@ export interface SenetPosting {
   /** «Не проводить повторно» у выемки или дохода (§5.3). */
   setNoRepost(companyId: number, operationId: number, value: boolean): Promise<SenetLink>;
   linkOf(companyId: number, operationId: number): Promise<SenetLink | null>;
+  /** «Не проводить повторно» из раскрытой смены «Сверки» — и у выемки, операция которой уже удалена. */
+  setNoRepostRef(companyId: number, shiftId: number, ref: { kind: 'move'; moveId: number } | { kind: 'kaspi' | 'cash' }, value: boolean): Promise<void>;
   /** Связка проведённого с компанией: выемка или доход её смены. */
   plan(ex: Executor, office: Ready, shift: Shift): Promise<{ plan: ShiftPlan; moves: Move[] }>;
 }
@@ -182,6 +184,18 @@ export function createSenetPosting(d: { db: Db; operations: OperationsService; a
         else await tx.update(senetPostings).set({ noRepost: value }).where(eq(senetPostings.operationId, operationId));
       });
       return { ...link, noRepost: value };
+    },
+
+    async setNoRepostRef(companyId, shiftId, ref, value) {
+      const shift = await first(db.select().from(senetShifts).where(eq(senetShifts.id, shiftId)));
+      if (!shift || (await companyOf(db, shift.officeId)).companyId !== companyId) throw new AppError(404, 'NOT_FOUND', 'Смена не найдена');
+      await withTx(db, async (tx) => {
+        const done =
+          ref.kind === 'move'
+            ? await tx.update(senetCashMoves).set({ noRepost: value }).where(and(eq(senetCashMoves.id, ref.moveId), eq(senetCashMoves.shiftId, shiftId))).returning({ id: senetCashMoves.id })
+            : await tx.update(senetPostings).set({ noRepost: value }).where(and(eq(senetPostings.shiftId, shiftId), eq(senetPostings.kind, ref.kind))).returning({ id: senetPostings.id });
+        if (!done.length) throw new AppError(404, 'NOT_FOUND', ref.kind === 'move' ? 'Выемка не найдена' : 'Доход смены не проведён');
+      });
     },
 
     async linkOf(companyId, operationId) {
