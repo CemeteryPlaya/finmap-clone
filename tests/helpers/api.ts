@@ -19,8 +19,8 @@ export interface ApiHarness {
 }
 
 /** Приложение с валютами KZT и USD и вошедшим пользователем admin. */
-export async function createApi(now?: string): Promise<ApiHarness> {
-  const t = await createTestApp({}, undefined, now ? () => new Date(now) : undefined);
+export async function createApi(now?: string, overrides: Record<string, string> = {}): Promise<ApiHarness> {
+  const t = await createTestApp(overrides, undefined, now ? () => new Date(now) : undefined);
   await t.q("INSERT INTO currencies (code,name,symbol,minor_units) VALUES ('KZT','Тенге','₸',2),('USD','Доллар','$',2)");
   await seedUser(t);
   const cookie = await loginAs(t);

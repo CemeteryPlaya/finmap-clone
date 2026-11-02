@@ -16,7 +16,11 @@ export type AuditAction =
   | 'logout'
   | 'password_change'
   /** Отмена действий с операцией (спецификация 2026-10-19, часть 2): diff — что отменено. */
-  | 'undo';
+  | 'undo'
+  /** Senet (спецификация 2026-11-02-senet-autopost): подключение, ручной забор, проводка смены. */
+  | 'connect'
+  | 'sync'
+  | 'post';
 
 /** Действия с операциями, которые отменяет «Отмена» в «Истории действий». */
 export const UNDOABLE_ACTIONS = ['create', 'update', 'delete', 'restore'] as const;

@@ -24,6 +24,9 @@ import { registerAuditRoutes } from './modules/audit/routes';
 import { createAuditService } from './modules/audit/service';
 import { registerBackupRoutes } from './modules/backup/routes';
 import { registerCronRoutes } from './modules/cron/routes';
+import { createSenetConnections } from './modules/senet/connections';
+import { registerSenetRoutes } from './modules/senet/routes';
+import { loadSecrets } from './secrets';
 import { unavailableBackup, createBackupService, type BackupService } from './modules/backup/service';
 import { LoginLimiter } from './modules/auth/login-limiter';
 import { readSessionToken, registerAuth } from './modules/auth/plugin';
@@ -185,6 +188,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     templates: createStockTemplateService({ db, timezone: config.timezone, now }),
     analytics: createStockAnalyticsService({ db, balance: stockBalance, timezone: config.timezone, now }),
   });
+  const senetConnections = createSenetConnections({ db, audit, config, secrets: (create) => loadSecrets(config, { create }), now });
+  registerSenetRoutes(app, { connections: senetConnections });
   registerSavedFiltersRoutes(app, { savedFilters: createSavedFiltersService({ db, now }) });
   registerAttachmentsRoutes(app, { attachments: createAttachmentsService({ db, audit, files, now }), files, stored: uploads === 'blob' });
   registerBalancesRoutes(app, { companies, ledger: balances, rates, timezone: config.timezone, now });

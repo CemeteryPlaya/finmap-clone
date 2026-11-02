@@ -45,6 +45,7 @@ export function settingsGroups(companyName: string): SettingsGroup[] {
         { path: 'tags', label: 'Теги' },
         { path: 'warehouses', label: 'Склады' },
         { path: 'users', label: 'Пользователи' },
+        { path: 'integrations', label: 'Интеграции' },
         { path: 'rates', label: 'Фиксированные курсы валют' },
         { path: 'backup', label: 'Резервное копирование' },
       ],

@@ -39,6 +39,8 @@ export interface Config {
   blobToken: string | null;
   /** Ключ шифрования данных входа Senet (SECRET_KEY, base64 32 байта); null — вне vercel берётся файл в DATA_DIR. */
   secretKey: string | null;
+  /** SENET_API_BASE — адрес поддельного сервера Senet в тестах и e2e; null — https://{org}.app.enes.tech. */
+  senetApiBase: string | null;
 }
 
 const optional = z
@@ -79,6 +81,7 @@ const envSchema = z.object({
   CRON_SECRET: optional,
   BLOB_READ_WRITE_TOKEN: optional,
   // ключ шифрования данных входа Senet (спецификация 2026-11-02-senet-autopost, §10); на Vercel без него подключить нельзя
+  SENET_API_BASE: optional,
   SECRET_KEY: optional.refine((v) => v === null || Buffer.from(v, 'base64').length === 32, 'SECRET_KEY — 32 байта в base64'),
   VERCEL_PROJECT_PRODUCTION_URL: optional,
   VERCEL_URL: optional,
@@ -179,5 +182,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     cronSecret: vercel ? e.CRON_SECRET : null,
     blobToken: vercel ? e.BLOB_READ_WRITE_TOKEN : null,
     secretKey: e.SECRET_KEY,
+    senetApiBase: e.SENET_API_BASE,
   };
 }

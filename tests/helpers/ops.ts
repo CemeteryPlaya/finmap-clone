@@ -22,8 +22,8 @@ export interface OpsWorld {
  * Компания с двумя счетами, категориями обоих видов, двумя проектами, контрагентом, тегом
  * и ручным курсом USD 475.12 на 2026-10-01. По умолчанию «сейчас» — 2026-10-06 12:00 UTC (17:00 по Алматы).
  */
-export async function opsWorld(now = '2026-10-06T12:00:00.000Z'): Promise<OpsWorld> {
-  const h = await createApi(now);
+export async function opsWorld(now = '2026-10-06T12:00:00.000Z', overrides: Record<string, string> = {}): Promise<OpsWorld> {
+  const h = await createApi(now, overrides);
   const cid = await h.company('ТОО');
   const base = `/api/v1/companies/${cid}`;
   const post = async (url: string, body: unknown) => {

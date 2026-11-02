@@ -27,6 +27,7 @@ import { SplitPresetsSettings } from './pages/settings/SplitPresetsSettings';
 import { RatesSettings } from './pages/settings/RatesSettings';
 import { ProfileSettings } from './pages/settings/ProfileSettings';
 import { UsersSettings } from './pages/settings/UsersSettings';
+import { IntegrationsSettings } from './pages/settings/IntegrationsSettings';
 import { AuditSettings } from './pages/settings/AuditSettings';
 import { BackupSettings } from './pages/settings/BackupSettings';
 import { JournalViewSettings } from './pages/settings/JournalViewSettings';
@@ -86,6 +87,7 @@ export const router = createBrowserRouter([
               { path: 'tags', element: <TagsSettings /> },
               { path: 'warehouses', element: <WarehousesSettings /> },
               { path: 'users', element: <UsersSettings /> },
+              { path: 'integrations', element: <IntegrationsSettings /> },
               { path: 'rates', element: <RatesSettings /> },
               { path: 'backup', element: <BackupSettings /> },
               { path: 'journal', element: <JournalViewSettings /> },
