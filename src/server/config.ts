@@ -37,6 +37,8 @@ export interface Config {
   /** Режим vercel: секрет ежедневного задания (заголовок Authorization: Bearer) и токен Vercel Blob; вне vercel — null. */
   cronSecret: string | null;
   blobToken: string | null;
+  /** Ключ шифрования данных входа Senet (SECRET_KEY, base64 32 байта); null — вне vercel берётся файл в DATA_DIR. */
+  secretKey: string | null;
 }
 
 const optional = z
@@ -76,6 +78,8 @@ const envSchema = z.object({
   // VERCEL_* Vercel задаёт сам (адрес проекта, развёртывания и ветки — без схемы)
   CRON_SECRET: optional,
   BLOB_READ_WRITE_TOKEN: optional,
+  // ключ шифрования данных входа Senet (спецификация 2026-11-02-senet-autopost, §10); на Vercel без него подключить нельзя
+  SECRET_KEY: optional.refine((v) => v === null || Buffer.from(v, 'base64').length === 32, 'SECRET_KEY — 32 байта в base64'),
   VERCEL_PROJECT_PRODUCTION_URL: optional,
   VERCEL_URL: optional,
   VERCEL_BRANCH_URL: optional,
@@ -174,5 +178,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     lockPath: path.join(dataDir, 'app.lock'),
     cronSecret: vercel ? e.CRON_SECRET : null,
     blobToken: vercel ? e.BLOB_READ_WRITE_TOKEN : null,
+    secretKey: e.SECRET_KEY,
   };
 }
