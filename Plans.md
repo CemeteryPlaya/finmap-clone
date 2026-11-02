@@ -62,3 +62,26 @@
 | 34 | `[Feature]` `[lane:gate]` `[tdd:required]` В-3: cron daily, бэкап Postgres в Blob (задача 16) | cron, pg-dump PASS | 32 | cc:done [e2d3116] |
 | 35 | `[Feature]` `[lane:gate]` `[tdd:required]` В-4: перенос SQLite → Postgres (задача 17) | sqlite-to-pg PASS | 30, 34 | cc:done [f4cd3d6] |
 | 36 | `[Docs]` `[lane:gate]` `[tdd:skip:deploy]` В-4: запуск на Vercel с владельцем, README, итоги (задача 18; код, README и followups готовы — ждёт аккаунта владельца) | прод работает; чек-лист; e2e PG ×2; followups | 33, 35 | cc:TODO |
+
+## Phase 5 — Senet: автоматическая разноска смен
+
+Источник задач: `docs/superpowers/plans/2026-11-02-senet-autopost.md` (решения П1–П6). Спецификация: `docs/superpowers/specs/2026-11-02-senet-autopost-design.md` (одобрена 2026-11-02). Solo, ревью — harness-review manual-pass. Настоящие данные Senet — только в `.superpowers/senet-local/`.
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 37 | `[Docs]` `[lane:gate]` `[tdd:skip:research]` СА-1: пробный забор админ-API с владельцем (задача 1) | docs/research/senet-api.md: колонки shop_quantity, movements_of_goods, office_load*; список офисов; поведение токена | - | cc:TODO |
+| 38 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: схема 0013 / pg 0003 (задача 2) | schema-0013, schema-parity PASS на обоих диалектах | - | cc:TODO |
+| 39 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: секретный ключ, шифрование, хеш телефона (задача 3) | secrets, config PASS; typecheck | 38 | cc:TODO |
+| 40 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: SenetSource и AdminTokenSource (задача 4) | senet-source, senet-xlsx PASS; typecheck | 39 | cc:TODO |
+| 41 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: подключения, клубы, «Интеграции» (задача 5) | senet-connections, client senet-integrations PASS; typecheck | 40 | cc:TODO |
+| 42 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: забор, сырые файлы, журнал забора (задача 6) | senet-sync PASS на обоих диалектах | 41 | cc:TODO |
+| 43 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: расписание, cron/senet, пингер, баннер (задача 7) | senet-cron, main-senet, client senet-banner PASS | 42 | cc:TODO |
+| 44 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: нормализация, правила, классификация (задача 8) | senet-classify PASS | 38 | cc:TODO |
+| 45 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: план смены и сверка с эталоном (задача 9) | senet-plan PASS; локально senet-parity — 0 расхождений за 08–31.10.2026 | 44 | cc:TODO |
+| 46 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: правила разноски, «Проверить на истории» (задача 10) | senet-rules, client senet-rules PASS | 41, 45 | cc:TODO |
+| 47 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: автопроводка (задача 11) | senet-post, senet-undo, client operation-senet-delete PASS; npm test PASS | 42, 45 | cc:TODO |
+| 48 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: очередь «Разобрать» (задача 12) | senet-review, senet-suggest, client senet-review PASS | 46, 47 | cc:TODO |
+| 49 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: API сверки (задача 13) | senet-reconcile PASS на обоих диалектах | 47 | cc:TODO |
+| 50 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: экран «Сверка Senet» (задача 14) | client senet-page PASS; typecheck | 48, 49 | cc:TODO |
+| 51 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: данные для склада и аналитики (задача 15) | senet-analytics-data PASS на обоих диалектах | 37, 42 | cc:TODO |
+| 52 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` СА-3: e2e, снимки, README, чек-лист приёмки (задача 16) | e2e/senet ×2 + E2E_DB=pg; shots:ux +7; npm test, typecheck, lint:async | 43, 50, 51 | cc:TODO |
