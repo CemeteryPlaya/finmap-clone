@@ -8,6 +8,7 @@ import { Modal } from '../../components/Modal';
 import { Pending, StaleNotice } from '../../components/QueryState';
 import { ConnectionDialog } from '../../components/senet/ConnectionDialog';
 import { OfficeForm } from '../../components/senet/OfficeForm';
+import { SyncControls } from '../../components/senet/SyncControls';
 import { alertClass, btnPrimary, btnSmall, noticeClass } from '../../components/ui';
 import { api, type ApiError } from '../../lib/api';
 import { useMeta } from '../../lib/query';
@@ -97,6 +98,7 @@ export function IntegrationsSettings() {
                 </li>
               ))}
             </ul>
+            {!readOnly && !c.archivedAt && <SyncControls companyId={company.id} connectionId={c.id} timeZone={timeZone} />}
             {!readOnly && (
               <button type="button" className={`${btnSmall} mt-2`} onClick={() => setDialog({ kind: 'office', connectionId: c.id, office: null })}>
                 + Клуб

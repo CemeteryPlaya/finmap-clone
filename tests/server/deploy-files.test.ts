@@ -123,7 +123,11 @@ describe('vercel.json (план 2026-10-20-vercel-postgres, задача 13)', (
     expect(vercel.regions).toEqual(['fra1']);
     expect(vercel.buildCommand).toBe('npm run vercel-build');
     expect(vercel.functions).toBeUndefined();
-    expect(vercel.crons).toEqual([{ path: '/api/v1/cron/daily', schedule: '0 23 * * *' }]);
+    // забор Senet — раз в сутки здесь, каждый час — пингер GitHub Actions (план 2026-11-02-senet-autopost, задача 7)
+    expect(vercel.crons).toEqual([
+      { path: '/api/v1/cron/daily', schedule: '0 23 * * *' },
+      { path: '/api/v1/cron/senet', schedule: '5 0 * * *' },
+    ]);
     expect(JSON.parse(fs.readFileSync('package.json', 'utf8')).scripts['vercel-build']).toBe('vite build && tsx scripts/migrate.ts && tsx scripts/build-server.ts');
   });
 

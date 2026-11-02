@@ -7,6 +7,7 @@ import { HistoryButton } from '../components/HistoryDrawer';
 import { ImportPanelHost } from '../components/import/ImportPanel';
 import { LoadError } from '../components/LoadError';
 import { MobileTabBar } from '../components/MobileTabBar';
+import { AccessBanner } from '../components/senet/AccessBanner';
 import { NewOperationButtons, OperationFormHost } from '../components/operation/OperationFormHost';
 import { mainCardClass } from '../components/ui';
 import { savePreference, useCompanies, usePreferences, type Company } from '../lib/queries';
@@ -71,6 +72,7 @@ export function CompanyLayout() {
                       Склад
                     </NavLink>
                   </nav>
+                  <AccessBanner companyId={company.id} />
                   <Outlet context={{ company } satisfies CompanyOutletContext} />
                 </main>
               </>

@@ -1,0 +1,30 @@
+# Ежечасный забор Senet для учёта на Vercel (спецификация 2026-11-02-senet-autopost, §7).
+# Бесплатный Vercel Cron срабатывает раз в сутки, поэтому каждый час маршрут вызывает GitHub Actions — с тем же
+# секретом, что у Vercel Cron. Секреты репозитория: CRON_SECRET (как в Vercel) и APP_URL (https://<проект>.vercel.app).
+# GitHub может запускать расписание с опозданием на несколько минут.
+name: senet-sync
+
+on:
+  schedule:
+    - cron: '5 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Забор Senet
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ] || [ -z "$APP_URL" ]; then
+            echo "Задайте секреты CRON_SECRET и APP_URL в настройках репозитория"; exit 1
+          fi
+          # 409 — забор уже идёт (предыдущий запуск не закончился): это не ошибка
+          code=$(curl -sS -o response.json -w '%{http_code}' --max-time 320 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/v1/cron/senet")
+          cat response.json; echo
+          if [ "$code" != "200" ] && [ "$code" != "409" ]; then echo "Ответ $code"; exit 1; fi

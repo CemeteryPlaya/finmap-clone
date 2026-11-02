@@ -26,7 +26,7 @@ import { registerBackupRoutes } from './modules/backup/routes';
 import { registerCronRoutes } from './modules/cron/routes';
 import { createSenetConnections } from './modules/senet/connections';
 import { registerSenetRoutes } from './modules/senet/routes';
-import { createSenetSync } from './modules/senet/sync';
+import { cleanupSenetRaw, createSenetSync, type SenetSync } from './modules/senet/sync';
 import { loadSecrets } from './secrets';
 import { unavailableBackup, createBackupService, type BackupService } from './modules/backup/service';
 import { LoginLimiter } from './modules/auth/login-limiter';
@@ -78,6 +78,13 @@ import { createPreferencesService } from './modules/preferences/service';
 import { resolveClientIp } from './security/client-ip';
 import { registerCsrf } from './security/csrf';
 import { installZodRu } from '../shared/zod-ru';
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    /** Забор Senet для планировщика локального режима (спецификация 2026-11-02-senet-autopost, §7). */
+    senet: { sync: SenetSync; cleanup: () => Promise<number> };
+  }
+}
 
 export interface AppDeps {
   config: Config;
@@ -192,6 +199,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const senetConnections = createSenetConnections({ db, audit, config, secrets: (create) => loadSecrets(config, { create }), now });
   const senetSync = createSenetSync({ db, connections: senetConnections, files, timezone: config.timezone, now });
   registerSenetRoutes(app, { connections: senetConnections, sync: senetSync });
+  // задачи локального планировщика (main.ts): часовой забор и ночная уборка сырых файлов
+  app.decorate('senet', { sync: senetSync, cleanup: () => cleanupSenetRaw(db, files, now()) });
   registerSavedFiltersRoutes(app, { savedFilters: createSavedFiltersService({ db, now }) });
   registerAttachmentsRoutes(app, { attachments: createAttachmentsService({ db, audit, files, now }), files, stored: uploads === 'blob' });
   registerBalancesRoutes(app, { companies, ledger: balances, rates, timezone: config.timezone, now });
@@ -225,7 +234,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       : unavailableBackup());
   const cloud = uploads === 'blob' ? { files, timezone: config.timezone, now } : undefined;
   registerBackupRoutes(app, { backup, db, keep: config.backupKeep, cloud });
-  if (cloud && config.cronSecret) registerCronRoutes(app, { ...cloud, db, keep: config.backupKeep, secret: config.cronSecret });
+  if (cloud && config.cronSecret) registerCronRoutes(app, { ...cloud, db, keep: config.backupKeep, secret: config.cronSecret, senetSync });
 
   // интерфейс отдаёт приложение — и на Vercel: у Fastify Vercel не отдаёт public/ с CDN, dist/client едет в бандле функции.
   // Файлы assets/ с хэшем в имени не меняются — кэш на год

@@ -7,7 +7,7 @@ import { openDb, type Sqlite } from './db/client';
 import { migrateWithBackup } from './db/migrate';
 import { seedCurrencies } from './db/seed';
 import { inLine } from './db/tx';
-import { startScheduler } from './jobs/scheduler';
+import { startScheduler, type Job } from './jobs/scheduler';
 import { acquireLock, isPortFree, lockState, LockSuspectError, type IsNodeProcess } from './lock';
 import { createLoggerOptions } from './logger';
 import { createBackupService } from './modules/backup/service';
@@ -17,6 +17,18 @@ export { EXIT_LOCK_HELD, EXIT_LOCK_SUSPECT } from './exit-codes';
 /** Адрес, при котором сервер слушает все интерфейсы ('' Fastify трактует как '::'). */
 export function isWildcardHost(host: string): boolean {
   return host === '0.0.0.0' || host === '::' || host === '';
+}
+
+/**
+ * Задачи планировщика локального режима: бэкап в 04:00; забор Senet в 5 минут каждого часа и уборка его сырых файлов
+ * (спецификация 2026-11-02-senet-autopost, §7). На Vercel их заменяют маршруты /api/v1/cron/*.
+ */
+export function scheduledJobs(o: { backup: () => Promise<void>; senetSync: (opts: { trigger: 'hourly' }) => Promise<unknown>; senetCleanup: () => Promise<unknown> }): Job[] {
+  return [
+    { name: 'daily-backup', cron: '0 4 * * *', run: o.backup },
+    { name: 'senet-sync', cron: '5 * * * *', run: async () => void (await o.senetSync({ trigger: 'hourly' })) },
+    { name: 'senet-cleanup', cron: '30 4 * * *', run: async () => void (await o.senetCleanup()) },
+  ];
 }
 
 export interface RunningServer {
@@ -118,7 +130,12 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
       timezone: config.timezone,
       log: (m, e) => built.log.error({ err: e }, m),
       // в очереди соединения: VACUUM INTO внутри открытой транзакции невозможен
-      jobs: [{ name: 'daily-backup', cron: '0 4 * * *', run: async () => void (await inLine(db, () => backup.create('daily'))) }],
+      jobs: scheduledJobs({
+        backup: async () => void (await inLine(db, () => backup.create('daily'))),
+        // забор пишет своими транзакциями; запросы к Senet идут вне очереди базы
+        senetSync: (opts) => built.senet.sync.run(opts),
+        senetCleanup: () => built.senet.cleanup(),
+      }),
     });
     const addr = built.server.address();
     const port = typeof addr === 'object' && addr ? addr.port : config.port;

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, lt, min, ne, notInArray } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, min, ne, notInArray } from 'drizzle-orm';
 import type { Db, Executor } from '../../db/client';
 import { first } from '../../db/raw';
 import { senetConnections, senetOffices, senetRaw, senetShifts, senetSyncRuns } from '../../db/schema';
@@ -28,6 +28,8 @@ export interface SenetSync {
   status(companyId: number): Promise<{ rejected: { connectionId: number; name: string }[] }>;
   /** Ход и итог запуска; чужая компания — null. */
   getRun(companyId: number, runId: number): Promise<SenetSyncRunDto | null>;
+  /** Идёт другой забор: незавершённый запуск моложе 10 минут (зависший старше — не мешает). */
+  running(): Promise<boolean>;
 }
 
 /** Хук после записи смен клуба (автопроводка, задача 11) — в той же транзакции. */
@@ -39,6 +41,7 @@ const CHUNK_MS = 7 * DAY;
 const OVERLAP_MS = 26 * HOUR;
 const RAW_KEEP_MS = 90 * DAY;
 const RUNS_KEEP = 500;
+const STALE_RUN_MS = 10 * 60_000;
 const OUT_OF_TIME = 'Не уложились во время — продолжим через час';
 
 /** Ключ файла без «:» (локальное хранилище на Windows): 2026-10-01T04:00:00.000Z → 20261001T040000Z. */
@@ -229,6 +232,10 @@ export function createSenetSync(d: {
           .where(and(eq(senetSyncRuns.id, runId), eq(senetConnections.companyId, companyId))),
       );
       return row ? { ...row.run, counts: JSON.parse(row.run.counts) as Record<string, number> } : null;
+    },
+    async running() {
+      const since = new Date(now().getTime() - STALE_RUN_MS).toISOString();
+      return Boolean(await first(db.select({ id: senetSyncRuns.id }).from(senetSyncRuns).where(and(isNull(senetSyncRuns.finishedAt), gte(senetSyncRuns.startedAt, since))).limit(1)));
     },
   };
 }

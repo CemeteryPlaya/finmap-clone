@@ -80,3 +80,25 @@ export function statusText(c: Pick<SenetConnectionDto, 'status' | 'lastSyncAt' |
   if (c.status === 'unreachable') return 'Senet не отвечает — попробуем снова через час';
   return c.lastSyncAt ? `Подключено, последний забор ${formatTime(c.lastSyncAt)}` : 'Подключено, данных ещё не забирали';
 }
+
+/** Подключения с отказом доступа: баннер над «Журналом» и «Сверкой Senet» (§8.2). */
+export function useSenetStatus(companyId: number) {
+  return useQuery<{ rejected: { connectionId: number; name: string }[] }, ApiError>({
+    queryKey: ['senet', companyId, 'status'],
+    queryFn: () => api(`/companies/${companyId}/senet/status`),
+    refetchOnWindowFocus: true,
+    staleTime: 60_000,
+  });
+}
+
+export function accessBanner(companyId: number, status: { rejected: readonly unknown[] }): { text: string; href: string } | null {
+  return status.rejected.length ? { text: 'Обновите доступ к Senet — забор остановлен', href: `/c/${companyId}/settings/integrations` } : null;
+}
+
+/** Итог «Обновить сейчас» и «Загрузить за период» одной строкой. */
+export function syncSummary(run: { result: 'ok' | 'partial' | 'failed' | null; error: string | null; counts: Record<string, number> }): string {
+  if (run.result === 'failed') return run.error ?? 'Забор не удался';
+  const c = run.counts;
+  const text = `Загружено ${c.done ?? 0} из ${c.chunks ?? 0} отрезков: смен ${c.shifts ?? 0}, выемок и внесений ${c.moves ?? 0}`;
+  return run.error ? `${text}. ${run.error}` : text;
+}
