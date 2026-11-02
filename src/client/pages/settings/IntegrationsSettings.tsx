@@ -8,6 +8,7 @@ import { Modal } from '../../components/Modal';
 import { Pending, StaleNotice } from '../../components/QueryState';
 import { ConnectionDialog } from '../../components/senet/ConnectionDialog';
 import { OfficeForm } from '../../components/senet/OfficeForm';
+import { RulesTab } from '../../components/senet/RulesTab';
 import { SyncControls } from '../../components/senet/SyncControls';
 import { alertClass, btnPrimary, btnSmall, noticeClass } from '../../components/ui';
 import { api, type ApiError } from '../../lib/api';
@@ -26,6 +27,7 @@ export function IntegrationsSettings() {
   const meta = useMeta();
   const [dialog, setDialog] = useState<Dialog>(null);
   const [removing, setRemoving] = useState<SenetConnectionDto | null>(null);
+  const [tab, setTab] = useState<'connections' | 'rules'>('connections');
   const readOnly = company.archivedAt !== null;
   const timeZone = meta.data?.timezone ?? 'Asia/Almaty';
   const act = useMutation<unknown, ApiError, { id: number; method: 'PATCH' | 'DELETE'; body?: unknown }>({
@@ -40,6 +42,18 @@ export function IntegrationsSettings() {
       <StaleNotice queries={[connections]} />
       <h1 className="mb-4 text-2xl font-bold">Интеграции</h1>
       {readOnly && <p className={noticeClass}>Компания в архиве — изменения недоступны.</p>}
+      {connections.data.length > 0 && (
+        <div role="tablist" className="mb-4 flex gap-2">
+          {(['connections', 'rules'] as const).map((t) => (
+            <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={tab === t ? btnPrimary : btnSmall}>
+              {t === 'connections' ? 'Подключения' : 'Правила разноски'}
+            </button>
+          ))}
+        </div>
+      )}
+      {tab === 'rules' && connections.data.length > 0 ? (
+        <RulesTab companyId={company.id} connections={connections.data} timeZone={timeZone} readOnly={readOnly} />
+      ) : (
       <div className="rounded-2xl border border-field p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -107,6 +121,7 @@ export function IntegrationsSettings() {
           </article>
         ))}
       </div>
+      )}
       <Modal open={dialog?.kind === 'connection'} title={dialog?.kind === 'connection' && dialog.connection ? 'Данные входа Senet' : 'Подключить Senet'} onClose={() => setDialog(null)} className="max-w-lg">
         {dialog?.kind === 'connection' && <ConnectionDialog companyId={company.id} timeZone={timeZone} connection={dialog.connection} onDone={() => setDialog(null)} />}
       </Modal>

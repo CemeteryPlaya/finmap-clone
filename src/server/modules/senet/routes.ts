@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { senetCheckSchema, senetConnectionCreateSchema, senetConnectionPatchSchema, senetOfficeSchema, senetSyncSchema } from '../../../shared/schemas/senet';
+import { senetCheckSchema, senetConnectionCreateSchema, senetConnectionPatchSchema, senetCheckHistorySchema, senetOfficeSchema, senetRuleOrderSchema, senetRuleSchema, senetSyncSchema } from '../../../shared/schemas/senet';
 import { parseId } from '../../http/params';
 import { AppError } from '../../errors';
 import type { SenetConnections } from './connections';
+import type { SenetRules } from './rules-service';
 import type { SenetSync } from './sync';
 
 type C = { Params: { cid: string } };
@@ -10,7 +11,7 @@ type P = { Params: { cid: string; id: string } };
 const BASE = '/api/v1/companies/:cid/senet';
 
 /** Senet (спецификация 2026-11-02-senet-autopost): подключения и клубы. */
-export function registerSenetRoutes(app: FastifyInstance, deps: { connections: SenetConnections; sync: SenetSync }): void {
+export function registerSenetRoutes(app: FastifyInstance, deps: { connections: SenetConnections; sync: SenetSync; rules: SenetRules }): void {
   const svc = deps.connections;
 
   app.get<C>(`${BASE}/connections`, async (req) => ({ connections: await svc.list(parseId(req.params.cid)) }));
@@ -56,4 +57,18 @@ export function registerSenetRoutes(app: FastifyInstance, deps: { connections: S
   });
 
   app.get<C>(`${BASE}/status`, async (req) => deps.sync.status(parseId(req.params.cid)));
+
+  // правила разноски (§4.3, §8.1)
+  app.get<C>(`${BASE}/rules`, async (req) => ({ rules: await deps.rules.list(parseId(req.params.cid)) }));
+  app.post<C>(`${BASE}/rules`, async (req, reply) => reply.status(201).send({ rule: await deps.rules.create(parseId(req.params.cid), senetRuleSchema.parse(req.body), req.user!.id) }));
+  app.patch<P>(`${BASE}/rules/:id`, async (req) => ({ rule: await deps.rules.update(parseId(req.params.cid), parseId(req.params.id), senetRuleSchema.parse(req.body), req.user!.id) }));
+  app.delete<P>(`${BASE}/rules/:id`, async (req, reply) => {
+    await deps.rules.archive(parseId(req.params.cid), parseId(req.params.id), req.user!.id);
+    return reply.status(204).send();
+  });
+  app.put<C>(`${BASE}/rules/order`, async (req) => {
+    const { type, ids } = senetRuleOrderSchema.parse(req.body);
+    return { rules: await deps.rules.reorder(parseId(req.params.cid), type, ids, req.user!.id) };
+  });
+  app.post<C>(`${BASE}/rules/check-history`, async (req) => deps.rules.checkHistory(parseId(req.params.cid), senetCheckHistorySchema.parse(req.body)));
 }

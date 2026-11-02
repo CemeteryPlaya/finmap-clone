@@ -140,3 +140,65 @@ export interface SenetSyncRunDto {
   error: string | null;
   counts: Record<string, number>;
 }
+
+export const SENET_RULE_TYPES = [
+  'exact',
+  'kaspi',
+  'trainee',
+  'salary_word',
+  'extra_pay_word',
+  'employee_alias',
+  'master',
+  'owner_word',
+  'owner_a_alias',
+  'lunch',
+  'keyword',
+  'bar_item',
+  'bar_supplier',
+] as const;
+export type SenetRuleType = (typeof SENET_RULE_TYPES)[number];
+export const SENET_MATCH_MODES = ['word', 'first', 'phrase', 'prefix', 'contains'] as const;
+export type SenetMatchMode = (typeof SENET_MATCH_MODES)[number];
+/** Типы с настроечной строкой (пустой шаблон): категория, владельцы, поставщик по умолчанию (§4.3). */
+export const SENET_SETTING_TYPES: readonly SenetRuleType[] = ['salary_word', 'owner_word', 'owner_a_alias', 'lunch', 'bar_item', 'bar_supplier'];
+/** Алиас — одно слово: разноска ищет его среди слов комментария. */
+const SINGLE_WORD_TYPES: readonly SenetRuleType[] = ['employee_alias', 'master', 'owner_word', 'owner_a_alias'];
+
+/** Правило разноски (§4.3, §8.1); шаблон нормализует сервер. */
+export const senetRuleSchema = z
+  .object({
+    type: z.enum(SENET_RULE_TYPES),
+    pattern: z.string().max(200).default(''),
+    match: z.enum(SENET_MATCH_MODES).default('word'),
+    officeId: z.number().int().positive().nullable().optional().default(null),
+    categoryId: z.number().int().positive().nullable().optional().default(null),
+    counterpartyId: z.number().int().positive().nullable().optional().default(null),
+    commentTemplate: z.string().trim().max(200).nullable().optional().default(null),
+    flags: z.object({ mistaken: z.boolean().optional(), defect: z.boolean().optional() }).optional().default({}),
+  })
+  .superRefine((v, ctx) => {
+    const p = v.pattern.trim();
+    if (!p && !SENET_SETTING_TYPES.includes(v.type)) ctx.addIssue({ code: 'custom', path: ['pattern'], message: 'Введите слово или фразу' });
+    if (p && SINGLE_WORD_TYPES.includes(v.type) && /\s/.test(p)) ctx.addIssue({ code: 'custom', path: ['pattern'], message: 'Алиас — одно слово' });
+  });
+
+export type SenetRuleInput = z.infer<typeof senetRuleSchema>;
+
+export interface SenetRuleDto extends SenetRuleInput {
+  id: number;
+  priority: number;
+  createdFromReview: boolean;
+  archived: boolean;
+}
+
+export const senetRuleOrderSchema = z.object({ type: z.enum(SENET_RULE_TYPES), ids: z.array(z.number().int().positive()).max(1000) });
+
+export const senetCheckHistorySchema = z.object({ officeId: z.number().int().positive(), from: z.iso.datetime(), to: z.iso.datetime() });
+
+export interface SenetHistoryCheck {
+  total: number;
+  recognized: number;
+  unrecognized: { moveId: number; at: string; amount: number; comment: string; reason: string }[];
+  differs: { moveId: number; operationId: number; comment: string; was: { categoryId: number | null; counterpartyId: number | null }; would: { categoryId: number; counterpartyId: number | null } }[];
+}
+export type SenetCheckHistoryInput = z.infer<typeof senetCheckHistorySchema>;
