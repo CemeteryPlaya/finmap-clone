@@ -41,6 +41,20 @@ export let stockAllocations = sqlite.stockAllocations;
 export let stockDocPayments = sqlite.stockDocPayments;
 export let stockDocPostings = sqlite.stockDocPostings;
 export let analyticsIndicatorParts = sqlite.analyticsIndicatorParts;
+export let senetConnections = sqlite.senetConnections;
+export let senetOffices = sqlite.senetOffices;
+export let senetShifts = sqlite.senetShifts;
+export let senetRules = sqlite.senetRules;
+export let senetCashMoves = sqlite.senetCashMoves;
+export let senetPostings = sqlite.senetPostings;
+export let senetReviewItems = sqlite.senetReviewItems;
+export let senetSyncRuns = sqlite.senetSyncRuns;
+export let senetRaw = sqlite.senetRaw;
+export let senetTransactions = sqlite.senetTransactions;
+export let senetSoldItems = sqlite.senetSoldItems;
+export let senetBarPurchases = sqlite.senetBarPurchases;
+export let senetChecks = sqlite.senetChecks;
+export let senetRefills = sqlite.senetRefills;
 
 export const sqliteTables = {
   users: sqlite.users,
@@ -76,6 +90,20 @@ export const sqliteTables = {
   stockDocPayments: sqlite.stockDocPayments,
   stockDocPostings: sqlite.stockDocPostings,
   analyticsIndicatorParts: sqlite.analyticsIndicatorParts,
+  senetConnections: sqlite.senetConnections,
+  senetOffices: sqlite.senetOffices,
+  senetShifts: sqlite.senetShifts,
+  senetRules: sqlite.senetRules,
+  senetCashMoves: sqlite.senetCashMoves,
+  senetPostings: sqlite.senetPostings,
+  senetReviewItems: sqlite.senetReviewItems,
+  senetSyncRuns: sqlite.senetSyncRuns,
+  senetRaw: sqlite.senetRaw,
+  senetTransactions: sqlite.senetTransactions,
+  senetSoldItems: sqlite.senetSoldItems,
+  senetBarPurchases: sqlite.senetBarPurchases,
+  senetChecks: sqlite.senetChecks,
+  senetRefills: sqlite.senetRefills,
 };
 
 export const pgTables = {
@@ -112,6 +140,20 @@ export const pgTables = {
   stockDocPayments: pg.stockDocPayments,
   stockDocPostings: pg.stockDocPostings,
   analyticsIndicatorParts: pg.analyticsIndicatorParts,
+  senetConnections: pg.senetConnections,
+  senetOffices: pg.senetOffices,
+  senetShifts: pg.senetShifts,
+  senetRules: pg.senetRules,
+  senetCashMoves: pg.senetCashMoves,
+  senetPostings: pg.senetPostings,
+  senetReviewItems: pg.senetReviewItems,
+  senetSyncRuns: pg.senetSyncRuns,
+  senetRaw: pg.senetRaw,
+  senetTransactions: pg.senetTransactions,
+  senetSoldItems: pg.senetSoldItems,
+  senetBarPurchases: pg.senetBarPurchases,
+  senetChecks: pg.senetChecks,
+  senetRefills: pg.senetRefills,
 };
 
 let bound: Dialect | null = null;
@@ -155,6 +197,20 @@ export function bindSchema(dialect: Dialect): void {
   stockDocPayments = pg.stockDocPayments as unknown as typeof sqlite.stockDocPayments;
   stockDocPostings = pg.stockDocPostings as unknown as typeof sqlite.stockDocPostings;
   analyticsIndicatorParts = pg.analyticsIndicatorParts as unknown as typeof sqlite.analyticsIndicatorParts;
+  senetConnections = pg.senetConnections as unknown as typeof sqlite.senetConnections;
+  senetOffices = pg.senetOffices as unknown as typeof sqlite.senetOffices;
+  senetShifts = pg.senetShifts as unknown as typeof sqlite.senetShifts;
+  senetRules = pg.senetRules as unknown as typeof sqlite.senetRules;
+  senetCashMoves = pg.senetCashMoves as unknown as typeof sqlite.senetCashMoves;
+  senetPostings = pg.senetPostings as unknown as typeof sqlite.senetPostings;
+  senetReviewItems = pg.senetReviewItems as unknown as typeof sqlite.senetReviewItems;
+  senetSyncRuns = pg.senetSyncRuns as unknown as typeof sqlite.senetSyncRuns;
+  senetRaw = pg.senetRaw as unknown as typeof sqlite.senetRaw;
+  senetTransactions = pg.senetTransactions as unknown as typeof sqlite.senetTransactions;
+  senetSoldItems = pg.senetSoldItems as unknown as typeof sqlite.senetSoldItems;
+  senetBarPurchases = pg.senetBarPurchases as unknown as typeof sqlite.senetBarPurchases;
+  senetChecks = pg.senetChecks as unknown as typeof sqlite.senetChecks;
+  senetRefills = pg.senetRefills as unknown as typeof sqlite.senetRefills;
 }
 
 /** Диалект, к которому привязан процесс (по умолчанию — SQLite). */

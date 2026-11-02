@@ -36,6 +36,20 @@ const t = toPgTables({
   stockDocPayments: sqlite.stockDocPayments,
   stockDocPostings: sqlite.stockDocPostings,
   analyticsIndicatorParts: sqlite.analyticsIndicatorParts,
+  senetConnections: sqlite.senetConnections,
+  senetOffices: sqlite.senetOffices,
+  senetShifts: sqlite.senetShifts,
+  senetRules: sqlite.senetRules,
+  senetCashMoves: sqlite.senetCashMoves,
+  senetPostings: sqlite.senetPostings,
+  senetReviewItems: sqlite.senetReviewItems,
+  senetSyncRuns: sqlite.senetSyncRuns,
+  senetRaw: sqlite.senetRaw,
+  senetTransactions: sqlite.senetTransactions,
+  senetSoldItems: sqlite.senetSoldItems,
+  senetBarPurchases: sqlite.senetBarPurchases,
+  senetChecks: sqlite.senetChecks,
+  senetRefills: sqlite.senetRefills,
 });
 
 export const users = t.users;
@@ -71,3 +85,17 @@ export const stockAllocations = t.stockAllocations;
 export const stockDocPayments = t.stockDocPayments;
 export const stockDocPostings = t.stockDocPostings;
 export const analyticsIndicatorParts = t.analyticsIndicatorParts;
+export const senetConnections = t.senetConnections;
+export const senetOffices = t.senetOffices;
+export const senetShifts = t.senetShifts;
+export const senetRules = t.senetRules;
+export const senetCashMoves = t.senetCashMoves;
+export const senetPostings = t.senetPostings;
+export const senetReviewItems = t.senetReviewItems;
+export const senetSyncRuns = t.senetSyncRuns;
+export const senetRaw = t.senetRaw;
+export const senetTransactions = t.senetTransactions;
+export const senetSoldItems = t.senetSoldItems;
+export const senetBarPurchases = t.senetBarPurchases;
+export const senetChecks = t.senetChecks;
+export const senetRefills = t.senetRefills;

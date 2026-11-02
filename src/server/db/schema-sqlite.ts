@@ -640,3 +640,348 @@ export const analyticsIndicatorParts = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.companyId, t.part] })],
 );
+
+/* ---------- Senet (спецификация 2026-11-02-senet-autopost, §9) ---------- */
+
+/** Подключение к организации Senet; данные входа — только зашифрованными (`*_secret` отсекает история). */
+export const senetConnections = sqliteTable(
+  'senet_connections',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id),
+    name: text('name').notNull(),
+    org: text('org').notNull(),
+    source: text('source', { enum: ['admin_token', 'app_key'] })
+      .notNull()
+      .default('admin_token'),
+    authMethod: text('auth_method', { enum: ['password', 'token', 'app_key'] }).notNull(),
+    credentialsSecret: text('credentials_secret').notNull(),
+    credentialsHint: text('credentials_hint').notNull(),
+    status: text('status', { enum: ['ok', 'key_rejected', 'unreachable'] })
+      .notNull()
+      .default('ok'),
+    lastSyncAt: text('last_sync_at'),
+    lastError: text('last_error'),
+    createdAt: text('created_at').notNull(),
+    createdBy: integer('created_by')
+      .notNull()
+      .references(() => users.id),
+    archivedAt: text('archived_at'),
+  },
+  (t) => [index('senet_connections_company_idx').on(t.companyId)],
+);
+
+/** Клуб (офис и касса Senet) и его связи с учётом. Проект уникален среди включённых — проверяет сервис. */
+export const senetOffices = sqliteTable(
+  'senet_offices',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    connectionId: integer('connection_id')
+      .notNull()
+      .references(() => senetConnections.id),
+    senetOfficeId: integer('senet_office_id').notNull(),
+    cashDeskId: integer('cash_desk_id').notNull().default(1),
+    name: text('name').notNull().default(''),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+    projectId: integer('project_id').references(() => projects.id),
+    cashAccountId: integer('cash_account_id').references(() => accounts.id),
+    kaspiAccountId: integer('kaspi_account_id').references(() => accounts.id),
+    incomeCategoryId: integer('income_category_id').references(() => categories.id),
+    /** «Загружать с даты»: смены, открытые раньше, не проводятся (§5.5). */
+    historyFrom: text('history_from'),
+    /** Постоянная разница кассы «учёт − Senet», тиыны (§8.1). */
+    cashOffset: integer('cash_offset').notNull().default(0),
+  },
+  (t) => [uniqueIndex('senet_offices_key_uq').on(t.connectionId, t.senetOfficeId, t.cashDeskId)],
+);
+
+/** Кассовая смена Senet. Номера сессии в отчёте нет — ключ: клуб и начало (§5.2). */
+export const senetShifts = sqliteTable(
+  'senet_shifts',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    officeId: integer('office_id')
+      .notNull()
+      .references(() => senetOffices.id),
+    openedAt: text('opened_at').notNull(),
+    closedAt: text('closed_at'),
+    openedBy: text('opened_by').notNull().default(''),
+    closedBy: text('closed_by'),
+    /** «Сумма» Senet — остаток в кассе на закрытии, не выручка. */
+    endBalance: integer('end_balance').notNull(),
+    cashless: integer('cashless').notNull().default(0),
+    cashIn: integer('cash_in').notNull().default(0),
+    cashOut: integer('cash_out').notNull().default(0),
+    revenue: integer('revenue').notNull().default(0),
+    /** Σ транзакций Senet за смену — контроль выручки; null — не забирали. */
+    revenueTx: integer('revenue_tx'),
+    /** Выручка на момент проведения доходов: другая выручка — «Senet изменил смену после проведения». */
+    postedRevenue: integer('posted_revenue'),
+    changedAfterPost: integer('changed_after_post', { mode: 'boolean' }).notNull().default(false),
+    postError: text('post_error'),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [uniqueIndex('senet_shifts_key_uq').on(t.officeId, t.openedAt)],
+);
+
+/** Правило разноски (§4.3): код знает только типы, слова и ссылки — данные компании. */
+export const senetRules = sqliteTable(
+  'senet_rules',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id),
+    /** Только для клуба; null — для всех клубов компании. */
+    officeId: integer('office_id').references(() => senetOffices.id),
+    type: text('type', {
+      enum: [
+        'exact',
+        'kaspi',
+        'trainee',
+        'salary_word',
+        'extra_pay_word',
+        'employee_alias',
+        'master',
+        'owner_word',
+        'owner_a_alias',
+        'lunch',
+        'keyword',
+        'bar_item',
+        'bar_supplier',
+      ],
+    }).notNull(),
+    /** Нормализованное слово или фраза; пусто — настроечная строка типа (категория, контрагент по умолчанию). */
+    pattern: text('pattern').notNull().default(''),
+    match: text('match', { enum: ['word', 'first', 'phrase', 'prefix', 'contains'] })
+      .notNull()
+      .default('word'),
+    priority: integer('priority').notNull().default(0),
+    categoryId: integer('category_id').references(() => categories.id),
+    counterpartyId: integer('counterparty_id').references(() => counterparties.id),
+    /** Комментарий операции: текст или `{orig}` — исходный текст выемки. */
+    commentTemplate: text('comment_template'),
+    /** JSON: { mistaken?: ошибочный алиас, defect?: брак }. */
+    flags: text('flags').notNull().default('{}'),
+    createdFromReview: integer('created_from_review', { mode: 'boolean' }).notNull().default(false),
+    createdAt: text('created_at').notNull(),
+    createdBy: integer('created_by')
+      .notNull()
+      .references(() => users.id),
+    archivedAt: text('archived_at'),
+  },
+  (t) => [index('senet_rules_company_idx').on(t.companyId)],
+);
+
+/** Внесение или выемка смены; operation_id — что проведено (§5.2), prev_operation_id — удалённая предшественница (П3). */
+export const senetCashMoves = sqliteTable(
+  'senet_cash_moves',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    shiftId: integer('shift_id')
+      .notNull()
+      .references(() => senetShifts.id),
+    /** `{at с мс}|{amount}|{нормализованный комментарий}|{n}` (П6). */
+    senetRef: text('senet_ref').notNull(),
+    kind: text('kind', { enum: ['in', 'out'] }).notNull(),
+    amount: integer('amount').notNull(),
+    at: text('at').notNull(),
+    cashier: text('cashier').notNull().default(''),
+    comment: text('comment').notNull().default(''),
+    ruleId: integer('rule_id').references(() => senetRules.id),
+    operationId: integer('operation_id').references(() => operations.id),
+    prevOperationId: integer('prev_operation_id').references(() => operations.id),
+    noRepost: integer('no_repost', { mode: 'boolean' }).notNull().default(false),
+    missingInSenet: integer('missing_in_senet', { mode: 'boolean' }).notNull().default(false),
+  },
+  (t) => [
+    uniqueIndex('senet_cash_moves_ref_uq').on(t.shiftId, t.senetRef),
+    index('senet_cash_moves_op_idx').on(t.operationId),
+    index('senet_cash_moves_prev_op_idx').on(t.prevOperationId),
+  ],
+);
+
+/** Доход смены, проведённый в журнал: Каспи или Касса. */
+export const senetPostings = sqliteTable(
+  'senet_postings',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    shiftId: integer('shift_id')
+      .notNull()
+      .references(() => senetShifts.id),
+    kind: text('kind', { enum: ['kaspi', 'cash'] }).notNull(),
+    operationId: integer('operation_id').references(() => operations.id),
+    prevOperationId: integer('prev_operation_id').references(() => operations.id),
+    amount: integer('amount').notNull(),
+    noRepost: integer('no_repost', { mode: 'boolean' }).notNull().default(false),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('senet_postings_kind_uq').on(t.shiftId, t.kind),
+    index('senet_postings_op_idx').on(t.operationId),
+    index('senet_postings_prev_op_idx').on(t.prevOperationId),
+  ],
+);
+
+/** Пункт очереди «Разобрать» (§6). open_key заполнен только у открытого пункта: один открытый пункт на выемку и причину. */
+export const senetReviewItems = sqliteTable(
+  'senet_review_items',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    shiftId: integer('shift_id')
+      .notNull()
+      .references(() => senetShifts.id),
+    cashMoveId: integer('cash_move_id').references(() => senetCashMoves.id),
+    reason: text('reason', { enum: ['unrecognized', 'name_only', 'salary_no_name', 'rule_broken', 'no_kaspi', 'negative_cash'] }).notNull(),
+    suggestions: text('suggestions').notNull().default('[]'),
+    status: text('status', { enum: ['open', 'answered', 'dismissed'] })
+      .notNull()
+      .default('open'),
+    /** `{shift}|{move или 0}|{reason}` у открытого, null у закрытого. */
+    openKey: text('open_key'),
+    answer: text('answer'),
+    operationId: integer('operation_id').references(() => operations.id),
+    answeredBy: integer('answered_by').references(() => users.id),
+    answeredVia: text('answered_via', { enum: ['web', 'telegram'] }),
+    answeredAt: text('answered_at'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [uniqueIndex('senet_review_items_open_uq').on(t.openKey), index('senet_review_items_shift_idx').on(t.shiftId)],
+);
+
+/** Журнал забора (С15§4.3); хранятся последние 500 запусков на подключение. */
+export const senetSyncRuns = sqliteTable(
+  'senet_sync_runs',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    connectionId: integer('connection_id')
+      .notNull()
+      .references(() => senetConnections.id),
+    startedAt: text('started_at').notNull(),
+    finishedAt: text('finished_at'),
+    trigger: text('trigger', { enum: ['hourly', 'cron', 'manual', 'period'] }).notNull(),
+    /** null — запуск идёт. */
+    result: text('result', { enum: ['ok', 'partial', 'failed'] }),
+    error: text('error'),
+    counts: text('counts').notNull().default('{}'),
+  },
+  (t) => [index('senet_sync_runs_connection_idx').on(t.connectionId)],
+);
+
+/** Описание сырого файла отчёта; сам xlsx — в FileStore по file_key, 90 дней (§9.2). */
+export const senetRaw = sqliteTable(
+  'senet_raw',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    connectionId: integer('connection_id')
+      .notNull()
+      .references(() => senetConnections.id),
+    report: text('report').notNull(),
+    officeId: integer('office_id').references(() => senetOffices.id),
+    fromDate: text('from_date').notNull(),
+    toDate: text('to_date').notNull(),
+    fetchedAt: text('fetched_at').notNull(),
+    status: integer('status').notNull(),
+    fileKey: text('file_key').notNull(),
+    sha256: text('sha256').notNull(),
+  },
+  (t) => [uniqueIndex('senet_raw_sha_uq').on(t.connectionId, t.sha256), index('senet_raw_fetched_idx').on(t.fetchedAt)],
+);
+
+/* Данные для склада и аналитики (§9.3): строки окна заменяются при повторном заборе, ссылок на них нет. */
+
+export const senetTransactions = sqliteTable(
+  'senet_transactions',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    officeId: integer('office_id')
+      .notNull()
+      .references(() => senetOffices.id),
+    at: text('at').notNull(),
+    code: text('code').notNull(),
+    kind: text('kind', { enum: ['sell', 'refund'] }).notNull(),
+    amount: integer('amount').notNull(),
+    payment: text('payment').notNull().default(''),
+  },
+  (t) => [index('senet_transactions_office_at_idx').on(t.officeId, t.at)],
+);
+
+export const senetSoldItems = sqliteTable(
+  'senet_sold_items',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    officeId: integer('office_id')
+      .notNull()
+      .references(() => senetOffices.id),
+    shiftId: integer('shift_id').references(() => senetShifts.id),
+    at: text('at').notNull(),
+    item: text('item').notNull(),
+    /** Количество × 1000, как у склада; у чеков времени — null. */
+    qty: integer('qty'),
+    amount: integer('amount').notNull(),
+    payment: text('payment').notNull().default(''),
+    refund: integer('refund', { mode: 'boolean' }).notNull().default(false),
+    comment: text('comment').notNull().default(''),
+  },
+  (t) => [index('senet_sold_items_office_at_idx').on(t.officeId, t.at)],
+);
+
+/** Разобранная закупка бара из выемки: `товар × кол-во × цена` (§4.3, тип «Бар»). */
+export const senetBarPurchases = sqliteTable(
+  'senet_bar_purchases',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    cashMoveId: integer('cash_move_id')
+      .notNull()
+      .references(() => senetCashMoves.id),
+    itemText: text('item_text').notNull(),
+    /** Количество × 1000. */
+    qty: integer('qty').notNull(),
+    price: integer('price').notNull(),
+    amount: integer('amount').notNull(),
+    /** Σ строк выемки не сходится с её суммой. */
+    mismatch: integer('mismatch', { mode: 'boolean' }).notNull().default(false),
+  },
+  (t) => [index('senet_bar_purchases_move_idx').on(t.cashMoveId)],
+);
+
+/** Покупки времени; телефон — только HMAC и маска (§9.3). */
+export const senetChecks = sqliteTable(
+  'senet_checks',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    officeId: integer('office_id')
+      .notNull()
+      .references(() => senetOffices.id),
+    at: text('at').notNull(),
+    code: text('code').notNull(),
+    amount: integer('amount').notNull(),
+    used: integer('used', { mode: 'boolean' }).notNull().default(false),
+    workstation: integer('workstation'),
+    guestLogin: text('guest_login').notNull().default(''),
+    phoneHash: text('phone_hash'),
+    phoneMask: text('phone_mask'),
+    cashier: text('cashier').notNull().default(''),
+  },
+  (t) => [index('senet_checks_office_at_idx').on(t.officeId, t.at)],
+);
+
+export const senetRefills = sqliteTable(
+  'senet_refills',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    officeId: integer('office_id')
+      .notNull()
+      .references(() => senetOffices.id),
+    at: text('at').notNull(),
+    guestLogin: text('guest_login').notNull().default(''),
+    accountType: text('account_type').notNull().default(''),
+    amount: integer('amount').notNull(),
+    workstation: integer('workstation'),
+    phoneHash: text('phone_hash'),
+    phoneMask: text('phone_mask'),
+  },
+  (t) => [index('senet_refills_office_at_idx').on(t.officeId, t.at)],
+);
