@@ -82,6 +82,53 @@ export interface RefillRow {
   phone: string | null;
 }
 
+/** shop_quantity — товары бара за окно. Количество × 1000, деньги — тиыны. */
+export interface StockRow {
+  item: string;
+  soldQty: number;
+  restockQty: number;
+  writeOffQty: number;
+  restockPrice: number | null;
+  restockSum: number;
+  sellingPrice: number | null;
+  soldSum: number;
+  actualQty: number | null;
+}
+
+/** movements_of_goods — движение товаров за окно по документам источника. */
+export interface GoodsMoveRow {
+  sourceOrder: string;
+  cashier: string;
+  category: string;
+  item: string;
+  restockQty: number;
+  writeOffQty: number;
+  restockPrice: number | null;
+  restockSum: number;
+  totalQty: number | null;
+  soldQty: number;
+  sellingPrice: number | null;
+  soldSum: number;
+  soldCost: number | null;
+  profit: number | null;
+  comment: string;
+}
+
+/** office_load_by_zones — сеанс гостя на ПК зоны. */
+export interface LoadRow {
+  startAt: string;
+  endAt: string | null;
+  zone: string;
+  workstation: number | null;
+  guestLogin: string;
+  phone: string | null;
+  age: number | null;
+  tariff: string;
+  debited: number;
+  refilled: number;
+  durationSec: number | null;
+}
+
 export interface ReportRows {
   sessions: SessionRow[];
   cashMoves: CashMoveRow[];
@@ -89,10 +136,9 @@ export interface ReportRows {
   soldItems: SoldItemRow[];
   checks: CheckRow[];
   refills: RefillRow[];
-  /** Формат ещё не видели — разбор по пробному забору (§12.4); пока только сырой файл. */
-  stock: null;
-  goodsMoves: null;
-  load: null;
+  stock: StockRow[];
+  goodsMoves: GoodsMoveRow[];
+  load: LoadRow[];
 }
 
 export interface RawFile {

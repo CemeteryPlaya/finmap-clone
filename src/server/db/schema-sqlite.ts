@@ -985,3 +985,82 @@ export const senetRefills = sqliteTable(
   },
   (t) => [index('senet_refills_office_at_idx').on(t.officeId, t.at)],
 );
+
+/* Форматы — по пробному забору 2026-11-03 (задача 1): отчёты за окно без дат строк, загрузка — по сеансам. */
+
+/** `shop_quantity`: товары бара за сутки — продано, пришло, списано, цены и остаток на конец окна. Количество × 1000. */
+export const senetStock = sqliteTable(
+  'senet_stock',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    officeId: integer('office_id')
+      .notNull()
+      .references(() => senetOffices.id),
+    fromAt: text('from_at').notNull(),
+    toAt: text('to_at').notNull(),
+    item: text('item').notNull(),
+    soldQty: integer('sold_qty').notNull().default(0),
+    restockQty: integer('restock_qty').notNull().default(0),
+    writeOffQty: integer('write_off_qty').notNull().default(0),
+    restockPrice: integer('restock_price'),
+    restockSum: integer('restock_sum').notNull().default(0),
+    sellingPrice: integer('selling_price'),
+    soldSum: integer('sold_sum').notNull().default(0),
+    actualQty: integer('actual_qty'),
+  },
+  (t) => [index('senet_stock_office_from_idx').on(t.officeId, t.fromAt)],
+);
+
+/** `movements_of_goods`: движение товаров за сутки по документам источника (поступление, продажа, списание). */
+export const senetGoodsMoves = sqliteTable(
+  'senet_goods_moves',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    officeId: integer('office_id')
+      .notNull()
+      .references(() => senetOffices.id),
+    fromAt: text('from_at').notNull(),
+    toAt: text('to_at').notNull(),
+    sourceOrder: text('source_order').notNull().default(''),
+    cashier: text('cashier').notNull().default(''),
+    category: text('category').notNull().default(''),
+    item: text('item').notNull(),
+    restockQty: integer('restock_qty').notNull().default(0),
+    writeOffQty: integer('write_off_qty').notNull().default(0),
+    restockPrice: integer('restock_price'),
+    restockSum: integer('restock_sum').notNull().default(0),
+    totalQty: integer('total_qty'),
+    soldQty: integer('sold_qty').notNull().default(0),
+    sellingPrice: integer('selling_price'),
+    soldSum: integer('sold_sum').notNull().default(0),
+    /** «Sold price sum in restock price» — себестоимость проданного по цене прихода. */
+    soldCost: integer('sold_cost'),
+    profit: integer('profit'),
+    comment: text('comment').notNull().default(''),
+  },
+  (t) => [index('senet_goods_moves_office_from_idx').on(t.officeId, t.fromAt)],
+);
+
+/** `office_load_by_zones`: сеансы гостей по зонам и ПК; телефон — только HMAC и маска. */
+export const senetLoad = sqliteTable(
+  'senet_load',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    officeId: integer('office_id')
+      .notNull()
+      .references(() => senetOffices.id),
+    startAt: text('start_at').notNull(),
+    endAt: text('end_at'),
+    zone: text('zone').notNull().default(''),
+    workstation: integer('workstation'),
+    guestLogin: text('guest_login').notNull().default(''),
+    phoneHash: text('phone_hash'),
+    phoneMask: text('phone_mask'),
+    age: integer('age'),
+    tariff: text('tariff').notNull().default(''),
+    debited: integer('debited').notNull().default(0),
+    refilled: integer('refilled').notNull().default(0),
+    durationSec: integer('duration_sec'),
+  },
+  (t) => [index('senet_load_office_start_idx').on(t.officeId, t.startAt)],
+);

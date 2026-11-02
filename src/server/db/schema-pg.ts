@@ -50,6 +50,9 @@ const t = toPgTables({
   senetBarPurchases: sqlite.senetBarPurchases,
   senetChecks: sqlite.senetChecks,
   senetRefills: sqlite.senetRefills,
+  senetStock: sqlite.senetStock,
+  senetGoodsMoves: sqlite.senetGoodsMoves,
+  senetLoad: sqlite.senetLoad,
 });
 
 export const users = t.users;
@@ -99,3 +102,6 @@ export const senetSoldItems = t.senetSoldItems;
 export const senetBarPurchases = t.senetBarPurchases;
 export const senetChecks = t.senetChecks;
 export const senetRefills = t.senetRefills;
+export const senetStock = t.senetStock;
+export const senetGoodsMoves = t.senetGoodsMoves;
+export const senetLoad = t.senetLoad;

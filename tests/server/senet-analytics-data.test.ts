@@ -27,6 +27,10 @@ async function setup() {
     sold: [sold('2026-10-01 12:00:00', 'Напиток 1', 2, 1500), sold('2026-10-01 23:00:00', 'A1B2', null, 1000), sold('2026-10-02 09:00:00', 'Напиток 1', 1, 750, 'Возвраты')],
     checks: [check('2026-10-01 20:00:00', 'C1', PHONE), check('2026-10-02 01:00:00', 'C2', null)],
     refills: [refill('2026-10-01 20:00:00', PHONE)],
+    load: [
+      ['Клуб 1', xlTime('2026-10-01 20:00:00'), xlTime('2026-10-01 21:30:00'), 'VIP', 7, 'гость1', '+77012345612', 19, 'Тариф 1', 1500, 2000, 0.0625],
+      ['Клуб 1', xlTime('2026-10-02 06:00:00'), null, 'Общий', 3, 'гость2', null, null, 'Тариф 1', 500, 0, null],
+    ],
   };
   // отчёт по суткам: строки окна запроса
   const inWindow = (rows: SampleValue[][], col: number, q: Record<string, string>) =>
@@ -44,7 +48,13 @@ async function setup() {
           ? senetSample('soldItems', inWindow(data.sold!, 0, q))
           : type === 'checks'
             ? senetSample('checks', inWindow(data.checks!, 9, q))
-            : type === 'refill'
+            : type === 'shop_quantity'
+              ? senetSample('stock', [['Напиток 1', 3, 10, 1, 500, 5000, 750, 2250, 6.5]])
+              : type === 'movements_of_goods'
+                ? senetSample('goodsMoves', [['Приход 1', 'Сотрудник А', 'Напитки', 'Напиток 1', 10, 0, 500, 5000, 16, 2, 750, 1500, 1000, 500, null]])
+                : type === 'office_load_by_zones'
+                  ? senetSample('load', inWindow(data.load!, 1, q))
+                  : type === 'refill'
               ? senetSample('refills', inWindow(data.refills!, 1, q))
               : senetSample(type === 'income_outcome' ? 'cashMoves' : 'transactions', []),
   });
@@ -89,6 +99,25 @@ describe('данные для аналитики', () => {
     x!.data.checks = [x!.data.checks![0]!];
     await sync();
     expect([await count('senet_sold_items'), await count('senet_checks'), await count('senet_refills')]).toEqual([3, 1, 1]);
+  });
+
+  it('остатки, движение товаров и загрузка — по суткам; сеанс — в сутки своего начала; телефон — хеш и маска', async () => {
+    await setup();
+    await sync();
+    expect([await count('senet_stock'), await count('senet_goods_moves'), await count('senet_load')]).toEqual([2, 2, 2]);
+    const stock = await x!.w.h.t.q('SELECT from_at f, item, sold_qty q, actual_qty a FROM senet_stock ORDER BY from_at');
+    expect(stock.map((r) => [r.f, r.item, r.q, r.a])).toEqual([
+      ['2026-10-01T04:00:00.000Z', 'Напиток 1', 3000, 6500],
+      ['2026-10-02T04:00:00.000Z', 'Напиток 1', 3000, 6500],
+    ]);
+    const load = await x!.w.h.t.q('SELECT start_at s, zone, duration_sec d, phone_mask m FROM senet_load ORDER BY start_at');
+    expect(load).toEqual([
+      { s: '2026-10-01T15:00:00.000Z', zone: 'VIP', d: 5400, m: '+7 *** ** 12' },
+      { s: '2026-10-02T01:00:00.000Z', zone: 'Общий', d: null, m: null },
+    ]);
+    expect(JSON.stringify(await x!.w.h.t.q('SELECT * FROM senet_load'))).not.toContain('7012345612');
+    await sync();
+    expect([await count('senet_stock'), await count('senet_goods_moves'), await count('senet_load')]).toEqual([2, 2, 2]);
   });
 
   it('ровно 2000 строк за сутки — Senet обрезал отчёт: запуск partial с текстом', async () => {

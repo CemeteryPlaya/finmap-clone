@@ -99,6 +99,13 @@
       "when": 1793644396006,
       "tag": "0013_senet",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1793660662393,
+      "tag": "0014_senet_stock_load",
+      "breakpoints": true
     }
   ]
 }

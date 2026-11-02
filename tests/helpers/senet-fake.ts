@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import { senetSample } from './senet-samples';
 
 /** Отчёты для аналитики: пустые, если тест не просит их сам (ownAnalytics). */
-const ANALYTICS = { sold_check_items: 'soldItems', checks: 'checks', refill: 'refills' } as const;
+const ANALYTICS = { sold_check_items: 'soldItems', checks: 'checks', refill: 'refills', shop_quantity: 'stock', movements_of_goods: 'goodsMoves', office_load_by_zones: 'load' } as const;
 
 /**
  * Поддельный сервер Senet (план 2026-11-02-senet-autopost, задача 4): вход админ-панели и отчёты. Отчёт — функция от

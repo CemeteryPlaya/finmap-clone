@@ -116,7 +116,52 @@ describe('parseReport', () => {
     expect(() => parseReport('sessions', Buffer.from('<html>вход</html>'), TZ)).toThrow(SenetError);
   });
 
-  it('stock, goodsMoves, load — строк нет (разбор по пробному забору)', () => {
-    expect(parseReport('stock', senetSample('sessions', []), TZ).rows).toBeNull();
+  it('stock (shop_quantity): товары за окно — количества × 1000, цены и суммы в тиынах', () => {
+    const data = senetSample('stock', [['Напиток 1', 3, 10, 1, 500, 5000, 750, 2250, 6.5]]);
+    expect(parseReport('stock', data, TZ).rows).toEqual([
+      { item: 'Напиток 1', soldQty: 3000, restockQty: 10_000, writeOffQty: 1000, restockPrice: 50_000, restockSum: 500_000, sellingPrice: 75_000, soldSum: 225_000, actualQty: 6500 },
+    ]);
+  });
+
+  it('goodsMoves (movements_of_goods): документ источника, кассир, категория, приход и продажа, прибыль', () => {
+    const data = senetSample('goodsMoves', [['Приход 1', 'Сотрудник А', 'Напитки', 'Напиток 1', 10, 0, 500, 5000, 16, 2, 750, 1500, 1000, 500, null]]);
+    expect(parseReport('goodsMoves', data, TZ).rows).toEqual([
+      {
+        sourceOrder: 'Приход 1',
+        cashier: 'Сотрудник А',
+        category: 'Напитки',
+        item: 'Напиток 1',
+        restockQty: 10_000,
+        writeOffQty: 0,
+        restockPrice: 50_000,
+        restockSum: 500_000,
+        totalQty: 16_000,
+        soldQty: 2000,
+        sellingPrice: 75_000,
+        soldSum: 150_000,
+        soldCost: 100_000,
+        profit: 50_000,
+        comment: '',
+      },
+    ]);
+  });
+
+  it('load (office_load_by_zones): сеанс гостя — зона, ПК, тариф, списано и пополнено, длительность в секундах', () => {
+    const data = senetSample('load', [['Клуб 1', xlTime('2026-10-01 20:00:00'), xlTime('2026-10-01 21:30:00'), 'VIP', 7, 'гость1', '+77012345612', 19, 'Обычный тариф', 1500, 2000, 0.0625]]);
+    expect(parseReport('load', data, TZ).rows).toEqual([
+      {
+        startAt: '2026-10-01T15:00:00.000Z',
+        endAt: '2026-10-01T16:30:00.000Z',
+        zone: 'VIP',
+        workstation: 7,
+        guestLogin: 'гость1',
+        phone: '+77012345612',
+        age: 19,
+        tariff: 'Обычный тариф',
+        debited: 150_000,
+        refilled: 200_000,
+        durationSec: 5400,
+      },
+    ]);
   });
 });

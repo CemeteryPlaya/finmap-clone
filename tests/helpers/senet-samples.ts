@@ -11,6 +11,26 @@ export const SENET_HEADERS = {
   soldItems: ['Дата операции', 'Код чека', 'Продано', 'Сумма', 'Тип операции', 'Статус чека', 'Comment'],
   checks: ['Офис', 'Касса', 'Логин кассира', 'Код чека', 'Использован', 'Сумма', 'Номер рабочей станции', 'Логин пользователя', 'Номер телефона', 'Дата покупки'],
   refills: ['Офис', 'Дата пополнения', 'Логин пользователя', 'Тип аккаунта', 'Номер телефона', 'Сумма', 'Номер рабочей станции'],
+  // заголовки API — английские (пробный забор 2026-11-03)
+  stock: ['Product name', 'Sold quantity', 'Restock quantity', 'Write off quantity', 'Restock price', 'Restock price sum', 'Selling price', 'Sold price sum', 'Actual quantity'],
+  goodsMoves: [
+    'Source order',
+    'Cashier login',
+    'Product category',
+    'Product name',
+    'Restock quantity',
+    'Write off quantity',
+    'Restock price',
+    'Restock price sum',
+    'Total amount of goods',
+    'Sold quantity',
+    'Selling price',
+    'Sold price sum',
+    'Sold price sum in restock price',
+    'Profit',
+    'Comment',
+  ],
+  load: ['Office name', 'Session start date', 'Session end date', 'Office zone', 'Workstation num', 'User login', 'Phone number', 'User age', 'Tariff name', 'Amount of funds debited', 'Amount of replenishment', 'Session duration, hh:mm:ss'],
 } as const;
 
 export type SampleKind = keyof typeof SENET_HEADERS;

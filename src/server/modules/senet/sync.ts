@@ -168,14 +168,17 @@ export function createSenetSync(d: {
             const sold = await fetch('soldItems', dayFrom, dayTo);
             const checks = await fetch('checks', dayFrom, dayTo);
             const refills = await fetch('refills', dayFrom, dayTo);
-            for (const [kind, rows] of [['sold_check_items', sold], ['checks', checks], ['refill', refills]] as const) {
+            const stock = await fetch('stock', dayFrom, dayTo);
+            const goodsMoves = await fetch('goodsMoves', dayFrom, dayTo);
+            const load = await fetch('load', dayFrom, dayTo);
+            for (const [kind, rows] of [['sold_check_items', sold], ['checks', checks], ['refill', refills], ['office_load_by_zones', load]] as const) {
               if (rows && rows.length === SENET_ROW_CAP) {
                 partial = true;
                 const [y, m, dd] = todayInTimezone(d.timezone, new Date(dayFrom)).split('-');
                 error ??= `Отчёт «${kind}» за ${dd}.${m}.${y} пришёл ровно на ${SENET_ROW_CAP} строк — Senet мог его обрезать`;
               }
             }
-            await withTx(db, (tx) => writeAnalyticsDay(tx, { officeId: office.id, from: dayFrom, to: dayTo, sold, checks, refills, phone }));
+            await withTx(db, (tx) => writeAnalyticsDay(tx, { officeId: office.id, from: dayFrom, to: dayTo, sold, checks, refills, stock, goodsMoves, load, phone }));
           }
           counts.done++;
         }

@@ -68,9 +68,52 @@ const COLUMNS: Record<Parsed, readonly Col[]> = {
     ['amount', 'Сумма', 'Amount'],
     ['workstation', 'Номер рабочей станции', 'Workstation num'],
   ],
+  // ниже — английские заголовки API (пробный забор 2026-11-03); русские разбираются по позиции
+  stock: [
+    ['item', 'Product name'],
+    ['soldQty', 'Sold quantity'],
+    ['restockQty', 'Restock quantity'],
+    ['writeOffQty', 'Write off quantity'],
+    ['restockPrice', 'Restock price'],
+    ['restockSum', 'Restock price sum'],
+    ['sellingPrice', 'Selling price'],
+    ['soldSum', 'Sold price sum'],
+    ['actualQty', 'Actual quantity'],
+  ],
+  goodsMoves: [
+    ['sourceOrder', 'Source order'],
+    ['cashier', 'Cashier login'],
+    ['category', 'Product category'],
+    ['item', 'Product name'],
+    ['restockQty', 'Restock quantity'],
+    ['writeOffQty', 'Write off quantity'],
+    ['restockPrice', 'Restock price'],
+    ['restockSum', 'Restock price sum'],
+    ['totalQty', 'Total amount of goods'],
+    ['soldQty', 'Sold quantity'],
+    ['sellingPrice', 'Selling price'],
+    ['soldSum', 'Sold price sum'],
+    ['soldCost', 'Sold price sum in restock price'],
+    ['profit', 'Profit'],
+    ['comment', 'Comment'],
+  ],
+  load: [
+    ['office', 'Office name'],
+    ['startAt', 'Session start date'],
+    ['endAt', 'Session end date'],
+    ['zone', 'Office zone'],
+    ['workstation', 'Workstation num'],
+    ['guestLogin', 'User login'],
+    ['phone', 'Phone number'],
+    ['age', 'User age'],
+    ['tariff', 'Tariff name'],
+    ['debited', 'Amount of funds debited'],
+    ['refilled', 'Amount of replenishment'],
+    ['durationSec', 'Session duration, hh:mm:ss'],
+  ],
 };
 
-type Parsed = Exclude<ReportKind, 'stock' | 'goodsMoves' | 'load'>;
+type Parsed = ReportKind;
 const headerKey = (s: string) => s.trim().toLowerCase().replace(/ё/g, 'е');
 /** Возврат, «да», статус возврата — по-русски и по-английски. */
 const REFUND = /возврат|refund|return/i;
@@ -106,7 +149,6 @@ export function parseReport<K extends ReportKind>(kind: K, data: Buffer, timezon
   } catch {
     throw bad();
   }
-  if (kind === 'stock' || kind === 'goodsMoves' || kind === 'load') return { rows: null as ReportRows[K], officeName: null };
 
   const [head, ...body] = sheet.rows;
   const index = locate(COLUMNS[kind as Parsed], head);
@@ -139,6 +181,11 @@ export function parseReport<K extends ReportKind>(kind: K, data: Buffer, timezon
   const officeName = 'office' in index ? (body.map((r) => text(r, 'office')).find(Boolean) ?? null) : null;
   // строки без основного времени (итоги, пустые) пропускаются
   const timed = (field: string) => body.filter((r) => time(r, field) !== null);
+  const qty = (r: SheetRow, field: string) => {
+    const n = num(r, field);
+    return n === null ? null : Math.round(n * 1000);
+  };
+  const priceOrNull = (r: SheetRow, field: string) => (num(r, field) === null ? null : money(r, field));
   let rows: unknown;
   switch (kind as Parsed) {
     case 'sessions':
@@ -200,6 +247,61 @@ export function parseReport<K extends ReportKind>(kind: K, data: Buffer, timezon
         workstation: num(r, 'workstation'),
         phone: phone(r),
       }));
+      break;
+    case 'stock':
+      rows = body
+        .filter((r) => text(r, 'item'))
+        .map((r) => ({
+          item: text(r, 'item'),
+          soldQty: qty(r, 'soldQty') ?? 0,
+          restockQty: qty(r, 'restockQty') ?? 0,
+          writeOffQty: qty(r, 'writeOffQty') ?? 0,
+          restockPrice: priceOrNull(r, 'restockPrice'),
+          restockSum: money(r, 'restockSum'),
+          sellingPrice: priceOrNull(r, 'sellingPrice'),
+          soldSum: money(r, 'soldSum'),
+          actualQty: qty(r, 'actualQty'),
+        }));
+      break;
+    case 'goodsMoves':
+      rows = body
+        .filter((r) => text(r, 'item'))
+        .map((r) => ({
+          sourceOrder: text(r, 'sourceOrder'),
+          cashier: text(r, 'cashier'),
+          category: text(r, 'category'),
+          item: text(r, 'item'),
+          restockQty: qty(r, 'restockQty') ?? 0,
+          writeOffQty: qty(r, 'writeOffQty') ?? 0,
+          restockPrice: priceOrNull(r, 'restockPrice'),
+          restockSum: money(r, 'restockSum'),
+          totalQty: qty(r, 'totalQty'),
+          soldQty: qty(r, 'soldQty') ?? 0,
+          sellingPrice: priceOrNull(r, 'sellingPrice'),
+          soldSum: money(r, 'soldSum'),
+          soldCost: priceOrNull(r, 'soldCost'),
+          profit: priceOrNull(r, 'profit'),
+          comment: text(r, 'comment'),
+        }));
+      break;
+    case 'load':
+      rows = timed('startAt').map((r) => {
+        const d = num(r, 'durationSec');
+        return {
+          startAt: time(r, 'startAt')!,
+          endAt: time(r, 'endAt'),
+          zone: text(r, 'zone'),
+          workstation: num(r, 'workstation'),
+          guestLogin: text(r, 'guestLogin'),
+          phone: phone(r),
+          age: num(r, 'age'),
+          tariff: text(r, 'tariff'),
+          debited: money(r, 'debited'),
+          refilled: money(r, 'refilled'),
+          // длительность — доля суток Excel
+          durationSec: d === null ? null : Math.round(d * 86_400),
+        };
+      });
       break;
   }
   return { rows: rows as ReportRows[K], officeName };

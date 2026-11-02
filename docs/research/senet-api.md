@@ -44,3 +44,20 @@
 - **`office_id` — номер клуба в Senet.** Список приходит в подсказках параметров; нужно сопоставить его с нашими проектами.
 - **Пределы частоты запросов не указаны.** Достаточно забирать данные раз в день или по кнопке за выбранный период.
 - **Только чтение.** Записывающие запросы (`/users/refill/`, `/account/register/`, `/workstations/login/`) нам не нужны и не используются.
+
+## Админ-API (пробный забор 2026-11-03, задача 1 плана 2026-11-02-senet-autopost)
+
+Проверено с учёткой владельца, только чтение. Сырые ответы остались на его машине (`.superpowers/senet-local/`), здесь — только состав.
+
+- **Вход.** `POST https://{org}.app.enes.tech/api/v2/user/idm_admin_auth/` с `{username, password}` → 200, поля ответа: `token`, `is_cashier`, `permissions`, `features`, `keycloak_refresh_token`. Отчёты — `Authorization: Token {token}`.
+- **Токен.** Повторный вход выдаёт **новый** токен, а прежний продолжает работать (отчёт по нему — 200). Значит, вход модуля под той же учёткой не выбивает админ-панель.
+- **Язык заголовков.** API без `Accept-Language` отдаёт xlsx с **английскими** заголовками; выгрузка из интерфейса — с русскими. Разбор принимает оба, а незнакомые заголовки при том же числе колонок — по позиции.
+- **Список клубов.** `GET /api/v2/office/` → массив клубов: `dic_office_id`, `dic_office_name`, `timezone`, `currency`, `pc_count`, `consoles_count`, `is_current`, `is_deleted` и др. (в ответе есть `api_key` — не сохраняется и не показывается). `GET /api/v2/offices/` — 404.
+- **Кассы.** `GET /api/v2/cashdesk/` → массив касс: `id`, `name`, `dic_office`, `cashdesk_type`, `is_online`, `is_shift_active`, `is_deleted` и др. У клуба владельца — **две** кассы. `GET /api/v2/cashdesks/` — 404.
+- **Отчёты (английские заголовки, по порядку колонок):**
+  - `cashdesk_session`: Office name, Cashdesk, Session start date, User who opened session, Session end date, User who closed session, Total amount, Cash, Cashless;
+  - `shop_quantity`: Product name, Sold quantity, Restock quantity, Write off quantity, Restock price, Restock price sum, Selling price, Sold price sum, Actual quantity — за окно, без дат строк;
+  - `movements_of_goods`: Source order, Cashier login, Product category, Product name, Restock quantity, Write off quantity, Restock price, Restock price sum, Total amount of goods, Sold quantity, Selling price, Sold price sum, Sold price sum in restock price, Profit, Comment — за окно, без дат строк;
+  - `office_load`: Office name, Session start date, Session end date, Session duration (hh:mm:ss), User login, Account type, Phone number, Workstation num, Total amount, Tariff name, Cashier login, One-time fee for starting a session, Ticket price — сеансы гостей;
+  - `office_load_by_zones`: Office name, Session start date, Session end date, Office zone, Workstation num, User login, Phone number, User age, Tariff name, Amount of funds debited, Amount of replenishment, Session duration (hh:mm:ss) — сеансы по зонам.
+- **Обрезка.** `sold_check_items` за октябрь пришёл ровно на 2000 строк и кончился 13.10 — Senet обрезает отчёт; модуль забирает его окнами по суткам.

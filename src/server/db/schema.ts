@@ -55,6 +55,9 @@ export let senetSoldItems = sqlite.senetSoldItems;
 export let senetBarPurchases = sqlite.senetBarPurchases;
 export let senetChecks = sqlite.senetChecks;
 export let senetRefills = sqlite.senetRefills;
+export let senetStock = sqlite.senetStock;
+export let senetGoodsMoves = sqlite.senetGoodsMoves;
+export let senetLoad = sqlite.senetLoad;
 
 export const sqliteTables = {
   users: sqlite.users,
@@ -104,6 +107,9 @@ export const sqliteTables = {
   senetBarPurchases: sqlite.senetBarPurchases,
   senetChecks: sqlite.senetChecks,
   senetRefills: sqlite.senetRefills,
+  senetStock: sqlite.senetStock,
+  senetGoodsMoves: sqlite.senetGoodsMoves,
+  senetLoad: sqlite.senetLoad,
 };
 
 export const pgTables = {
@@ -154,6 +160,9 @@ export const pgTables = {
   senetBarPurchases: pg.senetBarPurchases,
   senetChecks: pg.senetChecks,
   senetRefills: pg.senetRefills,
+  senetStock: pg.senetStock,
+  senetGoodsMoves: pg.senetGoodsMoves,
+  senetLoad: pg.senetLoad,
 };
 
 let bound: Dialect | null = null;
@@ -211,6 +220,9 @@ export function bindSchema(dialect: Dialect): void {
   senetBarPurchases = pg.senetBarPurchases as unknown as typeof sqlite.senetBarPurchases;
   senetChecks = pg.senetChecks as unknown as typeof sqlite.senetChecks;
   senetRefills = pg.senetRefills as unknown as typeof sqlite.senetRefills;
+  senetStock = pg.senetStock as unknown as typeof sqlite.senetStock;
+  senetGoodsMoves = pg.senetGoodsMoves as unknown as typeof sqlite.senetGoodsMoves;
+  senetLoad = pg.senetLoad as unknown as typeof sqlite.senetLoad;
 }
 
 /** Диалект, к которому привязан процесс (по умолчанию — SQLite). */
