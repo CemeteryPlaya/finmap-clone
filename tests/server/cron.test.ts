@@ -48,7 +48,7 @@ describe('GET /api/v1/cron/daily', () => {
 
     const res = await cron(v, `Bearer ${'c'.repeat(16)}`);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.json()).toMatchObject({ backup: 'backups/2026-10-21.json.gz', removed: { backups: 3, uploads: 2, exports: 1, sessions: 1 } });
+    expect(res.json()).toMatchObject({ backup: 'backups/2026-10-21.json.gz', removed: { backups: 3, uploads: 2, exports: 1, sessions: 1, senetRaw: 0 } });
 
     const backups = [...v.files.keys()].filter((k) => k.startsWith('backups/')).sort();
     expect(backups).toHaveLength(14);

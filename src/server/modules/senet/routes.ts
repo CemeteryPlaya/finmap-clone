@@ -1,14 +1,16 @@
 import type { FastifyInstance } from 'fastify';
-import { senetCheckSchema, senetConnectionCreateSchema, senetConnectionPatchSchema, senetOfficeSchema } from '../../../shared/schemas/senet';
+import { senetCheckSchema, senetConnectionCreateSchema, senetConnectionPatchSchema, senetOfficeSchema, senetSyncSchema } from '../../../shared/schemas/senet';
 import { parseId } from '../../http/params';
+import { AppError } from '../../errors';
 import type { SenetConnections } from './connections';
+import type { SenetSync } from './sync';
 
 type C = { Params: { cid: string } };
 type P = { Params: { cid: string; id: string } };
 const BASE = '/api/v1/companies/:cid/senet';
 
 /** Senet (спецификация 2026-11-02-senet-autopost): подключения и клубы. */
-export function registerSenetRoutes(app: FastifyInstance, deps: { connections: SenetConnections }): void {
+export function registerSenetRoutes(app: FastifyInstance, deps: { connections: SenetConnections; sync: SenetSync }): void {
   const svc = deps.connections;
 
   app.get<C>(`${BASE}/connections`, async (req) => ({ connections: await svc.list(parseId(req.params.cid)) }));
@@ -37,4 +39,21 @@ export function registerSenetRoutes(app: FastifyInstance, deps: { connections: S
   app.patch<P>(`${BASE}/offices/:id`, async (req) => ({
     office: await svc.updateOffice(parseId(req.params.cid), parseId(req.params.id), senetOfficeSchema.parse(req.body), req.user!.id),
   }));
+
+  // «Обновить сейчас» и «Загрузить за период»: ответ — после завершения забора
+  app.post<P>(`${BASE}/connections/:id/sync`, async (req) => {
+    const companyId = parseId(req.params.cid);
+    const connectionId = parseId(req.params.id);
+    const { from, to } = senetSyncSchema.parse(req.body ?? {});
+    if (!(await svc.list(companyId)).some((c) => c.id === connectionId && !c.archivedAt)) throw new AppError(404, 'NOT_FOUND', 'Подключение Senet не найдено');
+    return { runs: await deps.sync.run({ connectionId, trigger: from ? 'period' : 'manual', from, to }) };
+  });
+
+  app.get<P>(`${BASE}/sync-runs/:id`, async (req) => {
+    const run = await deps.sync.getRun(parseId(req.params.cid), parseId(req.params.id));
+    if (!run) throw new AppError(404, 'NOT_FOUND', 'Запуск не найден');
+    return { run };
+  });
+
+  app.get<C>(`${BASE}/status`, async (req) => deps.sync.status(parseId(req.params.cid)));
 }

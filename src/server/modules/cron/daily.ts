@@ -4,6 +4,7 @@ import type { Db } from '../../db/client';
 import { sessions } from '../../db/schema';
 import type { FileStore } from '../../files/store';
 import { dumpDatabase } from '../backup/dump';
+import { cleanupSenetRaw } from '../senet/sync';
 
 export interface DailyDeps {
   db: Db;
@@ -17,7 +18,7 @@ export interface DailyDeps {
 export interface DailyReport {
   backup: string;
   size: number;
-  removed: { backups: number; uploads: number; exports: number; sessions: number };
+  removed: { backups: number; uploads: number; exports: number; sessions: number; senetRaw: number };
 }
 
 const DAY_MS = 24 * 3600_000;
@@ -43,7 +44,7 @@ export async function runDaily(d: DailyDeps): Promise<DailyReport> {
     backupError = e;
   }
 
-  const removed = { backups: 0, uploads: 0, exports: 0, sessions: 0 };
+  const removed = { backups: 0, uploads: 0, exports: 0, sessions: 0, senetRaw: 0 };
   if (!backupError) {
     const backups = (await d.files.list('backups/')).filter((f) => f.key.endsWith('.json.gz'));
     for (const f of backups.slice(0, Math.max(0, backups.length - d.keep))) {
@@ -58,6 +59,8 @@ export async function runDaily(d: DailyDeps): Promise<DailyReport> {
       removed[prefix]++;
     }
   }
+  // сырые отчёты Senet — 90 дней (спецификация 2026-11-02-senet-autopost, §9.2)
+  removed.senetRaw = await cleanupSenetRaw(d.db, d.files, t);
   removed.sessions = (await d.db.delete(sessions).where(lte(sessions.expiresAt, t.toISOString())).returning({ id: sessions.id })).length;
 
   if (backupError) throw backupError;

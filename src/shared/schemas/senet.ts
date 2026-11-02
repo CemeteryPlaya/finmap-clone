@@ -117,3 +117,26 @@ export interface SenetCheckResult {
   shifts: number;
   lastClosedAt: string | null;
 }
+
+const DAY_MS = 86_400_000;
+
+/** «Обновить сейчас» — без дат; «Загрузить за период» — с даты по дату, не больше 366 дней (С15§5.4). */
+export const senetSyncSchema = z
+  .object({ from: z.iso.datetime().optional(), to: z.iso.datetime().optional() })
+  .superRefine((v, ctx) => {
+    if (!v.from && !v.to) return;
+    if (!v.from || !v.to) return ctx.addIssue({ code: 'custom', path: [v.from ? 'to' : 'from'], message: 'Укажите обе даты' });
+    if (v.from >= v.to) return ctx.addIssue({ code: 'custom', path: ['to'], message: 'Конец периода — позже начала' });
+    if (Date.parse(v.to) - Date.parse(v.from) > 366 * DAY_MS) ctx.addIssue({ code: 'custom', path: ['to'], message: 'Не больше 366 дней за раз' });
+  });
+
+export interface SenetSyncRunDto {
+  id: number;
+  connectionId: number;
+  startedAt: string;
+  finishedAt: string | null;
+  trigger: 'hourly' | 'cron' | 'manual' | 'period';
+  result: 'ok' | 'partial' | 'failed' | null;
+  error: string | null;
+  counts: Record<string, number>;
+}

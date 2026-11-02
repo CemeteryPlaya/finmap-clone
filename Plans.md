@@ -70,10 +70,10 @@
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
 | 37 | `[Docs]` `[lane:gate]` `[tdd:skip:research]` СА-1: пробный забор админ-API с владельцем (задача 1) | docs/research/senet-api.md: колонки shop_quantity, movements_of_goods, office_load*; список офисов; поведение токена | - | cc:TODO |
-| 38 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: схема 0013 / pg 0003 (задача 2) | schema-0013, schema-parity PASS на обоих диалектах | - | cc:TODO |
-| 39 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: секретный ключ, шифрование, хеш телефона (задача 3) | secrets, config PASS; typecheck | 38 | cc:TODO |
-| 40 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: SenetSource и AdminTokenSource (задача 4) | senet-source, senet-xlsx PASS; typecheck | 39 | cc:TODO |
-| 41 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: подключения, клубы, «Интеграции» (задача 5) | senet-connections, client senet-integrations PASS; typecheck | 40 | cc:TODO |
+| 38 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: схема 0013 / pg 0003 (задача 2) | schema-0013, schema-parity PASS на обоих диалектах | - | cc:完了 [c190a8e] |
+| 39 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: секретный ключ, шифрование, хеш телефона (задача 3) | secrets, config PASS; typecheck | 38 | cc:完了 [3d25bd3] |
+| 40 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: SenetSource и AdminTokenSource (задача 4) | senet-source, senet-xlsx PASS; typecheck | 39 | cc:完了 [ac27a45] |
+| 41 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: подключения, клубы, «Интеграции» (задача 5) | senet-connections, client senet-integrations PASS; typecheck | 40 | cc:完了 [abcf647] |
 | 42 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: забор, сырые файлы, журнал забора (задача 6) | senet-sync PASS на обоих диалектах | 41 | cc:TODO |
 | 43 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: расписание, cron/senet, пингер, баннер (задача 7) | senet-cron, main-senet, client senet-banner PASS | 42 | cc:TODO |
 | 44 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: нормализация, правила, классификация (задача 8) | senet-classify PASS | 38 | cc:TODO |
