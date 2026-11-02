@@ -24,6 +24,9 @@ jobs:
           if [ -z "$CRON_SECRET" ] || [ -z "$APP_URL" ]; then
             echo "Задайте секреты CRON_SECRET и APP_URL в настройках репозитория"; exit 1
           fi
+          # адрес без схемы (finmap-clone.vercel.app) — https://
+          case "$APP_URL" in http://*|https://*) ;; *) APP_URL="https://$APP_URL" ;; esac
+          APP_URL="${APP_URL%/}"
           # 409 — забор уже идёт (предыдущий запуск не закончился): это не ошибка
           code=$(curl -sS -o response.json -w '%{http_code}' --max-time 320 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/v1/cron/senet")
           cat response.json; echo
