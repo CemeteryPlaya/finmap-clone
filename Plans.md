@@ -75,7 +75,7 @@
 | 40 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: SenetSource и AdminTokenSource (задача 4) | senet-source, senet-xlsx PASS; typecheck | 39 | cc:完了 [ac27a45] |
 | 41 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: подключения, клубы, «Интеграции» (задача 5) | senet-connections, client senet-integrations PASS; typecheck | 40 | cc:完了 [abcf647] |
 | 42 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: забор, сырые файлы, журнал забора (задача 6) | senet-sync PASS на обоих диалектах | 41 | cc:完了 [52d7979] |
-| 43 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: расписание, cron/senet, пингер, баннер (задача 7) | senet-cron, main-senet, client senet-banner PASS | 42 | cc:TODO |
+| 43 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: расписание, cron/senet, пингер, баннер (задача 7) | senet-cron, main-senet, client senet-banner PASS | 42 | cc:完了 [65447f5] |
 | 44 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: нормализация, правила, классификация (задача 8) | senet-classify PASS | 38 | cc:TODO |
 | 45 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: план смены и сверка с эталоном (задача 9) | senet-plan PASS; локально senet-parity — 0 расхождений за 08–31.10.2026 | 44 | cc:TODO |
 | 46 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: правила разноски, «Проверить на истории» (задача 10) | senet-rules, client senet-rules PASS | 41, 45 | cc:TODO |
