@@ -1,3 +1,4 @@
+import { assertSenetRestorable } from '../senet/links';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { getCurrency } from '../../../shared/currencies';
 import { formatDateRu, todayInTimezone } from '../../../shared/dates';
@@ -370,6 +371,8 @@ export function createOperationsService(d: { db: Db; audit: AuditService; rates:
     await requireCompany(db, companyId, { writable: true });
     const current = await load(companyId, id);
     if (!current.deletedAt) return current;
+    // Senet уже провёл замену — восстановленная операция задвоила бы выемку (спецификация 2026-11-02-senet-autopost, §5.3)
+    await assertSenetRestorable(db, id);
     const locked = await archivedAccountOf(current);
     if (locked) throw archivedRef(`Счёт «${locked.name}» в архиве — сначала верните его из архива`);
     // инвариант 11: 3–7 на текущем состоянии справочников; уже выбранные архивные ссылки не мешают

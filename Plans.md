@@ -78,7 +78,7 @@
 | 43 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-1: расписание, cron/senet, пингер, баннер (задача 7) | senet-cron, main-senet, client senet-banner PASS | 42 | cc:完了 [65447f5] |
 | 44 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: нормализация, правила, классификация (задача 8) | senet-classify PASS | 38 | cc:完了 [b1a2d8e] |
 | 45 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: план смены и сверка с эталоном (задача 9) | senet-plan PASS; локально senet-parity — 0 расхождений за 08–31.10.2026 | 44 | cc:完了 [bff9176] |
-| 46 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: правила разноски, «Проверить на истории» (задача 10) | senet-rules, client senet-rules PASS | 41, 45 | cc:TODO |
+| 46 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: правила разноски, «Проверить на истории» (задача 10) | senet-rules, client senet-rules PASS | 41, 45 | cc:完了 [2d21486] |
 | 47 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: автопроводка (задача 11) | senet-post, senet-undo, client operation-senet-delete PASS; npm test PASS | 42, 45 | cc:TODO |
 | 48 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-2: очередь «Разобрать» (задача 12) | senet-review, senet-suggest, client senet-review PASS | 46, 47 | cc:TODO |
 | 49 | `[Feature]` `[lane:gate]` `[tdd:required]` СА-3: API сверки (задача 13) | senet-reconcile PASS на обоих диалектах | 47 | cc:TODO |

@@ -11,6 +11,7 @@ import { invalidateOperations } from '../../lib/journal-mutations';
 import { defaultAccounts, readLastAccounts, saveLastAccounts, withSaved } from '../../lib/last-account';
 import { useNow } from '../../lib/use-now';
 import { createFromForm, type CreatableKind } from '../../lib/operation-create';
+import { senetDeleteRequests, useSenetLink } from '../../lib/senet';
 import { invalidateStock } from '../../lib/stock';
 import {
   archivedAccountOf,
@@ -261,6 +262,9 @@ function OperationEditor(p: {
   const [focusField] = useState(() => initialFocusField(initial, p.operation !== null));
   /** «Удалить платёж» (§6.7 этапа 1.5): подтверждение — вложенное окно. */
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** Операция из Senet: в подтверждении удаления — «Не проводить повторно из Senet» (спецификация 2026-11-02-senet-autopost, §5.3). */
+  const senetLink = useSenetLink(p.company.id, op?.id ?? null);
+  const [noRepost, setNoRepost] = useState(false);
   /** «Изменить в перевод» (§6.8 этапа 1.5): подтверждение со списком того, что будет убрано; null — закрыто. */
   const [convertLosses, setConvertLosses] = useState<string[] | null>(null);
   /** Сигнал: форма стала переводом — фокус на пустой счёт перевода. */
@@ -591,7 +595,7 @@ function OperationEditor(p: {
     setPending(true);
     setFormError(null);
     try {
-      await api(`/companies/${p.company.id}/operations/${op.id}`, { method: 'DELETE' });
+      for (const r of senetDeleteRequests(p.company.id, op.id, senetLink.data ?? null, noRepost)) await api(r.url, { method: r.method, body: r.body });
       void invalidateOperations(p.company.id);
       void invalidateStock(p.company.id);
       setConfirmDelete(false);
@@ -1060,7 +1064,8 @@ function OperationEditor(p: {
       <ConfirmDialog
         open={confirmDelete}
         title="Удалить платёж?"
-        text="Операция будет удалена из журнала и итогов."
+        text={senetLink.data ? "Операция будет удалена из журнала и итогов. Без галочки Senet проведёт её заново при следующем заборе." : "Операция будет удалена из журнала и итогов."}
+        checkbox={senetLink.data ? { label: "Не проводить повторно из Senet", checked: noRepost, onChange: setNoRepost } : undefined}
         confirmLabel="Удалить"
         danger
         pending={pending}

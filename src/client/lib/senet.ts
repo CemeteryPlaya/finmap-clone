@@ -102,3 +102,30 @@ export function syncSummary(run: { result: 'ok' | 'partial' | 'failed' | null; e
   const text = `Загружено ${c.done ?? 0} из ${c.chunks ?? 0} отрезков: смен ${c.shifts ?? 0}, выемок и внесений ${c.moves ?? 0}`;
   return run.error ? `${text}. ${run.error}` : text;
 }
+
+export interface SenetLinkDto {
+  shiftId: number;
+  kind: 'move' | 'kaspi' | 'cash';
+  noRepost: boolean;
+}
+
+/** Связь операции со сменой Senet — для галочки «Не проводить повторно» в окне удаления (§5.3). */
+export function useSenetLink(companyId: number, operationId: number | null) {
+  return useQuery<SenetLinkDto | null, ApiError>({
+    queryKey: ['senet', companyId, 'link', operationId],
+    queryFn: async () => (await api<{ link: SenetLinkDto | null }>(`/companies/${companyId}/senet/links/${operationId}`)).link,
+    enabled: operationId !== null,
+    staleTime: 60_000,
+  });
+}
+
+/** Запросы удаления операции (П4): «Не проводить повторно» — до удаления; без связи или галочки — только удаление. */
+export function senetDeleteRequests(
+  companyId: number,
+  operationId: number,
+  link: SenetLinkDto | null,
+  noRepost: boolean,
+): { method: 'PATCH' | 'DELETE'; url: string; body?: unknown }[] {
+  const del = { method: 'DELETE' as const, url: `/companies/${companyId}/operations/${operationId}` };
+  return link && noRepost ? [{ method: 'PATCH', url: `/companies/${companyId}/senet/links/${operationId}`, body: { noRepost: true } }, del] : [del];
+}

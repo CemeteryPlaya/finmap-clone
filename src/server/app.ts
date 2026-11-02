@@ -25,6 +25,7 @@ import { createAuditService } from './modules/audit/service';
 import { registerBackupRoutes } from './modules/backup/routes';
 import { registerCronRoutes } from './modules/cron/routes';
 import { createSenetConnections } from './modules/senet/connections';
+import { createSenetPosting } from './modules/senet/post';
 import { createSenetRules } from './modules/senet/rules-service';
 import { registerSenetRoutes } from './modules/senet/routes';
 import { cleanupSenetRaw, createSenetSync, type SenetSync } from './modules/senet/sync';
@@ -198,9 +199,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     analytics: createStockAnalyticsService({ db, balance: stockBalance, timezone: config.timezone, now }),
   });
   const senetConnections = createSenetConnections({ db, audit, config, secrets: (create) => loadSecrets(config, { create }), now });
-  const senetSync = createSenetSync({ db, connections: senetConnections, files, timezone: config.timezone, now });
+  const senetPosting = createSenetPosting({ db, operations, audit, timezone: config.timezone, now });
+  const senetSync = createSenetSync({ db, connections: senetConnections, files, timezone: config.timezone, now, afterOffice: async (tx, officeId) => void (await senetPosting.postOffice(tx, officeId)) });
   const senetRules = createSenetRules({ db, audit, now });
-  registerSenetRoutes(app, { connections: senetConnections, sync: senetSync, rules: senetRules });
+  registerSenetRoutes(app, { connections: senetConnections, sync: senetSync, rules: senetRules, posting: senetPosting });
   // задачи локального планировщика (main.ts): часовой забор и ночная уборка сырых файлов
   app.decorate('senet', { sync: senetSync, cleanup: () => cleanupSenetRaw(db, files, now()) });
   registerSavedFiltersRoutes(app, { savedFilters: createSavedFiltersService({ db, now }) });
