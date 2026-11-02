@@ -35,7 +35,7 @@ export interface SenetSync {
 }
 
 /** Хук после записи смен клуба (автопроводка, задача 11) — в той же транзакции. */
-export type AfterOfficeSync = (tx: Executor, officeId: number) => Promise<void>;
+export type AfterOfficeSync = (tx: Executor, officeId: number, until: string) => Promise<void>;
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -157,7 +157,7 @@ export function createSenetSync(d: {
             const written = await writeOfficeBatch(tx, { officeId: office.id, sessions, moves, movesFrom, movesTo: to, transactions, txFrom: from, txTo: to }, now().toISOString());
             counts.shifts += written.shifts;
             counts.moves += written.moves;
-            if (d.afterOffice) await d.afterOffice(tx, office.id);
+            if (d.afterOffice) await d.afterOffice(tx, office.id, to);
           });
           // продажи, чеки и пополнения — окнами по суткам: Senet обрезает отчёт продаж на 2000 строк (§9.3)
           const secrets = d.secrets?.() ?? null;

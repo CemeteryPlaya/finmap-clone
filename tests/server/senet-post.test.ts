@@ -48,14 +48,21 @@ afterEach(async () => {
   world = null;
 });
 
-async function setup(o: { historyFrom?: string } = {}): Promise<World> {
+async function setup(o: { historyFrom?: string; windowedMoves?: boolean } = {}): Promise<World> {
   let sessions = [A, B];
   let moves = [...MOVES];
   const cache = new Map<unknown, Buffer>();
   const sample = (kind: Parameters<typeof senetSample>[0], rows: SampleValue[][]) => cache.get(rows) ?? cache.set(rows, senetSample(kind, rows)).get(rows)!;
   const fake = await startSenetFake({
     users: { reports: { password: 'p-1', token: 'tok-1' } },
-    report: (type) => (type === 'cashdesk_session' ? sample('sessions', sessions) : type === 'income_outcome' ? sample('cashMoves', moves) : sample('transactions', [])),
+    report: (type, q) => {
+      if (type === 'cashdesk_session') return sample('sessions', sessions);
+      if (type !== 'income_outcome') return sample('transactions', []);
+      if (!o.windowedMoves) return sample('cashMoves', moves);
+      // выемки — строго в окне запроса (дата Excel в часах клуба, UTC+5)
+      const utc = (r: SampleValue[]) => Math.round(((r[1] as { value: number }).value - 25_569) * 86_400_000) - 5 * 3_600_000;
+      return senetSample('cashMoves', moves.filter((r) => utc(r) >= Date.parse(q.from_date!) && utc(r) < Date.parse(q.to_date!)));
+    },
   });
   const w = await opsWorld(NOW, { SENET_API_BASE: fake.base, SECRET_KEY: KEY });
   const base = `/api/v1/companies/${w.cid}/senet`;
@@ -145,7 +152,7 @@ describe('автопроводка Senet', () => {
     x.set({ sessions: [A, B, session('2026-10-02 10:01:00', null, 12_000)], moves: [...MOVES, move('2026-10-02 10:30:00', 'Вынесение', 100, 'voda')] });
     await x.sync();
     expect((await x.ops()).map((o) => o.paidAt.slice(0, 10))).toEqual(Array(4).fill('2026-10-02'));
-    x.set({ sessions: [A, B, session('2026-10-02 10:01:00', '2026-10-02 22:00:00', 12_000)] });
+    x.set({ sessions: [A, B, session('2026-10-02 10:01:00', '2026-10-02 10:50:00', 12_000)] });
     await x.sync();
     expect((await x.ops()).filter((o) => o.categoryId === x.water)).toHaveLength(1);
   });
@@ -210,6 +217,27 @@ describe('автопроводка Senet', () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(await cash()).toBe(250_000);
     expect(Boolean((await x.w.h.t.q('SELECT changed_after_post c FROM senet_shifts WHERE id = ?', a!.id))[0]!.c)).toBe(false);
+  });
+
+  it('забор несколькими отрезками: смена проводится в отрезке, где пришли все её выемки', async () => {
+    const x = await setup({ windowedMoves: true });
+    // Senet отдаёт смены без учёта окна: смена A есть уже в первом отрезке, а её выемки — только во втором
+    const res = await x.w.h.req('POST', `${x.base}/connections/${(await x.w.h.t.q('SELECT id FROM senet_connections'))[0]!.id}/sync`, {
+      from: '2026-09-24T07:00:00.000Z',
+      to: '2026-10-02T06:00:00.000Z',
+    });
+    expect(res.json().runs[0].counts.chunks).toBe(2);
+    const ops = await x.ops();
+    expect(ops.map((o) => [o.paidAt, o.amount])).toEqual([
+      ['2026-10-01T17:00:00.000Z', 150_000],
+      ['2026-10-01T17:01:00.000Z', 200_000],
+      ['2026-10-01T17:01:00.000Z', 350_000],
+      ['2026-10-02T05:00:00.000Z', 50_000],
+      ['2026-10-02T05:00:00.000Z', 50_000],
+      ['2026-10-02T05:01:00.000Z', 300_000],
+      ['2026-10-02T05:01:00.000Z', 300_000],
+    ]);
+    expect((await x.w.h.t.q('SELECT changed_after_post c FROM senet_shifts')).every((r) => !r.c)).toBe(true);
   });
 
   it('поздняя выемка проведённой смены — после её выемок, до доходов; две одинаковые выемки — две операции', async () => {

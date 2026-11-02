@@ -1,8 +1,8 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or } from 'drizzle-orm';
 import { todayInTimezone } from '../../../shared/dates';
 import type { Db, Executor } from '../../db/client';
 import { first } from '../../db/raw';
-import { operations, senetBarPurchases, senetCashMoves, senetConnections, senetOffices, senetPostings, senetShifts } from '../../db/schema';
+import { operations, senetBarPurchases, senetCashMoves, senetConnections, senetOffices, senetPostings, senetReviewItems, senetShifts } from '../../db/schema';
 import { withTx } from '../../db/tx';
 import { AppError } from '../../errors';
 import type { AuditService } from '../audit/service';
@@ -24,7 +24,7 @@ const RECHECK_MS = 45 * DAY;
 
 export interface SenetPosting {
   /** Хук забора (AfterOfficeSync): проводка закрытых смен клуба внутри транзакции забора, по точке сохранения на смену. */
-  postOffice(tx: Executor, officeId: number): Promise<{ posted: number; errors: number }>;
+  postOffice(tx: Executor, officeId: number, until?: string): Promise<{ posted: number; errors: number }>;
   /** «Перепровести доходы смены» (§5.4): суммы Каспи и Касса — по текущей выручке Senet, отметка снимается. */
   repostIncomes(companyId: number, shiftId: number, userId: number): Promise<void>;
   /** «Не проводить повторно» у выемки или дохода (§5.3). */
@@ -112,7 +112,7 @@ export function createSenetPosting(d: { db: Db; operations: OperationsService; a
       return { plan, moves };
     },
 
-    async postOffice(tx, officeId) {
+    async postOffice(tx, officeId, until) {
       const { office, companyId, userId } = await companyOf(tx, officeId);
       if (!ready(office)) return { posted: 0, errors: 0 };
       const t = now();
@@ -124,6 +124,8 @@ export function createSenetPosting(d: { db: Db; operations: OperationsService; a
             eq(senetShifts.officeId, officeId),
             isNotNull(senetShifts.closedAt),
             gte(senetShifts.openedAt, office.historyFrom),
+            // смена, закрытая позже конца отрезка, ещё не получила все выемки — её проведёт следующий отрезок
+            until ? lte(senetShifts.closedAt, until) : undefined,
             or(isNull(senetShifts.postedRevenue), gte(senetShifts.closedAt, new Date(t.getTime() - RECHECK_MS).toISOString())),
           ),
         )
@@ -156,8 +158,13 @@ export function createSenetPosting(d: { db: Db; operations: OperationsService; a
         const { plan } = await svc.plan(tx, office, shift);
         const postings = await tx.select().from(senetPostings).where(eq(senetPostings.shiftId, shiftId));
         const live = await liveSet(tx, postings.map((p) => p.operationId));
+        // ручное распределение владельца сохраняется: Каспи — как задано, Касса — остаток новой выручки
+        const manual = await manualIncomes(tx, shiftId);
+        const manualKaspi = postings.find((p) => p.kind === 'kaspi')?.amount ?? 0;
+        if (manual && plan.revenue - manualKaspi < 0) throw new AppError(422, 'SENET_NEGATIVE_CASH', 'Касса смены меньше нуля — ответьте в «Разобрать»');
         for (const kind of ['kaspi', 'cash'] as const) {
-          const planned = plan.ops.find((o) => o.ref.kind === 'income' && o.ref.income === kind);
+          const target = manual ? (kind === 'kaspi' ? manualKaspi : plan.revenue - manualKaspi) : (plan.ops.find((o) => o.ref.kind === 'income' && o.ref.income === kind)?.amount ?? 0);
+          const planned = target > 0 ? incomeOp(plan, shift, office, kind, target) : undefined;
           const posting = postings.find((p) => p.kind === kind);
           const opId = posting?.operationId && live.has(posting.operationId) ? posting.operationId : null;
           if (opId && planned) {
@@ -205,6 +212,35 @@ export function createSenetPosting(d: { db: Db; operations: OperationsService; a
     },
   };
 
+  /** Доходы смены распределил владелец: ответ «Указать Каспи» с суммой или «доходы вручную» при кассе < 0. */
+  async function manualIncomes(ex: Executor, shiftId: number): Promise<boolean> {
+    const answered = await ex
+      .select({ reason: senetReviewItems.reason, answer: senetReviewItems.answer })
+      .from(senetReviewItems)
+      .where(and(eq(senetReviewItems.shiftId, shiftId), eq(senetReviewItems.status, 'answered'), inArray(senetReviewItems.reason, ['no_kaspi', 'negative_cash'])));
+    return answered.some((a) => {
+      const ans = JSON.parse(a.answer ?? '{}') as { kind?: string; amount?: number };
+      return (a.reason === 'no_kaspi' && ans.kind === 'kaspi' && (ans.amount ?? 0) > 0) || (a.reason === 'negative_cash' && ans.kind === 'incomes');
+    });
+  }
+
+  /** Доход смены суммой amount — в минуту доходов плана (после выемок, §4.4). */
+  function incomeOp(plan: ShiftPlan, shift: Shift, office: Ready, kind: 'kaspi' | 'cash', amount: number): PlannedOp {
+    const at =
+      plan.ops.find((o) => o.ref.kind === 'income')?.paidAt ??
+      new Date(Date.parse(lateOpTime(shift.closedAt!, plan.ops.filter((o) => o.ref.kind === 'move').map((o) => o.paidAt))) + 60_000).toISOString();
+    return {
+      ref: { kind: 'income', income: kind },
+      paidAt: at,
+      accountId: kind === 'kaspi' ? office.kaspiAccountId : office.cashAccountId,
+      amount,
+      categoryId: office.incomeCategoryId,
+      counterpartyId: null,
+      comment: null,
+      ruleId: null,
+    };
+  }
+
   /** Проводка одной смены (§5.2–5.4); бросает — вызывающий откатывает точку сохранения. Возвращает число новых операций. */
   async function postShift(tx: Executor, office: Ready, shift: Shift, companyId: number, userId: number): Promise<number> {
     const { plan, moves } = await svc.plan(tx, office, shift);
@@ -244,14 +280,18 @@ export function createSenetPosting(d: { db: Db; operations: OperationsService; a
       }
     }
 
+    // доходы, распределённые владельцем в «Разобрать» (нет kaspi, касса < 0), — основа вместо плана
+    const manual = await manualIncomes(tx, shift.id);
     for (const kind of ['kaspi', 'cash'] as const) {
       const planned = plan.ops.find((o) => o.ref.kind === 'income' && o.ref.income === kind);
       const posting = postings.find((p) => p.kind === kind);
       if (posting) {
-        if (posting.noRepost || !planned || (posting.operationId !== null && live.has(posting.operationId))) continue;
-        // доход удалён в журнале — проводится заново по текущей выручке
-        const op = await create(planned);
-        await tx.update(senetPostings).set({ operationId: op.id, prevOperationId: posting.operationId, amount: planned.amount }).where(eq(senetPostings.id, posting.id));
+        if (posting.noRepost || (posting.operationId !== null && live.has(posting.operationId))) continue;
+        // доход удалён в журнале — проводится заново: по ручной сумме, если её задал владелец, иначе по текущей выручке
+        const amount = manual ? posting.amount : planned?.amount;
+        if (!amount) continue;
+        const op = await create(incomeOp(plan, shift, office, kind, amount));
+        await tx.update(senetPostings).set({ operationId: op.id, prevOperationId: posting.operationId, amount }).where(eq(senetPostings.id, posting.id));
       } else if (firstPost && planned) {
         const op = await create(planned);
         await tx.insert(senetPostings).values({ shiftId: shift.id, kind, operationId: op.id, amount: planned.amount, createdAt: now().toISOString() });
@@ -263,7 +303,8 @@ export function createSenetPosting(d: { db: Db; operations: OperationsService; a
       // Senet изменил выручку или распределение после проведения — только отметка, корректировку решает владелец
       const amount = (kind: 'kaspi' | 'cash') => plan.ops.find((o) => o.ref.kind === 'income' && o.ref.income === kind)?.amount ?? 0;
       const postedAmount = (kind: 'kaspi' | 'cash') => postings.find((p) => p.kind === kind)?.amount ?? 0;
-      const changed = plan.revenue !== shift.postedRevenue || amount('kaspi') !== postedAmount('kaspi') || amount('cash') !== postedAmount('cash');
+      // при ручном распределении сравнивается только выручка: суммы Каспи и Кассы задал владелец
+      const changed = plan.revenue !== shift.postedRevenue || (!manual && (amount('kaspi') !== postedAmount('kaspi') || amount('cash') !== postedAmount('cash')));
       if (changed !== shift.changedAfterPost) await tx.update(senetShifts).set({ changedAfterPost: changed }).where(eq(senetShifts.id, shift.id));
     }
     // очередь «Разобрать» — по тому же плану (§6.2)

@@ -139,6 +139,32 @@ describe('очередь «Разобрать»', () => {
     expect((await items('dismissed')).map((i) => i.reason)).toEqual(['salary_no_name']);
   });
 
+  it('ручное распределение доходов — не «изменение Senet»: повторный забор, «Перепровести» и повторная проводка его сохраняют', async () => {
+    await setup();
+    await sync();
+    const noKaspi = (await items()).find((i) => i.reason === 'no_kaspi')!;
+    const negative = (await items()).find((i) => i.reason === 'negative_cash')!;
+    await answer(noKaspi.id, { kind: 'kaspi', amount: 20_000 });
+    await answer(negative.id, { kind: 'incomes', kaspi: 100_000, cash: 5_000 });
+    await sync();
+    const flags = await x!.w.h.t.q('SELECT changed_after_post c FROM senet_shifts ORDER BY opened_at');
+    expect(flags.map((f) => Boolean(f.c))).toEqual([false, false, false]);
+
+    const [, b] = await x!.w.h.t.q('SELECT id FROM senet_shifts ORDER BY opened_at');
+    const incomesB = async () =>
+      (await ops()).filter((o) => o.d === null && String(o.p).startsWith('2026-10-02T05') && o.c === x!.w.income).map((o) => [o.a, Number(o.amount)]).sort();
+    const before = await incomesB();
+    expect(before).toEqual([...before].sort());
+    expect((await x!.w.h.req('POST', `${x!.base}/shifts/${b!.id}/repost-incomes`, {})).statusCode).toBe(200);
+    expect(await incomesB()).toEqual(before);
+
+    // удалённую «Кассу» повторная проводка возвращает на ручную сумму, не на полную — Каспи не задваивается
+    const cash = (await ops()).find((o) => o.d === null && o.a === x!.w.kzt && o.c === x!.w.income && String(o.p).startsWith('2026-10-02T05'))!;
+    await x!.w.h.req('DELETE', `/api/v1/companies/${x!.w.cid}/operations/${cash.id}`);
+    await sync();
+    expect(await incomesB()).toEqual(before);
+  });
+
   it('ответ через Telegram — тот же сервис, via = telegram', async () => {
     await setup();
     await sync();
