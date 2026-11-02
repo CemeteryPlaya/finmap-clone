@@ -3,47 +3,99 @@ import { SenetError, type ReportKind, type ReportRows } from './source';
 import { localToUtc } from './time';
 
 /**
- * Разбор отчётов админ-панели Senet (§3.3–3.4): колонки ищутся по заголовку первой строки, а не по позиции; нет
- * нужной колонки или ячейка не того вида — bad_format. Даты — числа Excel (или строки) в часах клуба.
+ * Разбор отчётов админ-панели Senet (§3.3–3.4). Колонки ищутся по заголовку первой строки — русскому (выгрузка из
+ * интерфейса) или английскому (API без Accept-Language, пробный забор 2026-11-03). Заголовки незнакомы, но колонок
+ * столько же — разбор по позиции, как у эталона senet_to_finmap.py; иначе — bad_format. Даты — числа Excel в часах клуба.
+ * Колонки перечислены в порядке файла; `null` — колонка есть в файле, но разбору не нужна.
  */
-const COLUMNS = {
-  sessions: {
-    office: 'Офис',
-    openedAt: 'Время начала сеанса',
-    openedBy: 'Пользователь открывший сессию',
-    closedAt: 'Время конца сеанса',
-    closedBy: 'Пользователь закрывший сессию',
-    endBalance: 'Сумма',
-    cash: 'Наличный расчет',
-    cashless: 'Безналичный расчет',
-  },
-  cashMoves: { office: 'Офис', at: 'Дата операции', cashier: 'Логин кассира', type: 'Тип операции', amount: 'Сумма операции', comment: 'Comment' },
-  transactions: { office: 'Офис', at: 'Дата транзакции', code: 'Код транзакции', type: 'Тип операции', amount: 'Сумма операции', payment: 'Способ оплаты' },
-  soldItems: { at: 'Дата операции', item: 'Код чека', qty: 'Продано', amount: 'Сумма', payment: 'Тип операции', status: 'Статус чека', comment: 'Comment' },
-  checks: {
-    office: 'Офис',
-    cashier: 'Логин кассира',
-    code: 'Код чека',
-    used: 'Использован',
-    amount: 'Сумма',
-    workstation: 'Номер рабочей станции',
-    guestLogin: 'Логин пользователя',
-    phone: 'Номер телефона',
-    at: 'Дата покупки',
-  },
-  refills: {
-    office: 'Офис',
-    at: 'Дата пополнения',
-    guestLogin: 'Логин пользователя',
-    accountType: 'Тип аккаунта',
-    phone: 'Номер телефона',
-    amount: 'Сумма',
-    workstation: 'Номер рабочей станции',
-  },
-} as const;
+type Col = readonly [field: string | null, ...headers: string[]];
+const COLUMNS: Record<Parsed, readonly Col[]> = {
+  sessions: [
+    ['office', 'Офис', 'Office name'],
+    [null, 'Касса', 'Cashdesk'],
+    ['openedAt', 'Время начала сеанса', 'Session start date'],
+    ['openedBy', 'Пользователь открывший сессию', 'User who opened session'],
+    ['closedAt', 'Время конца сеанса', 'Session end date'],
+    ['closedBy', 'Пользователь закрывший сессию', 'User who closed session'],
+    ['endBalance', 'Сумма', 'Total amount'],
+    ['cash', 'Наличный расчет', 'Cash'],
+    ['cashless', 'Безналичный расчет', 'Cashless'],
+  ],
+  cashMoves: [
+    ['office', 'Офис', 'Office name'],
+    ['at', 'Дата операции', 'Operation date'],
+    ['cashier', 'Логин кассира', 'Cashier login'],
+    ['type', 'Тип операции', 'Operation type'],
+    ['amount', 'Сумма операции', 'Operation amount'],
+    ['comment', 'Comment'],
+  ],
+  transactions: [
+    ['office', 'Офис', 'Office name'],
+    [null, 'Временной период', 'Time period'],
+    ['at', 'Дата транзакции', 'Transaction date'],
+    ['code', 'Код транзакции', 'Transaction code'],
+    ['type', 'Тип операции', 'Operation type'],
+    ['amount', 'Сумма операции', 'Operation amount'],
+    ['payment', 'Способ оплаты', 'Payment method'],
+  ],
+  soldItems: [
+    ['at', 'Дата операции', 'Operation date'],
+    ['item', 'Код чека', 'Check code'],
+    ['qty', 'Продано', 'Sold'],
+    ['amount', 'Сумма', 'Amount'],
+    ['payment', 'Тип операции', 'Operation type'],
+    ['status', 'Статус чека', 'Check status'],
+    ['comment', 'Comment'],
+  ],
+  checks: [
+    ['office', 'Офис', 'Office name'],
+    [null, 'Касса', 'Cashdesk'],
+    ['cashier', 'Логин кассира', 'Cashier login'],
+    ['code', 'Код чека', 'Check code'],
+    ['used', 'Использован', 'Used'],
+    ['amount', 'Сумма', 'Amount'],
+    ['workstation', 'Номер рабочей станции', 'Workstation num'],
+    ['guestLogin', 'Логин пользователя', 'User login'],
+    ['phone', 'Номер телефона', 'Phone number'],
+    ['at', 'Дата покупки', 'Purchase date'],
+  ],
+  refills: [
+    ['office', 'Офис', 'Office name'],
+    ['at', 'Дата пополнения', 'Refill date'],
+    ['guestLogin', 'Логин пользователя', 'User login'],
+    ['accountType', 'Тип аккаунта', 'Account type'],
+    ['phone', 'Номер телефона', 'Phone number'],
+    ['amount', 'Сумма', 'Amount'],
+    ['workstation', 'Номер рабочей станции', 'Workstation num'],
+  ],
+};
 
 type Parsed = Exclude<ReportKind, 'stock' | 'goodsMoves' | 'load'>;
 const headerKey = (s: string) => s.trim().toLowerCase().replace(/ё/g, 'е');
+/** Возврат, «да», статус возврата — по-русски и по-английски. */
+const REFUND = /возврат|refund|return/i;
+const YES = /^(да|yes|true|1)$/i;
+
+/** Номера колонок полей: по заголовкам; не нашлись — по позиции при том же числе колонок; иначе null. */
+function locate(cols: readonly Col[], head: SheetRow | undefined): Record<string, number> | null {
+  const at = new Map<string, number>();
+  for (const [i, c] of head?.cells ?? []) at.set(headerKey(c.value), i);
+  const byHeader: Record<string, number> = {};
+  let found = true;
+  for (const [field, ...headers] of cols) {
+    if (!field) continue;
+    const i = headers.map((h) => at.get(headerKey(h))).find((x) => x !== undefined);
+    if (i === undefined) found = false;
+    else byHeader[field] = i;
+  }
+  if (found) return byHeader;
+  if ((head?.cells.size ?? 0) !== cols.length) return null;
+  const byPosition: Record<string, number> = {};
+  cols.forEach(([field], i) => {
+    if (field) byPosition[field] = i;
+  });
+  return byPosition;
+}
 
 export function parseReport<K extends ReportKind>(kind: K, data: Buffer, timezone: string): { rows: ReportRows[K]; officeName: string | null } {
   const bad = () => new SenetError('bad_format', { report: kind });
@@ -56,16 +108,9 @@ export function parseReport<K extends ReportKind>(kind: K, data: Buffer, timezon
   }
   if (kind === 'stock' || kind === 'goodsMoves' || kind === 'load') return { rows: null as ReportRows[K], officeName: null };
 
-  const spec = COLUMNS[kind as Parsed] as Record<string, string>;
   const [head, ...body] = sheet.rows;
-  const at = new Map<string, number>();
-  for (const [i, c] of head?.cells ?? []) at.set(headerKey(c.value), i);
-  const index: Record<string, number> = {};
-  for (const [field, header] of Object.entries(spec)) {
-    const i = at.get(headerKey(header));
-    if (i === undefined) throw bad();
-    index[field] = i;
-  }
+  const index = locate(COLUMNS[kind as Parsed], head);
+  if (!index) throw bad();
 
   const get = (r: SheetRow, field: string): Cell | undefined => r.cells.get(index[field]!);
   const text = (r: SheetRow, field: string) => get(r, field)?.value.trim() ?? '';
@@ -91,7 +136,7 @@ export function parseReport<K extends ReportKind>(kind: K, data: Buffer, timezon
     return c.kind === 'number' ? String(Math.round(Number(c.value))) : c.value.trim();
   };
 
-  const officeName = 'office' in spec ? (body.map((r) => text(r, 'office')).find(Boolean) ?? null) : null;
+  const officeName = 'office' in index ? (body.map((r) => text(r, 'office')).find(Boolean) ?? null) : null;
   // строки без основного времени (итоги, пустые) пропускаются
   const timed = (field: string) => body.filter((r) => time(r, field) !== null);
   let rows: unknown;
@@ -118,7 +163,7 @@ export function parseReport<K extends ReportKind>(kind: K, data: Buffer, timezon
       rows = timed('at').map((r) => ({
         at: time(r, 'at')!,
         code: text(r, 'code'),
-        kind: /возврат/i.test(text(r, 'type')) ? 'refund' : 'sell',
+        kind: REFUND.test(text(r, 'type')) ? 'refund' : 'sell',
         amount: Math.abs(money(r, 'amount')),
         payment: text(r, 'payment'),
       }));
@@ -130,7 +175,7 @@ export function parseReport<K extends ReportKind>(kind: K, data: Buffer, timezon
         qty: num(r, 'qty'),
         amount: Math.abs(money(r, 'amount')),
         payment: text(r, 'payment'),
-        refund: /возврат/i.test(text(r, 'status')),
+        refund: REFUND.test(text(r, 'status')),
         comment: text(r, 'comment'),
       }));
       break;
@@ -139,7 +184,7 @@ export function parseReport<K extends ReportKind>(kind: K, data: Buffer, timezon
         at: time(r, 'at')!,
         code: text(r, 'code'),
         amount: money(r, 'amount'),
-        used: /^да$/i.test(text(r, 'used')),
+        used: YES.test(text(r, 'used')),
         workstation: num(r, 'workstation'),
         guestLogin: text(r, 'guestLogin'),
         phone: phone(r),

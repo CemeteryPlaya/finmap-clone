@@ -89,6 +89,29 @@ describe('parseReport', () => {
     }
   });
 
+  it('английские заголовки API (без Accept-Language) — тот же разбор', () => {
+    const en = ['Office name', 'Cashdesk', 'Session start date', 'User who opened session', 'Session end date', 'User who closed session', 'Total amount', 'Cash', 'Cashless'];
+    const { rows, officeName } = parseReport('sessions', senetSample('sessions', TWO_SHIFTS, en), TZ);
+    expect(officeName).toBe('Клуб 1');
+    expect(rows[0]).toMatchObject({ openedAt: '2026-10-01T05:26:45.000Z', endBalance: 1_000_000 });
+  });
+
+  it('незнакомые заголовки при том же числе колонок — разбор по позиции, как у эталона; другое число — bad_format', () => {
+    const unknown = ['Office', 'Operation date', 'Cashier', 'Operation type', 'Operation amount', 'Comment'];
+    const data = senetSample('cashMoves', [['Клуб 1', xlTime('2026-10-01 22:00:00'), 'Сотрудник А', 'Withdrawal', -2000, 'kaspi']], unknown);
+    expect(parseReport('cashMoves', data, TZ).rows).toEqual([{ at: '2026-10-01T17:00:00.000Z', cashier: 'Сотрудник А', kind: 'out', amount: 200_000, comment: 'kaspi' }]);
+    expect(() => parseReport('cashMoves', senetSample('cashMoves', [['Клуб 1', 1, 2, 3, 4]], unknown.slice(0, 5)), TZ)).toThrow(SenetError);
+  });
+
+  it('английские значения: возврат, «использован», статус возврата', () => {
+    const tx = senetSample('transactions', [['Клуб 1', 'p', xlTime('2026-10-01 12:00:00'), 'T1', 'Check refund', 500, 'Cash']], ['a', 'b', 'c', 'd', 'e', 'f', 'g']);
+    expect(parseReport('transactions', tx, TZ).rows[0]).toMatchObject({ kind: 'refund', amount: 50_000 });
+    const checks = senetSample('checks', [['Клуб 1', 'Клуб 1', 'Сотрудник А', 'C1', 'Yes', 1000, 7, 'гость1', null, xlTime('2026-10-01 20:00:00')]], ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']);
+    expect(parseReport('checks', checks, TZ).rows[0]).toMatchObject({ used: true, code: 'C1' });
+    const sold = senetSample('soldItems', [[xlTime('2026-10-01 12:00:00'), 'A1', null, 1000, 'Cash', 'Refunds', null]], ['1', '2', '3', '4', '5', '6', '7']);
+    expect(parseReport('soldItems', sold, TZ).rows[0]).toMatchObject({ refund: true });
+  });
+
   it('не xlsx — bad_format', () => {
     expect(() => parseReport('sessions', Buffer.from('<html>вход</html>'), TZ)).toThrow(SenetError);
   });
