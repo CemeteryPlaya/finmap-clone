@@ -1,8 +1,11 @@
 import fs from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { createServerlessApp, disposeServerlessApp, startupErrorApp } from '../../src/server/serverless';
+import Fastify from 'fastify';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createHandler, createServerlessApp, disposeServerlessApp, startupErrorApp } from '../../src/server/serverless';
 import { pgSnapshot } from '../helpers/test-db';
 
 /** Точка входа Vercel (план 2026-10-20-vercel-postgres, задача 13): приложение на уже размеченной базе, без миграций и блокировки. */
@@ -36,6 +39,8 @@ describe('createServerlessApp', () => {
     const db = { kind: 'pglite' as const, snapshot: await pgSnapshot() };
     const app = await createServerlessApp(ENV, { db, clientDir });
     expect(await createServerlessApp(ENV, { db, clientDir })).toBe(app);
+    // холодный старт на Vercel: замороженный экземпляр «проматывает» часы — 10-секундный лимит плагинов срабатывал ложно
+    expect(app.initialConfig.pluginTimeout).toBe(0);
 
     const health = await app.inject({ method: 'GET', url: '/api/v1/health' });
     expect([health.statusCode, health.json()]).toEqual([200, { ok: true }]);
@@ -62,6 +67,54 @@ describe('createServerlessApp', () => {
 
   it('без DATABASE_URL Postgres — та же понятная ошибка конфигурации, приложение не создаётся', async () => {
     await expect(createServerlessApp({ ...ENV, DATABASE_URL: undefined })).rejects.toThrow('На Vercel нужен Postgres');
+  });
+});
+
+describe('createHandler', () => {
+  /** Функция Vercel на настоящем http-сервере: start — сборка приложения, падает на вызовах из failOn. */
+  async function serve(failOn: number[]) {
+    let calls = 0;
+    const start = async () => {
+      calls += 1;
+      if (failOn.includes(calls)) throw new Error(`Plugin did not start in time (${calls})`);
+      const app = Fastify();
+      app.get('/x', async () => ({ ok: true }));
+      await app.ready();
+      return app;
+    };
+    const handler = createHandler(start);
+    const server = http.createServer((req, res) => void handler(req, res));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    const get = async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/x`);
+      return [res.status, await res.json()];
+    };
+    return { get, calls: () => calls, close: () => new Promise((resolve) => server.close(resolve)) };
+  }
+
+  it('сбой запуска — ещё одна попытка в том же запросе: пользователь ошибки не видит', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const fn = await serve([1]);
+    expect(await fn.get()).toEqual([200, { ok: true }]);
+    expect(fn.calls()).toBe(2);
+    expect(await fn.get()).toEqual([200, { ok: true }]);
+    expect(fn.calls()).toBe(2);
+    await fn.close();
+    log.mockRestore();
+  });
+
+  it('обе попытки не удались — 503, но экземпляр не «запоминает» сбой: следующий запрос запускает приложение заново', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    // 1 — запуск при создании (упал до запроса), 2 и 3 — попытки первого запроса
+    const fn = await serve([1, 2, 3]);
+    expect(await fn.get()).toEqual([503, { error: { code: 'STARTUP_FAILED', message: 'Сервер не запустился — причина в журнале Vercel (Logs)' } }]);
+    expect(fn.calls()).toBe(3);
+    expect(await fn.get()).toEqual([200, { ok: true }]);
+    expect(fn.calls()).toBe(4);
+    expect(log).toHaveBeenCalled();
+    await fn.close();
+    log.mockRestore();
   });
 });
 

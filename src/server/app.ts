@@ -114,7 +114,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const { config, db } = deps;
   const now = deps.now ?? (() => new Date());
   // за прокси Vercel запросы приходят не с loopback (план 2026-10-20-vercel-postgres, Р14)
-  const app = Fastify({ logger: deps.logger ?? false, trustProxy: config.deployMode === 'vercel' ? true : 'loopback', bodyLimit: 1024 * 1024 });
+  // на Vercel лимит запуска плагинов (10 с) выключен: экземпляр, замороженный посреди холодного старта, «проматывает»
+  // часы — и @fastify/static падал по таймауту, хотя не зависал; зависший запуск остановит предел длительности функции
+  const app = Fastify({
+    logger: deps.logger ?? false,
+    trustProxy: config.deployMode === 'vercel' ? true : 'loopback',
+    bodyLimit: 1024 * 1024,
+    pluginTimeout: config.deployMode === 'vercel' ? 0 : undefined,
+  });
 
   registerErrorHandler(app);
   await app.register(cookie, { secret: config.sessionSecret });
