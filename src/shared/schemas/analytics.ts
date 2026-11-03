@@ -8,7 +8,7 @@ import { JOURNAL_LIMIT_DEFAULT, JOURNAL_LIMIT_MAX, queryParts } from './journal'
 const { blank, list, id, flag } = queryParts;
 
 /** Дата периода отчёта — обязательна; год не выше 9998, как у журнала. */
-const reportDate = z.string({ message: 'Укажите дату' }).refine((v) => isValidDate(v) && v < '9999', 'Неверная дата');
+export const reportDate = z.string({ message: 'Укажите дату' }).refine((v) => isValidDate(v) && v < '9999', 'Неверная дата');
 
 /** Текст ошибки шага, который даёт больше 92 колонок (§2.3, §9). */
 export const TOO_MANY_COLUMNS = 'Слишком много колонок — выберите больший шаг';
@@ -36,7 +36,7 @@ const reportShape = {
 };
 
 /** Период (§2.3): «по» не раньше «с», не больше 5 лет. true — период верный и годится для расчёта. */
-function checkRange(v: { from: string; to: string }, ctx: z.RefinementCtx): boolean {
+export function checkRange(v: { from: string; to: string }, ctx: z.RefinementCtx): boolean {
   // неверная дата уже названа ошибкой поля — период не считаем (иначе addDays падает на RangeError)
   if (![v.from, v.to].every((x) => isValidDate(x) && x < '9999')) return false;
   if (v.to < v.from) ctx.addIssue({ code: 'custom', path: ['to'], message: 'Конец периода раньше начала' });
@@ -45,7 +45,7 @@ function checkRange(v: { from: string; to: string }, ctx: z.RefinementCtx): bool
   return false;
 }
 
-function checkPeriod(v: { from: string; to: string; step: 'day' | 'week' | 'month' | 'quarter' }, ctx: z.RefinementCtx): void {
+export function checkPeriod(v: { from: string; to: string; step: 'day' | 'week' | 'month' | 'quarter' }, ctx: z.RefinementCtx): void {
   if (checkRange(v, ctx) && columnCount(v.from, v.to, v.step) > REPORT_MAX_COLUMNS) ctx.addIssue({ code: 'custom', path: ['step'], message: TOO_MANY_COLUMNS });
 }
 

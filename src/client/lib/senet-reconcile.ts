@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { addDays, formatDateTime, todayInTimezone } from '../../shared/dates';
+import { addDays, todayInTimezone } from '../../shared/dates';
 import { api, type ApiError } from './api';
 
 export type ShiftState = 'ok' | 'open' | 'not_posted' | 'off' | 'cash_diff' | 'review' | 'changed' | 'deposit_mismatch';
@@ -46,14 +46,8 @@ export const SHIFT_STATE_TEXT: Record<ShiftState, string> = {
 /** Вкладка «Сверка Senet» — у компании есть хотя бы одно подключение (С15§6.1). */
 export const senetTabVisible = (connections: readonly unknown[] | undefined) => (connections?.length ?? 0) > 0;
 
-/** «01.10 10:00 — 22:00»; через полночь — с датой конца; открытая — «идёт». */
-export function shiftPeriodLabel(openedAt: string, closedAt: string | null, timeZone: string): string {
-  const f = (iso: string) => formatDateTime(iso, timeZone).replace(/^(\d{2}\.\d{2})\.\d{4},?/, '$1');
-  const start = f(openedAt);
-  if (!closedAt) return `${start} — идёт`;
-  const end = f(closedAt);
-  return `${start} — ${end.slice(0, 5) === start.slice(0, 5) ? end.slice(-5) : end}`;
-}
+/** Подпись смены — общая с сервером (отчёт «Выручка клуба» по сменам). */
+export { shiftPeriodLabel } from '../../shared/senet-text';
 
 /** Период по умолчанию — текущий месяц по часам клуба. */
 export function defaultPeriod(now: Date, timeZone: string): { from: string; to: string } {
