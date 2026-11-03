@@ -33,7 +33,7 @@ describe('миграция 0013 (Senet)', () => {
     return sqlite;
   }
 
-  it('создаёт таблицы Senet (вместе с 0014)', () => {
+  it('создаёт таблицы Senet (вместе с 0014 и 0015)', () => {
     const sqlite = fresh();
     const names = (sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'senet_%' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
     expect(names).toEqual([
@@ -41,6 +41,7 @@ describe('миграция 0013 (Senet)', () => {
       'senet_cash_moves',
       'senet_checks',
       'senet_connections',
+      'senet_data_spans',
       'senet_goods_moves',
       'senet_load',
       'senet_offices',
