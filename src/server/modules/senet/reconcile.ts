@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm';
 import type { Db, Executor } from '../../db/client';
 import { first } from '../../db/raw';
 import { accounts, operations, senetCashMoves, senetConnections, senetOffices, senetPostings, senetReviewItems, senetShifts } from '../../db/schema';
@@ -182,15 +182,27 @@ export function createSenetReconcile(d: { db: Db; posting: SenetPosting }) {
       };
     },
 
-    /** «Загружать с даты» — начало первой смены, которой ещё нет в журнале (§5.5): закрытой позже последней операции кассы. */
+    /**
+     * «Загружать с даты» — начало первой смены, которой ещё нет в журнале (§5.5): закрытой позже последней ручной операции
+     * кассы. Проводки самого модуля не в счёт: иначе после первого забора предлагалась бы открытая смена.
+     */
     async historyFromSuggestion(companyId: number, officeId: number): Promise<{ openedAt: string | null }> {
       const offices = await officesOf(companyId);
       const office = offices.find((o) => o.office.id === officeId)?.office;
       if (!office) throw new AppError(404, 'NOT_FOUND', 'Клуб Senet не найден');
+      const posted = db.select({ id: senetPostings.operationId }).from(senetPostings).where(isNotNull(senetPostings.operationId));
+      const moved = db.select({ id: senetCashMoves.operationId }).from(senetCashMoves).where(isNotNull(senetCashMoves.operationId));
       const last =
         office.cashAccountId === null
           ? null
-          : await first(db.select({ paidAt: operations.paidAt }).from(operations).where(and(eq(operations.accountId, office.cashAccountId), isNull(operations.deletedAt))).orderBy(desc(operations.paidAt)).limit(1));
+          : await first(
+              db
+                .select({ paidAt: operations.paidAt })
+                .from(operations)
+                .where(and(eq(operations.accountId, office.cashAccountId), isNull(operations.deletedAt), notInArray(operations.id, posted), notInArray(operations.id, moved)))
+                .orderBy(desc(operations.paidAt))
+                .limit(1),
+            );
       const shift = await first(
         db
           .select({ openedAt: senetShifts.openedAt })

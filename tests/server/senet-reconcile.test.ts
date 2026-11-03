@@ -117,10 +117,15 @@ describe('сверка Senet', () => {
     expect((await set({ kind: 'move', moveId: 999_999, noRepost: false })).statusCode).toBe(404);
   });
 
-  it('«Загружать с даты» — предложение: первая смена после последней операции на счёте кассы', async () => {
+  it('«Загружать с даты» — предложение: первая смена после последней ручной операции на счёте кассы; проводки Senet не в счёт', async () => {
     await setup();
-    const res = await x!.w.h.req('GET', `${x!.base}/offices/${x!.office}/history-from-suggestion`);
-    // все смены уже проведены: последняя операция кассы — после B, предлагается C (открыта, но первая без операций)
-    expect(res.json()).toEqual({ openedAt: '2026-10-02T05:01:00.000Z' });
+    const suggest = async () => (await x!.w.h.req('GET', `${x!.base}/offices/${x!.office}/history-from-suggestion`)).json();
+    // смены A и B проведены модулем, ручных операций кассы нет — предлагается первая смена A, а не открытая C
+    expect(await suggest()).toEqual({ openedAt: '2026-10-01T05:00:00.000Z' });
+    // ручная операция посреди A — A ещё не внесена; после её закрытия (22:00 по часам клуба) — внесена, предлагается B
+    await x!.w.post(x!.w.ops, { type: 'expense', paidAt: '2026-10-01T16:30:00.000Z', accountId: x!.w.kzt, amount: 100, lines: [{ categoryId: x!.w.expense, amount: 100 }] });
+    expect(await suggest()).toEqual({ openedAt: '2026-10-01T05:00:00.000Z' });
+    await x!.w.post(x!.w.ops, { type: 'expense', paidAt: '2026-10-01T17:00:30.000Z', accountId: x!.w.kzt, amount: 100, lines: [{ categoryId: x!.w.expense, amount: 100 }] });
+    expect(await suggest()).toEqual({ openedAt: '2026-10-01T17:01:00.000Z' });
   });
 });
