@@ -8,7 +8,7 @@ import type { FileStore } from '../../files/store';
 import { SecretsError } from '../../secrets';
 import type { SenetConnections } from './connections';
 import { SenetError, type RawFile, type ReportKind, type SenetSource } from './source';
-import { writeAnalyticsDay, writeOfficeBatch } from './store';
+import { markSpan, writeAnalyticsDay, writeOfficeBatch } from './store';
 import { todayInTimezone } from '../../../shared/dates';
 import { phoneMask, type Secrets } from '../../secrets';
 
@@ -163,6 +163,10 @@ export function createSenetSync(d: {
           if (!sessions || !moves) continue;
           await withTx(db, async (tx) => {
             const written = await writeOfficeBatch(tx, { officeId: office.id, sessions, moves, movesFrom, movesTo: to, transactions, txFrom: from, txTo: to }, now().toISOString());
+            // покрытие данных (аналитика клуба, §3.2): отрезки принятых и записанных отчётов
+            await markSpan(tx, office.id, 'sessions', from, to);
+            await markSpan(tx, office.id, 'cashMoves', movesFrom, to);
+            if (transactions) await markSpan(tx, office.id, 'transactions', from, to);
             counts.shifts += written.shifts;
             counts.moves += written.moves;
             if (d.afterOffice) await d.afterOffice(tx, office.id, to);
@@ -186,7 +190,11 @@ export function createSenetSync(d: {
                 error ??= `Отчёт «${kind}» за ${dd}.${m}.${y} пришёл ровно на ${SENET_ROW_CAP} строк — Senet мог его обрезать`;
               }
             }
-            await withTx(db, (tx) => writeAnalyticsDay(tx, { officeId: office.id, from: dayFrom, to: dayTo, sold, checks, refills, stock, goodsMoves, load, phone }));
+            await withTx(db, async (tx) => {
+              await writeAnalyticsDay(tx, { officeId: office.id, from: dayFrom, to: dayTo, sold, checks, refills, stock, goodsMoves, load, phone });
+              const got = { soldItems: sold, checks, refills, stock, goodsMoves, load } as const;
+              for (const [kind, rows] of Object.entries(got)) if (rows) await markSpan(tx, office.id, kind as ReportKind, dayFrom, dayTo);
+            });
           }
           counts.done++;
         }

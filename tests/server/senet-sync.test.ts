@@ -5,6 +5,7 @@ import { createLocalStore } from '../../src/server/files/local';
 import type { FileStore } from '../../src/server/files/store';
 import { createAuditService } from '../../src/server/modules/audit/service';
 import { createSenetConnections } from '../../src/server/modules/senet/connections';
+import { loadSpans } from '../../src/server/modules/senet/store';
 import { cleanupSenetRaw, createSenetSync, type SenetSync } from '../../src/server/modules/senet/sync';
 import { loadSecrets } from '../../src/server/secrets';
 import { opsWorld, type OpsWorld } from '../helpers/ops';
@@ -125,6 +126,47 @@ describe('забор Senet', () => {
     expect((await q("SELECT COUNT(*) n FROM senet_raw WHERE report IN ('sessions', 'cashMoves', 'transactions')"))[0]!.n).toBe(4);
     const flagged = (await q('SELECT comment, missing_in_senet m FROM senet_cash_moves')).filter((r) => Boolean(r.m)).map((r) => r.comment);
     expect(flagged).toEqual(['zp Оператор 1']);
+  });
+
+  it('забор отмечает отрезки принятых отчётов; повтор сливается в один отрезок (спецификация club-analytics §3.2, R1)', async () => {
+    const spans = async () =>
+      (await q('SELECT report, from_at, to_at FROM senet_data_spans WHERE office_id = ? ORDER BY report, from_at', officeId)).map((r) => [r.report, r.from_at, r.to_at]);
+    await sync.run({ trigger: 'manual', connectionId });
+    const day = (report: string, from = HISTORY_FROM) => [report, from, now.toISOString()];
+    expect(await spans()).toEqual([
+      day('cashMoves', '2026-09-30T04:00:00.000Z'),
+      day('checks'),
+      day('goodsMoves'),
+      day('load'),
+      day('refills'),
+      day('sessions'),
+      day('soldItems'),
+      day('stock'),
+      day('transactions'),
+    ]);
+    now = new Date('2026-10-02T12:00:00.000Z');
+    await sync.run({ trigger: 'hourly' });
+    const after = await spans();
+    expect(after).toHaveLength(9);
+    expect(after.find((s) => s[0] === 'load')).toEqual(['load', HISTORY_FROM, '2026-10-02T12:00:00.000Z']);
+  });
+
+  it('loadSpans: отрезки клуба по отчётам, пересекающие окно; чужой клуб и непересекающиеся — пустые', async () => {
+    await sync.run({ trigger: 'manual', connectionId });
+    const db = w.h.t.db;
+    const got = await loadSpans(db, [officeId, 999], ['load', 'cashMoves'], '2026-10-01T12:00:00.000Z', '2026-10-01T13:00:00.000Z');
+    expect(got.get(officeId)!.get('load')).toEqual([{ from: HISTORY_FROM, to: now.toISOString() }]);
+    expect(got.get(officeId)!.get('cashMoves')).toEqual([{ from: '2026-09-30T04:00:00.000Z', to: now.toISOString() }]);
+    expect(got.get(999)!.get('load')).toEqual([]);
+    const before = await loadSpans(db, [officeId], ['load'], '2026-09-01T00:00:00.000Z', HISTORY_FROM);
+    expect(before.get(officeId)!.get('load')).toEqual([]);
+    expect(await loadSpans(db, [], ['load'], HISTORY_FROM, now.toISOString())).toEqual(new Map());
+  });
+
+  it('незнакомый формат — отрезков нет: строки не записаны', async () => {
+    fake.report = (type) => (type === 'income_outcome' ? { status: 200, body: '<html>вход</html>', contentType: 'text/html' } : senetSample('sessions', sessions));
+    await sync.run({ trigger: 'manual', connectionId });
+    expect(await q('SELECT report FROM senet_data_spans')).toEqual([]);
   });
 
   it('открытая смена: забирается с пустым концом, выемки — к ней; после закрытия — та же смена', async () => {

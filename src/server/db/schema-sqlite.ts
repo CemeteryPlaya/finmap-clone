@@ -1064,3 +1064,21 @@ export const senetLoad = sqliteTable(
   },
   (t) => [index('senet_load_office_start_idx').on(t.officeId, t.startAt)],
 );
+
+/**
+ * Покрытие данных (спецификация «Аналитика клуба», §3.2, R1): отрезки `[from_at, to_at)`, за которые отчёт клуба принят и
+ * записан. Пересекающиеся и смежные отрезки сливаются при записи.
+ */
+export const senetDataSpans = sqliteTable(
+  'senet_data_spans',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    officeId: integer('office_id')
+      .notNull()
+      .references(() => senetOffices.id),
+    report: text('report').notNull(),
+    fromAt: text('from_at').notNull(),
+    toAt: text('to_at').notNull(),
+  },
+  (t) => [index('senet_data_spans_office_report_idx').on(t.officeId, t.report, t.fromAt)],
+);

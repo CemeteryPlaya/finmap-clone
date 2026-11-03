@@ -1,10 +1,11 @@
-import { and, asc, eq, gte, inArray, lt, sql, type AnyColumn } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, lt, lte, sql, type AnyColumn } from 'drizzle-orm';
+import { mergeSpans, type Span } from '../../../shared/club-analytics/coverage';
 import type { Executor } from '../../db/client';
 import { first } from '../../db/raw';
-import { senetCashMoves, senetChecks, senetGoodsMoves, senetLoad, senetRefills, senetShifts, senetSoldItems, senetStock, senetTransactions } from '../../db/schema';
+import { senetCashMoves, senetChecks, senetDataSpans, senetGoodsMoves, senetLoad, senetRefills, senetShifts, senetSoldItems, senetStock, senetTransactions } from '../../db/schema';
 import { normalize } from './posting/normalize';
 import { shiftTotals, shiftWindows } from './posting/windows';
-import type { CashMoveRow, CheckRow, GoodsMoveRow, LoadRow, RefillRow, SessionRow, SoldItemRow, StockRow, TransactionRow } from './source';
+import type { CashMoveRow, CheckRow, GoodsMoveRow, LoadRow, RefillRow, ReportKind, SessionRow, SoldItemRow, StockRow, TransactionRow } from './source';
 
 /** Разобранные отчёты одного отрезка забора клуба. */
 export interface OfficeBatch {
@@ -199,4 +200,29 @@ export async function writeAnalyticsDay(
       ),
     );
   }
+}
+
+/**
+ * Отрезок `[from, to)`, за который отчёт клуба принят и записан (спецификация «Аналитика клуба», §3.2, R1): в транзакции
+ * вызывающего. Пересекающиеся и смежные отрезки того же отчёта сливаются в один — повторный забор строк не плодит.
+ */
+export async function markSpan(tx: Executor, officeId: number, report: ReportKind, from: string, to: string): Promise<void> {
+  const near = and(eq(senetDataSpans.officeId, officeId), eq(senetDataSpans.report, report), lte(senetDataSpans.fromAt, to), gte(senetDataSpans.toAt, from));
+  const old = await tx.select({ id: senetDataSpans.id, fromAt: senetDataSpans.fromAt, toAt: senetDataSpans.toAt }).from(senetDataSpans).where(near);
+  const [merged] = mergeSpans([{ from, to }, ...old.map((s) => ({ from: s.fromAt, to: s.toAt }))]);
+  if (old.length) await tx.delete(senetDataSpans).where(inArray(senetDataSpans.id, old.map((s) => s.id)));
+  await tx.insert(senetDataSpans).values({ officeId, report, fromAt: merged!.from, toAt: merged!.to });
+}
+
+/** Отрезки отчётов клубов, пересекающие `[from, to)`: по каждому клубу и отчёту, слитые. */
+export async function loadSpans(ex: Executor, officeIds: readonly number[], reports: readonly ReportKind[], from: string, to: string): Promise<Map<number, Map<ReportKind, Span[]>>> {
+  const out = new Map<number, Map<ReportKind, Span[]>>(officeIds.map((id) => [id, new Map(reports.map((r) => [r, [] as Span[]]))]));
+  if (!officeIds.length || !reports.length) return out;
+  const rows = await ex
+    .select({ officeId: senetDataSpans.officeId, report: senetDataSpans.report, fromAt: senetDataSpans.fromAt, toAt: senetDataSpans.toAt })
+    .from(senetDataSpans)
+    .where(and(inArray(senetDataSpans.officeId, [...officeIds]), inArray(senetDataSpans.report, [...reports]), lt(senetDataSpans.fromAt, to), gt(senetDataSpans.toAt, from)));
+  for (const r of rows) out.get(r.officeId)?.get(r.report as ReportKind)?.push({ from: r.fromAt, to: r.toAt });
+  for (const byReport of out.values()) for (const [r, spans] of byReport) byReport.set(r, mergeSpans(spans));
+  return out;
 }

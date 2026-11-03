@@ -36,3 +36,4 @@ playwright-report/
 .metrics/
 target/mutation-workers/
 target/mutator-backup/
+coverage/

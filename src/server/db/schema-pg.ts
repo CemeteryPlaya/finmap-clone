@@ -53,6 +53,7 @@ const t = toPgTables({
   senetStock: sqlite.senetStock,
   senetGoodsMoves: sqlite.senetGoodsMoves,
   senetLoad: sqlite.senetLoad,
+  senetDataSpans: sqlite.senetDataSpans,
 });
 
 export const users = t.users;
@@ -105,3 +106,4 @@ export const senetRefills = t.senetRefills;
 export const senetStock = t.senetStock;
 export const senetGoodsMoves = t.senetGoodsMoves;
 export const senetLoad = t.senetLoad;
+export const senetDataSpans = t.senetDataSpans;
