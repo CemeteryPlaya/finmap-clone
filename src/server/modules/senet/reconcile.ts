@@ -6,7 +6,7 @@ import { AppError } from '../../errors';
 import { requireCompany } from '../companies/guard';
 import type { SenetPosting } from './post';
 
-export type ShiftState = 'ok' | 'open' | 'not_posted' | 'cash_diff' | 'review' | 'changed' | 'deposit_mismatch';
+export type ShiftState = 'ok' | 'open' | 'not_posted' | 'off' | 'cash_diff' | 'review' | 'changed' | 'deposit_mismatch';
 
 export interface ShiftRowDto {
   id: number;
@@ -107,7 +107,9 @@ export function createSenetReconcile(d: { db: Db; posting: SenetPosting }) {
       const last = liveOps.reduce((t, o) => (o.paidAt > t ? o.paidAt : t), shift.closedAt);
       cashAfter = { senet: shift.endBalance + office.cashOffset, journal: await balanceAt(db, office.cashAccountId, last) };
     }
-    if (!beforeHistory) {
+    // выключенный клуб не проводится: расхождение кассы — не ошибка разноски, а ожидаемое
+    if (!beforeHistory && !office.enabled) states.push('off');
+    else if (!beforeHistory) {
       if (cashAfter && cashAfter.senet !== cashAfter.journal) states.push('cash_diff');
       if (queued.length) states.push('review');
       if (shift.changedAfterPost) states.push('changed');

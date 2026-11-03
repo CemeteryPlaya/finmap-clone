@@ -2,12 +2,13 @@
 # Бесплатный Vercel Cron срабатывает раз в сутки, поэтому каждый час маршрут вызывает GitHub Actions — с тем же
 # секретом, что у Vercel Cron. Секреты репозитория (Repository secrets): CRON_SECRET (как в Vercel), APP_URL (адрес из
 # Vercel → Domains) и, если включена Vercel Authentication, VERCEL_AUTOMATION_BYPASS_SECRET (Protection Bypass for Automation).
-# GitHub может запускать расписание с опозданием на несколько минут.
+# GitHub запускает расписание с опозданием и под нагрузкой пропускает запуски (в первые сутки — 1 из 14): поэтому два
+# раза в час и не в начале часа. Лишний запуск безвреден — маршрут отвечает 409, пока идёт предыдущий.
 name: senet-sync
 
 on:
   schedule:
-    - cron: '5 * * * *'
+    - cron: '17,47 * * * *'
   workflow_dispatch:
 
 permissions: {}

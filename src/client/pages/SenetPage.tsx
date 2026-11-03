@@ -19,7 +19,7 @@ const tab = ({ isActive }: { isActive: boolean }) => `rounded-xl px-3 py-1.5 fon
 /** Строка смены: на компьютере — строка таблицы, на телефоне — карточка (§8.3). */
 function stateBadges(r: ShiftRow) {
   return r.states.map((s) => (
-    <span key={s} className={`mr-1 inline-block rounded px-1.5 py-0.5 text-xs ${s === 'ok' ? 'bg-income-soft text-income-strong' : s === 'open' || s === 'not_posted' ? 'bg-field' : 'bg-expense-soft text-expense-strong'}`}>
+    <span key={s} className={`mr-1 inline-block rounded px-1.5 py-0.5 text-xs ${s === 'ok' ? 'bg-income-soft text-income-strong' : s === 'open' || s === 'not_posted' || s === 'off' ? 'bg-field' : 'bg-expense-soft text-expense-strong'}`}>
       {SHIFT_STATE_TEXT[s]}
     </span>
   ));

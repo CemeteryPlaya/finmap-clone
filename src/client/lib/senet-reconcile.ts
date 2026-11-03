@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { addDays, formatDateTime, todayInTimezone } from '../../shared/dates';
 import { api, type ApiError } from './api';
 
-export type ShiftState = 'ok' | 'open' | 'not_posted' | 'cash_diff' | 'review' | 'changed' | 'deposit_mismatch';
+export type ShiftState = 'ok' | 'open' | 'not_posted' | 'off' | 'cash_diff' | 'review' | 'changed' | 'deposit_mismatch';
 
 export interface ShiftRow {
   id: number;
@@ -36,6 +36,7 @@ export const SHIFT_STATE_TEXT: Record<ShiftState, string> = {
   ok: 'Сходится',
   open: 'Идёт',
   not_posted: 'Не проводится',
+  off: 'Клуб выключен — не проводится',
   cash_diff: 'Касса расходится',
   review: 'Разобрать',
   changed: 'Senet изменил смену после проведения',

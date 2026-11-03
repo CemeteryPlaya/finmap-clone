@@ -96,6 +96,13 @@ describe('сверка Senet', () => {
     expect((await shifts()).rows[0].states).toEqual(['not_posted']);
   });
 
+  it('клуб выключен — смены после «Загружать с даты» «off», а не «Касса расходится»', async () => {
+    await setup();
+    await x!.w.h.req('PATCH', `${x!.base}/offices/${x!.office}`, { ...x!.officeBody, enabled: false, historyFrom: '2026-10-01T12:00:00.000Z' });
+    expect((await shifts()).rows.map((s: { states: string[] }) => s.states)).toEqual([['not_posted'], ['off'], ['open']]);
+    expect((await shifts()).firstCashDiffId).toBeNull();
+  });
+
   it('«Не проводить повторно» снимается и ставится в раскрытой смене — по выемке и доходу', async () => {
     await setup();
     const [, b] = (await shifts()).rows;
