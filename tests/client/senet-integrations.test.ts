@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { connectionKey, defaultOfficeAccounts, isoToLocalInput, localInputToIso, orgFromInput, senetAddress, statusText } from '../../src/client/lib/senet';
+import { connectionKey, defaultOfficeAccounts, isoToLocalInput, localInputToIso, officeStateText, orgFromInput, senetAddress, statusText } from '../../src/client/lib/senet';
 
 /** «Интеграции» → Senet: окно подключения (план 2026-11-02-senet-autopost, задача 5). */
 describe('окно подключения Senet', () => {
@@ -40,5 +40,10 @@ describe('окно подключения Senet', () => {
     expect(statusText({ status: 'key_rejected', lastSyncAt: null, archivedAt: null })).toBe('Обновите доступ к Senet — забор остановлен');
     expect(statusText({ status: 'unreachable', lastSyncAt: null, archivedAt: null })).toBe('Senet не отвечает — попробуем снова через час');
     expect(statusText({ status: 'ok', lastSyncAt: null, archivedAt: '2026-10-01' })).toBe('Отключено');
+  });
+
+  it('состояние клуба: выключенный — что он забирает и как его включить', () => {
+    expect(officeStateText({ enabled: true })).toBe('забирается');
+    expect(officeStateText({ enabled: false })).toBe('выключен: забирается только «Загрузить за период». Чтобы смены проводились сами — «Изменить», связи и галочка «Забирать и проводить»');
   });
 });

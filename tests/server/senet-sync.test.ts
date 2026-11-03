@@ -8,6 +8,7 @@ import { createSenetConnections } from '../../src/server/modules/senet/connectio
 import { cleanupSenetRaw, createSenetSync, type SenetSync } from '../../src/server/modules/senet/sync';
 import { loadSecrets } from '../../src/server/secrets';
 import { opsWorld, type OpsWorld } from '../helpers/ops';
+import { onPg } from '../helpers/test-db';
 import { startSenetFake, type SenetFake } from '../helpers/senet-fake';
 import { senetSample, xlTime, type SampleValue } from '../helpers/senet-samples';
 
@@ -180,6 +181,21 @@ describe('забор Senet', () => {
       ['2026-10-15T00:00:00.000Z', '2026-10-16T00:00:00.000Z'],
     ]);
   }, 60_000);
+
+  it('выключенный клуб: «Загрузить за период» забирает историю, ничего не проводя', async () => {
+    await q('UPDATE senet_offices SET enabled = ?', onPg ? false : 0);
+    const res = await w.h.req('POST', `/api/v1/companies/${w.cid}/senet/connections/${connectionId}/sync`, { from: '2026-10-01T00:00:00.000Z', to: '2026-10-02T06:00:00.000Z' });
+    expect(res.json().runs[0]).toMatchObject({ result: 'ok', error: null, counts: { chunks: 1, done: 1, shifts: 2 } });
+    expect(Number((await q('SELECT COUNT(*) n FROM senet_postings'))[0]!.n)).toBe(0);
+  }, 60_000);
+
+  it('«Обновить сейчас» без включённых клубов — объясняет, что сделать', async () => {
+    await q('UPDATE senet_offices SET enabled = ?', onPg ? false : 0);
+    const res = await w.h.req('POST', `/api/v1/companies/${w.cid}/senet/connections/${connectionId}/sync`, {});
+    expect(res.json().runs[0]).toMatchObject({ result: 'ok', counts: { chunks: 0 } });
+    expect(res.json().runs[0].error).toBe('Ни один клуб не включён — забирать нечего. Включите клуб в «Изменить» или загрузите историю через «Загрузить за период»');
+    expect(gets('cashdesk_session')).toEqual([]);
+  });
 
   it('маршруты: «Обновить сейчас», «Загрузить за период» не больше 366 дней, ход запуска, статус', async () => {
     const base = `/api/v1/companies/${w.cid}/senet`;

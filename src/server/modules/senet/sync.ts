@@ -47,6 +47,7 @@ const STALE_RUN_MS = 10 * 60_000;
 /** Столько строк Senet отдаёт в отчёте самое большее (настоящие выгрузки: продажи за октябрь обрезаны на 2000). */
 const SENET_ROW_CAP = 2000;
 const OUT_OF_TIME = 'Не уложились во время — продолжим через час';
+const NO_ENABLED = 'Ни один клуб не включён — забирать нечего. Включите клуб в «Изменить» или загрузите историю через «Загрузить за период»';
 
 /** Ключ файла без «:» (локальное хранилище на Windows): 2026-10-01T04:00:00.000Z → 20261001T040000Z. */
 const compact = (iso: string) => iso.replace(/[-:]|\.\d{3}/g, '');
@@ -108,11 +109,18 @@ export function createSenetSync(d: {
     let budgetExceeded = false;
     let status: 'ok' | 'key_rejected' | 'unreachable' = conn.status;
 
+    // «Загрузить за период» — и выключенные клубы: история до включения (§5.5); проводятся только включённые
     const offices = await db
       .select()
       .from(senetOffices)
-      .where(and(eq(senetOffices.connectionId, conn.id), o.officeId ? eq(senetOffices.id, o.officeId) : eq(senetOffices.enabled, true)))
+      .where(
+        and(
+          eq(senetOffices.connectionId, conn.id),
+          o.officeId ? eq(senetOffices.id, o.officeId) : o.trigger === 'period' ? undefined : eq(senetOffices.enabled, true),
+        ),
+      )
       .orderBy(asc(senetOffices.id));
+    if (offices.length === 0) error = NO_ENABLED;
 
     let source: SenetSource | null = null;
     try {

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { SENET_ORG_RE, type SenetAuthMethod, type SenetConnectionDto } from '../../shared/schemas/senet';
+import { SENET_ORG_RE, type SenetAuthMethod, type SenetConnectionDto, type SenetOfficeDto } from '../../shared/schemas/senet';
 import { zoneOffsetMs } from '../../shared/dates';
 import { api, type ApiError } from './api';
 import { queryClient } from './query';
@@ -79,6 +79,11 @@ export function statusText(c: Pick<SenetConnectionDto, 'status' | 'lastSyncAt' |
   if (c.status === 'key_rejected') return 'Обновите доступ к Senet — забор остановлен';
   if (c.status === 'unreachable') return 'Senet не отвечает — попробуем снова через час';
   return c.lastSyncAt ? `Подключено, последний забор ${formatTime(c.lastSyncAt)}` : 'Подключено, данных ещё не забирали';
+}
+
+/** Состояние клуба в списке: выключенный забирается только «Загрузить за период» и не проводится. */
+export function officeStateText(o: Pick<SenetOfficeDto, 'enabled'>): string {
+  return o.enabled ? 'забирается' : 'выключен: забирается только «Загрузить за период». Чтобы смены проводились сами — «Изменить», связи и галочка «Забирать и проводить»';
 }
 
 /** Подключения с отказом доступа: баннер над «Журналом» и «Сверкой Senet» (§8.2). */

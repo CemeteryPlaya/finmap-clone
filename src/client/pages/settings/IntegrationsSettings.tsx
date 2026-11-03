@@ -13,7 +13,7 @@ import { SyncControls } from '../../components/senet/SyncControls';
 import { alertClass, btnPrimary, btnSmall, noticeClass } from '../../components/ui';
 import { api, type ApiError } from '../../lib/api';
 import { useMeta } from '../../lib/query';
-import { invalidateSenet, senetAddress, statusText, useSenetConnections } from '../../lib/senet';
+import { invalidateSenet, officeStateText, senetAddress, statusText, useSenetConnections } from '../../lib/senet';
 import type { CompanyOutletContext } from '../CompanyLayout';
 
 type Dialog = { kind: 'connection'; connection: SenetConnectionDto | null } | { kind: 'office'; connectionId: number; office: SenetOfficeDto | null } | null;
@@ -102,7 +102,7 @@ export function IntegrationsSettings() {
                 <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-field py-2">
                   <span>
                     {o.name || `Клуб ${o.senetOfficeId}`} · касса {o.cashDeskId}
-                    <span className="ml-2 text-sm text-muted">{o.enabled ? 'забирается' : 'выключен'}</span>
+                    <span className="ml-2 text-sm text-muted">{officeStateText(o)}</span>
                   </span>
                   {!readOnly && (
                     <button type="button" className={btnSmall} onClick={() => setDialog({ kind: 'office', connectionId: c.id, office: o })}>
