@@ -196,7 +196,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const downloads: Downloads = { store: uploads === 'blob' ? files : null, inlineMax: deps.exportInlineMaxBytes ?? INLINE_MAX_BYTES };
   registerOperationsRoutes(app, { operations, journal, bulk: createBulkService({ db, operations }), undo: createOperationUndoService({ db, audit, operations }), downloads });
   registerAnalyticsRoutes(app, { analytics: createAnalyticsService({ db, rates, journal, audit, timezone: config.timezone, now }), downloads });
-  registerClubAnalyticsRoutes(app, { settings: createAnalyticsSettings({ db, audit, now }) });
+  registerClubAnalyticsRoutes(app, { db, settings: createAnalyticsSettings({ db, audit, now }) });
   const stockBalance = createStockBalanceService({ db, timezone: config.timezone, now });
   registerStockRoutes(app, {
     db,

@@ -60,6 +60,9 @@ export const router = createBrowserRouter([
               { path: 'statement', element: <StatementPage /> },
               { path: 'projects', element: <ProjectsPage /> },
               { path: 'indicators', element: <IndicatorsPage /> },
+              // отчёты клуба (спецификация «Аналитика клуба», §2.1): страницы — задачи 8–9 плана АК-1
+              { path: 'club', element: <Navigate to=".." replace /> },
+              { path: 'club/revenue', element: <Navigate to=".." replace /> },
               { path: '*', element: <Navigate to=".." replace /> },
             ],
           },

@@ -3,6 +3,8 @@ import type { ReportBy, ReportColumn, ReportRow, ReportStep } from '../../shared
 import type { ProjectRow, ProjectsMode, ProjectStatus } from '../../shared/report-projects';
 import type { StatementSummary } from '../../shared/report-statement';
 import type { ReportKind } from '../../shared/schemas/analytics';
+import type { DashboardDef, SavedDashboards } from '../../shared/analytics-catalog';
+import type { AnalyticsSettingsView } from './analytics-settings';
 import { api, type ApiError } from './api';
 import type { JournalItem } from './queries';
 import { queryClient } from './query';
@@ -122,7 +124,7 @@ export function invalidateAnalytics(companyId: number): Promise<void> {
   return queryClient.invalidateQueries({ queryKey: ['analytics', companyId] });
 }
 
-export type CardIcon = 'wallet' | 'profit' | 'statement' | 'projects' | 'indicators' | 'history' | 'plan' | 'in' | 'out' | 'scale';
+export type CardIcon = 'wallet' | 'profit' | 'statement' | 'projects' | 'indicators' | 'history' | 'plan' | 'in' | 'out' | 'scale' | 'gauge' | 'coins';
 
 /** Карточка раздела «Аналитика» (§2.1): ссылка на отчёт или неактивная (пунктир и подпись). */
 export interface AnalyticsCard {
@@ -193,3 +195,57 @@ export const ANALYTICS_CARDS: readonly AnalyticsCard[] = [
     href: (cid) => `/c/${cid}/settings/audit`,
   },
 ];
+
+/** Ответ `GET …/club-analytics/scope` (спецификация «Аналитика клуба», §2.1): проекты-клубы и есть ли данные Senet. */
+export interface ClubScopeView {
+  projects: { id: number; name: string; archived: boolean; pcCount: number | null }[];
+  hasOffices: boolean;
+  connected: boolean;
+  freshness: string | null;
+}
+
+export function useClubScope(companyId: number, enabled = true) {
+  return useQuery<ClubScopeView, ApiError>({
+    queryKey: ['analytics', companyId, 'club-scope'],
+    enabled,
+    queryFn: () => api<ClubScopeView>(`/companies/${companyId}/club-analytics/scope`),
+  });
+}
+
+/** Группа карточек главной «Аналитики»; у финансовой заголовка нет. */
+export interface CardGroup {
+  key: string;
+  title: string | null;
+  cards: AnalyticsCard[];
+}
+
+/** Рисунки карточек клуба; карточка без своего — «показатели». */
+const CLUB_ICONS: Record<string, CardIcon> = { overview: 'gauge', revenue: 'coins' };
+
+/** Почему карточки клуба серые (§13): нет подключения Senet или клуб Senet не привязан к проекту. */
+function clubInactive(scope: ClubScopeView | null): string | null {
+  if (!scope?.connected) return 'Подключите Senet в «Интеграциях»';
+  return scope.hasOffices ? null : 'Привяжите клуб Senet к проекту в «Интеграциях»';
+}
+
+/** Карточка дашборда шаблона: серая с подсказкой, пока данных Senet нет. */
+function dashboardCard(d: DashboardDef, inactive: string | null): AnalyticsCard {
+  const path = d.path;
+  return { key: d.key, title: d.title, description: d.description, help: d.help, icon: CLUB_ICONS[d.key] ?? 'indicators', href: inactive ? null : (cid) => `/c/${cid}/analytics/${path}`, inactive: inactive ?? undefined };
+}
+
+/** Видимые карточки группы по порядку настроек: финансовые — из ANALYTICS_CARDS, шаблона — из каталога. */
+function groupCards(settings: AnalyticsSettingsView, group: SavedDashboards['groups'][number], scope: ClubScopeView | null): AnalyticsCard[] {
+  const shown = group.cards.filter((c) => c.visible).map((c) => c.key);
+  if (group.key === 'finance') return shown.flatMap((k) => ANALYTICS_CARDS.filter((c) => c.key === k));
+  const defs = settings.catalog[group.key]?.dashboards ?? [];
+  const inactive = clubInactive(scope);
+  return shown.flatMap((k) => defs.filter((d) => d.key === k).map((d) => dashboardCard(d, inactive)));
+}
+
+/** Группы главной «Аналитики» по настройкам компании (§2.1, §10.1): видимые группы и карточки в их порядке. */
+export function analyticsGroups(settings: AnalyticsSettingsView, scope: ClubScopeView | null): CardGroup[] {
+  return settings.dashboards.groups
+    .filter((g) => g.visible)
+    .map((g) => ({ key: g.key, title: g.key === 'finance' ? null : (settings.groups.find((x) => x.key === g.key)?.title ?? g.key), cards: groupCards(settings, g, scope) }));
+}
