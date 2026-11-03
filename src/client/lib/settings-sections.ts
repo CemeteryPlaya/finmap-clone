@@ -53,7 +53,11 @@ export function settingsGroups(companyName: string): SettingsGroup[] {
     {
       key: 'view',
       title: 'Визуальные настройки',
-      items: [{ path: 'journal', label: 'Настройки журнала' }],
+      items: [
+        { path: 'journal', label: 'Настройки журнала' },
+        // общие для компании (спецификация «Аналитика клуба», §10)
+        { path: 'analytics', label: 'Аналитика' },
+      ],
     },
   ];
 }

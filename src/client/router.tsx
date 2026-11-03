@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { CashflowPage } from './pages/analytics/CashflowPage';
+import { AnalyticsSettings } from './pages/settings/AnalyticsSettings';
 import { IndicatorsPage } from './pages/analytics/IndicatorsPage';
 import { PnlPage } from './pages/analytics/PnlPage';
 import { ProjectsPage } from './pages/analytics/ProjectsPage';
@@ -94,6 +95,7 @@ export const router = createBrowserRouter([
               { path: 'rates', element: <RatesSettings /> },
               { path: 'backup', element: <BackupSettings /> },
               { path: 'journal', element: <JournalViewSettings /> },
+              { path: 'analytics', element: <AnalyticsSettings /> },
               { path: 'audit', element: <AuditSettings /> },
               { path: '*', element: <SettingsRedirect section="counterparties" /> },
             ],
