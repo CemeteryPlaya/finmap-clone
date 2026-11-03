@@ -47,7 +47,10 @@ describe('шаблоны', () => {
       { name: 'Kaspi {project}', currency: 'KZT' },
     ]);
     expect(t.integrations).toEqual(['senet']);
-    expect(t.metrics.map((m) => m.key)).toEqual(['revenuePerPcPerDay', 'barShare', 'payrollToRevenue', 'rentToRevenue']);
+    // дашборды и плитки аналитики клуба (спецификация «Аналитика клуба», §9): метрики шаблона — плитки каталога
+    expect(t.analytics!.dashboards.map((d) => d.key)).toEqual(['overview', 'revenue']);
+    expect(t.analytics!.tiles).toHaveLength(14);
+    expect(t.analytics!.tiles.map((x) => x.key)).toEqual(expect.arrayContaining(['revenuePerPcDay', 'barShare', 'payrollToRevenue', 'rentToRevenue']));
     const salary = t.categories.expense.find(isUnderSystem)!;
     expect(salary.underSystem).toBe('salary');
     expect(salary.children.map((c) => c.name)).toEqual(['Администраторы', 'Премии']);
@@ -59,7 +62,7 @@ describe('шаблоны', () => {
     expect(t.categories).toEqual({ income: [], expense: [] });
     expect(t.defaultAccounts).toEqual([]);
     expect(t.integrations).toEqual([]);
-    expect(t.metrics).toEqual([]);
+    expect(t.analytics).toBeUndefined();
   });
 });
 

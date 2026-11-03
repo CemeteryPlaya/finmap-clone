@@ -36,6 +36,7 @@ const t = toPgTables({
   stockDocPayments: sqlite.stockDocPayments,
   stockDocPostings: sqlite.stockDocPostings,
   analyticsIndicatorParts: sqlite.analyticsIndicatorParts,
+  analyticsSettings: sqlite.analyticsSettings,
   senetConnections: sqlite.senetConnections,
   senetOffices: sqlite.senetOffices,
   senetShifts: sqlite.senetShifts,
@@ -89,6 +90,7 @@ export const stockAllocations = t.stockAllocations;
 export const stockDocPayments = t.stockDocPayments;
 export const stockDocPostings = t.stockDocPostings;
 export const analyticsIndicatorParts = t.analyticsIndicatorParts;
+export const analyticsSettings = t.analyticsSettings;
 export const senetConnections = t.senetConnections;
 export const senetOffices = t.senetOffices;
 export const senetShifts = t.senetShifts;

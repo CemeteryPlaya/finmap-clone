@@ -1,5 +1,7 @@
+import { CLUB_DASHBOARDS, CLUB_TILES } from '../../shared/analytics-catalog';
 import { PART_LABEL, type IndicatorPart } from '../../shared/report-indicators';
 import type { ImportUndoResult } from '../../shared/schemas/imports';
+import { ANALYTICS_CARDS } from './analytics';
 import { undoResultText } from './import-history';
 import { createdParts, formatCount, operationsText } from './import-panel';
 import { undoneActions } from './operation-undo';
@@ -24,6 +26,7 @@ export const ENTITY_LABELS: Record<string, string> = {
   stock_doc: 'Документ склада',
   stock_import: 'Импорт склада',
   indicator_part: 'Финансовый показатель',
+  analytics_settings: 'Настройки аналитики',
 };
 
 export const ACTION_LABELS: Record<string, string> = {
@@ -60,6 +63,7 @@ export const COMPANY_ENTITIES = [
   'stock_doc',
   'stock_import',
   'indicator_part',
+  'analytics_settings',
 ] as const;
 
 /** Сущности общей ленты экземпляра (записи без компании): пользователи и ручные курсы. */
@@ -84,16 +88,52 @@ export const OPERATION_TYPE_LABELS: Record<string, string> = { income: 'Дохо
  * тип показывается по-русски — «Расход → Перевод» (§10.1 этапа 1.5); у других сущностей поле type — как есть.
  */
 export function diffRows(diff: Record<string, unknown> | null, entity?: string): DiffRow[] | null {
-  if (!diff) return null;
-  const { before, after } = diff;
-  if (typeof before !== 'object' || before === null || typeof after !== 'object' || after === null) return null;
-  const b = before as Record<string, unknown>;
-  const a = after as Record<string, unknown>;
-  // часть финансового показателя: одна строка «Настройка» с текстом части, а не служебные поля (§8.2)
-  if (entity === 'indicator_part') return [{ field: 'Настройка', before: show(b.text), after: show(a.text) }];
-  const value = (field: string, v: unknown) => (entity === 'operation' && field === 'type' && typeof v === 'string' && OPERATION_TYPE_LABELS[v]) || show(v);
+  const pair = beforeAfter(diff);
+  if (!pair) return null;
+  const [b, a] = pair;
+  if (entity && Object.hasOwn(ONE_ROW, entity)) return [ONE_ROW[entity]!(b, a)];
   const fields = [...new Set([...Object.keys(b), ...Object.keys(a)])];
-  return fields.map((field) => ({ field, before: value(field, b[field]), after: value(field, a[field]) }));
+  return fields.map((field) => ({ field, before: fieldValue(entity, field, b[field]), after: fieldValue(entity, field, a[field]) }));
+}
+
+/** before и after записи, если оба — объекты. */
+function beforeAfter(diff: Record<string, unknown> | null): [Record<string, unknown>, Record<string, unknown>] | null {
+  const before = diff?.before;
+  const after = diff?.after;
+  return typeof before === 'object' && before !== null && typeof after === 'object' && after !== null ? [before as Record<string, unknown>, after as Record<string, unknown>] : null;
+}
+
+/** Значение поля строкой; тип операции — по-русски. */
+function fieldValue(entity: string | undefined, field: string, v: unknown): string {
+  return (entity === 'operation' && field === 'type' && typeof v === 'string' && OPERATION_TYPE_LABELS[v]) || show(v);
+}
+
+/**
+ * Сущности с одной строкой вместо служебных полей: часть финансового показателя — «Настройка» с текстом части (§8.2),
+ * настройка аналитики — «Видно» (спецификация «Аналитика клуба», §10).
+ */
+const ONE_ROW: Record<string, (b: Record<string, unknown>, a: Record<string, unknown>) => DiffRow> = {
+  indicator_part: (b, a) => ({ field: 'Настройка', before: show(b.text), after: show(a.text) }),
+  analytics_settings: (b, a) => ({ field: 'Видно', before: visibleText(b), after: visibleText(a) }),
+};
+
+/** Подписи карточек и плиток «Аналитики» для истории (спецификация «Аналитика клуба», §10). */
+// у карточек и плиток свои ключи (`revenue` есть и там, и там) — подписи раздельно
+const CARD_LABELS = new Map<string, string>([...ANALYTICS_CARDS.map((c) => [c.key, c.title] as const), ...CLUB_DASHBOARDS.map((d) => [d.key, d.title] as const)]);
+const TILE_LABELS = new Map<string, string>(CLUB_TILES.map((t) => [t.key, t.label] as const));
+
+/** Видимые элементы настройки по порядку, подписями каталога. */
+function shownItems(items: unknown, labels: ReadonlyMap<string, string>): string {
+  const keys = (Array.isArray(items) ? items : []).filter((i): i is { key: string } => isObj(i) && i.visible === true && typeof i.key === 'string').map((i) => i.key);
+  return keys.map((k) => labels.get(k) ?? k).join(', ') || '—';
+}
+
+/** Что видно в настройке аналитики: плитки подписями; дашборды — карточками групп, у скрытой группы — «Группа скрыта: …». */
+function visibleText(v: Record<string, unknown>): string {
+  if (Array.isArray(v.items)) return shownItems(v.items, TILE_LABELS);
+  if (!Array.isArray(v.groups)) return '—';
+  const group = (g: Record<string, unknown>) => (g.visible === false ? `Группа скрыта: ${shownItems(g.cards, CARD_LABELS)}` : shownItems(g.cards, CARD_LABELS));
+  return v.groups.filter(isObj).map(group).join('; ') || '—';
 }
 
 /** Размер файла: «500 Б», «1,5 КБ», «1 МБ». */
@@ -139,12 +179,24 @@ const isKeptAccount = (v: unknown) =>
 
 /** Что изменилось, кроме сущности и номера: у импорта — имя файла («Импорт №5 · выгрузка.xlsx», §6.5 спецификации импорта). */
 export function auditSubject(e: { entity: string; diff: Record<string, unknown> | null }): string | null {
-  if (e.entity === 'indicator_part') {
-    const part = e.diff?.part;
-    return typeof part === 'string' && Object.hasOwn(PART_LABEL, part) ? PART_LABEL[part as IndicatorPart] : null;
-  }
-  return (e.entity === 'import' || e.entity === 'stock_import') && typeof e.diff?.fileName === 'string' ? e.diff.fileName : null;
+  return Object.hasOwn(SUBJECTS, e.entity) ? SUBJECTS[e.entity]!(e.diff) : null;
 }
+
+const fileSubject = (diff: Record<string, unknown> | null) => (typeof diff?.fileName === 'string' ? diff.fileName : null);
+
+/** Предмет записи по сущности: часть показателя, настройка аналитики, файл импорта. */
+const SUBJECTS: Record<string, (diff: Record<string, unknown> | null) => string | null> = {
+  indicator_part: (diff) => {
+    const part = diff?.part;
+    return typeof part === 'string' && Object.hasOwn(PART_LABEL, part) ? PART_LABEL[part as IndicatorPart] : null;
+  },
+  analytics_settings: (diff) => {
+    const setting = diff?.key;
+    return setting === 'dashboards' ? 'Дашборды' : typeof setting === 'string' && setting.startsWith('tiles.') ? 'Плитки «Обзора»' : null;
+  },
+  import: fileSubject,
+  stock_import: fileSubject,
+};
 
 /**
  * «Подробности» записи импорта на странице «История действий» (§6.5 спецификации импорта): у импорта — числа строк,

@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import type { DashboardDef, TileDef } from '../shared/analytics-catalog';
 import type { SystemKey } from '../shared/system-categories';
 
 export interface CategoryLeaf {
@@ -26,12 +27,6 @@ export interface ParamUi {
   hint?: string;
 }
 
-export interface MetricDef {
-  key: string;
-  label: string;
-  unit: 'money' | 'percent';
-}
-
 export interface BusinessTemplate {
   key: string;
   name: string;
@@ -40,7 +35,8 @@ export interface BusinessTemplate {
   categories: { income: CategoryNode[]; expense: CategoryNode[] };
   defaultAccounts: { name: string; currency?: string }[];
   integrations: string[];
-  metrics: MetricDef[];
+  /** Дашборды и плитки «Обзора» шаблона (спецификация «Аналитика клуба», §9); без них группы в «Аналитике» нет. */
+  analytics?: { dashboards: readonly DashboardDef[]; tiles: readonly TileDef[] };
   /**
    * Умолчания «Финансовых показателей» (§8.2 спецификации «Аналитика»): ссылки категорий шаблона (`templateRef`) для частей
    * «Себестоимость» и «Переменные расходы». Пока часть не настроена, в неё входят категории компании с этими ссылками.

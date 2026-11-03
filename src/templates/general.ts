@@ -9,5 +9,4 @@ export const general: BusinessTemplate = {
   categories: { income: [], expense: [] },
   defaultAccounts: [],
   integrations: [],
-  metrics: [],
 };

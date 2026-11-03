@@ -43,6 +43,13 @@
       "when": 1793729823685,
       "tag": "0005_senet_data_spans",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793731384577,
+      "tag": "0006_analytics_settings",
+      "breakpoints": true
     }
   ]
 }

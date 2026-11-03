@@ -41,6 +41,7 @@ export let stockAllocations = sqlite.stockAllocations;
 export let stockDocPayments = sqlite.stockDocPayments;
 export let stockDocPostings = sqlite.stockDocPostings;
 export let analyticsIndicatorParts = sqlite.analyticsIndicatorParts;
+export let analyticsSettings = sqlite.analyticsSettings;
 export let senetConnections = sqlite.senetConnections;
 export let senetOffices = sqlite.senetOffices;
 export let senetShifts = sqlite.senetShifts;
@@ -94,6 +95,7 @@ export const sqliteTables = {
   stockDocPayments: sqlite.stockDocPayments,
   stockDocPostings: sqlite.stockDocPostings,
   analyticsIndicatorParts: sqlite.analyticsIndicatorParts,
+  analyticsSettings: sqlite.analyticsSettings,
   senetConnections: sqlite.senetConnections,
   senetOffices: sqlite.senetOffices,
   senetShifts: sqlite.senetShifts,
@@ -148,6 +150,7 @@ export const pgTables = {
   stockDocPayments: pg.stockDocPayments,
   stockDocPostings: pg.stockDocPostings,
   analyticsIndicatorParts: pg.analyticsIndicatorParts,
+  analyticsSettings: pg.analyticsSettings,
   senetConnections: pg.senetConnections,
   senetOffices: pg.senetOffices,
   senetShifts: pg.senetShifts,
@@ -209,6 +212,7 @@ export function bindSchema(dialect: Dialect): void {
   stockDocPayments = pg.stockDocPayments as unknown as typeof sqlite.stockDocPayments;
   stockDocPostings = pg.stockDocPostings as unknown as typeof sqlite.stockDocPostings;
   analyticsIndicatorParts = pg.analyticsIndicatorParts as unknown as typeof sqlite.analyticsIndicatorParts;
+  analyticsSettings = pg.analyticsSettings as unknown as typeof sqlite.analyticsSettings;
   senetConnections = pg.senetConnections as unknown as typeof sqlite.senetConnections;
   senetOffices = pg.senetOffices as unknown as typeof sqlite.senetOffices;
   senetShifts = pg.senetShifts as unknown as typeof sqlite.senetShifts;

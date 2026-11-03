@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CLUB_DASHBOARDS, CLUB_TILES } from '../shared/analytics-catalog';
 import type { BusinessTemplate, CategoryLeaf } from './types';
 
 const ref = (key: string) => `computer-club:${key}`;
@@ -56,12 +57,8 @@ export const computerClub: BusinessTemplate = {
     { name: 'Kaspi {project}', currency: 'KZT' },
   ],
   integrations: ['senet'],
-  metrics: [
-    { key: 'revenuePerPcPerDay', label: 'Выручка на ПК в день', unit: 'money' },
-    { key: 'barShare', label: 'Доля бара в выручке', unit: 'percent' },
-    { key: 'payrollToRevenue', label: 'ФОТ к выручке', unit: 'percent' },
-    { key: 'rentToRevenue', label: 'Аренда к выручке', unit: 'percent' },
-  ],
+  // отраслевые метрики — плитки «Обзора клуба» (спецификация «Аналитика клуба», §4, §9)
+  analytics: { dashboards: CLUB_DASHBOARDS, tiles: CLUB_TILES },
   // «Закуп бара» — в себестоимости для закупок без документа склада (§8.2)
   indicatorDefaults: {
     cogs: [ref('bar-purchase')],

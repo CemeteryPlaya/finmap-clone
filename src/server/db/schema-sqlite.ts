@@ -641,6 +641,24 @@ export const analyticsIndicatorParts = sqliteTable(
   (t) => [primaryKey({ columns: [t.companyId, t.part] })],
 );
 
+/**
+ * «Настройки → Аналитика» (спецификация «Аналитика клуба», §10.3): общие для компании. Ключи — `dashboards` и
+ * `tiles.<шаблон>`, значение — JSON; нет записи — умолчания каталога.
+ */
+export const analyticsSettings = sqliteTable(
+  'analytics_settings',
+  {
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id),
+    key: text('key').notNull(),
+    value: text('value').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    updatedBy: integer('updated_by').references(() => users.id),
+  },
+  (t) => [primaryKey({ columns: [t.companyId, t.key] })],
+);
+
 /* ---------- Senet (спецификация 2026-11-02-senet-autopost, §9) ---------- */
 
 /** Подключение к организации Senet; данные входа — только зашифрованными (`*_secret` отсекает история). */

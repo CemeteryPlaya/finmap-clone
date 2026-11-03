@@ -89,6 +89,19 @@ describe('audit-format', () => {
     expect(auditSubject({ entity: 'indicator_part', diff: part })).toBe('Переменные расходы');
     expect(auditSubject({ entity: 'indicator_part', diff: { part: 'toString' } })).toBeNull();
     expect(diffRows(part, 'indicator_part')).toEqual([{ field: 'Настройка', before: 'Категорий нет, себестоимость склада (FIFO)', after: 'Закуп бара' }]);
+    // «Настройки → Аналитика» (спецификация «Аналитика клуба», §10): что видно — подписями, по порядку
+    const tiles = { key: 'tiles.computer-club', before: { items: [{ key: 'revenue', visible: true }, { key: 'refills', visible: false }] }, after: { items: [{ key: 'refills', visible: true }, { key: 'revenue', visible: false }] } };
+    expect(ENTITY_LABELS.analytics_settings).toBe('Настройки аналитики');
+    expect(COMPANY_ENTITIES).toContain('analytics_settings');
+    expect(auditSubject({ entity: 'analytics_settings', diff: tiles })).toBe('Плитки «Обзора»');
+    expect(diffRows(tiles, 'analytics_settings')).toEqual([{ field: 'Видно', before: 'Выручка', after: 'Пополнения балансов' }]);
+    const boards = {
+      key: 'dashboards',
+      before: { groups: [{ key: 'computer-club', visible: true, cards: [{ key: 'overview', visible: true }, { key: 'revenue', visible: true }] }] },
+      after: { groups: [{ key: 'computer-club', visible: false, cards: [{ key: 'revenue', visible: true }, { key: 'overview', visible: false }] }] },
+    };
+    expect(auditSubject({ entity: 'analytics_settings', diff: boards })).toBe('Дашборды');
+    expect(diffRows(boards, 'analytics_settings')).toEqual([{ field: 'Видно', before: 'Обзор клуба, Выручка клуба', after: 'Группа скрыта: Выручка клуба' }]);
     expect(importDetails({ entity: 'import', action: 'create', diff })).toEqual([
       { label: 'Строк в файле', value: '1\u202F234' },
       { label: 'Добавлено', value: '1\u202F234 операции (доходов 700, расходов 500, переводов 34)' },
