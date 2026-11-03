@@ -31,3 +31,8 @@ docs/research/screens/
 test-results/
 playwright-report/
 .superpowers/
+
+# ub-mode: отчёты crapper, dryer, mutator
+.metrics/
+target/mutation-workers/
+target/mutator-backup/
