@@ -115,6 +115,18 @@ describe('забор Senet', () => {
     expect(await q('SELECT trigger, result FROM senet_sync_runs')).toEqual([{ trigger: 'manual', result: 'ok' }]);
   });
 
+  it('хранилище сырых файлов недоступно (Blob приостановлен) — забор проходит: смены и отчёты записаны, сырых файлов нет', async () => {
+    const broken: FileStore = { ...files, put: async () => Promise.reject(new Error('Vercel Blob: This store has been suspended.')) };
+    const db = w.h.t.db;
+    const config = w.h.t.config;
+    const connections = createSenetConnections({ db, audit: createAuditService(db), config, secrets: () => loadSecrets(config), now: () => now });
+    const s = createSenetSync({ db, connections, files: broken, timezone: config.timezone, now: () => now, sleep: async () => {} });
+    const [run] = await s.run({ trigger: 'manual', connectionId });
+    expect(run).toMatchObject({ result: 'ok', error: null });
+    expect(await q('SELECT COUNT(*) n FROM senet_shifts')).toEqual([{ n: 2 }]);
+    expect(await q('SELECT COUNT(*) n FROM senet_raw')).toEqual([{ n: 0 }]);
+  });
+
   it('повторный забор: окно с «последний забор − 26 ч», дублей нет, исчезнувшая выемка отмечена', async () => {
     await sync.run({ trigger: 'manual', connectionId });
     now = new Date('2026-10-02T12:00:00.000Z');

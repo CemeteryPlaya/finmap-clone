@@ -78,7 +78,13 @@ export function createSenetSync(d: {
     const dup = await first(db.select({ id: senetRaw.id }).from(senetRaw).where(and(eq(senetRaw.connectionId, connectionId), eq(senetRaw.sha256, raw.sha256))));
     if (dup) return false;
     const fileKey = `senet/raw/${connectionId}/${kind}/${compact(from)}_${compact(to)}_${raw.sha256.slice(0, 16)}.xlsx`;
-    await files.put(fileKey, raw.data, raw.contentType || 'application/octet-stream');
+    try {
+      await files.put(fileKey, raw.data, raw.contentType || 'application/octet-stream');
+    } catch (e) {
+      // сырой файл — только архив разбора (§9.2): хранилище недоступно (например, Blob приостановлен) — забор идёт без него
+      console.warn(`Сырой файл Senet не сохранён (${kind}, ${from} — ${to}): ${(e as Error).message}`);
+      return false;
+    }
     await withTx(db, async (tx) => {
       await tx
         .insert(senetRaw)
