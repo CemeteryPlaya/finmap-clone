@@ -380,7 +380,7 @@ test('настройки на телефоне (§8.6): «Настройки» �
     /^Фиксированные курсы валют/,
     /^Резервное копирование/,
   ]);
-  await expect(nav.getByRole('group', { name: 'Визуальные настройки' }).getByRole('link')).toHaveText([/^Настройки журнала/]);
+  await expect(nav.getByRole('group', { name: 'Визуальные настройки' }).getByRole('link')).toHaveText([/^Настройки журнала/, /^Аналитика/]);
   await expect(nav.getByRole('link', { name: /Назад к журналу/ })).toHaveCount(0);
   for (const link of await nav.getByRole('link').all()) {
     const b = (await link.boundingBox())!;
