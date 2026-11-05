@@ -102,3 +102,17 @@
 | 60 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: страница «Выручка клуба» (задача 8) | client club-revenue-page PASS; typecheck | 57, 58, 59 | cc:完了 [fde7a3d] |
 | 61 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: «Обзор клуба» (задача 9) | club-overview (server и client) PASS на обоих диалектах | 57, 59 | cc:完了 [1a2326f] |
 | 62 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` АК-1: демо-данные, e2e, снимки, README, итоги (задача 10) | e2e/club-analytics ×2 + E2E_DB=pg; shots:ux; npm test, typecheck, lint:async | 55, 60, 61 | cc:完了 [4cac67c] |
+
+## Phase 7 — Аналитика клуба: Загрузка (план docs/superpowers/plans/2026-11-06-club-analytics-2.md)
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 63 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: расчёт загрузки — чистые функции (задача 1) | club-load (shared) PASS; §17 спецификации | - | cc:TODO |
+| 64 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: зоны клуба — таблица, API, удаление (задача 2) | club-zones PASS на обоих диалектах | 63 | cc:TODO |
+| 65 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: отчёт «Загрузка» — сервер (задача 3) | club-load (server) PASS на обоих диалектах; club-revenue, club-overview PASS | 64 | cc:TODO |
+| 66 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: «Обзор» — плитка «Загрузка ПК», часы пик; каталог (задача 4) | club-overview, analytics-settings PASS | 65 | cc:TODO |
+| 67 | `[Refactor]` `[lane:gate]` `[tdd:required]` АК-2: вид по умолчанию и шаг по видам, карта с форматом, график процентов (задача 5) | club-url, club-overview (client) PASS; e2e club-analytics PASS | - | cc:TODO |
+| 68 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: страница «Загрузка» (задача 6) | club-load (client) PASS; typecheck | 65, 67 | cc:TODO |
+| 69 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: «Обзор» на клиенте — загрузка, часы пик (задача 7) | club-overview (client) PASS | 66, 67 | cc:TODO |
+| 70 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: зоны в «Изменить» клуба Senet (задача 8) | parseSeats PASS; typecheck | 64 | cc:TODO |
+| 71 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` АК-2: e2e, снимки, README, итоги (задача 9) | e2e club-analytics PASS (SQLite, PGlite); shots:ux; npm test | 68, 69, 70 | cc:TODO |
