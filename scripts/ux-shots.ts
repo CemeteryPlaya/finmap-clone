@@ -1027,6 +1027,47 @@ const SCENARIOS: Scenario[] = [
     act: (p) => p.getByRole('main').getByRole('checkbox', { name: 'Выручка клуба' }).waitFor(),
   },
   {
+    // «Загрузка» (план АК-2, задача 9). Пары в Finmap нет — m80…m83 заглушки
+    ours: 'c80-club-load-map.png',
+    finmap: 'm80-club-load-map.png',
+    path: `analytics/club/load?${CLUB_PERIOD}`,
+    act: async (p) => {
+      await ensureClub(p);
+      await p.getByRole('main').getByRole('table', { name: /средняя загрузка часа/ }).waitFor();
+    },
+  },
+  {
+    ours: 'c81-club-load-zones.png',
+    finmap: 'm81-club-load-zones.png',
+    path: `analytics/club/load?view=table&${CLUB_PERIOD}`,
+    act: async (p) => {
+      await ensureClub(p);
+      await p.getByRole('main').getByRole('table', { name: 'Загрузка: зоны' }).getByRole('rowheader', { name: 'Все зоны' }).waitFor();
+    },
+  },
+  {
+    ours: 'c82-senet-office-zones.png',
+    finmap: 'm82-senet-office-zones.png',
+    path: 'settings/integrations',
+    act: async (p) => {
+      await ensureClub(p);
+      await p.getByRole('main').getByRole('button', { name: 'Изменить' }).last().click();
+      const dialog = p.getByRole('dialog', { name: 'Клуб Senet' });
+      await dialog.getByRole('heading', { name: 'Зоны' }).scrollIntoViewIfNeeded();
+      await dialog.getByRole('textbox', { name: 'VIP: своё число ПК' }).waitFor();
+    },
+  },
+  {
+    ours: 'cm83-club-load.png',
+    finmap: 'm83-club-load-phone.png',
+    phone: true,
+    path: `analytics/club/load?${CLUB_PERIOD}`,
+    act: async (p) => {
+      await ensureClub(p);
+      await p.getByRole('main').getByRole('table', { name: /средняя загрузка часа/ }).waitFor();
+    },
+  },
+  {
     ours: 'cm79-club-overview.png',
     finmap: 'm79-club-overview-phone.png',
     phone: true,

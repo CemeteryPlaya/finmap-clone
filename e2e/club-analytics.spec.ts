@@ -51,6 +51,7 @@ test('главная «Аналитики»: группа «Компьютерн
   await expect(main(page).getByRole('heading', { name: 'Компьютерный клуб' })).toBeVisible();
   await expect(main(page).getByRole('link', { name: /Обзор клуба/ })).toBeVisible();
   await expect(main(page).getByRole('link', { name: /Выручка клуба/ })).toBeVisible();
+  await expect(main(page).getByRole('link', { name: /^Загрузка/ })).toBeVisible();
 });
 
 test('«Обзор клуба»: плитки, дни без данных, плитка ведёт в «Выручку» с тем же периодом', async ({ page }) => {
