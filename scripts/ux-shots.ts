@@ -11,7 +11,7 @@ import { createAuditService } from '../src/server/modules/audit/service';
 import { createUsersService } from '../src/server/modules/users/service';
 import { excelSerial, finmapLikeRow, finmapLikeSample, finmapLikeXlsx, type FinmapLikeValue } from '../tests/helpers/finmap-like';
 import { seedDemo } from './lib/demo';
-import { seedSenet, startSenetDemo } from './lib/senet-demo';
+import { seedSenet, seedSenetClub, startSenetDemo } from './lib/senet-demo';
 
 // Визуальная сверка с Finmap (§12.3 этапа 1.5): снимки наших экранов под парными к снимкам Finmap именами и
 // index.html «Finmap | наш». Инструмент разработчика, в CI не входит.
@@ -197,6 +197,19 @@ const ensureSenet = async (p: Page) => {
   await p.reload();
   await p.getByRole('main').getByRole('heading', { level: 1 }).waitFor();
 };
+
+/** Клуб «Аналитики клуба» (план АК-1, задача 10): «Клуб на Абая» с демо-Senet за 30 дней до NOW — один раз на прогон. */
+let clubSeeded = false;
+const ensureClub = async (p: Page) => {
+  if (!clubSeeded) {
+    await seedSenetClub(p, Number(p.url().match(/\/c\/(\d+)\//)![1]), 'Клуб на Абая', NOW.getTime());
+    clubSeeded = true;
+  }
+  await p.reload();
+  await p.getByRole('main').getByRole('heading', { level: 1 }).waitFor();
+};
+/** Период отчётов клуба на снимках: первые 9 дней — до загрузки, полоса «нет данных». */
+const CLUB_PERIOD = 'from=2026-09-01&to=2026-10-10';
 
 const chartReady = async (p: Page, title: string) => {
   await p.getByRole('main').getByRole('img', { name: new RegExp(`^${title}\\. `) }).waitFor();
@@ -977,6 +990,50 @@ const SCENARIOS: Scenario[] = [
     act: async (p) => {
       await ensureSenet(p);
       await p.getByRole('main').getByText('Правило не нашлось').waitFor();
+    },
+  },
+  {
+    // «Аналитика клуба» (план АК-1, задача 10). Пары в Finmap нет — m75…m79 заглушки
+    ours: 'c75-club-overview.png',
+    finmap: 'm75-club-overview.png',
+    path: `analytics/club?${CLUB_PERIOD}`,
+    act: async (p) => {
+      await ensureClub(p);
+      await p.getByRole('main').getByRole('list', { name: 'Плитки' }).getByRole('link').first().waitFor();
+    },
+  },
+  {
+    ours: 'c76-club-revenue-table.png',
+    finmap: 'm76-club-revenue-table.png',
+    path: `analytics/club/revenue?view=table&step=week&${CLUB_PERIOD}`,
+    act: async (p) => {
+      await ensureClub(p);
+      await p.getByRole('main').getByRole('table', { name: 'Выручка клуба' }).getByRole('rowheader', { name: 'Выручка', exact: true }).waitFor();
+    },
+  },
+  {
+    ours: 'c77-club-revenue-hours.png',
+    finmap: 'm77-club-revenue-hours.png',
+    path: `analytics/club/revenue?view=hours&${CLUB_PERIOD}`,
+    act: async (p) => {
+      await ensureClub(p);
+      await p.getByRole('main').getByRole('table', { name: /средняя выручка по часам/ }).waitFor();
+    },
+  },
+  {
+    ours: 'c78-settings-analytics.png',
+    finmap: 'm78-settings-analytics.png',
+    path: 'settings/analytics',
+    act: (p) => p.getByRole('main').getByRole('checkbox', { name: 'Выручка клуба' }).waitFor(),
+  },
+  {
+    ours: 'cm79-club-overview.png',
+    finmap: 'm79-club-overview-phone.png',
+    phone: true,
+    path: `analytics/club?${CLUB_PERIOD}`,
+    act: async (p) => {
+      await ensureClub(p);
+      await p.getByRole('main').getByRole('list', { name: 'Плитки' }).getByRole('link').first().waitFor();
     },
   },
 ];

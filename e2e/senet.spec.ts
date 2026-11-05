@@ -71,7 +71,8 @@ test('Senet: от подключения до сверки', async ({ page }) =>
   await api(page, 'POST', `${s}/rules`, { type: 'lunch', pattern: '', categoryId: books.lunch });
   await api(page, 'POST', `${s}/rules`, { type: 'employee_alias', pattern: 'op1', counterpartyId: books.operator });
   await main(page).getByRole('button', { name: 'Обновить сейчас' }).click();
-  await expect(main(page).getByRole('status').filter({ hasText: 'Загружено 1 из 1 отрезков' })).toBeVisible();
+  // демо-Senet отдаёт и отчёты «Аналитики клуба» — забор дольше пары секунд
+  await expect(main(page).getByRole('status').filter({ hasText: 'Загружено 1 из 1 отрезков' })).toBeVisible({ timeout: 30_000 });
 
   // журнал: операции смен проведены
   await page.goto(`/c/${cid}/log`);

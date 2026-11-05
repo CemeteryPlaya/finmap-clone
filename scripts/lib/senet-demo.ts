@@ -1,10 +1,12 @@
 import type { Page } from '@playwright/test';
 import { startSenetFake, type SenetFake } from '../../tests/helpers/senet-fake';
 import { senetSample, xlTime, type SampleValue } from '../../tests/helpers/senet-samples';
+import { clubDemoReports } from './senet-club-demo';
 
 /**
  * Поддельный Senet для e2e и снимков (план 2026-11-02-senet-autopost, задача 16): две закрытые смены «Клуба 1» за
- * последние сутки — с выносом kaspi, ЗП оператора, обедом и нераспознанной выемкой. Только выдуманные данные.
+ * последние сутки — с выносом kaspi, ЗП оператора, обедом и нераспознанной выемкой; до них — 60 дней сеансов, бара и
+ * кассы для «Аналитики клуба» (план АК-1, задача 10). Только выдуманные данные.
  */
 export const SENET_DEMO = { org: 'club-demo', username: 'reports', password: 'senet-demo-1' } as const;
 
@@ -35,16 +37,20 @@ export async function startSenetDemo(now = Date.now()): Promise<SenetFake> {
     move(b.close - 3 * MIN, 'Вынесение', 500, 'obed'),
     move(b.close - 1 * MIN, 'Вынесение', 700, 'что-то'),
   ]);
-  const transactions = senetSample('transactions', []);
+  // остальные отчёты аналитики — пустые; отчёты клуба — синтетика «Аналитики клуба» до последних 30 часов
+  const empty: Record<string, Buffer> = { checks: senetSample('checks', []), shop_quantity: senetSample('stock', []), movements_of_goods: senetSample('goodsMoves', []) };
+  const club = clubDemoReports(now);
   return startSenetFake({
     users: { [SENET_DEMO.username]: { password: SENET_DEMO.password, token: 'demo-token-1' } },
-    report: (type) => (type === 'cashdesk_session' ? sessions : type === 'income_outcome' ? moves : transactions),
+    ownAnalytics: true,
+    report: (type, q) => (type === 'cashdesk_session' ? sessions : type === 'income_outcome' ? moves : (club(type, q) ?? empty[type] ?? senetSample('transactions', []))),
   });
 }
 
 const csrf = (page: Page) => ({ origin: new URL(page.url()).origin, 'x-requested-with': 'fetch' });
 async function post(page: Page, url: string, data: unknown) {
-  const res = await page.request.post(url, { data, headers: csrf(page) });
+  // забор демо с отчётами клуба идёт дольше 30 с по умолчанию
+  const res = await page.request.post(url, { data, headers: csrf(page), timeout: 180_000 });
   if (res.status() >= 300) throw new Error(`POST ${url}: ${res.status()} ${await res.text()}`);
   return res.json();
 }
@@ -88,4 +94,19 @@ export async function seedSenet(page: Page, cid: number, now = Date.now()) {
   });
   await post(page, `${s}/connections/${conn}/sync`, {});
   return { ...books, conn };
+}
+
+/**
+ * Клуб «Аналитики клуба» для снимков (план АК-1, задача 10): своё подключение демо-Senet, клуб привязан к проекту-клубу
+ * `projectName`, «Загрузить за период» — 30 дней до `now`.
+ */
+export async function seedSenetClub(page: Page, cid: number, projectName: string, now = Date.now()) {
+  const c = `/api/v1/companies/${cid}`;
+  const projects = (await (await page.request.get(`${c}/projects`)).json()).projects as { id: number; name: string }[];
+  const project = projects.find((p) => p.name === projectName);
+  if (!project) throw new Error(`Нет проекта ${projectName}`);
+  const s = `${c}/senet`;
+  const conn = (await post(page, `${s}/connections`, { name: projectName, org: SENET_DEMO.org, authMethod: 'password', username: SENET_DEMO.username, password: SENET_DEMO.password })).connection.id as number;
+  await post(page, `${s}/connections/${conn}/offices`, { senetOfficeId: 1, cashDeskId: 1, enabled: false, projectId: project.id });
+  await post(page, `${s}/connections/${conn}/sync`, { from: new Date(now - 30 * 24 * HOUR).toISOString(), to: new Date(now).toISOString() });
 }
