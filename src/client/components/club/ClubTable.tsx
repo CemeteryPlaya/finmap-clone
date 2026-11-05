@@ -1,7 +1,7 @@
 import { Link } from 'react-router';
 import { delta } from '../../../shared/club-analytics/delta';
 import type { ReportColumn } from '../../../shared/report-engine';
-import { clubMoney, missingText, revenueCellRow, shiftHref, type RevenueRowView, type RevenueView } from '../../lib/club-revenue';
+import { clubMoney, countCell, missingText, revenueCellRow, shiftHref, type RevenueRowView, type RevenueView } from '../../lib/club-revenue';
 import { HelpButton } from '../HelpButton';
 
 /** Подсказка строки «Справочно: разница» (§5.1). */
@@ -64,9 +64,8 @@ export function ClubTable(props: {
 }) {
   const { data } = props;
   const byStep = data.meta.by === 'parts' || data.meta.by === 'payment';
-  const countCol = data.meta.by === 'cashiers' ? 1 : -1;
   const cell = (row: RevenueRowView, value: number | null, col: ReportColumn | null, index: number) => {
-    const shown = <Value value={value} count={index === countCol} />;
+    const shown = <Value value={value} count={countCell(data.meta.by, index)} />;
     if (!byStep || !revenueCellRow(row.id) || value === null) return shown;
     const key = col?.key ?? 'total';
     const active = props.active?.row === row.id && props.active.col === key;

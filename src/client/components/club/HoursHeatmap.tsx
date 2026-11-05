@@ -12,13 +12,13 @@ export function HoursHeatmap(props: { title: string; map: readonly (readonly (nu
   return (
     <figure className={props.busy ? 'opacity-60' : ''}>
       <div role="region" aria-label={`${props.title}: по часам`} tabIndex={0} className="overflow-x-auto rounded-xl focus-visible:outline-2 focus-visible:outline-focus">
-        <table aria-busy={props.busy} className="w-full min-w-max border-separate border-spacing-0.5 text-xs">
+        <table aria-busy={props.busy} className="w-full min-w-[44rem] table-fixed border-separate border-spacing-0.5 text-xs">
           <caption className="sr-only">{`${props.title}: средняя выручка по часам и дням недели`}</caption>
           <thead>
             <tr>
-              <td />
+              <td className="w-8" />
               {HOURS.map((h) => (
-                <th key={h} scope="col" className="w-9 font-normal text-muted">
+                <th key={h} scope="col" className="font-normal text-muted">
                   {h}
                 </th>
               ))}

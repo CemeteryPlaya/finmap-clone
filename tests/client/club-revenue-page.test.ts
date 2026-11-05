@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatMoney } from '../../src/shared/money';
-import { chartSeries, heatColor, heatLabel, missingText, reconcileTotal, revenueApprox, revenueCellRow, revenueCellTitle, shiftHref, shiftLink } from '../../src/client/lib/club-revenue';
+import { chartSeries, clubMoney, countCell, heatColor, heatLabel, missingText, reconcileTotal, revenueApprox, revenueCellRow, revenueCellTitle, shiftHref, shiftLink } from '../../src/client/lib/club-revenue';
 
 /** «Выручка клуба» на экране (спецификация «Аналитика клуба», §5; план АК-1, задача 8). */
 const col = { key: '2026-11-01', from: '2026-11-01', to: '2026-11-01', label: '1 ноя' };
@@ -64,5 +64,18 @@ describe('«Выручка клуба»: экран', () => {
     expect(shiftLink(new URLSearchParams('shift=x&day=2026-11-01'))).toBeNull();
     expect(shiftLink(new URLSearchParams('shift=42&day=вчера'))).toBeNull();
     expect(shiftLink(new URLSearchParams(''))).toBeNull();
+  });
+
+  it('число, а не деньги — только колонка «Смен» у кассиров; итог (−1) — всегда деньги', () => {
+    expect(countCell('cashiers', 1)).toBe(true);
+    expect(countCell('cashiers', 0)).toBe(false);
+    expect(countCell('parts', -1)).toBe(false);
+    expect(countCell('cashiers', -1)).toBe(false);
+  });
+
+  it('суммы клуба — в целых тенге: средние карты часов без тиынов', () => {
+    expect(clubMoney(4_416_342)).toBe(money(4_416_300));
+    expect(clubMoney(-50)).toBe(money(-100));
+    expect(clubMoney(600_000)).toBe(money(600_000));
   });
 });
