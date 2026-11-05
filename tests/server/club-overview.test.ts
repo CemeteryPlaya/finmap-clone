@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { approxOf, bestWorst, visibleTileDefs } from '../../src/server/modules/club-analytics/overview';
+import { approxOf, bestWorst, pcsOf, visibleTileDefs } from '../../src/server/modules/club-analytics/overview';
 import { clubWorld, T, type ClubWorld } from '../helpers/club-senet';
 
 /**
@@ -69,6 +69,17 @@ describe('visibleTileDefs', () => {
   it('без настройки — восемь плиток по умолчанию; с настройкой — видимые в её порядке', () => {
     expect(visibleTileDefs(undefined).map((t) => t.label)).toHaveLength(8);
     expect(visibleTileDefs({ items: [{ key: 'refills', visible: true }, { key: 'revenue', visible: true }, { key: 'load', visible: false }] }).map((t) => t.label)).toEqual(['Пополнения балансов', 'Выручка']);
+  });
+});
+
+describe('pcsOf', () => {
+  const scope = (projects: { id: number; pcCount: number | null }[], officeProjects: number[]) =>
+    ({ projects: projects.map((p) => ({ ...p, name: '', archived: false })), offices: officeProjects.map((projectId, i) => ({ id: i + 1, projectId, connectionId: 1, lastSyncAt: null })), connected: true, freshness: null }) as Parameters<typeof pcsOf>[0];
+  it('сумма ПК клубов с клубом Senet; клуб без Senet не считается; у клуба с Senet не задано — 0 (плитка недоступна)', () => {
+    expect(pcsOf(scope([{ id: 1, pcCount: 40 }, { id: 2, pcCount: 25 }], [1, 2]))).toBe(65);
+    expect(pcsOf(scope([{ id: 1, pcCount: 40 }, { id: 2, pcCount: null }], [1]))).toBe(40);
+    // часы второго клуба вошли бы в числитель без его ПК в знаменателе — цифра завышена
+    expect(pcsOf(scope([{ id: 1, pcCount: 40 }, { id: 2, pcCount: null }], [1, 2]))).toBe(0);
   });
 });
 

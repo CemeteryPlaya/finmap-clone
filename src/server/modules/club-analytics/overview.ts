@@ -102,10 +102,14 @@ export function visibleTileDefs(saved: SavedTiles | undefined): TileDef[] {
   return (saved ?? resolveTiles(null, CLUB_TILES)).items.filter((i) => i.visible).flatMap((i) => CLUB_TILES.filter((t) => t.key === i.key));
 }
 
-/** Количество ПК клубов с подключённым клубом Senet (§6.1): клубы без данных в знаменатель не идут. */
-function pcsOf(scope: ClubScope): number {
+/**
+ * Количество ПК клубов с подключённым клубом Senet (§6.1): клубы без данных в знаменатель не идут. Если у такого клуба
+ * ПК не заданы — 0 (плитка недоступна): его часы вошли бы в числитель без его ПК в знаменателе.
+ */
+export function pcsOf(scope: ClubScope): number {
   const connected = new Set(scope.offices.map((o) => o.projectId));
-  return scope.projects.filter((p) => connected.has(p.id)).reduce((t, p) => t + (p.pcCount ?? 0), 0);
+  const clubs = scope.projects.filter((p) => connected.has(p.id));
+  return clubs.some((p) => p.pcCount === null) ? 0 : clubs.reduce((t, p) => t + p.pcCount!, 0);
 }
 
 /** Сумма в тиынах или доля — ячейка Excel. */
