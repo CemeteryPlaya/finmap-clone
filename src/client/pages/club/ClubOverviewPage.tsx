@@ -1,8 +1,9 @@
 import { Link, useNavigate, useOutletContext } from 'react-router';
 import { reportColumns } from '../../../shared/report-engine';
-import { StackedBars } from '../../components/charts/StackedBars';
+import { PercentLinesChart } from '../../components/charts/PercentLinesChart';
 import { Tile } from '../../components/club/Tile';
-import { bestWorstText, overviewHref, type OverviewView } from '../../lib/club-overview';
+import { hourLabel } from '../../lib/club-load';
+import { bestWorstText, overviewChart, overviewHref, type OverviewView } from '../../lib/club-overview';
 import { clubMoney } from '../../lib/club-revenue';
 import { clubSearch, DEFAULT_CLUB_STATE, type ClubUrlState, type ClubView } from '../../lib/club-url';
 import type { CompanyOutletContext } from '../CompanyLayout';
@@ -45,7 +46,25 @@ function DayList(props: { title: string; days: OverviewView['best']; href: (day:
   );
 }
 
-/** Плитки, «Выручка по дням» и «Лучшие и худшие дни» (§4). Загрузка на графике и «Часы пик» — с отчётом «Загрузка» (R7). */
+/** «Часы пик» (§4): 3 часа недели с наибольшей загрузкой и ссылка на «Загрузку» с периодом и клубом «Обзора». */
+function PeakHours(props: { data: OverviewView; href: string }) {
+  if (props.data.peak.length === 0) return null;
+  return (
+    <section className="mb-6">
+      <h2 className="mb-2 text-base font-bold text-ink">Часы пик</h2>
+      <ol className="mb-2 flex flex-col gap-1 text-sm">
+        {props.data.peak.map((c) => (
+          <li key={`${c.weekday}-${c.hour}`}>{hourLabel(c)}</li>
+        ))}
+      </ol>
+      <Link to={props.href} className="text-sm font-semibold underline focus-visible:outline-2 focus-visible:outline-focus">
+        Загрузка
+      </Link>
+    </section>
+  );
+}
+
+/** Плитки, «Выручка и загрузка по дням», «Часы пик» и «Лучшие и худшие дни» (§4). */
 function OverviewBody({ ctx, companyId }: { ctx: ClubReportContext<OverviewView>; companyId: number }) {
   const navigate = useNavigate();
   const { data, state } = ctx;
@@ -53,6 +72,7 @@ function OverviewBody({ ctx, companyId }: { ctx: ClubReportContext<OverviewView>
   const pnl = new URLSearchParams({ from: data.meta.from, to: data.meta.to }).toString();
   const dayHref = (day: string) => overviewHref(companyId, 'club/revenue', dayQuery(state, day), '');
   const columns = reportColumns(data.meta.from, data.meta.to, 'day');
+  const chart = overviewChart(data.days);
   return (
     <>
       <ul aria-label="Плитки" className={`mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 ${ctx.busy ? 'opacity-60' : ''}`}>
@@ -63,12 +83,11 @@ function OverviewBody({ ctx, companyId }: { ctx: ClubReportContext<OverviewView>
         ))}
       </ul>
       <div className="mb-6">
-        <StackedBars
-          title="Выручка по дням"
+        <PercentLinesChart
+          title="Выручка и загрузка по дням"
           columns={columns}
-          series={[{ id: 'revenue', label: 'Выручка', color: 0, values: data.days.map((d) => d.revenue ?? 0) }]}
-          currency="KZT"
-          selected={null}
+          bars={{ label: 'Выручка', values: chart.revenue, currency: 'KZT' }}
+          lines={[{ id: 'load', label: 'Загрузка', values: chart.load }]}
           busy={ctx.busy}
           onSelect={(i) => {
             const day = data.days[i]?.day;
@@ -76,6 +95,7 @@ function OverviewBody({ ctx, companyId }: { ctx: ClubReportContext<OverviewView>
           }}
         />
       </div>
+      <PeakHours data={data} href={overviewHref(companyId, 'club/load', club, '')} />
       <h2 className="mb-3 text-base font-bold text-ink">Лучшие и худшие дни</h2>
       <div className="flex gap-6 max-md:flex-col">
         <DayList title="Лучшие" days={data.best} href={dayHref} />

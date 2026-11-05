@@ -23,6 +23,8 @@ export function PercentLinesChart(props: {
   lines: readonly { id: string; label: string; values: readonly (number | null)[] }[];
   bars?: { label: string; values: readonly number[]; currency: string };
   busy?: boolean;
+  /** Щелчок по колонке (у «Обзора» — «Выручка клуба» за день). */
+  onSelect?: (index: number) => void;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const n = props.columns.length;
@@ -94,7 +96,7 @@ export function PercentLinesChart(props: {
               names={props.columns.map((c, i) => `${c.label}: ${tipLines(i).map((t) => `${t.label} ${t.value}`).join(', ')}`)}
               tip={(i) => ({ title: props.columns[i]!.label, lines: tipLines(i) })}
               selected={null}
-              onSelect={() => {}}
+              onSelect={props.onSelect ?? (() => {})}
               busy={props.busy}
             />
           </>

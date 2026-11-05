@@ -1,5 +1,6 @@
 import type { DayCoverage } from '../../shared/club-analytics/coverage';
 import type { TileDef } from '../../shared/analytics-catalog';
+import type { HourCell } from '../../shared/club-analytics/load';
 import { marginText } from './stock-analytics';
 import type { ClubCoverage, ClubReportBase } from './club-analytics';
 import { clubMoney } from './club-revenue';
@@ -23,7 +24,9 @@ export interface OverviewTile {
 /** Ответ `GET …/club-analytics/overview` (§4, §11). */
 export interface OverviewView extends ClubReportBase {
   tiles: OverviewTile[];
-  days: { day: string; revenue: number | null; coverage: DayCoverage }[];
+  days: { day: string; revenue: number | null; load: number | null; coverage: DayCoverage }[];
+  /** «Часы пик» (§4): 3 часа недели с наибольшей загрузкой. */
+  peak: HourCell[];
   best: { day: string; revenue: number }[];
   worst: { day: string; revenue: number }[];
   coverage: ClubCoverage & { partial: number };
@@ -78,4 +81,9 @@ export function sparkPath(values: readonly (number | null)[]): string {
     gap = false;
   });
   return path;
+}
+
+/** Ряды графика «Выручка и загрузка по дням» (§4): день без данных — 0 в столбцах, разрыв линии загрузки. */
+export function overviewChart(days: OverviewView['days']): { revenue: number[]; load: (number | null)[] } {
+  return { revenue: days.map((d) => d.revenue ?? 0), load: days.map((d) => d.load) };
 }

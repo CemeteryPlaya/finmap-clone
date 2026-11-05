@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatMoney } from '../../src/shared/money';
-import { bestWorstText, overviewHref, sparkPath, tileValueText, type OverviewTile } from '../../src/client/lib/club-overview';
+import { bestWorstText, overviewChart, overviewHref, sparkPath, tileValueText, type OverviewTile } from '../../src/client/lib/club-overview';
 import { clubChangedFor, DEFAULT_CLUB_STATE } from '../../src/client/lib/club-url';
 
 /** «Обзор клуба» — подписи плиток и ссылки (спецификация «Аналитика клуба», §4; план АК-1, задача 9). */
@@ -37,6 +37,22 @@ describe('overviewHref', () => {
     expect(overviewHref(5, 'club/revenue', 'period=month&project=3&compare=0', 'period=month')).toBe('/c/5/analytics/club/revenue?period=month&project=3&compare=0');
     expect(overviewHref(5, 'pnl', 'period=month&project=3', 'period=month')).toBe('/c/5/analytics/pnl?period=month');
     expect(overviewHref(5, 'club/revenue', '', '')).toBe('/c/5/analytics/club/revenue');
+  });
+});
+
+describe('«Загрузка» в «Обзоре»', () => {
+  it('плитка «Загрузка ПК» — процентом; «Часы пик» ведут в «Загрузку» с периодом и клубом', () => {
+    expect(tileValueText(tile({ key: 'load', label: 'Загрузка ПК', unit: 'percent', kind: 'share', value: 0.94, href: 'club/load' }))).toBe('94 %');
+    expect(overviewHref(5, 'club/load', 'from=2026-11-01&to=2026-11-30&project=3', '')).toBe('/c/5/analytics/club/load?from=2026-11-01&to=2026-11-30&project=3');
+  });
+
+  it('ряды графика «Выручка и загрузка по дням»: день без данных — 0 в столбцах, null в линии', () => {
+    expect(
+      overviewChart([
+        { day: '2026-11-01', revenue: 100, load: 0.5, coverage: 'full' },
+        { day: '2026-11-02', revenue: null, load: null, coverage: 'none' },
+      ]),
+    ).toEqual({ revenue: [100, 0], load: [0.5, null] });
   });
 });
 

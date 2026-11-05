@@ -65,6 +65,11 @@ test('«Обзор клуба»: плитки, дни без данных, пл�
   await expect(tiles.getByRole('link', { name: /Загрузка ПК\s*[\d,]+\s%/ })).toBeVisible();
   await expect(tiles.getByText('Появится с отчётом «Гости»').first()).toBeVisible();
   await expect(main(page).getByRole('heading', { name: 'Лучшие и худшие дни' })).toBeVisible();
+  const peak = main(page).getByRole('heading', { name: 'Часы пик' }).locator('xpath=..');
+  await expect(peak.getByRole('listitem')).toHaveCount(3);
+  await expect(peak.getByRole('listitem').first()).toHaveText(/^(Пн|Вт|Ср|Чт|Пт|Сб|Вс) \d\d:00–\d\d:00 — \d+(,\d)?\s%$/);
+  await expect(peak.getByRole('link', { name: 'Загрузка' })).toHaveAttribute('href', new RegExp(`/analytics/club/load\\?from=${period.from}&to=${period.to}`));
+  await expect(main(page).getByRole('img', { name: /^Выручка и загрузка по дням/ })).toBeVisible();
   await tiles.getByRole('link', { name: /^Выручка\s*[\d\s]+₸/ }).click();
   await expect(page).toHaveURL(new RegExp(`/analytics/club/revenue\\?from=${period.from}&to=${period.to}`));
 });
