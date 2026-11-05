@@ -1017,7 +1017,7 @@ const SCENARIOS: Scenario[] = [
     path: `analytics/club/revenue?view=hours&${CLUB_PERIOD}`,
     act: async (p) => {
       await ensureClub(p);
-      await p.getByRole('main').getByRole('table', { name: /средняя выручка по часам/ }).waitFor();
+      await p.getByRole('main').getByRole('table', { name: /средняя выручка часа/ }).waitFor();
     },
   },
   {

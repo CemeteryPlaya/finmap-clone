@@ -43,7 +43,7 @@ export interface ClubReportBase {
   coverage: ClubCoverage;
 }
 
-export type ClubReportKind = 'overview' | 'revenue';
+export type ClubReportKind = 'overview' | 'revenue' | 'load';
 
 /** Отчёт клуба; params — параметры API (clubApiParams), null — запрос ещё нельзя строить. Прежний ответ виден до нового. */
 export function useClubReport<T extends ClubReportBase>(companyId: number, report: ClubReportKind, params: string | null) {
@@ -62,7 +62,7 @@ export function sameCompany(companyId: number, prevQuery: { queryKey: readonly u
 
 /** Настройки из адреса с видом, который есть у отчёта. */
 export function clubStateOf(params: URLSearchParams, byChoices: readonly string[], views: readonly ClubView[]): ClubUrlState {
-  const s = parseClubSearch(params, byChoices);
+  const s = parseClubSearch(params, byChoices, views[0]);
   return { ...s, view: viewOf(s.view, views) };
 }
 
@@ -83,6 +83,6 @@ export function useClubSettings(byChoices: readonly string[], views: readonly Cl
   const state = useMemo(() => clubStateOf(params, byChoices, views), [params, byChoices, views]);
   const timeZone = zoneOf(meta.data);
   const today = todayIn(timeZone);
-  const update = (next: ClubUrlState) => setParams(clubSearch(next, byChoices), { replace: true });
+  const update = (next: ClubUrlState) => setParams(clubSearch(next, byChoices, views[0]), { replace: true });
   return { state, today, timeZone, update };
 }

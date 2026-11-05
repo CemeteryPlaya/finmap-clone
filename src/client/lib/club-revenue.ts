@@ -52,9 +52,9 @@ export function heatColor(value: number | null, max: number): string {
 export const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'] as const;
 const hh = (h: number) => `${String(h).padStart(2, '0')}:00`;
 
-/** Подпись ячейки карты для программ чтения: «Пн, 20:00–21:00: 6 000 ₸». */
-export function heatLabel(weekday: number, hour: number, value: number | null): string {
-  return `${WEEKDAYS[weekday]}, ${hh(hour)}–${hh(hour + 1)}: ${value === null ? 'нет данных' : clubMoney(value)}`;
+/** Подпись ячейки карты для программ чтения: «Пн, 20:00–21:00: 6 000 ₸»; у «Загрузки» — свой формат («42,5 %»). */
+export function heatLabel(weekday: number, hour: number, value: number | null, format: (v: number) => string = clubMoney): string {
+  return `${WEEKDAYS[weekday]}, ${hh(hour)}–${hh(hour + 1)}: ${value === null ? 'нет данных' : format(value)}`;
 }
 
 /** Ячейка с числом, а не деньгами: колонка «Смен» разреза «По кассирам» (§5.2); итог (index −1) — всегда деньги. */

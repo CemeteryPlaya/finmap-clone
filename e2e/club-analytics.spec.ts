@@ -62,7 +62,8 @@ test('«Обзор клуба»: плитки, дни без данных, пл�
   await expect(tiles.getByRole('link', { name: /Выручка\s*[\d\s]+₸/ })).toBeVisible();
   await expect(tiles.getByRole('link', { name: /Выручка на ПК в день\s*[\d\s]+₸/ })).toBeVisible();
   await expect(tiles.getByRole('link', { name: /Доля бара\s*[\d,]+\s%/ })).toBeVisible();
-  await expect(tiles.getByText('Появится с отчётом «Загрузка»')).toBeVisible();
+  await expect(tiles.getByRole('link', { name: /Загрузка ПК\s*[\d,]+\s%/ })).toBeVisible();
+  await expect(tiles.getByText('Появится с отчётом «Гости»').first()).toBeVisible();
   await expect(main(page).getByRole('heading', { name: 'Лучшие и худшие дни' })).toBeVisible();
   await tiles.getByRole('link', { name: /^Выручка\s*[\d\s]+₸/ }).click();
   await expect(page).toHaveURL(new RegExp(`/analytics/club/revenue\\?from=${period.from}&to=${period.to}`));
@@ -88,7 +89,7 @@ test('«Выручка клуба»: строки, «По часам» 7×24, с
   expect((await download).suggestedFilename()).toMatch(/Выручка клуба.*\.xlsx$/);
 
   await page.goto(`/c/${cid}/analytics/club/revenue?view=hours&from=${period.from}&to=${period.to}`);
-  const map = main(page).getByRole('table', { name: /средняя выручка по часам/ });
+  const map = main(page).getByRole('table', { name: /средняя выручка часа/ });
   await expect(map.locator('tbody tr')).toHaveCount(7);
   await expect(map.locator('tbody tr').first().locator('td')).toHaveCount(24);
 });

@@ -1,24 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import {
-  arcPath,
-  barSpan,
-  compactMoney,
-  donutArcs,
-  donutSlices,
-  labelEvery,
-  linePath,
-  niceScale,
-  OTHER_ID,
-  reportChart,
-  segmentAt,
-  sliceShare,
-  stackColumn,
-  stackExtent,
-  stackSeries,
-  yOf,
-} from '../../src/client/lib/charts';
+import { arcPath, barSpan, compactMoney, donutArcs, donutSlices, gapPath, labelEvery, linePath, niceScale, yOf, OTHER_ID, reportChart, segmentAt, sliceShare, stackColumn, stackExtent, stackSeries } from '../../src/client/lib/charts';
 import type { ReportRow } from '../../src/shared/report-engine';
 
 const row = (id: string, label: string, values: number[]): ReportRow => ({ id, kind: 'category', label, values, total: values.reduce((s, v) => s + v, 0) });
@@ -236,5 +219,12 @@ describe('сегмент стека под курсором (план 2026-10-20
     expect(segmentAt(series, 0, 600)).toBeNull();
     expect(segmentAt(series, 0, -150)).toBeNull();
     expect(segmentAt(series, 1, 0)).toBeNull();
+  });
+});
+
+describe('gapPath', () => {
+  it('линия процентов с разрывами: колонка без данных прерывает линию', () => {
+    expect(gapPath([{ x: 10, y: 20 }, { x: 30, y: 40 }, null, { x: 50, y: 5 }])).toBe('M10.0 20.0 L30.0 40.0 M50.0 5.0');
+    expect(gapPath([null, null])).toBe('');
   });
 });

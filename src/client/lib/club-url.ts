@@ -41,9 +41,12 @@ function projectOf(v: string | null): number | null {
   return n > 0 && Number.isSafeInteger(n) ? n : null;
 }
 
-/** Адрес → настройки. Разбор мягкий: неверное значение — умолчание, отчёт не падает от ручной правки адреса. */
-export function parseClubSearch(params: URLSearchParams, byChoices: readonly string[]): ClubUrlState {
-  const state: ClubUrlState = { ...DEFAULT_CLUB_STATE, by: byChoices[0] ?? '' };
+/**
+ * Адрес → настройки. Разбор мягкий: неверное значение — умолчание, отчёт не падает от ручной правки адреса. Без вида в
+ * адресе — вид по умолчанию отчёта (R13).
+ */
+export function parseClubSearch(params: URLSearchParams, byChoices: readonly string[], defaultView: ClubView = DEFAULT_CLUB_STATE.view): ClubUrlState {
+  const state: ClubUrlState = { ...DEFAULT_CLUB_STATE, view: defaultView, by: byChoices[0] ?? '' };
   const range = customRange(params);
   const period = params.get('period');
   if (range) Object.assign(state, { period: 'custom', ...range });
@@ -70,10 +73,10 @@ function setPeriod(p: URLSearchParams, state: ClubUrlState): void {
   p.set('to', state.to);
 }
 
-/** Настройки → адрес: только отличия от умолчаний, в постоянном порядке. */
-export function clubSearch(state: ClubUrlState, byChoices: readonly string[]): URLSearchParams {
+/** Настройки → адрес: только отличия от умолчаний (вид — от вида по умолчанию отчёта), в постоянном порядке. */
+export function clubSearch(state: ClubUrlState, byChoices: readonly string[], defaultView: ClubView = DEFAULT_CLUB_STATE.view): URLSearchParams {
   const p = new URLSearchParams();
-  if (state.view !== DEFAULT_CLUB_STATE.view) p.set('view', state.view);
+  if (state.view !== defaultView) p.set('view', state.view);
   setPeriod(p, state);
   if (state.step !== DEFAULT_CLUB_STATE.step) p.set('step', state.step);
   if (state.by !== (byChoices[0] ?? '')) p.set('by', state.by);
@@ -107,10 +110,10 @@ export function clubChanged(state: ClubUrlState, byChoices: readonly string[], r
   };
 }
 
-/** Отличия от умолчаний отчёта; у отчёта без шага («Обзор», §4) шаг не считается: его контрола нет. */
-export function clubChangedFor(state: ClubUrlState, byValues: readonly string[], range: { from: string; to: string }, stepless?: boolean) {
+/** Отличия от умолчаний отчёта; где контрола «Шаг» нет («Обзор», §4; «Загрузка» вне «графика»), шаг не считается. */
+export function clubChangedFor(state: ClubUrlState, byValues: readonly string[], range: { from: string; to: string }, stepShown = true) {
   const changed = clubChanged(state, byValues, range);
-  return stepless ? { ...changed, step: false } : changed;
+  return stepShown ? changed : { ...changed, step: false };
 }
 
 /** Настройки с шагом, который годится для периода: после смены периода «По дням» на годе становится «По неделям». */

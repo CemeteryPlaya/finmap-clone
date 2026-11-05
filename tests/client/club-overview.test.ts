@@ -50,8 +50,9 @@ describe('clubChangedFor', () => {
   it('у отчёта без шага шаг из адреса не считается изменённым', () => {
     const range = { from: '2026-01-01', to: '2026-12-31' };
     const state = { ...DEFAULT_CLUB_STATE, step: 'week' as const };
-    expect(clubChangedFor(state, [], range).step).toBe(true);
-    expect(clubChangedFor(state, [], range, true).step).toBe(false);
+    expect(clubChangedFor(state, [], range, true).step).toBe(true);
+    // шаг не виден (у «Обзора» — нигде, у «Загрузки» — вне «графика») — не считается изменённым
+    expect(clubChangedFor(state, [], range, false).step).toBe(false);
   });
 });
 

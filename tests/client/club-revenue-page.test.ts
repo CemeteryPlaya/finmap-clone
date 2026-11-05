@@ -19,6 +19,8 @@ describe('«Выручка клуба»: экран', () => {
     expect(heatColor(null, 100)).toContain('repeating-linear-gradient');
     expect(heatLabel(0, 20, 600_000)).toBe(`Пн, 20:00–21:00: ${money(600_000)}`);
     expect(heatLabel(6, 23, null)).toBe('Вс, 23:00–24:00: нет данных');
+    // карта «Загрузки» — своим форматом значения
+    expect(heatLabel(4, 20, 0.5, (v) => `${v * 100} %`)).toBe('Пт, 20:00–21:00: 50 %');
   });
 
   it('колонка с днями без данных — подпись «данные не за все дни (N из M)»', () => {

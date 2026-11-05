@@ -60,3 +60,14 @@ describe('адрес отчётов клуба', () => {
     expect(withClubStep({ ...s, step: 'day', period: 'month' }, '2026-11-04').step).toBe('day');
   });
 });
+
+describe('вид по умолчанию отчёта (R13)', () => {
+  it('без вида в адресе — вид по умолчанию отчёта; в адрес пишется только отличный от него', () => {
+    expect(parseClubSearch(new URLSearchParams(''), [], 'hours').view).toBe('hours');
+    expect(parseClubSearch(new URLSearchParams('view=chart'), [], 'hours').view).toBe('chart');
+    expect(parseClubSearch(new URLSearchParams(''), []).view).toBe('chart');
+    expect(clubSearch({ ...DEFAULT_CLUB_STATE, view: 'hours' }, [], 'hours').has('view')).toBe(false);
+    expect(clubSearch({ ...DEFAULT_CLUB_STATE, view: 'chart' }, [], 'hours').get('view')).toBe('chart');
+    expect(clubSearch({ ...DEFAULT_CLUB_STATE, view: 'chart' }, []).has('view')).toBe(false);
+  });
+});

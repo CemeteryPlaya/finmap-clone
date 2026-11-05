@@ -77,7 +77,7 @@ function RevenueBody({ ctx, company }: { ctx: ClubReportContext<RevenueView>; co
 
   let body;
   if (state.view === 'hours') {
-    body = data.heatmap ? <HoursHeatmap title={TITLE} map={data.heatmap} busy={ctx.busy} /> : null;
+    body = data.heatmap ? <HoursHeatmap title={TITLE} map={data.heatmap} busy={ctx.busy} format={clubMoney} caption="Средняя выручка часа по дням с данными" /> : null;
   } else if (state.view === 'table') {
     body = <ClubTable title={TITLE} data={data} companyId={company.id} compare={state.compare} approx={approx} busy={ctx.busy} active={cell} onCell={pick} />;
   } else {

@@ -71,6 +71,23 @@ export function linePath(points: readonly { x: number; y: number }[]): string {
   return points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
 }
 
+/** Путь линии с разрывами: точка null прерывает линию. */
+export function gapPath(points: readonly ({ x: number; y: number } | null)[]): string {
+  let gap = true;
+  return points
+    .map((p) => {
+      if (!p) {
+        gap = true;
+        return '';
+      }
+      const cmd = `${gap ? 'M' : 'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`;
+      gap = false;
+      return cmd;
+    })
+    .filter(Boolean)
+    .join(' ');
+}
+
 /** Цвет части: номер в палитре (0–7) или «Прочие». */
 export type SliceColor = number | 'other';
 

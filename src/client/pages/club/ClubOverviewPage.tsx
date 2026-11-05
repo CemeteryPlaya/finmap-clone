@@ -12,6 +12,7 @@ const TITLE = 'Обзор клуба';
 const HELP =
   'Главные цифры периода и насколько они изменились по сравнению с прошлым периодом той же длины. Плитка ведёт в свой отчёт с тем же периодом и клубом. Плитки выбираются в «Настройках → Аналитика». Данные — из Senet, «ФОТ к выручке» и «Аренда к выручке» — из журнала.';
 const VIEWS: readonly ClubView[] = ['chart'];
+const NO_STEP: readonly ClubView[] = [];
 
 /** Адрес отчёта клуба с периодом, клубом и сравнением «Обзора»; вид, шаг и разрез — умолчания отчёта. */
 const clubQuery = (state: ClubUrlState) => clubSearch({ ...state, view: DEFAULT_CLUB_STATE.view, step: DEFAULT_CLUB_STATE.step, by: '' }, []).toString();
@@ -96,7 +97,7 @@ export function ClubOverviewPage() {
       help={HELP}
       report="overview"
       views={VIEWS}
-      stepless
+      stepIn={NO_STEP}
       excel
     >
       {(ctx) => <OverviewBody ctx={ctx} companyId={company.id} />}
