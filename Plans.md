@@ -92,13 +92,13 @@
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 53 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: покрытие данных Senet отрезками забора (задача 1) | club-coverage, schema-0015, senet-sync PASS на обоих диалектах | - | cc:TODO |
-| 54 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: дашборды шаблона и настройки аналитики, сервер (задача 2) | analytics-catalog, analytics-settings, templates PASS на обоих диалектах | 53 | cc:TODO |
-| 55 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: «Настройки → Аналитика» (задача 3) | client analytics-settings PASS; typecheck | 54 | cc:TODO |
-| 56 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: группа «Компьютерный клуб» на главной «Аналитики» (задача 4) | club-scope, client analytics-cards PASS | 54 | cc:TODO |
-| 57 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: «Выручка клуба» — расчёт и API (задача 5) | club-hours, club-revenue (shared и server) PASS на обоих диалектах | 53, 56 | cc:TODO |
-| 58 | `[Docs]` `[lane:gate]` `[tdd:skip:research]` АК-1: проверка правила выручки на живых данных (задача 6) | §16 R6 записан; правило подтверждено или исправлено тестом | 57 | cc:TODO |
-| 59 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: каркас страницы отчёта клуба (задача 7) | club-delta, client club-url PASS; typecheck | 56 | cc:TODO |
-| 60 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: страница «Выручка клуба» (задача 8) | client club-revenue-page PASS; typecheck | 57, 58, 59 | cc:TODO |
-| 61 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: «Обзор клуба» (задача 9) | club-overview (server и client) PASS на обоих диалектах | 57, 59 | cc:TODO |
-| 62 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` АК-1: демо-данные, e2e, снимки, README, итоги (задача 10) | e2e/club-analytics ×2 + E2E_DB=pg; shots:ux; npm test, typecheck, lint:async | 55, 60, 61 | cc:TODO |
+| 53 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: покрытие данных Senet отрезками забора (задача 1) | club-coverage, schema-0015, senet-sync PASS на обоих диалектах | - | cc:完了 [40dee5e] |
+| 54 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: дашборды шаблона и настройки аналитики, сервер (задача 2) | analytics-catalog, analytics-settings, templates PASS на обоих диалектах | 53 | cc:完了 [741610c] |
+| 55 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: «Настройки → Аналитика» (задача 3) | client analytics-settings PASS; typecheck | 54 | cc:完了 [5a636b7] |
+| 56 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: группа «Компьютерный клуб» на главной «Аналитики» (задача 4) | club-scope, client analytics-cards PASS | 54 | cc:完了 [cce787a] |
+| 57 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: «Выручка клуба» — расчёт и API (задача 5) | club-hours, club-revenue (shared и server) PASS на обоих диалектах | 53, 56 | cc:完了 [b45dad2] |
+| 58 | `[Docs]` `[lane:gate]` `[tdd:skip:research]` АК-1: проверка правила выручки на живых данных (задача 6) | §16 R6 записан; правило подтверждено или исправлено тестом | 57 | cc:完了 [17b3c25] |
+| 59 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: каркас страницы отчёта клуба (задача 7) | club-delta, client club-url PASS; typecheck | 56 | cc:完了 [0ae42be] |
+| 60 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: страница «Выручка клуба» (задача 8) | client club-revenue-page PASS; typecheck | 57, 58, 59 | cc:完了 [fde7a3d] |
+| 61 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-1: «Обзор клуба» (задача 9) | club-overview (server и client) PASS на обоих диалектах | 57, 59 | cc:完了 [1a2326f] |
+| 62 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` АК-1: демо-данные, e2e, снимки, README, итоги (задача 10) | e2e/club-analytics ×2 + E2E_DB=pg; shots:ux; npm test, typecheck, lint:async | 55, 60, 61 | cc:完了 [4cac67c] |
