@@ -30,7 +30,15 @@ describe('настройки аналитики компании', () => {
       { key: 'finance', title: 'Финансы' },
       { key: 'computer-club', title: 'Компьютерный клуб' },
     ]);
-    expect(s.dashboards.groups[1]).toEqual({ key: 'computer-club', visible: true, cards: [{ key: 'overview', visible: true }, { key: 'revenue', visible: true }] });
+    expect(s.dashboards.groups[1]).toEqual({
+      key: 'computer-club',
+      visible: true,
+      cards: [
+        { key: 'overview', visible: true },
+        { key: 'revenue', visible: true },
+        { key: 'load', visible: true },
+      ],
+    });
     expect(s.dashboards.groups[0].cards.map((c: { key: string }) => c.key)).toEqual(['cashflow', 'pnl', 'statement', 'projects', 'indicators', 'history']);
     expect(s.tiles['computer-club'].items.filter((i: { visible: boolean }) => i.visible)).toHaveLength(8);
     expect(s.catalog['computer-club'].dashboards[0]).toMatchObject({ key: 'overview', title: 'Обзор клуба', path: 'club' });
@@ -43,6 +51,8 @@ describe('настройки аналитики компании', () => {
     const put = await w.h.req('PUT', `${base()}/dashboards`, hidden);
     expect(put.statusCode).toBe(200);
     expect(put.json().dashboards.groups[0].cards[1]).toEqual({ key: 'revenue', visible: false });
+    // настройка, сохранённая до «Загрузки» (АК-2), получает её карточку в конце видимой (§10.3)
+    expect(put.json().dashboards.groups[0].cards[2]).toEqual({ key: 'load', visible: true });
     expect((await get()).dashboards.groups[0].key).toBe('computer-club');
     expect(await w.h.auditCount('analytics_settings', 'update')).toBe(1);
     await w.h.req('PUT', `${base()}/dashboards`, hidden);

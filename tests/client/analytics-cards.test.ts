@@ -32,7 +32,8 @@ describe('главная «Аналитики»: группы карточек',
     const [fin, club] = analyticsGroups(settings(saved), scope());
     expect(keys(fin!)).not.toContain('pnl');
     expect(club!.title).toBe('Компьютерный клуб');
-    expect(keys(club!)).toEqual(['revenue', 'overview']);
+    // «Загрузка» (АК-2) не была в сохранённой настройке — в конце видимой (§10.3)
+    expect(keys(club!)).toEqual(['revenue', 'overview', 'load']);
     expect(club!.cards[0]!.href!(7)).toBe('/c/7/analytics/club/revenue');
     const hidden = analyticsGroups(settings({ groups: [{ key: 'computer-club', visible: false, cards: [] }] }), scope());
     expect(hidden.map((g) => g.key)).toEqual(['finance']);

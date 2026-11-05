@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { approxOf, bestWorst, visibleTileDefs } from '../../src/server/modules/club-analytics/overview';
+import { approxOf, bestWorst, overviewSheets, visibleTileDefs } from '../../src/server/modules/club-analytics/overview';
 import { pcsOf } from '../../src/server/modules/club-analytics/scope';
 import { clubWorld, T, type ClubWorld } from '../helpers/club-senet';
 
@@ -30,7 +30,7 @@ interface Tile {
 const overview = async (query: string) => {
   const res = await x!.w.h.req('GET', `${x!.c}/club-analytics/overview?${query}`);
   expect(res.statusCode, res.body).toBe(200);
-  return res.json() as Promise<{ tiles: Tile[]; days: { day: string; revenue: number | null; coverage: string }[]; best: { day: string; revenue: number }[]; worst: { day: string; revenue: number }[]; coverage: { withData: number }; prevCoverage: unknown; freshness: string | null }>;
+  return res.json() as Promise<{ peak: { weekday: number; hour: number; value: number }[]; tiles: Tile[]; days: { day: string; revenue: number | null; load: number | null; coverage: string }[]; best: { day: string; revenue: number }[]; worst: { day: string; revenue: number }[]; coverage: { withData: number }; prevCoverage: unknown; freshness: string | null }>;
 };
 const tile = (r: { tiles: Tile[] }, key: string) => r.tiles.find((t) => t.key === key)!;
 
@@ -84,6 +84,26 @@ describe('pcsOf', () => {
   });
 });
 
+describe('Excel «Обзора»', () => {
+  it('без сравнения — без колонки прошлого периода; пустой день и загрузка — пустые ячейки, недоступная плитка — пометкой', () => {
+    const data = {
+      tiles: [
+        { key: 'load', label: 'Загрузка ПК', unit: 'percent', kind: 'share', value: 0.425, prev: null, approx: false, spark: [], available: true, note: null, href: 'club/load' },
+        { key: 'guests', label: 'Гостей', unit: 'number', kind: 'sum', value: null, prev: null, approx: false, spark: [], available: false, note: 'Появится с отчётом «Гости»', href: '' },
+      ],
+      days: [{ day: '2026-11-01', revenue: null, load: null, coverage: 'none' }],
+    } as unknown as Parameters<typeof overviewSheets>[0];
+    const [tiles, days] = overviewSheets(data, { from: '2026-11-01', to: '2026-11-01', compare: false } as Parameters<typeof overviewSheets>[1]);
+    expect(tiles!.columns.map((c) => c.header)).toEqual(['Плитка', 'За период']);
+    expect(tiles!.rows).toEqual([
+      [{ kind: 'text', value: 'Загрузка ПК, %' }, { kind: 'number', value: '42.50', decimals: 2 }],
+      [{ kind: 'text', value: 'Гостей' }, { kind: 'text', value: 'Появится с отчётом «Гости»' }],
+    ]);
+    expect(days!.columns.map((c) => c.header)).toEqual(['День', 'Выручка', 'Загрузка, %', 'Данные']);
+    expect(days!.rows[0]!.slice(1)).toEqual([null, null, { kind: 'text', value: 'нет данных' }]);
+  });
+});
+
 describe('approxOf', () => {
   const cov = (days: number, withData: number, missingDays: string[] = []) => ({ days, withData, partial: 0, missingDays });
   it('«≈»: прошедший день без данных или неполный прошлый период; будущие дни без данных не в счёт', () => {
@@ -101,14 +121,21 @@ describe('«Обзор клуба»', () => {
     expect(r.tiles.map((t) => t.key)).toEqual(['revenue', 'load', 'guests', 'newGuests', 'revenuePerGuest', 'revenuePerPcDay', 'barShare', 'barMargin']);
     expect(tile(r, 'revenue')).toMatchObject({ label: 'Выручка', unit: 'money', kind: 'sum', value: T(6_400), prev: null, available: true, note: null, spark: [T(3_750), T(2_650)], href: 'club/revenue' });
     expect(tile(r, 'barShare')).toMatchObject({ kind: 'share', value: 2_250 / 6_400, available: true });
-    expect(tile(r, 'load')).toMatchObject({ available: false, note: 'Появится с отчётом «Загрузка»', value: null, spark: [] });
+    // загрузка: 01.11 — VIP 5 400 с + «Общий» 1 800 с, 02.11 — «Общий» 3 600 + 3 600 с; 10 ПК
+    const day = 7_200 / (10 * 86_400);
+    expect(tile(r, 'load')).toMatchObject({ unit: 'percent', kind: 'share', available: true, note: null, prev: null, href: 'club/load' });
+    expect(tile(r, 'load').value).toBeCloseTo(day, 12);
+    expect(tile(r, 'load').spark).toEqual([expect.closeTo(day, 12), expect.closeTo(day, 12)]);
+    expect(r.peak).toHaveLength(3);
+    // три часа по 0,1: пн 00:00 и 14:00 («Общий»), вс 20:00 (VIP); равные — раньше день недели, затем час
+    expect(r.peak.map((c) => [c.weekday, c.hour])).toEqual([[0, 0], [0, 14], [6, 20]]);
     expect(tile(r, 'guests')).toMatchObject({ available: false, note: 'Появится с отчётом «Гости»' });
     expect(tile(r, 'newGuests').available).toBe(false);
     expect(tile(r, 'revenuePerGuest').available).toBe(false);
     expect(tile(r, 'barMargin')).toMatchObject({ available: false, note: 'Появится с отчётом «Бар»' });
     expect(r.days).toEqual([
-      { day: '2026-11-01', revenue: T(3_750), coverage: 'full' },
-      { day: '2026-11-02', revenue: T(2_650), coverage: 'full' },
+      { day: '2026-11-01', revenue: T(3_750), load: expect.closeTo(day, 12), coverage: 'full' },
+      { day: '2026-11-02', revenue: T(2_650), load: expect.closeTo(day, 12), coverage: 'full' },
     ]);
   });
 

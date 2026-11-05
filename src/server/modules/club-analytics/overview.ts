@@ -3,6 +3,7 @@ import { BUILT_CLUB_REPORTS, CLUB_TILES, resolveTiles, TILE_SOON, type SavedTile
 import { previousRange } from '../../../shared/club-analytics/columns';
 import type { DayCoverage } from '../../../shared/club-analytics/coverage';
 import { localParts } from '../../../shared/club-analytics/hours';
+import { extremeHours, loadByDay, loadHeatmap, loadTotal, sumZones } from '../../../shared/club-analytics/load';
 import type { OverviewQuery } from '../../../shared/schemas/club-analytics';
 import type { Db } from '../../db/client';
 import { categories } from '../../db/schema';
@@ -12,6 +13,7 @@ import { requireCompany } from '../companies/guard';
 import { excelDate, minorToDecimal } from '../operations/journal-export';
 import { reportInfo } from '../analytics/report-export';
 import type { AnalyticsService } from '../analytics/service';
+import { clubLoad, type ClubLoadData } from './load';
 import { clubDays, type ClubDays } from './revenue';
 import { CLUB_TEMPLATE, clubScope, NO_PC_NOTE, pcsOf } from './scope';
 import type { AnalyticsSettings } from './settings';
@@ -35,7 +37,7 @@ export interface OverviewTile {
 /** Лучших и худших дней (§4). */
 const BEST = 3;
 /** Ссылка плитки по отчёту: метрики журнала — «Прибыль». */
-const REPORT_HREF: Partial<Record<TileDef['report'], string>> = { revenue: 'club/revenue', journal: 'pnl' };
+const REPORT_HREF: Partial<Record<TileDef['report'], string>> = { revenue: 'club/revenue', load: 'club/load', journal: 'pnl' };
 
 const total = (xs: readonly (number | null)[]): number | null => (xs.every((x) => x === null) ? null : xs.reduce<number>((t, x) => t + (x ?? 0), 0));
 const ratio = (a: number | null, b: number | null): number | null => (a === null || b === null || b === 0 ? null : a / b);
@@ -48,11 +50,27 @@ interface Journal {
   rent: number;
 }
 
-type Measure = (d: ClubDays, pcs: number, j: Journal | null) => { value: number | null; spark: (number | null)[] };
+/** Загрузка периода для «Обзора» (§4): за период, по дням, карта. */
+export interface LoadFigures {
+  total: number | null;
+  byDay: (number | null)[];
+  heatmap: (number | null)[][];
+}
+
+/** Период «Обзора»: части выручки по дням и загрузка. */
+type Period = ClubDays & { load: LoadFigures };
+
+export function loadFigures(l: ClubLoadData): LoadFigures {
+  const all = sumZones(l.occ, l.days.length);
+  return { total: loadTotal(all, l.seats, l.cov), byDay: loadByDay(all, l.seats, l.cov), heatmap: loadHeatmap(all, l.seats, l.days, l.cov) };
+}
+
+type Measure = (d: Period, pcs: number, j: Journal | null) => { value: number | null; spark: (number | null)[] };
 
 /** Значение и ряд плиток, которые считает АК-1 (§4, R8): по частям выручки по дням и метрикам журнала. */
 const MEASURES: Record<string, Measure> = {
   revenue: (d) => ({ value: total(d.parts.revenue), spark: d.parts.revenue }),
+  load: (d) => ({ value: d.load.total, spark: d.load.byDay }),
   refills: (d) => ({ value: total(d.parts.refills), spark: d.parts.refills }),
   barShare: ({ parts: { bar, revenue } }) => ({ value: ratio(total(bar), total(revenue)), spark: bar.map((b, i) => ratio(b, revenue[i] ?? null)) }),
   revenuePerPcDay: ({ parts: { hours } }, pcs) => ({ value: ratio(total(hours), pcs * hours.filter((h) => h !== null).length), spark: hours.map((h) => ratio(h, pcs)) }),
@@ -68,7 +86,7 @@ function unavailable(def: TileDef, pcs: number): string | null {
 }
 
 /** Плитка: недоступная — с пометкой; иначе — значение, прошлый период и ряд. */
-function tileOf(def: TileDef, cur: ClubDays, prev: ClubDays | null, pcs: number, j: { cur: Journal; prev: Journal | null }, approx: boolean): OverviewTile {
+function tileOf(def: TileDef, cur: Period, prev: Period | null, pcs: number, j: { cur: Journal; prev: Journal | null }, approx: boolean): OverviewTile {
   const base = { key: def.key, label: def.label, unit: def.unit, kind: tileKind(def), approx };
   const note = unavailable(def, pcs);
   if (note !== null) return { ...base, value: null, prev: null, spark: [], available: false, note: note || null, href: '' };
@@ -131,11 +149,13 @@ export function overviewSheets(data: OverviewReport, q: OverviewQuery): XlsxShee
       columns: [
         { header: 'День', width: 14 },
         { header: 'Выручка', width: 18 },
+        { header: 'Загрузка, %', width: 14 },
         { header: 'Данные', width: 14 },
       ],
       rows: data.days.map((d) => [
         { kind: 'date', value: excelDate(d.day) },
         d.revenue === null ? null : { kind: 'number', value: minorToDecimal(d.revenue, 2), decimals: 2 },
+        d.load === null ? null : { kind: 'number', value: (d.load * 100).toFixed(2), decimals: 2 },
         { kind: 'text', value: COVERAGE_TEXT[d.coverage] },
       ]),
     },
@@ -173,6 +193,12 @@ export function createClubOverview(d: { db: Db; timezone: string; now: () => Dat
     return { cur: await journal(companyId, projectIds, range, cats), prev: prevRange ? await journal(companyId, projectIds, prevRange, cats) : null };
   }
 
+  /** Части выручки по дням и загрузка периода. */
+  async function periodOf(scope: Awaited<ReturnType<typeof clubScope>>, ids: number[], from: string, to: string, now: string): Promise<Period> {
+    const [days, load] = await Promise.all([clubDays(db, tz, ids, from, to), clubLoad(db, tz, scope, from, to, now)]);
+    return { ...days, load: loadFigures(load) };
+  }
+
   /** Видимые плитки шаблона в порядке настройки (§10.2). */
   async function visibleTiles(companyId: number): Promise<TileDef[]> {
     return visibleTileDefs((await d.settings.get(companyId)).tiles[CLUB_TEMPLATE]);
@@ -185,16 +211,18 @@ export function createClubOverview(d: { db: Db; timezone: string; now: () => Dat
       const scope = await clubScope(db, companyId, q.project);
       const ids = scope.offices.map((o) => o.id);
       const prevRange = previousRange(q.from, q.to);
-      const [cur, prev, defs] = await Promise.all([clubDays(db, tz, ids, q.from, q.to), q.compare ? clubDays(db, tz, ids, prevRange.from, prevRange.to) : null, visibleTiles(companyId)]);
+      const now = d.now().toISOString();
+      const [cur, prev, defs] = await Promise.all([periodOf(scope, ids, q.from, q.to, now), q.compare ? periodOf(scope, ids, prevRange.from, prevRange.to, now) : null, visibleTiles(companyId)]);
       const j = await journalOf(companyId, scope.projects.map((p) => p.id), defs, { from: q.from, to: q.to }, q.compare ? prevRange : null);
-      const today = localParts(d.now().toISOString(), tz).day;
+      const today = localParts(now, tz).day;
       const approx = approxOf(cur.coverage, prev?.coverage ?? null, today);
       const pcs = pcsOf(scope);
-      const days = cur.days.map((day, i) => ({ day, revenue: cur.parts.revenue[i]!, coverage: cur.revenueCoverage[i]! }));
+      const days = cur.days.map((day, i) => ({ day, revenue: cur.parts.revenue[i]!, load: cur.load.byDay[i] ?? null, coverage: cur.revenueCoverage[i]! }));
       return {
         tiles: defs.map((t) => tileOf(t, cur, prev, pcs, j, approx)),
         days,
         ...bestWorst(days),
+        peak: extremeHours(cur.load.heatmap, 3, 'max'),
         coverage: cur.coverage,
         prevCoverage: prev ? { days: prev.coverage.days, withData: prev.coverage.withData } : null,
         freshness: scope.freshness,
