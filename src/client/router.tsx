@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router';
 import { AnalyticsPage } from './pages/AnalyticsPage';
+import { ClubLoadPage } from './pages/club/ClubLoadPage';
 import { ClubOverviewPage } from './pages/club/ClubOverviewPage';
 import { ClubRevenuePage } from './pages/club/ClubRevenuePage';
 import { CashflowPage } from './pages/analytics/CashflowPage';
@@ -65,6 +66,7 @@ export const router = createBrowserRouter([
               // отчёты клуба (спецификация «Аналитика клуба», §2.1)
               { path: 'club', element: <ClubOverviewPage /> },
               { path: 'club/revenue', element: <ClubRevenuePage /> },
+              { path: 'club/load', element: <ClubLoadPage /> },
               { path: '*', element: <Navigate to=".." replace /> },
             ],
           },

@@ -121,12 +121,15 @@ interface CellPage {
   nextCursor: string | null;
 }
 
-/** Строки Senet ячейки: страницы по 50 (`cursor` — смещение). params — параметры отчёта, row и col. */
-export function useRevenueCellRows(companyId: number, params: string) {
+/**
+ * Строки Senet ячейки отчёта клуба: страницы по 50 (`cursor` — смещение). params — параметры отчёта и ячейки: у «Выручки»
+ * row и col, у «Загрузки» weekday и hour.
+ */
+export function useClubCellRows(companyId: number, report: 'revenue' | 'load', params: string) {
   return useInfiniteQuery<CellPage, ApiError, InfiniteData<CellPage, string>, readonly unknown[], string>({
-    queryKey: ['analytics', companyId, 'club', 'revenue-rows', params],
+    queryKey: ['analytics', companyId, 'club', `${report}-rows`, params],
     initialPageParam: '0',
-    queryFn: ({ pageParam }) => api<CellPage>(`/companies/${companyId}/club-analytics/revenue/rows?${params}&cursor=${pageParam}`),
+    queryFn: ({ pageParam }) => api<CellPage>(`/companies/${companyId}/club-analytics/${report}/rows?${params}&cursor=${pageParam}`),
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
 }

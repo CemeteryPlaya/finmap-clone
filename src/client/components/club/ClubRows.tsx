@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef } from 'react';
 import { formatDateTime } from '../../../shared/dates';
-import { clubMoney, useRevenueCellRows, type CellItemView } from '../../lib/club-revenue';
+import { clubMoney, useClubCellRows, type CellItemView } from '../../lib/club-revenue';
 import { LoadMore } from '../journal/LoadMore';
 import { btnClose, btnSecondary } from '../ui';
 
@@ -13,8 +13,8 @@ const guestOf = (i: CellItemView) => [i.guest, i.phoneMask].filter(Boolean).join
  * Строки Senet, из которых сложилась ячейка отчёта клуба (спецификация «Аналитика клуба», §2.2): заголовок «{строка} за
  * {колонка}» получает фокус при открытии, «×» закрывает; страницы по 50. Это строки Senet — ссылок на операции у них нет.
  */
-export function ClubRows(props: { companyId: number; title: string; params: string; timeZone: string; onClose: () => void }) {
-  const list = useRevenueCellRows(props.companyId, props.params);
+export function ClubRows(props: { companyId: number; report?: 'revenue' | 'load'; title: string; params: string; timeZone: string; onClose: () => void }) {
+  const list = useClubCellRows(props.companyId, props.report ?? 'revenue', props.params);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const headingId = useId();
   useEffect(() => headingRef.current?.focus(), [props.params]);

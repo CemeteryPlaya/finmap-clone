@@ -94,6 +94,24 @@ test('«Выручка клуба»: строки, «По часам» 7×24, с
   await expect(map.locator('tbody tr').first().locator('td')).toHaveCount(24);
 });
 
+test('«Загрузка»: карта по умолчанию, места, сеансы часа, таблица зон, часы простоя', async ({ page }) => {
+  await login(page);
+  await page.goto(`/c/${cid}/analytics/club/load?from=${period.from}&to=${period.to}`);
+  await expect(main(page).getByRole('heading', { name: 'Загрузка', level: 1 })).toBeVisible();
+  await expect(main(page).getByText('В расчёте: 40 ПК (Общий зал 30, VIP 10)')).toBeVisible();
+  const map = main(page).getByRole('table', { name: /средняя загрузка часа/ });
+  await expect(map.locator('tbody tr')).toHaveCount(7);
+  await expect(map.getByRole('button', { name: /\d+(,\d)?\s%$/ }).first()).toBeVisible();
+  await map.getByRole('button', { name: /^(Пт|Сб), 20:00–21:00/ }).first().click();
+  const rows = main(page).getByRole('region', { name: /^Сеансы: (Пт|Сб), 20:00–21:00/ });
+  await expect(rows.getByText(/\+7 \*\*\* \*\* \d\d/).first()).toBeVisible();
+  await expect(main(page).getByRole('heading', { name: 'Часы простоя' })).toBeVisible();
+  await expect(main(page).getByRole('heading', { name: 'Часы простоя' }).locator('xpath=..').getByRole('listitem')).toHaveCount(5);
+  await page.goto(`/c/${cid}/analytics/club/load?view=table&from=${period.from}&to=${period.to}`);
+  const zones = main(page).getByRole('table', { name: 'Загрузка: зоны' });
+  for (const z of ['Общий зал', 'VIP', 'Все зоны']) await expect(zones.getByRole('rowheader', { name: z, exact: true })).toBeVisible();
+});
+
 test('«Настройки → Аналитика»: скрытая «Выручка клуба» пропадает с главной, но открывается по адресу; «Вернуть как было»', async ({ page }) => {
   await login(page);
   await page.goto(`/c/${cid}/settings/analytics`);
