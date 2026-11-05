@@ -1,13 +1,13 @@
 import { and, asc, eq, gte, inArray, lt, type AnyColumn } from 'drizzle-orm';
 import { combineCoverage, dayCoverage, type DayCoverage } from '../../../shared/club-analytics/coverage';
 import { periodDays, previousRange, sumColumns } from '../../../shared/club-analytics/columns';
-import { deskByPayment, MONEY_REFILL, REVENUE_PARTS, revenueByDay, revenueHeatmap, type RevenueInput, type RevenuePart } from '../../../shared/club-analytics/revenue';
+import { deskByPayment, REVENUE_PARTS, revenueByDay, revenueHeatmap, type RevenueInput, type RevenuePart } from '../../../shared/club-analytics/revenue';
 import { addDays, startOfDayUtc } from '../../../shared/dates';
 import { reportColumns, type ReportColumn, type ReportStep } from '../../../shared/report-engine';
 import type { RevenueQuery, RevenueRowsQuery } from '../../../shared/schemas/club-analytics';
 import { shiftPeriodLabel } from '../../../shared/senet-text';
 import type { Db } from '../../db/client';
-import { senetCashMoves, senetLoad, senetRefills, senetShifts, senetSoldItems, senetTransactions } from '../../db/schema';
+import { senetCashMoves, senetLoad, senetRefills, senetShifts, senetSoldItems, senetTickets, senetTransactions } from '../../db/schema';
 import { exportFileName } from '../../http/export-name';
 import { buildXlsx, type XlsxCell, type XlsxSheet } from '../../http/xlsx';
 import { requireCompany } from '../companies/guard';
@@ -19,6 +19,8 @@ import { clubScope, type ClubScope } from './scope';
 
 /** Подписи строк «По частям» (§5.1). */
 export const PART_LABEL: Record<RevenuePart, string> = {
+  packages: 'Абонементы',
+  rent: 'Аренда ПК',
   hours: 'Часы',
   bar: 'Бар',
   revenue: 'Выручка',
@@ -27,16 +29,22 @@ export const PART_LABEL: Record<RevenuePart, string> = {
   diff: 'Справочно: разница',
 };
 
-/** Чем покрыта строка (§3.3): часы — загрузкой, бар — продажами, деньги в кассу — транзакциями. */
+/** Чем покрыта строка (§3.3): абонементы — `tickets`, аренда ПК — загрузкой, бар — продажами, деньги в кассу — транзакциями. */
 const PART_REPORTS: Record<RevenuePart, ReportKind[]> = {
-  hours: ['load'],
+  packages: ['tickets'],
+  rent: ['load'],
+  hours: ['tickets', 'load'],
   bar: ['soldItems'],
-  revenue: ['load', 'soldItems'],
+  revenue: ['tickets', 'load', 'soldItems'],
   refills: ['refills'],
   desk: ['transactions'],
-  diff: ['load', 'soldItems', 'transactions'],
+  diff: ['tickets', 'load', 'soldItems', 'transactions'],
 };
-const COVERED: ReportKind[] = ['load', 'soldItems', 'refills', 'transactions'];
+/** Отчёты, без которых день отчёта неполон (§3.3). */
+const REPORT_COVERAGE: ReportKind[] = ['tickets', 'load', 'soldItems', 'transactions'];
+const COVERED: ReportKind[] = ['tickets', 'load', 'soldItems', 'refills', 'transactions'];
+/** Строки выручки; остальные — справочные. */
+const REVENUE_ROWS: ReadonlySet<RevenuePart> = new Set(['packages', 'rent', 'hours', 'bar', 'revenue']);
 const SHIFT_COLUMNS = [
   ['revenue', 'Выручка'],
   ['bar', 'Бар'],
@@ -66,6 +74,7 @@ export interface RevenueRow {
 /** Строки Senet клуба с полями для списка под ячейкой. */
 interface Detail extends RevenueInput {
   load: (RevenueInput['load'][number] & { zone: string; workstation: number | null; guestLogin: string; phoneMask: string | null })[];
+  tickets: (RevenueInput['tickets'][number] & { ticket: string; guestLogin: string; phoneMask: string | null })[];
   sold: (RevenueInput['sold'][number] & { item: string })[];
   refills: (RevenueInput['refills'][number] & { guestLogin: string; phoneMask: string | null; workstation: number | null })[];
 }
@@ -78,13 +87,18 @@ const within = <T extends { officeId: AnyColumn }>(t: T, at: AnyColumn, ids: num
 const sum = (xs: readonly (number | null)[]): number | null => (xs.every((x) => x === null) ? null : xs.reduce<number>((t, x) => t + (x ?? 0), 0));
 
 async function loadDetail(db: Db, ids: number[], start: string, end: string): Promise<Detail> {
-  if (!ids.length) return { load: [], sold: [], refills: [], transactions: [] };
-  const [load, sold, refills, transactions] = await Promise.all([
+  if (!ids.length) return { load: [], tickets: [], sold: [], refills: [], transactions: [] };
+  const [load, tickets, sold, refills, transactions] = await Promise.all([
     db
       .select({ startAt: senetLoad.startAt, endAt: senetLoad.endAt, debited: senetLoad.debited, zone: senetLoad.zone, workstation: senetLoad.workstation, guestLogin: senetLoad.guestLogin, phoneMask: senetLoad.phoneMask })
       .from(senetLoad)
       .where(within(senetLoad, senetLoad.startAt, ids, start, end))
       .orderBy(asc(senetLoad.startAt)),
+    db
+      .select({ at: senetTickets.at, price: senetTickets.price, ticket: senetTickets.ticket, guestLogin: senetTickets.guestLogin, phoneMask: senetTickets.phoneMask })
+      .from(senetTickets)
+      .where(within(senetTickets, senetTickets.at, ids, start, end))
+      .orderBy(asc(senetTickets.at)),
     db.select({ at: senetSoldItems.at, qty: senetSoldItems.qty, amount: senetSoldItems.amount, refund: senetSoldItems.refund, item: senetSoldItems.item }).from(senetSoldItems).where(within(senetSoldItems, senetSoldItems.at, ids, start, end)).orderBy(asc(senetSoldItems.at)),
     db
       .select({ at: senetRefills.at, amount: senetRefills.amount, accountType: senetRefills.accountType, guestLogin: senetRefills.guestLogin, phoneMask: senetRefills.phoneMask, workstation: senetRefills.workstation })
@@ -93,7 +107,7 @@ async function loadDetail(db: Db, ids: number[], start: string, end: string): Pr
       .orderBy(asc(senetRefills.at)),
     db.select({ at: senetTransactions.at, kind: senetTransactions.kind, amount: senetTransactions.amount, payment: senetTransactions.payment }).from(senetTransactions).where(within(senetTransactions, senetTransactions.at, ids, start, end)).orderBy(asc(senetTransactions.at)),
   ]);
-  return { load, sold, refills, transactions };
+  return { load, tickets, sold, refills, transactions };
 }
 
 /** Покрытие дней по отчётам (§3.2, R1): у «Все клубы» день полон, только если полон у каждого клуба; без клубов — нет данных. */
@@ -135,7 +149,7 @@ function partRows(p: Period, columns: ReportColumn[], tz: string, prev: Record<R
   const byDay = revenueByDay(p.detail, p.days, tz);
   return REVENUE_PARTS.map((part) => {
     const values = sumColumns(byDay[part], p.days, columns, partCoverage(p.cov, part)).values;
-    return { id: part, label: PART_LABEL[part], kind: part === 'hours' || part === 'bar' || part === 'revenue' ? 'part' : 'info', values, total: sum(values), prevTotal: prev?.[part] ?? null };
+    return { id: part, label: PART_LABEL[part], kind: REVENUE_ROWS.has(part) ? 'part' : 'info', values, total: sum(values), prevTotal: prev?.[part] ?? null };
   });
 }
 
@@ -157,10 +171,10 @@ async function shiftsOf(db: Db, ids: number[], start: string, end: string): Prom
 function shiftSums(d: Detail, s: Shift, now: string) {
   const until = s.closedAt ?? now;
   const inShift = (at: string) => at >= s.openedAt && at <= until;
-  const hours = d.load.filter((r) => inShift(r.startAt)).reduce((t, r) => t + r.debited, 0);
+  const hours = d.load.filter((r) => inShift(r.startAt)).reduce((t, r) => t + r.debited, 0) + d.tickets.filter((r) => inShift(r.at)).reduce((t, r) => t + r.price, 0);
   const bar = d.sold.filter((r) => r.qty !== null && inShift(r.at)).reduce((t, r) => t + (r.refund ? -r.amount : r.amount), 0);
   const desk = d.transactions.filter((r) => inShift(r.at)).reduce((t, r) => t + (r.kind === 'refund' ? -r.amount : r.amount), 0);
-  const refills = d.refills.filter((r) => r.accountType === MONEY_REFILL && inShift(r.at)).reduce((t, r) => t + r.amount, 0);
+  const refills = d.refills.filter((r) => inShift(r.at)).reduce((t, r) => t + r.amount, 0);
   return { revenue: hours + bar, bar, desk, refills };
 }
 
@@ -209,7 +223,7 @@ function reconcileOf(d: Detail, shifts: readonly Shift[], now: string) {
 const keyColumns = (defs: readonly (readonly [string, string])[]): ReportColumn[] => defs.map(([key, label]) => ({ key, from: '', to: '', label }));
 
 function coverageSummary(p: Period, columns: ReportColumn[]) {
-  const cov = combineCoverage(['load', 'soldItems', 'transactions'].map((r) => p.cov.get(r as ReportKind)!));
+  const cov = combineCoverage(REPORT_COVERAGE.map((r) => p.cov.get(r)!));
   const per = sumColumns(p.days.map(() => 0), p.days, columns, cov);
   return {
     days: p.days.length,
@@ -333,7 +347,7 @@ export function createClubRevenue(d: { db: Db; timezone: string; now: () => Date
 /** Строка Senet под ячейкой (§2.2). Телефон — только маска (§12). */
 export interface CellItem {
   at: string;
-  kind: 'session' | 'sale' | 'refill' | 'transaction';
+  kind: 'session' | 'package' | 'sale' | 'refill' | 'transaction';
   label: string;
   amount: number;
   workstation: number | null;
@@ -346,10 +360,19 @@ function cellItems(dt: Detail, row: RevenueRowsQuery['row']): CellItem[] {
   const sessions = (): CellItem[] =>
     dt.load.map((r) => ({ at: r.startAt, kind: 'session', label: [r.zone, r.workstation === null ? '' : `ПК ${r.workstation}`].filter(Boolean).join(' · '), amount: r.debited, workstation: r.workstation, guest: r.guestLogin, phoneMask: r.phoneMask }));
   const sales = (): CellItem[] => dt.sold.filter((r) => r.qty !== null).map((r) => ({ at: r.at, kind: 'sale', label: r.item, amount: r.refund ? -r.amount : r.amount, workstation: null, guest: '', phoneMask: null }));
+  const packages = (): CellItem[] => dt.tickets.map((r) => ({ at: r.at, kind: 'package', label: r.ticket, amount: r.price, workstation: null, guest: r.guestLogin, phoneMask: r.phoneMask }));
   const refills = (): CellItem[] =>
-    dt.refills.filter((r) => r.accountType === MONEY_REFILL).map((r) => ({ at: r.at, kind: 'refill', label: r.accountType, amount: r.amount, workstation: r.workstation, guest: r.guestLogin, phoneMask: r.phoneMask }));
+    dt.refills.map((r) => ({ at: r.at, kind: 'refill', label: r.accountType, amount: r.amount, workstation: r.workstation, guest: r.guestLogin, phoneMask: r.phoneMask }));
   const desk = (): CellItem[] => dt.transactions.map((r) => ({ at: r.at, kind: 'transaction', label: r.payment, amount: r.kind === 'refund' ? -r.amount : r.amount, workstation: null, guest: '', phoneMask: null }));
-  const pick: Record<RevenueRowsQuery['row'], () => CellItem[]> = { hours: sessions, bar: sales, revenue: () => [...sessions(), ...sales()], refills, desk };
+  const pick: Record<RevenueRowsQuery['row'], () => CellItem[]> = {
+    packages,
+    rent: sessions,
+    hours: () => [...sessions(), ...packages()],
+    bar: sales,
+    revenue: () => [...sessions(), ...packages(), ...sales()],
+    refills,
+    desk,
+  };
   return pick[row]().sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 }
 

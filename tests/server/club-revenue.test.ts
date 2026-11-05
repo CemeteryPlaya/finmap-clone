@@ -12,6 +12,7 @@ const move = (local: string, type: 'Внесение средств' | 'Выне
 const tx = (local: string, amount: number, payment: string): SampleValue[] => ['Клуб 1', '01.11.2026-02.11.2026', xlTime(local), `T${local}`, 'Покупка чека', amount, payment];
 const sold = (local: string, item: string, qty: number | null, amount: number): SampleValue[] => [xlTime(local), item, qty, amount, 'Наличный расчет', 'Использовано', null];
 const refill = (local: string, type: string, amount: number): SampleValue[] => ['Клуб 1', xlTime(local), 'гость1', type, 77012345612, amount, 7];
+const ticket = (local: string, name: string, price: number): SampleValue[] => ['гость1', '+77012345612', name, xlTime(local), price, 180];
 const load = (open: string, close: string, zone: string, ws: number, login: string, debited: number): SampleValue[] => ['Клуб 1', xlTime(open), xlTime(close), zone, ws, login, '+77012345612', 19, 'Тариф 1', debited, 0, 0.0625];
 
 // смены: дневная 01.11, ночная 01.11 22:01 — 02.11 10:00, дневная 02.11; выручка смены = остаток − внесение + выемки
@@ -21,6 +22,7 @@ const DATA = {
   tx: [tx('2026-11-01 12:00:00', 2_000, 'Наличный расчет'), tx('2026-11-01 23:00:00', 1_000, 'Безналичный расчет'), tx('2026-11-02 15:00:00', 1_500, 'Наличный расчет')],
   sold: [sold('2026-11-01 12:00:00', 'Напиток 1', 2, 1_500), sold('2026-11-01 12:00:00', 'A1B2', null, 1_000), sold('2026-11-02 15:00:00', 'Напиток 1', 1, 750)],
   refills: [refill('2026-11-01 20:00:00', 'General', 500), refill('2026-11-02 11:00:00', 'Check', 1_000)],
+  tickets: [ticket('2026-11-01 15:00:00', '2+1 Standart', 750), ticket('2026-11-02 16:00:00', '3+2', 1_500)],
   load: [load('2026-11-01 20:00:00', '2026-11-01 21:30:00', 'VIP', 7, 'гость1', 900), load('2026-11-01 23:30:00', '2026-11-02 01:00:00', 'Общий', 3, 'гость2', 600), load('2026-11-02 14:00:00', '2026-11-02 15:00:00', 'Общий', 3, 'гость2', 400)],
 };
 const T = (tenge: number) => tenge * 100;
@@ -51,6 +53,7 @@ async function setup(data = DATA) {
         sold_check_items: () => senetSample('soldItems', inWindow(data.sold, 0, q)),
         refill: () => senetSample('refills', inWindow(data.refills, 1, q)),
         office_load_by_zones: () => senetSample('load', inWindow(data.load, 1, q)),
+        tickets: () => senetSample('tickets', inWindow(data.tickets, 3, q)),
       };
       return (pick[type] ?? (() => senetSample(type === 'checks' ? 'checks' : type === 'shop_quantity' ? 'stock' : 'goodsMoves', [])))();
     },
@@ -99,6 +102,8 @@ describe('«Выручка клуба»', () => {
     await setup();
     const r = await revenue('from=2026-11-01&to=2026-11-02&step=day&compare=0');
     expect(r.rows.map((x: { id: string; label: string }) => [x.id, x.label])).toEqual([
+      ['packages', 'Абонементы'],
+      ['rent', 'Аренда ПК'],
       ['hours', 'Часы'],
       ['bar', 'Бар'],
       ['revenue', 'Выручка'],
@@ -106,12 +111,14 @@ describe('«Выручка клуба»', () => {
       ['desk', 'Справочно: деньги в кассу'],
       ['diff', 'Справочно: разница'],
     ]);
-    expect(row(r, 'hours').values).toEqual([T(1_500), T(400)]);
+    expect(row(r, 'packages').values).toEqual([T(750), T(1_500)]);
+    expect(row(r, 'rent').values).toEqual([T(1_500), T(400)]);
+    expect(row(r, 'hours').values).toEqual([T(2_250), T(1_900)]);
     expect(row(r, 'bar').values).toEqual([T(1_500), T(750)]);
-    expect(row(r, 'revenue')).toMatchObject({ values: [T(3_000), T(1_150)], total: T(4_150) });
-    expect(row(r, 'refills').values).toEqual([T(500), 0]);
+    expect(row(r, 'revenue')).toMatchObject({ values: [T(3_750), T(2_650)], total: T(6_400) });
+    expect(row(r, 'refills').values).toEqual([T(500), T(1_000)]);
     expect(row(r, 'desk').values).toEqual([T(3_000), T(1_500)]);
-    expect(row(r, 'diff').values).toEqual([0, T(350)]);
+    expect(row(r, 'diff').values).toEqual([T(-750), T(-1_150)]);
     expect(r.coverage).toMatchObject({ days: 2, withData: 2, partial: 0, missingDays: [] });
     expect(r.reconcile).toMatchObject({ shifts: 3, desk: T(4_500), diffShifts: [] });
     expect(r.meta).toMatchObject({ from: '2026-11-01', to: '2026-11-02', step: 'day', by: 'parts', empty: false });
@@ -143,13 +150,14 @@ describe('«Выручка клуба»', () => {
     const shifts = await revenue('from=2026-11-01&to=2026-11-02&by=shifts&compare=0');
     expect(shifts.columns.map((c: { key: string }) => c.key)).toEqual(['revenue', 'bar', 'desk', 'refills', 'outs', 'cashAfter']);
     expect(shifts.rows.map((x: { label: string }) => x.label)).toEqual(['01.11 10:00 — 22:00 · Сотрудник А', '01.11 22:01 — 02.11 10:00 · Сотрудник А', '02.11 10:01 — 22:00 · Сотрудник А']);
-    expect(shifts.rows[2].values).toEqual([T(1_150), T(750), T(1_500), 0, T(500), T(5_000)]);
+    expect(shifts.rows[2].values).toEqual([T(2_650), T(750), T(1_500), T(1_000), T(500), T(5_000)]);
+    expect(shifts.rows[0].values.slice(0, 4)).toEqual([T(3_150), T(1_500), T(2_000), T(500)]);
     expect(shifts.rows[0].id).toMatch(/^shift:\d+$/);
     const cashiers = await revenue('from=2026-11-01&to=2026-11-02&by=cashiers&compare=0');
     expect(cashiers.columns.map((c: { key: string }) => c.key)).toEqual(['revenue', 'shifts', 'perShift']);
-    expect(cashiers.rows).toEqual([expect.objectContaining({ label: 'Сотрудник А', values: [T(4_150), 3, Math.round(T(4_150) / 3)] })]);
+    expect(cashiers.rows).toEqual([expect.objectContaining({ label: 'Сотрудник А', values: [T(6_400), 3, Math.round(T(6_400) / 3)] })]);
     const one = await revenue(`from=2026-11-01&to=2026-11-02&step=day&compare=0&project=${s.club}`);
-    expect(row(one, 'revenue').total).toBe(T(4_150));
+    expect(row(one, 'revenue').total).toBe(T(6_400));
   });
 
   it('карта по часам; строки ячейки — без хеша телефона; Excel; ошибки', async () => {
@@ -161,18 +169,25 @@ describe('«Выручка клуба»', () => {
     const cell = await x!.w.h.req('GET', `${x!.c}/club-analytics/revenue/rows?from=2026-11-01&to=2026-11-02&step=day&row=hours&col=2026-11-01`);
     expect(cell.statusCode).toBe(200);
     const items = cell.json().items as { kind: string; amount: number; phoneMask: string | null }[];
+    // row=hours за 01.11: абонемент 15:00 и два сеанса
     expect(items.map((i) => [i.kind, i.amount])).toEqual([
+      ['package', T(750)],
       ['session', T(900)],
       ['session', T(600)],
     ]);
     expect(items[0]!.phoneMask).toBe('+7 *** ** 12');
-    const hashes = (await x!.w.h.t.q('SELECT phone_hash h FROM senet_load WHERE phone_hash IS NOT NULL')).map((r) => String(r.h));
+    const hashes = (await x!.w.h.t.q('SELECT phone_hash h FROM senet_load WHERE phone_hash IS NOT NULL UNION SELECT phone_hash h FROM senet_tickets WHERE phone_hash IS NOT NULL')).map((r) => String(r.h));
     expect(hashes.length).toBeGreaterThan(0);
     for (const h of hashes) expect(cell.body).not.toContain(h);
     const cellOf = async (q: string) => (await x!.w.h.req('GET', `${x!.c}/club-analytics/revenue/rows?from=2026-11-01&to=2026-11-02&step=day&${q}`)).json();
     expect((await cellOf('row=bar&col=2026-11-01')).items.map((i: { kind: string; label: string; amount: number }) => [i.kind, i.label, i.amount])).toEqual([['sale', 'Напиток 1', T(1_500)]]);
-    expect((await cellOf('row=revenue&col=total')).items.map((i: { kind: string }) => i.kind)).toEqual(['sale', 'session', 'session', 'session', 'sale']);
-    expect((await cellOf('row=refills&col=total')).items.map((i: { amount: number }) => i.amount)).toEqual([T(500)]);
+    expect((await cellOf('row=revenue&col=total')).items.map((i: { kind: string }) => i.kind)).toEqual(['sale', 'package', 'session', 'session', 'session', 'sale', 'package']);
+    expect((await cellOf('row=packages&col=total')).items.map((i: { label: string; amount: number; phoneMask: string | null }) => [i.label, i.amount, i.phoneMask])).toEqual([
+      ['2+1 Standart', T(750), '+7 *** ** 12'],
+      ['3+2', T(1_500), '+7 *** ** 12'],
+    ]);
+    expect((await cellOf('row=hours&col=2026-11-02')).items.map((i: { kind: string }) => i.kind)).toEqual(['session', 'package']);
+    expect((await cellOf('row=refills&col=total')).items.map((i: { amount: number }) => i.amount)).toEqual([T(500), T(1_000)]);
     expect((await cellOf('row=desk&col=2026-11-02')).items.map((i: { label: string; amount: number }) => [i.label, i.amount])).toEqual([['Наличный расчет', T(1_500)]]);
     expect(await cellOf('row=desk&col=2026-12-01')).toEqual({ items: [], nextCursor: null });
     expect((await cellOf('row=desk&col=total&cursor=2')).items).toHaveLength(1);

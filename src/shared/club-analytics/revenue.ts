@@ -2,22 +2,24 @@ import type { DayCoverage } from './coverage';
 import { localParts, splitByHour } from './hours';
 
 /**
- * Строки Senet для выручки клуба (спецификация «Аналитика клуба», §5.1). Суммы — тиыны; `qty` — ×1000, у чека времени
- * пусто.
+ * Строки Senet для выручки клуба (спецификация «Аналитика клуба», §5.1, §16 R6). Суммы — тиыны; `qty` — ×1000, у чека
+ * времени пусто. Деньги идут так: касса продаёт чеки на время и товары → чек зачисляется на баланс (пополнение) → с
+ * баланса гость покупает абонемент (`tickets`) или платит поминутно за сеанс (`load.debited`, «Аренда ПК»).
  */
 export interface RevenueInput {
   load: { startAt: string; endAt: string | null; debited: number }[];
+  tickets: { at: string; price: number }[];
   sold: { at: string; qty: number | null; amount: number; refund: boolean }[];
   refills: { at: string; amount: number; accountType: string }[];
   transactions: { at: string; kind: 'sell' | 'refund'; amount: number; payment: string }[];
 }
 
-/** Части таблицы §5.1: выручка — часы и бар; справочно — пополнения, деньги в кассу, разница. */
-export type RevenuePart = 'hours' | 'bar' | 'revenue' | 'refills' | 'desk' | 'diff';
-export const REVENUE_PARTS: readonly RevenuePart[] = ['hours', 'bar', 'revenue', 'refills', 'desk', 'diff'];
-
-/** Пополнение типа `Check` — зачисление купленного чека, не новые деньги (решение R4). */
-export const MONEY_REFILL = 'General';
+/**
+ * Части таблицы §5.1 (R6): часы — абонементы и аренда ПК, выручка — часы и бар; справочно — пополнения балансов (оба типа:
+ * Check и General — зачисленные чеки на время), деньги в кассу, разница.
+ */
+export type RevenuePart = 'packages' | 'rent' | 'hours' | 'bar' | 'revenue' | 'refills' | 'desk' | 'diff';
+export const REVENUE_PARTS: readonly RevenuePart[] = ['packages', 'rent', 'hours', 'bar', 'revenue', 'refills', 'desk', 'diff'];
 
 /** Сумма по дням периода; строка вне дней не учитывается. */
 function byDay<T>(rows: readonly T[], days: readonly string[], timeZone: string, at: (r: T) => string, amount: (r: T) => number): number[] {
@@ -33,9 +35,11 @@ function byDay<T>(rows: readonly T[], days: readonly string[], timeZone: string,
 const signed = (r: { refund: boolean; amount: number }) => (r.refund ? -r.amount : r.amount);
 const deskAmount = (t: RevenueInput['transactions'][number]) => (t.kind === 'refund' ? -t.amount : t.amount);
 
-/** Части выручки по дням (§5.1): часы — в день начала сеанса, бар — товары нетто. */
+/** Части выручки по дням (§5.1, R6): абонемент — в день покупки, аренда ПК — в день начала сеанса, бар — товары нетто. */
 export function revenueByDay(i: RevenueInput, days: readonly string[], timeZone: string): Record<RevenuePart, number[]> {
-  const hours = byDay(i.load, days, timeZone, (r) => r.startAt, (r) => r.debited);
+  const packages = byDay(i.tickets, days, timeZone, (r) => r.at, (r) => r.price);
+  const rent = byDay(i.load, days, timeZone, (r) => r.startAt, (r) => r.debited);
+  const hours = packages.map((p, d) => p + rent[d]!);
   const bar = byDay(
     i.sold.filter((s) => s.qty !== null),
     days,
@@ -43,16 +47,10 @@ export function revenueByDay(i: RevenueInput, days: readonly string[], timeZone:
     (r) => r.at,
     signed,
   );
-  const refills = byDay(
-    i.refills.filter((r) => r.accountType === MONEY_REFILL),
-    days,
-    timeZone,
-    (r) => r.at,
-    (r) => r.amount,
-  );
+  const refills = byDay(i.refills, days, timeZone, (r) => r.at, (r) => r.amount);
   const desk = byDay(i.transactions, days, timeZone, (r) => r.at, deskAmount);
   const revenue = hours.map((h, d) => h + bar[d]!);
-  return { hours, bar, revenue, refills, desk, diff: desk.map((x, d) => x - revenue[d]!) };
+  return { packages, rent, hours, bar, revenue, refills, desk, diff: desk.map((x, d) => x - revenue[d]!) };
 }
 
 /** Деньги в кассу по способу оплаты (§5.2) — значение `payment` как есть, в порядке первого появления. */
@@ -97,5 +95,6 @@ function heatSums(i: RevenueInput, full: ReadonlySet<string>, timeZone: string):
     for (const p of parts) add(p, (s.debited * p.seconds) / total);
   }
   for (const s of i.sold.filter((x) => x.qty !== null)) add(localParts(s.at, timeZone), signed(s));
+  for (const t of i.tickets) add(localParts(t.at, timeZone), t.price);
   return sums;
 }

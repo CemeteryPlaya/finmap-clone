@@ -6,12 +6,16 @@ import { reportColumns } from '../../src/shared/report-engine';
 /** Выручка клуба по дням (спецификация «Аналитика клуба», §5.1, §5.3; план АК-1, задача 5). */
 const TZ = 'Asia/Almaty';
 const at = (local: string) => new Date(Date.parse(`${local}+05:00`)).toISOString();
-const empty: RevenueInput = { load: [], sold: [], refills: [], transactions: [] };
+const empty: RevenueInput = { load: [], tickets: [], sold: [], refills: [], transactions: [] };
 
 describe('выручка клуба', () => {
-  it('часы — в день начала сеанса; бар — товары нетто; чек времени — не бар; пополнения — только General; деньги в кассу и разница', () => {
+  it('часы — абонементы (в день покупки) и аренда ПК (в день начала сеанса); бар — товары нетто; чек времени — не бар; пополнения — оба типа; деньги в кассу и разница', () => {
     const input: RevenueInput = {
       load: [{ startAt: at('2026-11-01T23:30:00'), endAt: at('2026-11-02T01:00:00'), debited: 1000 }],
+      tickets: [
+        { at: at('2026-11-01T23:40:00'), price: 750 },
+        { at: at('2026-11-02T10:00:00'), price: 1500 },
+      ],
       sold: [
         { at: at('2026-11-02T12:00:00'), qty: 1000, amount: 500, refund: false },
         { at: at('2026-11-02T13:00:00'), qty: 1000, amount: 200, refund: true },
@@ -28,12 +32,14 @@ describe('выручка клуба', () => {
       ],
     };
     const r = revenueByDay(input, ['2026-11-01', '2026-11-02'], TZ);
-    expect(r.hours).toEqual([1000, 0]);
+    expect(r.packages).toEqual([750, 1500]);
+    expect(r.rent).toEqual([1000, 0]);
+    expect(r.hours).toEqual([1750, 1500]);
     expect(r.bar).toEqual([0, 300]);
-    expect(r.revenue).toEqual([1000, 300]);
-    expect(r.refills).toEqual([0, 400]);
+    expect(r.revenue).toEqual([1750, 1800]);
+    expect(r.refills).toEqual([0, 1100]);
     expect(r.desk).toEqual([0, 1600]);
-    expect(r.diff).toEqual([-1000, 1300]);
+    expect(r.diff).toEqual([-1750, -200]);
     expect(deskByPayment(input.transactions, ['2026-11-01', '2026-11-02'], TZ)).toEqual(
       new Map([
         ['Наличный расчет', [0, 1300]],
@@ -66,6 +72,13 @@ describe('выручка клуба', () => {
     expect(map[1]![20]).toBeNull();
   });
 
+  it('карта часов: день без полных данных в карту не входит', () => {
+    const input: RevenueInput = { ...empty, load: [{ startAt: at('2026-11-03T20:00:00'), endAt: at('2026-11-03T21:00:00'), debited: 900 }], tickets: [{ at: at('2026-11-03T20:10:00'), price: 500 }] };
+    const map = revenueHeatmap(input, ['2026-11-02', '2026-11-03'], ['full', 'partial'], TZ);
+    expect(map[0]![20]).toBe(0);
+    expect(map[1]![20]).toBeNull();
+  });
+
   it('карта часов: среднее по двум понедельникам; доля сеанса — точно по секундам', () => {
     const input: RevenueInput = {
       ...empty,
@@ -79,9 +92,10 @@ describe('выручка клуба', () => {
     expect(map[0]![21]).toBe(18_000 / 2);
   });
 
-  it('карта часов: идущий сеанс не учитывается, возврат бара вычитается, чек времени — не бар', () => {
+  it('карта часов: идущий сеанс не учитывается, возврат бара вычитается, чек времени — не бар; абонемент — в час покупки', () => {
     const input: RevenueInput = {
       ...empty,
+      tickets: [{ at: at('2026-11-02T10:40:00'), price: 1000 }],
       load: [{ startAt: at('2026-11-02T10:00:00'), endAt: null, debited: 500 }],
       sold: [
         { at: at('2026-11-02T10:05:00'), qty: 1000, amount: 300, refund: false },
@@ -89,6 +103,6 @@ describe('выручка клуба', () => {
         { at: at('2026-11-02T10:30:00'), qty: null, amount: 900, refund: false },
       ],
     };
-    expect(revenueHeatmap(input, ['2026-11-02'], ['full'], TZ)[0]![10]).toBe(200);
+    expect(revenueHeatmap(input, ['2026-11-02'], ['full'], TZ)[0]![10]).toBe(1200);
   });
 });

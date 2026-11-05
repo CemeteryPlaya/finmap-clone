@@ -49,7 +49,7 @@ export const revenueQuerySchema = z
 export const revenueRowsQuerySchema = z
   .object({
     ...clubShape,
-    row: z.enum(['hours', 'bar', 'revenue', 'refills', 'desk'], { message: 'Неизвестная строка' }),
+    row: z.enum(['packages', 'rent', 'hours', 'bar', 'revenue', 'refills', 'desk'], { message: 'Неизвестная строка' }),
     col: z.string().regex(/^(\d{4}-\d{2}-\d{2}|total)$/, 'Неизвестная колонка'),
     cursor: z.preprocess(blank, z.coerce.number().int().min(0).default(0)),
   })
