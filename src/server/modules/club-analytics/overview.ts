@@ -13,7 +13,7 @@ import { excelDate, minorToDecimal } from '../operations/journal-export';
 import { reportInfo } from '../analytics/report-export';
 import type { AnalyticsService } from '../analytics/service';
 import { clubDays, type ClubDays } from './revenue';
-import { CLUB_TEMPLATE, clubScope, type ClubScope } from './scope';
+import { CLUB_TEMPLATE, clubScope, NO_PC_NOTE, pcsOf } from './scope';
 import type { AnalyticsSettings } from './settings';
 
 export interface OverviewTile {
@@ -32,8 +32,6 @@ export interface OverviewTile {
   href: string;
 }
 
-/** Без количества ПК у клубов «Выручка на ПК в день» не считается (§4, §6.1). */
-export const NO_PC_NOTE = 'Задайте количество ПК в карточке проекта';
 /** Лучших и худших дней (§4). */
 const BEST = 3;
 /** Ссылка плитки по отчёту: метрики журнала — «Прибыль». */
@@ -102,15 +100,6 @@ export function visibleTileDefs(saved: SavedTiles | undefined): TileDef[] {
   return (saved ?? resolveTiles(null, CLUB_TILES)).items.filter((i) => i.visible).flatMap((i) => CLUB_TILES.filter((t) => t.key === i.key));
 }
 
-/**
- * Количество ПК клубов с подключённым клубом Senet (§6.1): клубы без данных в знаменатель не идут. Если у такого клуба
- * ПК не заданы — 0 (плитка недоступна): его часы вошли бы в числитель без его ПК в знаменателе.
- */
-export function pcsOf(scope: ClubScope): number {
-  const connected = new Set(scope.offices.map((o) => o.projectId));
-  const clubs = scope.projects.filter((p) => connected.has(p.id));
-  return clubs.some((p) => p.pcCount === null) ? 0 : clubs.reduce((t, p) => t + p.pcCount!, 0);
-}
 
 /** Сумма в тиынах или доля — ячейка Excel. */
 function tileCell(t: OverviewTile, v: number | null): XlsxCell {

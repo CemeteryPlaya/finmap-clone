@@ -10,6 +10,7 @@ import type { Db, Sqlite } from './db/client';
 import { registerErrorHandler } from './errors';
 import { registerAccountsRoutes } from './modules/accounts/routes';
 import { registerAnalyticsRoutes } from './modules/analytics/routes';
+import { createClubLoad } from './modules/club-analytics/load';
 import { createClubOverview } from './modules/club-analytics/overview';
 import { createClubRevenue } from './modules/club-analytics/revenue';
 import { createClubZones } from './modules/club-analytics/zones';
@@ -206,6 +207,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     settings: analyticsSettings,
     overview: createClubOverview({ db, timezone: config.timezone, now, settings: analyticsSettings, analytics }),
     revenue: createClubRevenue({ db, timezone: config.timezone, now }),
+    load: createClubLoad({ db, timezone: config.timezone, now }),
     zones: createClubZones({ db, audit, now }),
     downloads,
   });

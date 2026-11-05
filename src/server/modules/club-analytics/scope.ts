@@ -54,3 +54,16 @@ function earliestSync(offices: readonly { lastSyncAt: string | null }[]): string
   if (times.length === 0 || times.includes(null)) return null;
   return (times as string[]).reduce((a, b) => (a < b ? a : b));
 }
+
+/** Без количества ПК у клубов «Выручка на ПК в день» не считается, загрузка — по местам зон (§4, §6.1, §13). */
+export const NO_PC_NOTE = 'Задайте количество ПК в карточке проекта';
+
+/**
+ * Количество ПК клубов с подключённым клубом Senet (§6.1): клубы без данных в знаменатель не идут. Если у такого клуба
+ * ПК не заданы — 0 (плитка недоступна): его часы вошли бы в числитель без его ПК в знаменателе.
+ */
+export function pcsOf(scope: ClubScope): number {
+  const connected = new Set(scope.offices.map((o) => o.projectId));
+  const clubs = scope.projects.filter((p) => connected.has(p.id));
+  return clubs.some((p) => p.pcCount === null) ? 0 : clubs.reduce((t, p) => t + p.pcCount!, 0);
+}

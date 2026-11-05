@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../../db/client';
-import { overviewQuerySchema, revenueQuerySchema, revenueRowsQuerySchema, zonesInputSchema } from '../../../shared/schemas/club-analytics';
+import { loadQuerySchema, loadRowsQuerySchema, overviewQuerySchema, revenueQuerySchema, revenueRowsQuerySchema, zonesInputSchema } from '../../../shared/schemas/club-analytics';
 import { type Downloads, inlineDownloads, sendFile } from '../../http/download';
 import { parseId } from '../../http/params';
+import type { ClubLoad } from './load';
 import type { ClubOverview } from './overview';
 import type { ClubRevenue } from './revenue';
 import { requireCompany } from '../companies/guard';
@@ -18,7 +19,7 @@ type O = { Params: { cid: string; id: string } };
  * «Аналитика клуба» (спецификация 2026-11-03-club-analytics): настройки дашбордов компании (§10) и отчёты клуба. Чтение —
  * сессия, архивная компания тоже читается; запись — CSRF, архивная компания — только чтение.
  */
-export function registerClubAnalyticsRoutes(app: FastifyInstance, deps: { db: Db; settings: AnalyticsSettings; overview: ClubOverview; revenue: ClubRevenue; zones: ClubZones; downloads?: Downloads }): void {
+export function registerClubAnalyticsRoutes(app: FastifyInstance, deps: { db: Db; settings: AnalyticsSettings; overview: ClubOverview; revenue: ClubRevenue; load: ClubLoad; zones: ClubZones; downloads?: Downloads }): void {
   const SETTINGS = '/api/v1/companies/:cid/analytics-settings';
   app.get<C>(SETTINGS, async (req) => deps.settings.get(parseId(req.params.cid)));
   app.put<K>(`${SETTINGS}/:key`, async (req) => deps.settings.put(parseId(req.params.cid), req.params.key, req.body, req.user!.id));
@@ -46,4 +47,9 @@ export function registerClubAnalyticsRoutes(app: FastifyInstance, deps: { db: Db
   app.get<C>(`${BASE}/revenue`, async (req) => deps.revenue.revenue(parseId(req.params.cid), revenueQuerySchema.parse(req.query)));
   app.get<C>(`${BASE}/revenue/rows`, async (req) => deps.revenue.rows(parseId(req.params.cid), revenueRowsQuerySchema.parse(req.query)));
   app.get<C>(`${BASE}/revenue.xlsx`, async (req, reply) => sendFile(reply, await deps.revenue.xlsx(parseId(req.params.cid), revenueQuerySchema.parse(req.query)), deps.downloads ?? inlineDownloads));
+
+  // «Загрузка» (§6, §11): отчёт, сеансы ячейки карты, Excel
+  app.get<C>(`${BASE}/load`, async (req) => deps.load.load(parseId(req.params.cid), loadQuerySchema.parse(req.query)));
+  app.get<C>(`${BASE}/load/rows`, async (req) => deps.load.rows(parseId(req.params.cid), loadRowsQuerySchema.parse(req.query)));
+  app.get<C>(`${BASE}/load.xlsx`, async (req, reply) => sendFile(reply, await deps.load.xlsx(parseId(req.params.cid), loadQuerySchema.parse(req.query)), deps.downloads ?? inlineDownloads));
 }

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { approxOf, bestWorst, pcsOf, visibleTileDefs } from '../../src/server/modules/club-analytics/overview';
+import { approxOf, bestWorst, visibleTileDefs } from '../../src/server/modules/club-analytics/overview';
+import { pcsOf } from '../../src/server/modules/club-analytics/scope';
 import { clubWorld, T, type ClubWorld } from '../helpers/club-senet';
 
 /**

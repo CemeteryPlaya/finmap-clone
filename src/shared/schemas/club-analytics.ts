@@ -60,7 +60,24 @@ export const revenueRowsQuerySchema = z
   })
   .superRefine(checkPeriod);
 
+/** `GET …/club-analytics/load` (§6): разрез графика — все зоны или по зонам. */
+export const loadQuerySchema = z
+  .object({ ...clubShape, by: z.preprocess(blank, z.enum(['all', 'zones'], { message: 'Разрез — all или zones' }).default('all')) })
+  .superRefine(checkPeriod);
+
+/** Сеансы ячейки карты «Загрузки» (R15): день недели 0 = Пн, час 0–23. */
+export const loadRowsQuerySchema = z
+  .object({
+    ...clubShape,
+    weekday: z.coerce.number({ message: 'День недели 0–6' }).int().min(0).max(6),
+    hour: z.coerce.number({ message: 'Час 0–23' }).int().min(0).max(23),
+    cursor: z.preprocess(blank, z.coerce.number().int().min(0).default(0)),
+  })
+  .superRefine(checkPeriod);
+
 export type RevenueQuery = z.output<typeof revenueQuerySchema>;
+export type LoadQuery = z.output<typeof loadQuerySchema>;
+export type LoadRowsQuery = z.output<typeof loadRowsQuerySchema>;
 export type RevenueRowsQuery = z.output<typeof revenueRowsQuerySchema>;
 export type OverviewQuery = z.output<typeof overviewQuerySchema>;
 
