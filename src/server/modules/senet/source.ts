@@ -3,7 +3,7 @@
  * Сейчас — отчёты админ-панели (AdminTokenSource), когда ENESTECH выдаст Application Key — AppKeySource.
  * Строки — время ISO UTC, деньги в тиынах.
  */
-export type ReportKind = 'sessions' | 'cashMoves' | 'transactions' | 'soldItems' | 'checks' | 'refills' | 'stock' | 'goodsMoves' | 'load';
+export type ReportKind = 'sessions' | 'cashMoves' | 'transactions' | 'soldItems' | 'checks' | 'refills' | 'stock' | 'goodsMoves' | 'load' | 'tickets';
 
 /** Значение параметра `type` отчёта админ-панели (§3.4). */
 export const REPORT_TYPES: Record<ReportKind, string> = {
@@ -16,6 +16,8 @@ export const REPORT_TYPES: Record<ReportKind, string> = {
   stock: 'shop_quantity',
   goodsMoves: 'movements_of_goods',
   load: 'office_load_by_zones',
+  // «Использование абонементов»: покупка пакета с баланса (спецификация «Аналитика клуба», §16 R6)
+  tickets: 'tickets',
 };
 
 export interface OfficeRef {
@@ -129,6 +131,16 @@ export interface LoadRow {
   durationSec: number | null;
 }
 
+/** tickets — покупка абонемента (пакета часов) с баланса гостя; minutes — «Времени проведено». */
+export interface TicketRow {
+  at: string;
+  guestLogin: string;
+  phone: string | null;
+  ticket: string;
+  price: number;
+  minutes: number | null;
+}
+
 export interface ReportRows {
   sessions: SessionRow[];
   cashMoves: CashMoveRow[];
@@ -139,6 +151,7 @@ export interface ReportRows {
   stock: StockRow[];
   goodsMoves: GoodsMoveRow[];
   load: LoadRow[];
+  tickets: TicketRow[];
 }
 
 export interface RawFile {

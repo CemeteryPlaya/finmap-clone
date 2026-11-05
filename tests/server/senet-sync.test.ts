@@ -142,12 +142,13 @@ describe('забор Senet', () => {
       day('sessions'),
       day('soldItems'),
       day('stock'),
+      day('tickets'),
       day('transactions'),
     ]);
     now = new Date('2026-10-02T12:00:00.000Z');
     await sync.run({ trigger: 'hourly' });
     const after = await spans();
-    expect(after).toHaveLength(9);
+    expect(after).toHaveLength(10);
     expect(after.find((s) => s[0] === 'load')).toEqual(['load', HISTORY_FROM, '2026-10-02T12:00:00.000Z']);
   });
 

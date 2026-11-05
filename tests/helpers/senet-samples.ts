@@ -30,6 +30,8 @@ export const SENET_HEADERS = {
     'Profit',
     'Comment',
   ],
+  // «Использование абонементов» — заголовки выгрузки из интерфейса (2026-11-05); API — по позиции
+  tickets: ['Логин пользователя', 'Номер телефона', 'Тип абонемента', 'Дата покупки', 'Цена абонемента', 'Времени проведено'],
   load: ['Office name', 'Session start date', 'Session end date', 'Office zone', 'Workstation num', 'User login', 'Phone number', 'User age', 'Tariff name', 'Amount of funds debited', 'Amount of replenishment', 'Session duration, hh:mm:ss'],
 } as const;
 

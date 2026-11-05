@@ -11,25 +11,7 @@ import type {
 import type { Config } from '../../config';
 import type { Db, Executor } from '../../db/client';
 import { first } from '../../db/raw';
-import {
-  accounts,
-  categories,
-  projects,
-  senetBarPurchases,
-  senetCashMoves,
-  senetChecks,
-  senetConnections,
-  senetOffices,
-  senetPostings,
-  senetRaw,
-  senetRefills,
-  senetReviewItems,
-  senetRules,
-  senetShifts,
-  senetSoldItems,
-  senetSyncRuns,
-  senetTransactions,
-} from '../../db/schema';
+import { accounts, categories, projects, senetBarPurchases, senetCashMoves, senetChecks, senetConnections, senetDataSpans, senetGoodsMoves, senetLoad, senetOffices, senetPostings, senetRaw, senetRefills, senetReviewItems, senetRules, senetShifts, senetSoldItems, senetStock, senetSyncRuns, senetTickets, senetTransactions } from '../../db/schema';
 import { withTx } from '../../db/tx';
 import { AppError } from '../../errors';
 import type { Secrets } from '../../secrets';
@@ -312,7 +294,8 @@ export function createSenetConnections(d: {
           await tx.delete(senetSoldItems).where(inArray(senetSoldItems.shiftId, shiftIds));
         }
         if (officeIds.length) {
-          for (const t of [senetSoldItems, senetTransactions, senetChecks, senetRefills] as const) await tx.delete(t).where(inArray(t.officeId, officeIds));
+          // всё, что ссылается на клуб: данные забора, аналитики и покрытие
+          for (const t of [senetSoldItems, senetTransactions, senetChecks, senetRefills, senetStock, senetGoodsMoves, senetLoad, senetTickets, senetDataSpans] as const) await tx.delete(t).where(inArray(t.officeId, officeIds));
           await tx.delete(senetShifts).where(inArray(senetShifts.officeId, officeIds));
           await tx.delete(senetRaw).where(inArray(senetRaw.officeId, officeIds));
           await tx.delete(senetRules).where(inArray(senetRules.officeId, officeIds));

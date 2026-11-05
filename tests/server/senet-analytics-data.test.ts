@@ -27,6 +27,10 @@ async function setup() {
     sold: [sold('2026-10-01 12:00:00', 'Напиток 1', 2, 1500), sold('2026-10-01 23:00:00', 'A1B2', null, 1000), sold('2026-10-02 09:00:00', 'Напиток 1', 1, 750, 'Возвраты')],
     checks: [check('2026-10-01 20:00:00', 'C1', PHONE), check('2026-10-02 01:00:00', 'C2', null)],
     refills: [refill('2026-10-01 20:00:00', PHONE)],
+    tickets: [
+      ['гость1', PHONE, '2+1 Standart', xlTime('2026-10-01 20:05:00'), 750, 180],
+      ['гость2', null, '3+2', xlTime('2026-10-02 01:30:00'), 1500, null],
+    ],
     load: [
       ['Клуб 1', xlTime('2026-10-01 20:00:00'), xlTime('2026-10-01 21:30:00'), 'VIP', 7, 'гость1', '+77012345612', 19, 'Тариф 1', 1500, 2000, 0.0625],
       ['Клуб 1', xlTime('2026-10-02 06:00:00'), null, 'Общий', 3, 'гость2', null, null, 'Тариф 1', 500, 0, null],
@@ -54,6 +58,8 @@ async function setup() {
                 ? senetSample('goodsMoves', [['Приход 1', 'Сотрудник А', 'Напитки', 'Напиток 1', 10, 0, 500, 5000, 16, 2, 750, 1500, 1000, 500, null]])
                 : type === 'office_load_by_zones'
                   ? senetSample('load', inWindow(data.load!, 1, q))
+                  : type === 'tickets'
+                    ? senetSample('tickets', inWindow(data.tickets!, 3, q))
                   : type === 'refill'
               ? senetSample('refills', inWindow(data.refills!, 1, q))
               : senetSample(type === 'income_outcome' ? 'cashMoves' : 'transactions', []),
@@ -118,6 +124,19 @@ describe('данные для аналитики', () => {
     expect(JSON.stringify(await x!.w.h.t.q('SELECT * FROM senet_load'))).not.toContain('7012345612');
     await sync();
     expect([await count('senet_stock'), await count('senet_goods_moves'), await count('senet_load')]).toEqual([2, 2, 2]);
+  });
+
+  it('абонементы — по суткам покупки; цена в тиынах; телефон — хеш и маска; повтор окна дублей не даёт', async () => {
+    await setup();
+    await sync();
+    const rows = await x!.w.h.t.q('SELECT at, guest_login g, ticket, price, minutes, phone_mask m, phone_hash h FROM senet_tickets ORDER BY at');
+    expect(rows.map((r) => [r.at, r.g, r.ticket, Number(r.price), r.minutes === null ? null : Number(r.minutes), r.m, r.h !== null])).toEqual([
+      ['2026-10-01T15:05:00.000Z', 'гость1', '2+1 Standart', 75_000, 180, '+7 *** ** 12', true],
+      ['2026-10-01T20:30:00.000Z', 'гость2', '3+2', 150_000, null, null, false],
+    ]);
+    expect(JSON.stringify(await x!.w.h.t.q('SELECT * FROM senet_tickets'))).not.toContain('7012345612');
+    await sync();
+    expect(await count('senet_tickets')).toBe(2);
   });
 
   it('ровно 2000 строк за сутки — Senet обрезал отчёт: запуск partial с текстом', async () => {

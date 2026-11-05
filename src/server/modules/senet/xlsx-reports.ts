@@ -111,6 +111,15 @@ const COLUMNS: Record<Parsed, readonly Col[]> = {
     ['refilled', 'Amount of replenishment'],
     ['durationSec', 'Session duration, hh:mm:ss'],
   ],
+  // заголовки выгрузки из интерфейса (2026-11-05); английские API неизвестны — по позиции
+  tickets: [
+    ['guestLogin', 'Логин пользователя', 'User login'],
+    ['phone', 'Номер телефона', 'Phone number'],
+    ['ticket', 'Тип абонемента'],
+    ['at', 'Дата покупки', 'Purchase date'],
+    ['price', 'Цена абонемента'],
+    ['minutes', 'Времени проведено'],
+  ],
 };
 
 type Parsed = ReportKind;
@@ -302,6 +311,16 @@ export function parseReport<K extends ReportKind>(kind: K, data: Buffer, timezon
           durationSec: d === null ? null : Math.round(d * 86_400),
         };
       });
+      break;
+    case 'tickets':
+      rows = timed('at').map((r) => ({
+        at: time(r, 'at')!,
+        guestLogin: text(r, 'guestLogin'),
+        phone: phone(r),
+        ticket: text(r, 'ticket'),
+        price: money(r, 'price'),
+        minutes: num(r, 'minutes'),
+      }));
       break;
   }
   return { rows: rows as ReportRows[K], officeName };

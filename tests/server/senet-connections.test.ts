@@ -127,7 +127,14 @@ describe('подключения Senet', () => {
     await w.h.t.q("INSERT INTO senet_postings (shift_id, kind, amount, created_at) VALUES ((SELECT id FROM senet_shifts), 'cash', 1, 'x')");
     expect((await w.h.req('DELETE', `${base}/connections/${id}`)).statusCode).toBe(409);
     await w.h.t.q('DELETE FROM senet_postings');
+    // данные аналитики клуба тоже ссылаются на клуб — удаляются вместе с ним
+    await w.h.t.q("INSERT INTO senet_load (office_id, start_at) VALUES (?, 'a')", oid);
+    await w.h.t.q("INSERT INTO senet_stock (office_id, from_at, to_at, item) VALUES (?, 'a', 'b', 'x')", oid);
+    await w.h.t.q("INSERT INTO senet_goods_moves (office_id, from_at, to_at, item) VALUES (?, 'a', 'b', 'x')", oid);
+    await w.h.t.q("INSERT INTO senet_data_spans (office_id, report, from_at, to_at) VALUES (?, 'load', 'a', 'b')", oid);
+    await w.h.t.q("INSERT INTO senet_tickets (office_id, at, ticket, price) VALUES (?, 'a', '3+2', 1)", oid);
     expect((await w.h.req('DELETE', `${base}/connections/${id}`)).statusCode).toBe(204);
+    for (const t of ['senet_load', 'senet_stock', 'senet_goods_moves', 'senet_data_spans', 'senet_tickets']) expect(Number((await w.h.t.q(`SELECT COUNT(*) n FROM ${t}`))[0]!.n)).toBe(0);
     expect((await w.h.t.q('SELECT COUNT(*) n FROM senet_shifts'))[0]!.n).toBe(0);
     expect((await w.h.t.q('SELECT COUNT(*) n FROM senet_offices'))[0]!.n).toBe(0);
   });

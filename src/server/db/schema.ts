@@ -60,6 +60,7 @@ export let senetStock = sqlite.senetStock;
 export let senetGoodsMoves = sqlite.senetGoodsMoves;
 export let senetLoad = sqlite.senetLoad;
 export let senetDataSpans = sqlite.senetDataSpans;
+export let senetTickets = sqlite.senetTickets;
 
 export const sqliteTables = {
   users: sqlite.users,
@@ -114,6 +115,7 @@ export const sqliteTables = {
   senetGoodsMoves: sqlite.senetGoodsMoves,
   senetLoad: sqlite.senetLoad,
   senetDataSpans: sqlite.senetDataSpans,
+  senetTickets: sqlite.senetTickets,
 };
 
 export const pgTables = {
@@ -169,6 +171,7 @@ export const pgTables = {
   senetGoodsMoves: pg.senetGoodsMoves,
   senetLoad: pg.senetLoad,
   senetDataSpans: pg.senetDataSpans,
+  senetTickets: pg.senetTickets,
 };
 
 let bound: Dialect | null = null;
@@ -231,6 +234,7 @@ export function bindSchema(dialect: Dialect): void {
   senetGoodsMoves = pg.senetGoodsMoves as unknown as typeof sqlite.senetGoodsMoves;
   senetLoad = pg.senetLoad as unknown as typeof sqlite.senetLoad;
   senetDataSpans = pg.senetDataSpans as unknown as typeof sqlite.senetDataSpans;
+  senetTickets = pg.senetTickets as unknown as typeof sqlite.senetTickets;
 }
 
 /** Диалект, к которому привязан процесс (по умолчанию — SQLite). */

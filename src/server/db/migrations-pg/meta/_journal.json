@@ -50,6 +50,13 @@
       "when": 1793731384577,
       "tag": "0006_analytics_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793861829419,
+      "tag": "0007_senet_tickets",
+      "breakpoints": true
     }
   ]
 }

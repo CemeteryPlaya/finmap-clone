@@ -146,6 +146,14 @@ describe('parseReport', () => {
     ]);
   });
 
+  it('tickets («Использование абонементов»): покупка абонемента — логин, телефон, пакет, время покупки, цена в тиынах, минуты', () => {
+    const data = senetSample('tickets', [['гость1', '+77012345612', '2+1 Standart', xlTime('2026-11-01 10:30:01.208'), 750, 180]]);
+    expect(parseReport('tickets', data, TZ).rows).toEqual([{ guestLogin: 'гость1', phone: '+77012345612', ticket: '2+1 Standart', at: '2026-11-01T05:30:01.208Z', price: 75_000, minutes: 180 }]);
+    // заголовки API неизвестны — 6 колонок разбираются по позиции
+    const english = senetSample('tickets', [['гость2', null, '3+2', xlTime('2026-11-01 11:00:00'), 1500, null]], ['User login', 'Phone', 'Ticket', 'Purchase date', 'Ticket price', 'Time spent']);
+    expect(parseReport('tickets', english, TZ).rows).toEqual([{ guestLogin: 'гость2', phone: null, ticket: '3+2', at: '2026-11-01T06:00:00.000Z', price: 150_000, minutes: null }]);
+  });
+
   it('load (office_load_by_zones): сеанс гостя — зона, ПК, тариф, списано и пополнено, длительность в секундах', () => {
     const data = senetSample('load', [['Клуб 1', xlTime('2026-10-01 20:00:00'), xlTime('2026-10-01 21:30:00'), 'VIP', 7, 'гость1', '+77012345612', 19, 'Обычный тариф', 1500, 2000, 0.0625]]);
     expect(parseReport('load', data, TZ).rows).toEqual([

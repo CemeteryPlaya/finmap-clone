@@ -1084,6 +1084,28 @@ export const senetLoad = sqliteTable(
 );
 
 /**
+ * `tickets` («Использование абонементов»): покупка пакета часов с баланса гостя (спецификация «Аналитика клуба», §16 R6).
+ * Цена — тиыны, minutes — «Времени проведено»; телефон — только HMAC и маска.
+ */
+export const senetTickets = sqliteTable(
+  'senet_tickets',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    officeId: integer('office_id')
+      .notNull()
+      .references(() => senetOffices.id),
+    at: text('at').notNull(),
+    guestLogin: text('guest_login').notNull().default(''),
+    phoneHash: text('phone_hash'),
+    phoneMask: text('phone_mask'),
+    ticket: text('ticket').notNull(),
+    price: integer('price').notNull(),
+    minutes: integer('minutes'),
+  },
+  (t) => [index('senet_tickets_office_at_idx').on(t.officeId, t.at)],
+);
+
+/**
  * Покрытие данных (спецификация «Аналитика клуба», §3.2, R1): отрезки `[from_at, to_at)`, за которые отчёт клуба принят и
  * записан. Пересекающиеся и смежные отрезки сливаются при записи.
  */

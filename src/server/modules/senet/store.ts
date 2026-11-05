@@ -2,10 +2,10 @@ import { and, asc, eq, gt, gte, inArray, lt, lte, sql, type AnyColumn } from 'dr
 import { mergeSpans, type Span } from '../../../shared/club-analytics/coverage';
 import type { Executor } from '../../db/client';
 import { first } from '../../db/raw';
-import { senetCashMoves, senetChecks, senetDataSpans, senetGoodsMoves, senetLoad, senetRefills, senetShifts, senetSoldItems, senetStock, senetTransactions } from '../../db/schema';
+import { senetCashMoves, senetChecks, senetDataSpans, senetGoodsMoves, senetLoad, senetRefills, senetShifts, senetSoldItems, senetStock, senetTickets, senetTransactions } from '../../db/schema';
 import { normalize } from './posting/normalize';
 import { shiftTotals, shiftWindows } from './posting/windows';
-import type { CashMoveRow, CheckRow, GoodsMoveRow, LoadRow, RefillRow, ReportKind, SessionRow, SoldItemRow, StockRow, TransactionRow } from './source';
+import type { CashMoveRow, CheckRow, GoodsMoveRow, LoadRow, RefillRow, ReportKind, SessionRow, SoldItemRow, StockRow, TicketRow, TransactionRow } from './source';
 
 /** Разобранные отчёты одного отрезка забора клуба. */
 export interface OfficeBatch {
@@ -123,83 +123,99 @@ export async function writeOfficeBatch(tx: Executor, b: OfficeBatch, at: string)
   return { shifts: b.sessions.length, moves };
 }
 
+/** Сутки клуба для записи аналитики: окно, телефон — хеш и маска. */
+interface Day {
+  officeId: number;
+  from: string;
+  to: string;
+  phone: (p: string | null) => { hash: string | null; mask: string | null };
+}
+
+/** Строки пачками по CHUNK. */
+async function insertChunks<R>(rows: R[], write: (part: R[]) => Promise<unknown>): Promise<void> {
+  for (let i = 0; i < rows.length; i += CHUNK) await write(rows.slice(i, i + CHUNK));
+}
+
+const inDay = <T extends { officeId: AnyColumn; at: AnyColumn }>(t: T, d: Day) => and(eq(t.officeId, d.officeId), gte(t.at, d.from), lt(t.at, d.to));
+/** Отчёты за окно без дат строк — по началу окна. */
+const inWindow = <T extends { officeId: AnyColumn; fromAt: AnyColumn }>(t: T, d: Day) => and(eq(t.officeId, d.officeId), eq(t.fromAt, d.from));
+/** Строка с телефоном гостя — хеш и маска вместо номера (§9.3). */
+const withPhone = <R extends { phone: string | null }>(d: Day, { phone, ...r }: R) => {
+  const p = d.phone(phone);
+  return { officeId: d.officeId, ...r, phoneHash: p.hash, phoneMask: p.mask };
+};
+
+/** Продажа — к своей смене. */
+async function writeSold(tx: Executor, d: Day, rows: SoldItemRow[]): Promise<void> {
+  const shifts = await tx
+    .select({ id: senetShifts.id, openedAt: senetShifts.openedAt, closedAt: senetShifts.closedAt })
+    .from(senetShifts)
+    .where(eq(senetShifts.officeId, d.officeId))
+    .orderBy(asc(senetShifts.openedAt));
+  const shiftOf = (at: string) => shifts.find((s) => s.openedAt <= at && (s.closedAt === null || at <= s.closedAt))?.id ?? null;
+  await tx.delete(senetSoldItems).where(inDay(senetSoldItems, d));
+  await insertChunks(rows, (part) =>
+    tx.insert(senetSoldItems).values(part.map((r) => ({ officeId: d.officeId, shiftId: shiftOf(r.at), at: r.at, item: r.item, qty: r.qty === null ? null : Math.round(r.qty * 1000), amount: r.amount, payment: r.payment, refund: r.refund, comment: r.comment }))),
+  );
+}
+
+async function writeChecks(tx: Executor, d: Day, rows: CheckRow[]): Promise<void> {
+  await tx.delete(senetChecks).where(inDay(senetChecks, d));
+  await insertChunks(rows, (part) => tx.insert(senetChecks).values(part.map((r) => withPhone(d, r))));
+}
+
+async function writeRefills(tx: Executor, d: Day, rows: RefillRow[]): Promise<void> {
+  await tx.delete(senetRefills).where(inDay(senetRefills, d));
+  await insertChunks(rows, (part) => tx.insert(senetRefills).values(part.map((r) => withPhone(d, r))));
+}
+
+async function writeStock(tx: Executor, d: Day, rows: StockRow[]): Promise<void> {
+  await tx.delete(senetStock).where(inWindow(senetStock, d));
+  await insertChunks(rows, (part) => tx.insert(senetStock).values(part.map((r) => ({ officeId: d.officeId, fromAt: d.from, toAt: d.to, ...r }))));
+}
+
+async function writeGoodsMoves(tx: Executor, d: Day, rows: GoodsMoveRow[]): Promise<void> {
+  await tx.delete(senetGoodsMoves).where(inWindow(senetGoodsMoves, d));
+  await insertChunks(rows, (part) => tx.insert(senetGoodsMoves).values(part.map((r) => ({ officeId: d.officeId, fromAt: d.from, toAt: d.to, ...r }))));
+}
+
+/** Абонемент — к суткам покупки (спецификация «Аналитика клуба», R6). */
+async function writeTickets(tx: Executor, d: Day, rows: TicketRow[]): Promise<void> {
+  await tx.delete(senetTickets).where(inDay(senetTickets, d));
+  await insertChunks(rows, (part) => tx.insert(senetTickets).values(part.map((r) => withPhone(d, r))));
+}
+
+/** Сеанс — в сутки своего начала: Senet отдаёт и сеансы, пересекающие окно. */
+async function writeLoad(tx: Executor, d: Day, rows: LoadRow[]): Promise<void> {
+  const own = rows.filter((r) => r.startAt >= d.from && r.startAt < d.to);
+  await tx.delete(senetLoad).where(and(eq(senetLoad.officeId, d.officeId), gte(senetLoad.startAt, d.from), lt(senetLoad.startAt, d.to)));
+  await insertChunks(own, (part) => tx.insert(senetLoad).values(part.map((r) => withPhone(d, r))));
+}
+
 /** Строки аналитики одних суток клуба (§9.3, П5): замена строк окна — удаление и вставка в транзакции вызывающего. */
 export async function writeAnalyticsDay(
   tx: Executor,
-  o: {
-    officeId: number;
-    from: string;
-    to: string;
+  o: Day & {
     sold: SoldItemRow[] | null;
     checks: CheckRow[] | null;
     refills: RefillRow[] | null;
     stock?: StockRow[] | null;
     goodsMoves?: GoodsMoveRow[] | null;
     load?: LoadRow[] | null;
-    phone: (p: string | null) => { hash: string | null; mask: string | null };
+    tickets?: TicketRow[] | null;
   },
 ): Promise<void> {
-  const inDay = <T extends { officeId: AnyColumn; at: AnyColumn }>(t: T) => and(eq(t.officeId, o.officeId), gte(t.at, o.from), lt(t.at, o.to));
-  const insert = async <R>(rows: R[], write: (part: R[]) => Promise<unknown>) => {
-    for (let i = 0; i < rows.length; i += CHUNK) await write(rows.slice(i, i + CHUNK));
-  };
-  if (o.sold) {
-    const shifts = await tx
-      .select({ id: senetShifts.id, openedAt: senetShifts.openedAt, closedAt: senetShifts.closedAt })
-      .from(senetShifts)
-      .where(eq(senetShifts.officeId, o.officeId))
-      .orderBy(asc(senetShifts.openedAt));
-    const shiftOf = (at: string) => shifts.find((s) => s.openedAt <= at && (s.closedAt === null || at <= s.closedAt))?.id ?? null;
-    await tx.delete(senetSoldItems).where(inDay(senetSoldItems));
-    await insert(o.sold, (part) =>
-      tx.insert(senetSoldItems).values(part.map((r) => ({ officeId: o.officeId, shiftId: shiftOf(r.at), at: r.at, item: r.item, qty: r.qty === null ? null : Math.round(r.qty * 1000), amount: r.amount, payment: r.payment, refund: r.refund, comment: r.comment }))),
-    );
-  }
-  if (o.checks) {
-    await tx.delete(senetChecks).where(inDay(senetChecks));
-    await insert(o.checks, (part) =>
-      tx.insert(senetChecks).values(
-        part.map((r) => {
-          const p = o.phone(r.phone);
-          return { officeId: o.officeId, at: r.at, code: r.code, amount: r.amount, used: r.used, workstation: r.workstation, guestLogin: r.guestLogin, phoneHash: p.hash, phoneMask: p.mask, cashier: r.cashier };
-        }),
-      ),
-    );
-  }
-  if (o.refills) {
-    await tx.delete(senetRefills).where(inDay(senetRefills));
-    await insert(o.refills, (part) =>
-      tx.insert(senetRefills).values(
-        part.map((r) => {
-          const p = o.phone(r.phone);
-          return { officeId: o.officeId, at: r.at, guestLogin: r.guestLogin, accountType: r.accountType, amount: r.amount, workstation: r.workstation, phoneHash: p.hash, phoneMask: p.mask };
-        }),
-      ),
-    );
-  }
-  // отчёты за окно без дат строк — по началу окна
-  const window = <T extends { officeId: AnyColumn; fromAt: AnyColumn }>(t: T) => and(eq(t.officeId, o.officeId), eq(t.fromAt, o.from));
-  if (o.stock) {
-    await tx.delete(senetStock).where(window(senetStock));
-    await insert(o.stock, (part) => tx.insert(senetStock).values(part.map((r) => ({ officeId: o.officeId, fromAt: o.from, toAt: o.to, ...r }))));
-  }
-  if (o.goodsMoves) {
-    await tx.delete(senetGoodsMoves).where(window(senetGoodsMoves));
-    await insert(o.goodsMoves, (part) => tx.insert(senetGoodsMoves).values(part.map((r) => ({ officeId: o.officeId, fromAt: o.from, toAt: o.to, ...r }))));
-  }
-  if (o.load) {
-    // сеанс — в сутки своего начала: Senet отдаёт и сеансы, пересекающие окно
-    const own = o.load.filter((r) => r.startAt >= o.from && r.startAt < o.to);
-    await tx.delete(senetLoad).where(and(eq(senetLoad.officeId, o.officeId), gte(senetLoad.startAt, o.from), lt(senetLoad.startAt, o.to)));
-    await insert(own, (part) =>
-      tx.insert(senetLoad).values(
-        part.map(({ phone, ...r }) => {
-          const p = o.phone(phone);
-          return { officeId: o.officeId, ...r, phoneHash: p.hash, phoneMask: p.mask };
-        }),
-      ),
-    );
-  }
+  // отчёт, который не пришёл (null), не трогается
+  const steps: [unknown[] | null | undefined, (rows: never[]) => Promise<void>][] = [
+    [o.sold, (r) => writeSold(tx, o, r)],
+    [o.checks, (r) => writeChecks(tx, o, r)],
+    [o.refills, (r) => writeRefills(tx, o, r)],
+    [o.stock, (r) => writeStock(tx, o, r)],
+    [o.goodsMoves, (r) => writeGoodsMoves(tx, o, r)],
+    [o.tickets, (r) => writeTickets(tx, o, r)],
+    [o.load, (r) => writeLoad(tx, o, r)],
+  ];
+  for (const [rows, write] of steps) if (rows) await write(rows as never[]);
 }
 
 /**

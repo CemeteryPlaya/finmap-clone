@@ -183,7 +183,8 @@ export function createSenetSync(d: {
             const stock = await fetch('stock', dayFrom, dayTo);
             const goodsMoves = await fetch('goodsMoves', dayFrom, dayTo);
             const load = await fetch('load', dayFrom, dayTo);
-            for (const [kind, rows] of [['sold_check_items', sold], ['checks', checks], ['refill', refills], ['office_load_by_zones', load]] as const) {
+            const tickets = await fetch('tickets', dayFrom, dayTo);
+            for (const [kind, rows] of [['sold_check_items', sold], ['checks', checks], ['refill', refills], ['office_load_by_zones', load], ['tickets', tickets]] as const) {
               if (rows && rows.length === SENET_ROW_CAP) {
                 partial = true;
                 const [y, m, dd] = todayInTimezone(d.timezone, new Date(dayFrom)).split('-');
@@ -191,8 +192,8 @@ export function createSenetSync(d: {
               }
             }
             await withTx(db, async (tx) => {
-              await writeAnalyticsDay(tx, { officeId: office.id, from: dayFrom, to: dayTo, sold, checks, refills, stock, goodsMoves, load, phone });
-              const got = { soldItems: sold, checks, refills, stock, goodsMoves, load } as const;
+              await writeAnalyticsDay(tx, { officeId: office.id, from: dayFrom, to: dayTo, sold, checks, refills, stock, goodsMoves, load, tickets, phone });
+              const got = { soldItems: sold, checks, refills, stock, goodsMoves, load, tickets } as const;
               for (const [kind, rows] of Object.entries(got)) if (rows) await markSpan(tx, office.id, kind as ReportKind, dayFrom, dayTo);
             });
           }
