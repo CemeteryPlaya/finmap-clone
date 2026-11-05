@@ -107,12 +107,12 @@
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 63 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: расчёт загрузки — чистые функции (задача 1) | club-load (shared) PASS; §17 спецификации | - | cc:TODO |
-| 64 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: зоны клуба — таблица, API, удаление (задача 2) | club-zones PASS на обоих диалектах | 63 | cc:TODO |
-| 65 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: отчёт «Загрузка» — сервер (задача 3) | club-load (server) PASS на обоих диалектах; club-revenue, club-overview PASS | 64 | cc:TODO |
-| 66 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: «Обзор» — плитка «Загрузка ПК», часы пик; каталог (задача 4) | club-overview, analytics-settings PASS | 65 | cc:TODO |
-| 67 | `[Refactor]` `[lane:gate]` `[tdd:required]` АК-2: вид по умолчанию и шаг по видам, карта с форматом, график процентов (задача 5) | club-url, club-overview (client) PASS; e2e club-analytics PASS | - | cc:TODO |
-| 68 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: страница «Загрузка» (задача 6) | club-load (client) PASS; typecheck | 65, 67 | cc:TODO |
-| 69 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: «Обзор» на клиенте — загрузка, часы пик (задача 7) | club-overview (client) PASS | 66, 67 | cc:TODO |
-| 70 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: зоны в «Изменить» клуба Senet (задача 8) | parseSeats PASS; typecheck | 64 | cc:TODO |
-| 71 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` АК-2: e2e, снимки, README, итоги (задача 9) | e2e club-analytics PASS (SQLite, PGlite); shots:ux; npm test | 68, 69, 70 | cc:TODO |
+| 63 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: расчёт загрузки — чистые функции (задача 1) | club-load (shared) PASS; §17 спецификации | - | cc:完了 [19ed2dc] |
+| 64 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: зоны клуба — таблица, API, удаление (задача 2) | club-zones PASS на обоих диалектах | 63 | cc:完了 [577bf49] |
+| 65 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: отчёт «Загрузка» — сервер (задача 3) | club-load (server) PASS на обоих диалектах; club-revenue, club-overview PASS | 64 | cc:完了 [e4a8039] |
+| 66 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: «Обзор» — плитка «Загрузка ПК», часы пик; каталог (задача 4) | club-overview, analytics-settings PASS | 65 | cc:完了 [a5d2e58] |
+| 67 | `[Refactor]` `[lane:gate]` `[tdd:required]` АК-2: вид по умолчанию и шаг по видам, карта с форматом, график процентов (задача 5) | club-url, club-overview (client) PASS; e2e club-analytics PASS | - | cc:完了 [5483587] |
+| 68 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: страница «Загрузка» (задача 6) | club-load (client) PASS; typecheck | 65, 67 | cc:完了 [24de54f] |
+| 69 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: «Обзор» на клиенте — загрузка, часы пик (задача 7) | club-overview (client) PASS | 66, 67 | cc:完了 [516f1fa] |
+| 70 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: зоны в «Изменить» клуба Senet (задача 8) | parseSeats PASS; typecheck | 64 | cc:完了 [e581ebf] |
+| 71 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` АК-2: e2e, снимки, README, итоги (задача 9) | e2e club-analytics PASS (SQLite, PGlite); shots:ux; npm test | 68, 69, 70 | cc:完了 [0c36b61] |
