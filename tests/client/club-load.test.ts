@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { durationText, hourLabel, loadText, seatsLine } from '../../src/client/lib/club-load';
+import { durationText, hourLabel, loadText, parseSeats, seatsLine } from '../../src/client/lib/club-load';
 
 /** «Загрузка» — подписи (спецификация «Аналитика клуба», §6; план АК-2, задача 6). */
 describe('подписи «Загрузки»', () => {
@@ -28,5 +28,14 @@ describe('подписи «Загрузки»', () => {
     expect(durationText(1_800)).toBe('30 мин');
     expect(durationText(7_200)).toBe('2 ч');
     expect(durationText(null)).toBe('—');
+  });
+});
+
+describe('parseSeats', () => {
+  it('поле «Своё число ПК»: пусто — по данным; целое 1–1000; иначе — ошибка', () => {
+    expect(parseSeats('')).toEqual({ seats: null });
+    expect(parseSeats('  ')).toEqual({ seats: null });
+    expect(parseSeats(' 12 ')).toEqual({ seats: 12 });
+    for (const bad of ['0', '1001', '1,5', 'abc', '-3']) expect(parseSeats(bad)).toEqual({ error: 'От 1 до 1000' });
   });
 });

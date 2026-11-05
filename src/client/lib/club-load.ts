@@ -61,3 +61,11 @@ export function durationText(sec: number | null): string {
   const m = min % 60;
   return [h ? `${h} ч` : '', m || !h ? `${m} мин` : ''].filter(Boolean).join(' ');
 }
+
+/** Поле «Своё число ПК» зоны (§6.1): пусто — по данным Senet; целое 1–1000. */
+export function parseSeats(text: string): { seats: number | null } | { error: string } {
+  const t = text.trim();
+  if (t === '') return { seats: null };
+  const n = Number(t);
+  return /^\d+$/.test(t) && n >= 1 && n <= 1000 ? { seats: n } : { error: 'От 1 до 1000' };
+}

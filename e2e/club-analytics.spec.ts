@@ -135,6 +135,24 @@ test('«Настройки → Аналитика»: скрытая «Выруч
   await expect(main(page).getByRole('link', { name: /Выручка клуба/ })).toBeVisible();
 });
 
+test('«Изменить» клуба: своё число ПК зоны — на «Загрузке» подсказка о расхождении с проектом', async ({ page }) => {
+  await login(page);
+  await page.goto(`/c/${cid}/settings/integrations`);
+  await main(page).getByRole('button', { name: 'Изменить' }).click();
+  const office = page.getByRole('dialog', { name: 'Клуб Senet' });
+  const vip = office.getByRole('textbox', { name: 'VIP: своё число ПК' });
+  await expect(vip).toHaveAttribute('placeholder', '10');
+  await vip.fill('0');
+  await expect(office.getByText('От 1 до 1000')).toBeVisible();
+  await expect(office.getByRole('button', { name: 'Сохранить зоны' })).toBeDisabled();
+  await vip.fill('12');
+  await office.getByRole('button', { name: 'Сохранить зоны' }).click();
+  await expect(office.getByRole('status').filter({ hasText: 'Зоны сохранены' })).toBeVisible();
+  await page.goto(`/c/${cid}/analytics/club/load?from=${period.from}&to=${period.to}`);
+  await expect(main(page).getByText('В расчёте: 40 ПК (Общий зал 30, VIP 12)')).toBeVisible();
+  await expect(main(page).getByText('По данным Senet в зонах 42 ПК, в проекте — 40. Проверьте «Количество ПК» или зоны')).toBeVisible();
+});
+
 test('телефон: «Обзор» — плитки в 2 колонки, контролы в окне «Фильтры»', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await login(page);
