@@ -63,3 +63,16 @@ export const revenueRowsQuerySchema = z
 export type RevenueQuery = z.output<typeof revenueQuerySchema>;
 export type RevenueRowsQuery = z.output<typeof revenueRowsQuerySchema>;
 export type OverviewQuery = z.output<typeof overviewQuerySchema>;
+
+/** `PUT …/senet/offices/:id/zones` (§6.1): своё число ПК зоны; null — по данным Senet. */
+export const zonesInputSchema = z.object({
+  zones: z
+    .array(
+      z.object({
+        zone: z.string().trim().min(1, 'Укажите зону').max(100, 'Не длиннее 100 знаков'),
+        seats: z.number({ message: 'От 1 до 1000' }).int('От 1 до 1000').min(1, 'От 1 до 1000').max(1000, 'От 1 до 1000').nullable(),
+      }),
+    )
+    .max(50, 'Не больше 50 зон'),
+});
+export type ZonesInput = z.output<typeof zonesInputSchema>;

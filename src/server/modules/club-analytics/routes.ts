@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../../db/client';
-import { overviewQuerySchema, revenueQuerySchema, revenueRowsQuerySchema } from '../../../shared/schemas/club-analytics';
+import { overviewQuerySchema, revenueQuerySchema, revenueRowsQuerySchema, zonesInputSchema } from '../../../shared/schemas/club-analytics';
 import { type Downloads, inlineDownloads, sendFile } from '../../http/download';
 import { parseId } from '../../http/params';
 import type { ClubOverview } from './overview';
@@ -8,15 +8,17 @@ import type { ClubRevenue } from './revenue';
 import { requireCompany } from '../companies/guard';
 import { clubScope } from './scope';
 import type { AnalyticsSettings } from './settings';
+import type { ClubZones } from './zones';
 
 type K = { Params: { cid: string; key: string } };
 type C = { Params: { cid: string } };
+type O = { Params: { cid: string; id: string } };
 
 /**
  * «Аналитика клуба» (спецификация 2026-11-03-club-analytics): настройки дашбордов компании (§10) и отчёты клуба. Чтение —
  * сессия, архивная компания тоже читается; запись — CSRF, архивная компания — только чтение.
  */
-export function registerClubAnalyticsRoutes(app: FastifyInstance, deps: { db: Db; settings: AnalyticsSettings; overview: ClubOverview; revenue: ClubRevenue; downloads?: Downloads }): void {
+export function registerClubAnalyticsRoutes(app: FastifyInstance, deps: { db: Db; settings: AnalyticsSettings; overview: ClubOverview; revenue: ClubRevenue; zones: ClubZones; downloads?: Downloads }): void {
   const SETTINGS = '/api/v1/companies/:cid/analytics-settings';
   app.get<C>(SETTINGS, async (req) => deps.settings.get(parseId(req.params.cid)));
   app.put<K>(`${SETTINGS}/:key`, async (req) => deps.settings.put(parseId(req.params.cid), req.params.key, req.body, req.user!.id));
@@ -30,6 +32,11 @@ export function registerClubAnalyticsRoutes(app: FastifyInstance, deps: { db: Db
     const { offices, ...rest } = await clubScope(deps.db, cid);
     return { projects: rest.projects, hasOffices: offices.length > 0, connected: rest.connected, freshness: rest.freshness };
   });
+
+  // зоны клуба Senet (§6.1): места ПК по данным и свои
+  const ZONES = '/api/v1/companies/:cid/senet/offices/:id/zones';
+  app.get<O>(ZONES, async (req) => ({ zones: await deps.zones.list(parseId(req.params.cid), parseId(req.params.id)) }));
+  app.put<O>(ZONES, async (req) => ({ zones: await deps.zones.put(parseId(req.params.cid), parseId(req.params.id), zonesInputSchema.parse(req.body), req.user!.id) }));
 
   // «Обзор клуба» (§4): плитки, ряд по дням; Excel — плитки и ряд
   app.get<C>(`${BASE}/overview`, async (req) => deps.overview.overview(parseId(req.params.cid), overviewQuerySchema.parse(req.query)));

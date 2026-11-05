@@ -1105,6 +1105,20 @@ export const senetTickets = sqliteTable(
   (t) => [index('senet_tickets_office_at_idx').on(t.officeId, t.at)],
 );
 
+/** Зоны клуба (спецификация «Аналитика клуба», §6.1): своё число ПК зоны; нет строки — места по данным Senet. */
+export const senetZones = sqliteTable(
+  'senet_zones',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    officeId: integer('office_id')
+      .notNull()
+      .references(() => senetOffices.id),
+    zone: text('zone').notNull(),
+    seats: integer('seats').notNull(),
+  },
+  (t) => [uniqueIndex('senet_zones_office_zone_uq').on(t.officeId, t.zone)],
+);
+
 /**
  * Покрытие данных (спецификация «Аналитика клуба», §3.2, R1): отрезки `[from_at, to_at)`, за которые отчёт клуба принят и
  * записан. Пересекающиеся и смежные отрезки сливаются при записи.
