@@ -1,10 +1,11 @@
-import { Fragment, useMemo, useState } from 'react';
-import { NavLink, useOutletContext, useParams } from 'react-router';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { NavLink, useOutletContext, useParams, useSearchParams } from 'react-router';
 import { formatMoney } from '../../shared/money';
 import { Pending, StaleNotice } from '../components/QueryState';
 import { ReviewQueue } from '../components/senet/ReviewQueue';
 import { ShiftDetails } from '../components/senet/ShiftDetails';
 import { btnSmall, inputClass } from '../components/ui';
+import { shiftLink } from '../lib/club-revenue';
 import { useProjects } from '../lib/queries';
 import { useMeta } from '../lib/query';
 import { localInputToIso, useSenetConnections } from '../lib/senet';
@@ -28,13 +29,20 @@ function stateBadges(r: ShiftRow) {
 function Shifts(props: { companyId: number; timeZone: string; readOnly: boolean }) {
   const projects = useProjects(props.companyId);
   const period = useMemo(() => defaultPeriod(new Date(), props.timeZone), [props.timeZone]);
+  // ссылка на смену из «Выручки клуба» (?shift=&day=): список за день её открытия, смена раскрыта
+  const [params] = useSearchParams();
+  const [link] = useState(() => shiftLink(params));
   const [project, setProject] = useState<number | null>(null);
-  const [from, setFrom] = useState(period.from);
-  const [to, setTo] = useState(period.to);
+  const [from, setFrom] = useState(link?.day ?? period.from);
+  const [to, setTo] = useState(link?.day ?? period.to);
   const [onlyDiff, setOnlyDiff] = useState(false);
-  const [open, setOpen] = useState<number | null>(null);
+  const [open, setOpen] = useState<number | null>(link?.shift ?? null);
   const shifts = useSenetShifts(props.companyId, { project, from, to, onlyDiff }, localInputToIso(`${from}T00:00`, props.timeZone) ?? '', localInputToIso(`${to}T23:59`, props.timeZone) ?? '');
   const label = (r: ShiftRow) => shiftPeriodLabel(r.openedAt, r.closedAt, props.timeZone);
+  const loaded = shifts.data !== undefined;
+  useEffect(() => {
+    if (link && loaded) document.querySelector(`[data-shift="${link.shift}"]`)?.scrollIntoView({ block: 'center' });
+  }, [link, loaded]);
   const toFirstDiff = () => {
     const id = shifts.data?.firstCashDiffId;
     if (!id) return;

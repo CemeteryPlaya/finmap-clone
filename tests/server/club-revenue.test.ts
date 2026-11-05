@@ -153,6 +153,8 @@ describe('«Выручка клуба»', () => {
     expect(shifts.rows[2].values).toEqual([T(2_650), T(750), T(1_500), T(1_000), T(500), T(5_000)]);
     expect(shifts.rows[0].values.slice(0, 4)).toEqual([T(3_150), T(1_500), T(2_000), T(500)]);
     expect(shifts.rows[0].id).toMatch(/^shift:\d+$/);
+    // день открытия смены в поясе приложения — для ссылки на смену в «Сверке»
+    expect(shifts.rows.map((x: { day?: string }) => x.day)).toEqual(['2026-11-01', '2026-11-01', '2026-11-02']);
     const cashiers = await revenue('from=2026-11-01&to=2026-11-02&by=cashiers&compare=0');
     expect(cashiers.columns.map((c: { key: string }) => c.key)).toEqual(['revenue', 'shifts', 'perShift']);
     expect(cashiers.rows).toEqual([expect.objectContaining({ label: 'Сотрудник А', values: [T(6_400), 3, Math.round(T(6_400) / 3)] })]);

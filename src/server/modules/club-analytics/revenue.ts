@@ -1,6 +1,7 @@
 import { and, asc, eq, gte, inArray, lt, type AnyColumn } from 'drizzle-orm';
 import { combineCoverage, dayCoverage, type DayCoverage } from '../../../shared/club-analytics/coverage';
 import { periodDays, previousRange, sumColumns } from '../../../shared/club-analytics/columns';
+import { localParts } from '../../../shared/club-analytics/hours';
 import { deskByPayment, REVENUE_PARTS, revenueByDay, revenueHeatmap, type RevenueInput, type RevenuePart } from '../../../shared/club-analytics/revenue';
 import { addDays, startOfDayUtc } from '../../../shared/dates';
 import { reportColumns, type ReportColumn, type ReportStep } from '../../../shared/report-engine';
@@ -69,6 +70,8 @@ export interface RevenueRow {
   values: (number | null)[];
   total: number | null;
   prevTotal: number | null;
+  /** Смена: день открытия в поясе приложения — ссылка на неё в «Сверке». */
+  day?: string;
 }
 
 /** Строки Senet клуба с полями для списка под ячейкой. */
@@ -195,7 +198,7 @@ function shiftRows(d: Detail, shifts: readonly Shift[], outs: Map<number, number
   return shifts.map((s) => {
     const x = shiftSums(d, s, now);
     const values = [x.revenue, x.bar, x.desk, x.refills, outs.get(s.id) ?? 0, s.endBalance];
-    return { id: `shift:${s.id}`, label: `${shiftPeriodLabel(s.openedAt, s.closedAt, tz)} · ${cashierOf(s)}`, kind: 'shift', values, total: null, prevTotal: null };
+    return { id: `shift:${s.id}`, label: `${shiftPeriodLabel(s.openedAt, s.closedAt, tz)} · ${cashierOf(s)}`, kind: 'shift', values, total: null, prevTotal: null, day: localParts(s.openedAt, tz).day };
   });
 }
 

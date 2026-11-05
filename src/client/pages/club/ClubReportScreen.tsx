@@ -130,6 +130,8 @@ export function ClubReportScreen<T extends ClubReportBase>(props: {
   report: ClubReportKind;
   byChoices?: readonly Choice<string>[];
   views: readonly ClubView[];
+  /** Виды, в которых действует разрез («Выручка»: только «таблица»); в остальных — разрез по умолчанию, контрола нет. */
+  byIn?: readonly ClubView[];
   /** Ссылка «Excel» — у отчётов с файлом. */
   excel?: boolean;
   children: (ctx: ClubReportContext<T>) => ReactNode;
@@ -141,7 +143,11 @@ export function ClubReportScreen<T extends ClubReportBase>(props: {
   const { today, timeZone } = settings;
   const projects = scope.data?.projects;
   const state = projects ? knownProject(settings.state, projects) : settings.state;
-  const apiParams = today && projects ? clubApiParams(state, today).toString() : null;
+  const byApplies = !props.byIn || props.byIn.includes(state.view);
+  // в виде без разреза запрос и точки — с разрезом по умолчанию; выбранный разрез остаётся в адресе для «таблицы»
+  const effective = byApplies ? state : { ...state, by: byValues[0] ?? '' };
+  const shownBy = byApplies ? byChoices : NO_CHOICES;
+  const apiParams = today && projects ? clubApiParams(effective, today).toString() : null;
   const report = useClubReport<T>(props.company.id, props.report, apiParams);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [phoneOpen, setPhoneOpen] = useState(false);
@@ -173,7 +179,7 @@ export function ClubReportScreen<T extends ClubReportBase>(props: {
   }
 
   const range = reportRange(state, today);
-  const changed = clubChanged(state, byValues, range);
+  const changed = clubChanged(effective, byValues, range);
   const changedCount = Object.values(changed).filter(Boolean).length;
   const clubs = clubChoices(projects);
   const refresh = (size: string) => <RefreshButton size={size} spinning={report.isFetching} onClick={() => void report.refetch()} />;
@@ -206,7 +212,7 @@ export function ClubReportScreen<T extends ClubReportBase>(props: {
           {refresh('size-11')}
         </span>
         <div className="contents max-md:hidden md:[&_button.bg-field:not(.size-8)]:px-3">
-          <Controls state={state} today={today} clubs={clubs} byChoices={byChoices} changed={changed} onChange={update} />
+          <Controls state={state} today={today} clubs={clubs} byChoices={shownBy} changed={changed} onChange={update} />
           {changedCount > 0 && (
             <button
               type="button"
@@ -232,7 +238,7 @@ export function ClubReportScreen<T extends ClubReportBase>(props: {
           state={state}
           today={today}
           clubs={clubs}
-          byChoices={byChoices}
+          byChoices={shownBy}
           byValues={byValues}
           onApply={(next) => {
             update(next);
@@ -246,7 +252,7 @@ export function ClubReportScreen<T extends ClubReportBase>(props: {
       ) : (
         <>
           <CoverageBanner coverage={data.coverage} companyId={props.company.id} today={today} />
-          {!empty && props.children({ state, apiParams, data, busy: report.isPlaceholderData, update, timeZone, today })}
+          {!empty && props.children({ state: effective, apiParams, data, busy: report.isPlaceholderData, update, timeZone, today })}
         </>
       )}
     </section>
