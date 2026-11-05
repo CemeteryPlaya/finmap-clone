@@ -238,6 +238,27 @@ function coverageSummary(p: Period, columns: ReportColumn[]) {
   };
 }
 
+/** Части выручки по дням периода (§4): день без данных части — null; покрытие — сводка отчёта и по дням строки «Выручка». */
+export interface ClubDays {
+  days: string[];
+  parts: Record<RevenuePart, (number | null)[]>;
+  revenueCoverage: DayCoverage[];
+  coverage: { days: number; withData: number; partial: number; missingDays: string[] };
+}
+
+export async function clubDays(db: Db, tz: string, ids: number[], from: string, to: string): Promise<ClubDays> {
+  const p = await periodOf(db, ids, from, to, tz);
+  const byDay = revenueByDay(p.detail, p.days, tz);
+  const parts = Object.fromEntries(
+    REVENUE_PARTS.map((part) => {
+      const cov = partCoverage(p.cov, part);
+      return [part, byDay[part].map((v, i) => (cov[i] === 'none' ? null : v))];
+    }),
+  ) as Record<RevenuePart, (number | null)[]>;
+  const { byDay: _, columns: __, ...coverage } = coverageSummary(p, []);
+  return { days: p.days, parts, revenueCoverage: partCoverage(p.cov, 'revenue'), coverage };
+}
+
 /** Данные отчёта: клубы, смены периода, период и прошлый период, колонки шага. */
 interface Built {
   scope: ClubScope;

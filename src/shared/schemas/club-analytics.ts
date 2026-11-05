@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TILES_MAX } from '../analytics-catalog';
-import { checkPeriod, reportDate } from './analytics';
+import { checkPeriod, checkRange, reportDate } from './analytics';
 import { queryParts } from './journal';
 
 /** Ключ группы, карточки или плитки каталога: латиница, цифры, дефис, точка. */
@@ -45,6 +45,11 @@ export const revenueQuerySchema = z
   })
   .superRefine(checkPeriod);
 
+/** `GET …/club-analytics/overview` (§4): шага и разреза у «Обзора» нет; ряд по дням — на весь период (до 5 лет). */
+export const overviewQuerySchema = z.object({ from: clubShape.from, to: clubShape.to, project: clubShape.project, compare: clubShape.compare }).superRefine((v, ctx) => {
+  checkRange(v, ctx);
+});
+
 /** Строки ячейки (§2.2): строка отчёта и колонка (дата начала колонки или `total`), курсор страницы. */
 export const revenueRowsQuerySchema = z
   .object({
@@ -57,3 +62,4 @@ export const revenueRowsQuerySchema = z
 
 export type RevenueQuery = z.output<typeof revenueQuerySchema>;
 export type RevenueRowsQuery = z.output<typeof revenueRowsQuerySchema>;
+export type OverviewQuery = z.output<typeof overviewQuerySchema>;

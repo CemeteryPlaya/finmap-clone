@@ -10,6 +10,7 @@ import type { Db, Sqlite } from './db/client';
 import { registerErrorHandler } from './errors';
 import { registerAccountsRoutes } from './modules/accounts/routes';
 import { registerAnalyticsRoutes } from './modules/analytics/routes';
+import { createClubOverview } from './modules/club-analytics/overview';
 import { createClubRevenue } from './modules/club-analytics/revenue';
 import { registerClubAnalyticsRoutes } from './modules/club-analytics/routes';
 import { createAnalyticsSettings } from './modules/club-analytics/settings';
@@ -196,8 +197,16 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // большие выгрузки на Vercel — через хранилище и ссылку (ответ функции не больше 4,5 МБ)
   const downloads: Downloads = { store: uploads === 'blob' ? files : null, inlineMax: deps.exportInlineMaxBytes ?? INLINE_MAX_BYTES };
   registerOperationsRoutes(app, { operations, journal, bulk: createBulkService({ db, operations }), undo: createOperationUndoService({ db, audit, operations }), downloads });
-  registerAnalyticsRoutes(app, { analytics: createAnalyticsService({ db, rates, journal, audit, timezone: config.timezone, now }), downloads });
-  registerClubAnalyticsRoutes(app, { db, settings: createAnalyticsSettings({ db, audit, now }), revenue: createClubRevenue({ db, timezone: config.timezone, now }), downloads });
+  const analytics = createAnalyticsService({ db, rates, journal, audit, timezone: config.timezone, now });
+  registerAnalyticsRoutes(app, { analytics, downloads });
+  const analyticsSettings = createAnalyticsSettings({ db, audit, now });
+  registerClubAnalyticsRoutes(app, {
+    db,
+    settings: analyticsSettings,
+    overview: createClubOverview({ db, timezone: config.timezone, now, settings: analyticsSettings, analytics }),
+    revenue: createClubRevenue({ db, timezone: config.timezone, now }),
+    downloads,
+  });
   const stockBalance = createStockBalanceService({ db, timezone: config.timezone, now });
   registerStockRoutes(app, {
     db,

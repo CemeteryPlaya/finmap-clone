@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router';
 import { AnalyticsPage } from './pages/AnalyticsPage';
+import { ClubOverviewPage } from './pages/club/ClubOverviewPage';
 import { ClubRevenuePage } from './pages/club/ClubRevenuePage';
 import { CashflowPage } from './pages/analytics/CashflowPage';
 import { AnalyticsSettings } from './pages/settings/AnalyticsSettings';
@@ -61,8 +62,8 @@ export const router = createBrowserRouter([
               { path: 'statement', element: <StatementPage /> },
               { path: 'projects', element: <ProjectsPage /> },
               { path: 'indicators', element: <IndicatorsPage /> },
-              // отчёты клуба (спецификация «Аналитика клуба», §2.1): «Обзор» — задача 9 плана АК-1
-              { path: 'club', element: <Navigate to=".." replace /> },
+              // отчёты клуба (спецификация «Аналитика клуба», §2.1)
+              { path: 'club', element: <ClubOverviewPage /> },
               { path: 'club/revenue', element: <ClubRevenuePage /> },
               { path: '*', element: <Navigate to=".." replace /> },
             ],

@@ -14,6 +14,7 @@ import { coverageNote, freshnessLabel, useClubReport, useClubSettings, type Club
 import {
   clubApiParams,
   clubChanged,
+  clubChangedFor,
   clubChoices,
   COMPARE_CHOICES,
   knownProject,
@@ -45,6 +46,8 @@ function Controls(props: {
   byChoices: readonly Choice<string>[];
   changed: ReturnType<typeof clubChanged>;
   wide?: boolean;
+  /** Без шага («Обзор», §4). */
+  stepless?: boolean;
   onChange: (next: ClubUrlState) => void;
 }) {
   const { state, today, changed, wide } = props;
@@ -67,10 +70,11 @@ function Controls(props: {
         changed.period,
         <PeriodMenu wide={wide} state={state} today={today} periods={REPORT_PERIODS} validate={customRangeError} onChange={(next) => props.onChange(withClubStep(next, today))} />,
       )}
-      {mark(
-        changed.step,
-        <ChoiceMenu wide={wide} name="Шаг" value={effectiveStep(state.step, range)} options={stepChoices(range)} onChange={(step) => props.onChange({ ...state, step })} />,
-      )}
+      {!props.stepless &&
+        mark(
+          changed.step,
+          <ChoiceMenu wide={wide} name="Шаг" value={effectiveStep(state.step, range)} options={stepChoices(range)} onChange={(step) => props.onChange({ ...state, step })} />,
+        )}
       {mark(
         changed.compare,
         <ChoiceMenu wide={wide} name="Сравнение" value={state.compare ? 'on' : 'off'} options={COMPARE_CHOICES} onChange={(v) => props.onChange({ ...state, compare: v === 'on' })} />,
@@ -88,10 +92,11 @@ function PhoneFilters(props: {
   clubs: Choice<string>[];
   byChoices: readonly Choice<string>[];
   byValues: readonly string[];
+  stepless?: boolean;
   onApply: (next: ClubUrlState) => void;
 }) {
   const [draft, setDraft] = useState(props.state);
-  const changed = clubChanged(draft, props.byValues, reportRange(draft, props.today));
+  const changed = clubChangedFor(draft, props.byValues, reportRange(draft, props.today), props.stepless);
   return (
     <form
       onSubmit={(e) => {
@@ -100,7 +105,7 @@ function PhoneFilters(props: {
       }}
     >
       <div className="mb-3 flex flex-col gap-3">
-        <Controls wide state={draft} today={props.today} clubs={props.clubs} byChoices={props.byChoices} changed={changed} onChange={setDraft} />
+        <Controls wide state={draft} today={props.today} clubs={props.clubs} byChoices={props.byChoices} changed={changed} stepless={props.stepless} onChange={setDraft} />
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3 max-md:sticky max-md:bottom-0 max-md:z-10 max-md:-mx-6 max-md:bg-card max-md:px-6 max-md:py-3">
         <button type="submit" className={`${btnPrimary} max-md:basis-full`}>
@@ -134,6 +139,8 @@ export function ClubReportScreen<T extends ClubReportBase>(props: {
   byIn?: readonly ClubView[];
   /** Ссылка «Excel» — у отчётов с файлом. */
   excel?: boolean;
+  /** Без контрола «Шаг» («Обзор», §4). */
+  stepless?: boolean;
   children: (ctx: ClubReportContext<T>) => ReactNode;
 }) {
   const byChoices = props.byChoices ?? NO_CHOICES;
@@ -179,7 +186,7 @@ export function ClubReportScreen<T extends ClubReportBase>(props: {
   }
 
   const range = reportRange(state, today);
-  const changed = clubChanged(effective, byValues, range);
+  const changed = clubChangedFor(effective, byValues, range, props.stepless);
   const changedCount = Object.values(changed).filter(Boolean).length;
   const clubs = clubChoices(projects);
   const refresh = (size: string) => <RefreshButton size={size} spinning={report.isFetching} onClick={() => void report.refetch()} />;
@@ -212,7 +219,7 @@ export function ClubReportScreen<T extends ClubReportBase>(props: {
           {refresh('size-11')}
         </span>
         <div className="contents max-md:hidden md:[&_button.bg-field:not(.size-8)]:px-3">
-          <Controls state={state} today={today} clubs={clubs} byChoices={shownBy} changed={changed} onChange={update} />
+          <Controls state={state} today={today} clubs={clubs} byChoices={shownBy} changed={changed} stepless={props.stepless} onChange={update} />
           {changedCount > 0 && (
             <button
               type="button"
@@ -240,6 +247,7 @@ export function ClubReportScreen<T extends ClubReportBase>(props: {
           clubs={clubs}
           byChoices={shownBy}
           byValues={byValues}
+          stepless={props.stepless}
           onApply={(next) => {
             update(next);
             setPhoneOpen(false);

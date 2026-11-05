@@ -192,6 +192,11 @@ export interface AnalyticsService {
   statementOperations(companyId: number, q: StatementQuery): Promise<StatementPage>;
   /** Excel выписки (§2.6, §6): сводка и все операции периода, как на экране. */
   statementXlsx(companyId: number, q: StatementExportQuery): Promise<{ fileName: string; data: Buffer }>;
+  /**
+   * Σ строк расходов проектов и категорий (с подкатегориями) по правилам «Прибыли» — по дате сделки (§3.1), в базовой
+   * валюте; положительное число. Метрики шаблона «Обзора клуба» (спецификация «Аналитика клуба», §4).
+   */
+  dealTotal(companyId: number, q: { from: string; to: string; projectIds: readonly number[]; categoryIds: readonly number[] }): Promise<number>;
 }
 
 /** Названия отчётов в имени файла и листа Excel. */
@@ -715,6 +720,14 @@ export function createAnalyticsService(d: {
   }
 
   const service: AnalyticsService = {
+    async dealTotal(companyId, q) {
+      if (!q.projectIds.length || !q.categoryIds.length) return 0;
+      const f: ReportFilter = { projectIds: [...q.projectIds], categoryIds: [...q.categoryIds] };
+      const where = reportLineWhere(companyId, f, dealRange(q), { types: ['expense'], dim: null, id: null, own: false });
+      const r = await one<{ total: number | string | null }>(db, sql`SELECT SUM(l.base_amount) AS total FROM operation_lines l JOIN operations o ON o.id = l.operation_id WHERE ${where}`);
+      return Math.abs(Number(r?.total ?? 0));
+    },
+
     async cashflow(companyId, q) {
       const company = await requireCompany(db, companyId);
       const f = reportFilter(q);

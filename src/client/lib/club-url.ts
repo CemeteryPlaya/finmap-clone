@@ -107,6 +107,12 @@ export function clubChanged(state: ClubUrlState, byChoices: readonly string[], r
   };
 }
 
+/** Отличия от умолчаний отчёта; у отчёта без шага («Обзор», §4) шаг не считается: его контрола нет. */
+export function clubChangedFor(state: ClubUrlState, byValues: readonly string[], range: { from: string; to: string }, stepless?: boolean) {
+  const changed = clubChanged(state, byValues, range);
+  return stepless ? { ...changed, step: false } : changed;
+}
+
 /** Настройки с шагом, который годится для периода: после смены периода «По дням» на годе становится «По неделям». */
 export function withClubStep(state: ClubUrlState, today: string): ClubUrlState {
   const step = effectiveStep(state.step, reportRange(state, today));
