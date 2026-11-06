@@ -18,10 +18,13 @@ export function StackedBars(props: {
   onSelect: (index: number) => void;
   busy?: boolean;
   pick?: ChartPick;
+  /** Значение колонки и оси; не задано — деньги в `currency` (как было). */
+  format?: (v: number) => string;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const pick = props.pick;
-  const money = (v: number) => formatMoney(v, props.currency, MONEY_SCREEN_BEFORE);
+  const money = props.format ?? ((v: number) => formatMoney(v, props.currency, MONEY_SCREEN_BEFORE));
+  const tick = props.format ?? ((v: number) => compactMoney(v, props.currency));
   const n = props.columns.length;
   const plotW = Math.max(0, width - PLOT.left - PLOT.right);
   const plotH = PLOT.height - PLOT.top - PLOT.bottom;
@@ -45,7 +48,7 @@ export function StackedBars(props: {
                 <g key={t}>
                   <line x1={PLOT.left} x2={width - PLOT.right} y1={y(t)} y2={y(t)} className={t === 0 ? 'stroke-muted/60' : 'stroke-field'} strokeWidth={1} />
                   <text x={PLOT.left - 8} y={y(t)} dy="0.32em" textAnchor="end" className="fill-muted text-[11px]">
-                    {compactMoney(t, props.currency)}
+                    {tick(t)}
                   </text>
                 </g>
               ))}

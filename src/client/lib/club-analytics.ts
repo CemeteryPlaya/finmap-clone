@@ -43,7 +43,7 @@ export interface ClubReportBase {
   coverage: ClubCoverage;
 }
 
-export type ClubReportKind = 'overview' | 'revenue' | 'load';
+export type ClubReportKind = 'overview' | 'revenue' | 'load' | 'guests';
 
 /** Отчёт клуба; params — параметры API (clubApiParams), null — запрос ещё нельзя строить. Прежний ответ виден до нового. */
 export function useClubReport<T extends ClubReportBase>(companyId: number, report: ClubReportKind, params: string | null) {

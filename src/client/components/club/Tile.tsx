@@ -42,6 +42,7 @@ export function Tile(props: { tile: OverviewTile; to: string | null; compare: bo
       ) : (
         <span className="text-sm text-muted">{tileValueText(t)}</span>
       )}
+      {t.available && t.note && <span className="text-xs text-muted">{t.note}</span>}
       {t.available && props.compare && <TileDelta tile={t} />}
       {t.available && <Spark values={t.spark} />}
     </>
