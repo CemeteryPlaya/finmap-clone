@@ -116,3 +116,17 @@
 | 69 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: «Обзор» на клиенте — загрузка, часы пик (задача 7) | club-overview (client) PASS | 66, 67 | cc:完了 [516f1fa] |
 | 70 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-2: зоны в «Изменить» клуба Senet (задача 8) | parseSeats PASS; typecheck | 64 | cc:完了 [e581ebf] |
 | 71 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` АК-2: e2e, снимки, README, итоги (задача 9) | e2e club-analytics PASS (SQLite, PGlite); shots:ux; npm test | 68, 69, 70 | cc:完了 [0c36b61] |
+
+## Phase 8 — Аналитика клуба: Гости (план docs/superpowers/plans/2026-11-06-club-analytics-3.md)
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 72 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: связи гостей — чистые функции (задача 1) | club-guest-links (shared) PASS; §18 спецификации | - | cc:TODO |
+| 73 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: визиты, цифры, возраст, когорты — чистые функции (задача 2) | club-guests (shared) PASS | - | cc:TODO |
+| 74 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: ручные правки — senet_guest_links, API, история (задача 3) | club-guest-links (server) PASS на обоих диалектах | 72 | cc:TODO |
+| 75 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: отчёт «Гости» — сервер, Excel (задача 4) | club-guests (server) PASS на обоих диалектах; npm test | 73, 74 | cc:TODO |
+| 76 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: карточка гостя и поиск — сервер (задача 5) | club-guests (server) PASS на обоих диалектах | 75 | cc:TODO |
+| 77 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: каталог и «Обзор» — плитки гостей (задача 6) | club-overview (server, client), перечни карточек PASS | 75 | cc:TODO |
+| 78 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: страница «Гости» (задача 7) | club-guests (client) PASS; typecheck | 75, 77 | cc:TODO |
+| 79 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: карточка гостя — клиент (задача 8) | club-guests (client) PASS; typecheck | 76, 78 | cc:TODO |
+| 80 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` АК-3: демо, e2e, снимки, README, итоги (задача 9) | e2e club-analytics PASS (SQLite, PGlite); shots:ux; npm test | 78, 79 | cc:TODO |
