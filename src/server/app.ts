@@ -14,6 +14,7 @@ import { createClubLoad } from './modules/club-analytics/load';
 import { createClubOverview } from './modules/club-analytics/overview';
 import { createClubRevenue } from './modules/club-analytics/revenue';
 import { createClubZones } from './modules/club-analytics/zones';
+import { createGuestLinks } from './modules/club-analytics/guest-links';
 import { registerClubAnalyticsRoutes } from './modules/club-analytics/routes';
 import { createAnalyticsSettings } from './modules/club-analytics/settings';
 import { createAnalyticsService } from './modules/analytics/service';
@@ -209,6 +210,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     revenue: createClubRevenue({ db, timezone: config.timezone, now }),
     load: createClubLoad({ db, timezone: config.timezone, now }),
     zones: createClubZones({ db, audit, now }),
+    links: createGuestLinks({ db, audit, now }),
     downloads,
   });
   const stockBalance = createStockBalanceService({ db, timezone: config.timezone, now });

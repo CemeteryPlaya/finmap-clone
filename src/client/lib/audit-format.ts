@@ -27,6 +27,7 @@ export const ENTITY_LABELS: Record<string, string> = {
   stock_import: 'Импорт склада',
   indicator_part: 'Финансовый показатель',
   analytics_settings: 'Настройки аналитики',
+  senet_guest_link: 'Связь гостей',
 };
 
 export const ACTION_LABELS: Record<string, string> = {
@@ -64,6 +65,7 @@ export const COMPANY_ENTITIES = [
   'stock_import',
   'indicator_part',
   'analytics_settings',
+  'senet_guest_link',
 ] as const;
 
 /** Сущности общей ленты экземпляра (записи без компании): пользователи и ручные курсы. */

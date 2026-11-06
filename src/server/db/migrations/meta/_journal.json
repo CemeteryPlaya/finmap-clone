@@ -134,6 +134,13 @@
       "when": 1793912340299,
       "tag": "0018_senet_zones",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1793947459334,
+      "tag": "0019_senet_guest_links",
+      "breakpoints": true
     }
   ]
 }

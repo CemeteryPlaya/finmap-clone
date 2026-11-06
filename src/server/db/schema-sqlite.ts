@@ -1120,6 +1120,26 @@ export const senetZones = sqliteTable(
 );
 
 /**
+ * Ручные правки гостей (спецификация «Аналитика клуба», §7.1, R18): `merge` — один гость (ключи по возрастанию), `split`
+ * (`key_a = key_b`) — ключ вынут из автоматических связей. Ключи — `login:…` / `phone:{hash}`, наружу не отдаются.
+ */
+export const senetGuestLinks = sqliteTable(
+  'senet_guest_links',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    companyId: integer('company_id')
+      .notNull()
+      .references(() => companies.id),
+    keyA: text('key_a').notNull(),
+    keyB: text('key_b').notNull(),
+    kind: text('kind', { enum: ['merge', 'split'] }).notNull(),
+    createdBy: integer('created_by').references(() => users.id),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [uniqueIndex('senet_guest_links_uq').on(t.companyId, t.kind, t.keyA, t.keyB)],
+);
+
+/**
  * Покрытие данных (спецификация «Аналитика клуба», §3.2, R1): отрезки `[from_at, to_at)`, за которые отчёт клуба принят и
  * записан. Пересекающиеся и смежные отрезки сливаются при записи.
  */

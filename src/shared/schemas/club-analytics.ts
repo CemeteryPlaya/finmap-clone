@@ -93,3 +93,10 @@ export const zonesInputSchema = z.object({
     .max(50, 'Не больше 50 зон'),
 });
 export type ZonesInput = z.output<typeof zonesInputSchema>;
+
+/** Ссылка на гостя или ключ (спецификация «Аналитика клуба», R25): 16 hex. */
+const guestRef = z.string().regex(/^[0-9a-f]{16}$/, 'Гость не найден');
+
+/** `POST …/club-analytics/guests/links` (§7.1, R18): `merge` — гости `a` и `b`; `split` — ключ `a` из гостя `b`. */
+export const guestLinkInputSchema = z.object({ kind: z.enum(['merge', 'split']), a: guestRef, b: guestRef });
+export type GuestLinkInput = z.output<typeof guestLinkInputSchema>;
