@@ -1068,6 +1068,46 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // «Гости» (план АК-3, задача 9). Пары в Finmap нет — m84…m87 заглушки
+    ours: 'c84-club-guests-chart.png',
+    finmap: 'm84-club-guests-chart.png',
+    path: `analytics/club/guests?${CLUB_PERIOD}`,
+    act: async (p) => {
+      await ensureClub(p);
+      await p.getByRole('main').getByRole('img', { name: /^Новые и вернувшиеся гости/ }).waitFor();
+    },
+  },
+  {
+    ours: 'c85-club-guests-card.png',
+    finmap: 'm85-club-guests-card.png',
+    path: `analytics/club/guests?view=table&${CLUB_PERIOD}`,
+    act: async (p) => {
+      await ensureClub(p);
+      await p.getByRole('main').getByRole('table', { name: 'Гости: постоянные гости' }).getByRole('button', { name: /^guest0(0\d|10), guest0(0\d|10)m$/ }).first().click();
+      await p.getByRole('main').getByRole('region', { name: 'Карточка гостя' }).getByRole('heading', { name: /, guest/ }).waitFor();
+    },
+  },
+  {
+    ours: 'c86-club-guests-cohorts.png',
+    finmap: 'm86-club-guests-cohorts.png',
+    path: `analytics/club/guests?${CLUB_PERIOD}`,
+    act: async (p) => {
+      await ensureClub(p);
+      await p.getByRole('main').getByRole('heading', { name: 'Когорты' }).scrollIntoViewIfNeeded();
+      await p.getByRole('main').getByRole('table', { name: /^Когорты/ }).waitFor();
+    },
+  },
+  {
+    ours: 'cm87-club-guests.png',
+    finmap: 'm87-club-guests-phone.png',
+    phone: true,
+    path: `analytics/club/guests?${CLUB_PERIOD}`,
+    act: async (p) => {
+      await ensureClub(p);
+      await p.getByRole('main').getByRole('img', { name: /^Новые и вернувшиеся гости/ }).waitFor();
+    },
+  },
+  {
     ours: 'cm79-club-overview.png',
     finmap: 'm79-club-overview-phone.png',
     phone: true,

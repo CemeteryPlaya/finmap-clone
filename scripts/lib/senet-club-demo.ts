@@ -57,6 +57,18 @@ function pickHour(r: () => number): number {
 const local = (ms: number) => xlTime(new Date(ms + TZ).toISOString().replace('T', ' ').slice(0, 19));
 const guest = (n: number) => ({ login: `guest${String(n).padStart(3, '0')}`, phone: `+7700000${String(1000 + n).slice(-4)}` });
 
+/**
+ * Кто сидит за сеансом («Гости», §7.1): гости 1–10 в каждом пятом сеансе — под вторым логином `guestNNNm` с тем же
+ * телефоном (один гость); каждый 25-й сеанс — общий логин `club` с одним из 5 телефонов, каждый 50-й — без телефона.
+ * Без новых случайных чисел: остальные демо-данные не меняются.
+ */
+function visitor(g: { login: string; phone: string | null }, i: number, dayNo: number): { login: string; phone: string | null } {
+  if (i % 50 === 7) return { login: 'club', phone: null };
+  if (i % 25 === 7) return { login: 'club', phone: `+77009900${String(10 + ((dayNo + i) % 5))}` };
+  if (i % 5 === 0 && Number(g.login.slice(5)) <= 10) return { login: `${g.login}m`, phone: g.phone };
+  return g;
+}
+
 /** Строки одного дня клуба. */
 function day(start: number, until: number, all: Record<string, Rows>): void {
   const r = rng(Math.floor((start + TZ) / DAY));
@@ -69,7 +81,7 @@ function day(start: number, until: number, all: Record<string, Rows>): void {
   const pay = (at: number, amount: number) =>
     add('transactions', at, ['Клуб 1', '', local(at), `D${Math.floor(at / 1000)}-${tx++}`, 'Покупка чека', amount, r() < 0.6 ? 'Наличный расчет' : 'Безналичный расчет']);
   for (let i = 0; i < 36 + Math.floor(r() * 10); i++) {
-    const g = guest(1 + Math.floor(r() * 120));
+    const g = visitor(guest(1 + Math.floor(r() * 120)), i, Math.floor((start + TZ) / DAY));
     const zone = r() < 0.75 ? ZONES[0] : ZONES[1];
     const open = start + pickHour(r) * HOUR + Math.floor(r() * 60) * 60_000;
     const minutes = 60 + Math.floor(r() * 180);
@@ -85,7 +97,7 @@ function day(start: number, until: number, all: Record<string, Rows>): void {
     const amount = paid ? paid.price : debited;
     if (amount > 0) {
       const at = open - 120_000;
-      add('refills', at, ['Клуб 1', local(at), g.login, r() < 0.8 ? 'Check' : 'General', Number(g.phone.slice(1)), amount, ws]);
+      add('refills', at, ['Клуб 1', local(at), g.login, r() < 0.8 ? 'Check' : 'General', g.phone ? Number(g.phone.slice(1)) : null, amount, ws]);
       pay(at, amount);
     }
     if (r() < 0.6) {

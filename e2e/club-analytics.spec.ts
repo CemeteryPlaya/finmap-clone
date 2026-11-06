@@ -52,6 +52,7 @@ test('главная «Аналитики»: группа «Компьютерн
   await expect(main(page).getByRole('link', { name: /Обзор клуба/ })).toBeVisible();
   await expect(main(page).getByRole('link', { name: /Выручка клуба/ })).toBeVisible();
   await expect(main(page).getByRole('link', { name: /^Загрузка/ })).toBeVisible();
+  await expect(main(page).getByRole('link', { name: /^Гости/ })).toBeVisible();
 });
 
 test('«Обзор клуба»: плитки, дни без данных, плитка ведёт в «Выручку» с тем же периодом', async ({ page }) => {
@@ -117,6 +118,45 @@ test('«Загрузка»: карта по умолчанию, места, се
   await page.goto(`/c/${cid}/analytics/club/load?view=table&from=${period.from}&to=${period.to}`);
   const zones = main(page).getByRole('table', { name: 'Загрузка: зоны' });
   for (const z of ['Общий зал', 'VIP', 'Все зоны']) await expect(zones.getByRole('rowheader', { name: z, exact: true })).toBeVisible();
+});
+
+test('«Гости»: плитки, ряд, когорты, постоянные гости, карточка — «Разделить», «Это один гость», «Снять»; Excel', async ({ page }) => {
+  await login(page);
+  await page.goto(`/c/${cid}/analytics/club/guests?from=${period.from}&to=${period.to}`);
+  await expect(main(page).getByRole('heading', { name: 'Гости', level: 1 })).toBeVisible();
+  const tiles = main(page).getByRole('list', { name: 'Плитки' });
+  for (const t of ['Уникальных гостей', 'Новых', 'Вернувшихся', 'Визитов на гостя', 'Часов на гостя', 'Потратил на гостя', 'Пополнений на гостя']) await expect(tiles.getByText(t, { exact: true })).toBeVisible();
+  await expect(main(page).getByRole('img', { name: /^Новые и вернувшиеся гости/ })).toBeVisible();
+  await expect(main(page).getByText(/Общие логины: \d+ сеанс/)).toBeVisible();
+  await expect(main(page).getByRole('heading', { name: 'Когорты' })).toBeVisible();
+  await expect(main(page).getByRole('heading', { name: 'Возраст' })).toBeVisible();
+
+  await page.goto(`/c/${cid}/analytics/club/guests?view=table&from=${period.from}&to=${period.to}`);
+  const table = main(page).getByRole('table', { name: 'Гости: постоянные гости' });
+  await table.getByRole('button', { name: 'Визитов' }).click();
+  await expect(table.getByRole('columnheader', { name: /Визитов/ })).toHaveAttribute('aria-sort', 'descending');
+  // гости 1–10 входят и под вторым логином guestNNNm с тем же телефоном — одна строка
+  const pairRow = table.getByRole('button', { name: /^guest0(0\d|10), guest0(0\d|10)m$/ }).first();
+  const [one, two] = (await pairRow.innerText()).split(', ') as [string, string];
+  await pairRow.click();
+  const card = main(page).getByRole('region', { name: 'Карточка гостя' });
+  await expect(card.getByRole('heading', { name: `${one}, ${two}` })).toBeVisible();
+  await card.getByRole('listitem').filter({ hasText: two }).getByRole('button', { name: 'Разделить' }).click();
+  await expect(card.getByText(`Вынут: ${two}`)).toBeVisible();
+  await expect(card.getByRole('heading', { name: one, exact: true })).toBeVisible();
+  await card.getByRole('button', { name: 'Снять' }).click();
+  await expect(card.getByRole('heading', { name: `${one}, ${two}` })).toBeVisible();
+
+  await card.getByLabel('Это один гость').fill('guest1');
+  const found = card.getByRole('list', { name: 'Найденные гости' });
+  await found.getByRole('button', { name: 'Объединить' }).first().click();
+  await expect(card.getByText(/^Объединены: /)).toBeVisible();
+  await card.getByRole('button', { name: 'Снять' }).click();
+  await expect(card.getByText(/^Объединены: /)).toHaveCount(0);
+
+  const download = page.waitForEvent('download');
+  await main(page).getByRole('link', { name: 'Скачать Excel' }).last().click();
+  expect((await download).suggestedFilename()).toMatch(/Гости.*\.xlsx$/);
 });
 
 test('«Настройки → Аналитика»: скрытая «Выручка клуба» пропадает с главной, но открывается по адресу; «Вернуть как было»', async ({ page }) => {

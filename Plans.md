@@ -121,12 +121,12 @@
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 72 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: связи гостей — чистые функции (задача 1) | club-guest-links (shared) PASS; §18 спецификации | - | cc:TODO |
-| 73 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: визиты, цифры, возраст, когорты — чистые функции (задача 2) | club-guests (shared) PASS | - | cc:TODO |
-| 74 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: ручные правки — senet_guest_links, API, история (задача 3) | club-guest-links (server) PASS на обоих диалектах | 72 | cc:TODO |
-| 75 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: отчёт «Гости» — сервер, Excel (задача 4) | club-guests (server) PASS на обоих диалектах; npm test | 73, 74 | cc:TODO |
-| 76 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: карточка гостя и поиск — сервер (задача 5) | club-guests (server) PASS на обоих диалектах | 75 | cc:TODO |
-| 77 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: каталог и «Обзор» — плитки гостей (задача 6) | club-overview (server, client), перечни карточек PASS | 75 | cc:TODO |
-| 78 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: страница «Гости» (задача 7) | club-guests (client) PASS; typecheck | 75, 77 | cc:TODO |
-| 79 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: карточка гостя — клиент (задача 8) | club-guests (client) PASS; typecheck | 76, 78 | cc:TODO |
-| 80 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` АК-3: демо, e2e, снимки, README, итоги (задача 9) | e2e club-analytics PASS (SQLite, PGlite); shots:ux; npm test | 78, 79 | cc:TODO |
+| 72 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: связи гостей — чистые функции (задача 1) | club-guest-links (shared) PASS; §18 спецификации | - | cc:完了 |
+| 73 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: визиты, цифры, возраст, когорты — чистые функции (задача 2) | club-guests (shared) PASS | - | cc:完了 |
+| 74 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: ручные правки — senet_guest_links, API, история (задача 3) | club-guest-links (server) PASS на обоих диалектах | 72 | cc:完了 |
+| 75 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: отчёт «Гости» — сервер, Excel (задача 4) | club-guests (server) PASS на обоих диалектах; npm test | 73, 74 | cc:完了 |
+| 76 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: карточка гостя и поиск — сервер (задача 5) | club-guests (server) PASS на обоих диалектах | 75 | cc:完了 |
+| 77 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: каталог и «Обзор» — плитки гостей (задача 6) | club-overview (server, client), перечни карточек PASS | 75 | cc:完了 |
+| 78 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: страница «Гости» (задача 7) | club-guests (client) PASS; typecheck | 75, 77 | cc:完了 |
+| 79 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: карточка гостя — клиент (задача 8) | club-guests (client) PASS; typecheck | 76, 78 | cc:完了 |
+| 80 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` АК-3: демо, e2e, снимки, README, итоги (задача 9) | e2e club-analytics PASS (SQLite, PGlite); shots:ux; npm test | 78, 79 | cc:完了 |
