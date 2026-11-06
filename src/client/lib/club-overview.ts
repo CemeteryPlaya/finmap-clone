@@ -3,6 +3,7 @@ import type { TileDef } from '../../shared/analytics-catalog';
 import type { HourCell } from '../../shared/club-analytics/load';
 import { marginText } from './stock-analytics';
 import type { ClubCoverage, ClubReportBase } from './club-analytics';
+import { durationText } from './club-load';
 import { clubMoney } from './club-revenue';
 
 /** Плитка «Обзора» (§4): значение периода, прошлого периода и ряд по дням; `href` — хвост адреса после `/analytics/`. */
@@ -40,7 +41,8 @@ export function tileValueText(t: OverviewTile): string {
   if (t.value === null) return t.available ? 'нет данных' : (t.note ?? 'нет данных');
   if (t.unit === 'money') return clubMoney(t.value);
   if (t.unit === 'percent') return marginText(Math.round(t.value * 10_000));
-  return String(t.value);
+  if (t.unit === 'duration') return durationText(t.value);
+  return t.value.toLocaleString('ru-RU', { maximumFractionDigits: 1 });
 }
 
 /**

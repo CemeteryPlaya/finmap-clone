@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { approxOf, bestWorst, overviewSheets, visibleTileDefs } from '../../src/server/modules/club-analytics/overview';
 import { pcsOf } from '../../src/server/modules/club-analytics/scope';
+import { CLUB_TILES } from '../../src/shared/analytics-catalog';
 import { clubWorld, T, type ClubWorld } from '../helpers/club-senet';
 
 /**
@@ -129,14 +130,33 @@ describe('«Обзор клуба»', () => {
     expect(r.peak).toHaveLength(3);
     // три часа по 0,1: пн 00:00 и 14:00 («Общий»), вс 20:00 (VIP); равные — раньше день недели, затем час
     expect(r.peak.map((c) => [c.weekday, c.hour])).toEqual([[0, 0], [0, 14], [6, 20]]);
-    expect(tile(r, 'guests')).toMatchObject({ available: false, note: 'Появится с отчётом «Гости»' });
-    expect(tile(r, 'newGuests').available).toBe(false);
-    expect(tile(r, 'revenuePerGuest').available).toBe(false);
+    // гость1 и гость2 — общий телефон фикстуры: один гость; 01.11 — первый визит, 02.11 — вернулся
+    expect(tile(r, 'guests')).toMatchObject({ unit: 'number', kind: 'sum', value: 1, spark: [1, 1], available: true, note: null, href: 'club/guests' });
+    expect(tile(r, 'newGuests')).toMatchObject({ value: 1, spark: [1, 0], available: true });
+    expect(tile(r, 'revenuePerGuest')).toMatchObject({ kind: 'avg', value: T(6_400), spark: [T(3_750), T(2_650)], available: true });
     expect(tile(r, 'barMargin')).toMatchObject({ available: false, note: 'Появится с отчётом «Бар»' });
     expect(r.days).toEqual([
       { day: '2026-11-01', revenue: T(3_750), load: expect.closeTo(day, 12), coverage: 'full' },
       { day: '2026-11-02', revenue: T(2_650), load: expect.closeTo(day, 12), coverage: 'full' },
     ]);
+  });
+
+  it('плитки гостей из каталога: визитов на гостя, длительность визита, доля вернувшихся', async () => {
+    x = await clubWorld();
+    await showTiles(['visitsPerGuest', 'visitDuration', 'returningShare']);
+    const r = await overview('from=2026-11-01&to=2026-11-02&compare=0');
+    // визиты: 01.11 20:00–21:30 и 23:30–01:00, 02.11 14:00–15:00
+    expect(tile(r, 'visitsPerGuest')).toMatchObject({ kind: 'avg', value: 3, spark: [2, 1] });
+    expect(tile(r, 'visitDuration')).toMatchObject({ kind: 'avg', unit: 'duration', value: (5_400 + 5_400 + 3_600) / 3 });
+    expect(tile(r, 'returningShare')).toMatchObject({ kind: 'share', value: 0, spark: [0, 1] });
+  });
+
+  it('без видимых плиток гостей — только выбранные плитки', async () => {
+    x = await clubWorld();
+    const items = CLUB_TILES.map((t) => ({ key: t.key, visible: t.key === 'revenue' }));
+    const res = await x.w.h.req('PUT', `${x.c}/analytics-settings/tiles.computer-club`, { items });
+    expect(res.statusCode, res.body).toBe(200);
+    expect((await overview('from=2026-11-01&to=2026-11-02&compare=0')).tiles.map((t) => t.key)).toEqual(['revenue']);
   });
 
   it('«Выручка на ПК в день» — выручка часов / (ПК × дней с данными); без количества ПК — пометка', async () => {

@@ -30,7 +30,7 @@ export const FINANCE_CARD_KEYS = ['cashflow', 'pnl', 'statement', 'projects', 'i
 /** Ключ и подпись финансовой группы в настройках. */
 export const FINANCE_GROUP = { key: 'finance', title: 'Финансы' } as const;
 
-/** Дашборды «Компьютерного клуба» (§2.1). «Гостей» и «Бар» добавят планы АК-3 и АК-4. */
+/** Дашборды «Компьютерного клуба» (§2.1). «Бар» добавит план АК-4. */
 export const CLUB_DASHBOARDS: readonly DashboardDef[] = [
   {
     key: 'overview',
@@ -53,6 +53,13 @@ export const CLUB_DASHBOARDS: readonly DashboardDef[] = [
     help: 'Сколько ПК занято: по часам, дням недели и зонам. Загрузка часа — занятое время мест, делённое на число ПК. Средние — только по дням с полными данными.',
     path: 'club/load',
   },
+  {
+    key: 'guests',
+    title: 'Гости',
+    description: 'Уникальные, новые и вернувшиеся гости, когорты, постоянные гости',
+    help: 'Гость — связанные логины и телефоны: логины с общим телефоном считаются одним гостем. Визит — сеансы с перерывом меньше 30 минут. Новый — первый визит за всё время данных попал в период.',
+    path: 'club/guests',
+  },
 ];
 
 /** Каталог плиток «Обзора» (§4): восемь по умолчанию, затем остальные. */
@@ -74,7 +81,7 @@ export const CLUB_TILES: readonly TileDef[] = [
 ];
 
 /** Отчёты, которые уже построены: плитка чужого отчёта недоступна с пометкой `TILE_SOON` (§15). */
-export const BUILT_CLUB_REPORTS: ReadonlySet<ClubReportKey | 'journal'> = new Set(['overview', 'revenue', 'load', 'journal']);
+export const BUILT_CLUB_REPORTS: ReadonlySet<ClubReportKey | 'journal'> = new Set(['overview', 'revenue', 'load', 'guests', 'journal']);
 
 export const TILE_SOON: Record<'load' | 'guests' | 'bar', string> = {
   load: 'Появится с отчётом «Загрузка»',

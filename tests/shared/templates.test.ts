@@ -48,7 +48,7 @@ describe('шаблоны', () => {
     ]);
     expect(t.integrations).toEqual(['senet']);
     // дашборды и плитки аналитики клуба (спецификация «Аналитика клуба», §9): метрики шаблона — плитки каталога
-    expect(t.analytics!.dashboards.map((d) => d.key)).toEqual(['overview', 'revenue', 'load']);
+    expect(t.analytics!.dashboards.map((d) => d.key)).toEqual(['overview', 'revenue', 'load', 'guests']);
     expect(t.analytics!.tiles).toHaveLength(14);
     expect(t.analytics!.tiles.map((x) => x.key)).toEqual(expect.arrayContaining(['revenuePerPcDay', 'barShare', 'payrollToRevenue', 'rentToRevenue']));
     const salary = t.categories.expense.find(isUnderSystem)!;

@@ -24,6 +24,9 @@ describe('tileValueText', () => {
     expect(tileValueText(tile({ value: 640_050 }))).toBe(formatMoney(640_100, 'KZT', { trimZeroMinor: true }));
     expect(tileValueText(tile({ unit: 'percent', kind: 'share', value: 0.425 }))).toBe('42,5 %');
     expect(tileValueText(tile({ unit: 'number', value: 17 }))).toBe('17');
+    expect(tileValueText(tile({ unit: 'number', kind: 'avg', value: 1.43 }))).toBe('1,4');
+    expect(tileValueText(tile({ unit: 'duration', kind: 'avg', value: 5_100 }))).toBe('1 ч 25 мин');
+    expect(overviewHref(5, 'club/guests', 'from=2026-11-01', '')).toBe('/c/5/analytics/club/guests?from=2026-11-01');
   });
 
   it('нет значения: недоступная плитка — пометка, доступная — «нет данных»', () => {

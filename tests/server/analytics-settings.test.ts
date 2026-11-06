@@ -37,6 +37,7 @@ describe('настройки аналитики компании', () => {
         { key: 'overview', visible: true },
         { key: 'revenue', visible: true },
         { key: 'load', visible: true },
+        { key: 'guests', visible: true },
       ],
     });
     expect(s.dashboards.groups[0].cards.map((c: { key: string }) => c.key)).toEqual(['cashflow', 'pnl', 'statement', 'projects', 'indicators', 'history']);

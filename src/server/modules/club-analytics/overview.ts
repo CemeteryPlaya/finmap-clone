@@ -3,6 +3,7 @@ import { BUILT_CLUB_REPORTS, CLUB_TILES, resolveTiles, TILE_SOON, type SavedTile
 import { previousRange } from '../../../shared/club-analytics/columns';
 import type { DayCoverage } from '../../../shared/club-analytics/coverage';
 import { localParts } from '../../../shared/club-analytics/hours';
+import { guestBuckets, type GuestFigures } from '../../../shared/club-analytics/guests';
 import { extremeHours, loadByDay, loadHeatmap, loadTotal, sumZones } from '../../../shared/club-analytics/load';
 import type { OverviewQuery } from '../../../shared/schemas/club-analytics';
 import type { Db } from '../../db/client';
@@ -13,9 +14,10 @@ import { requireCompany } from '../companies/guard';
 import { excelDate, minorToDecimal } from '../operations/journal-export';
 import { reportInfo } from '../analytics/report-export';
 import type { AnalyticsService } from '../analytics/service';
+import { clubGuests, type ClubGuestsData } from './guests';
 import { clubLoad, type ClubLoadData } from './load';
 import { clubDays, type ClubDays } from './revenue';
-import { CLUB_TEMPLATE, clubScope, NO_PC_NOTE, pcsOf } from './scope';
+import { CLUB_TEMPLATE, clubScope, NO_PC_NOTE, pcsOf, type ClubScope } from './scope';
 import type { AnalyticsSettings } from './settings';
 
 export interface OverviewTile {
@@ -37,12 +39,14 @@ export interface OverviewTile {
 /** Лучших и худших дней (§4). */
 const BEST = 3;
 /** Ссылка плитки по отчёту: метрики журнала — «Прибыль». */
-const REPORT_HREF: Partial<Record<TileDef['report'], string>> = { revenue: 'club/revenue', load: 'club/load', journal: 'pnl' };
+const REPORT_HREF: Partial<Record<TileDef['report'], string>> = { revenue: 'club/revenue', load: 'club/load', guests: 'club/guests', journal: 'pnl' };
+/** Плитки-средние (§2.2, R8): Δ — как у среднего, без «≈». */
+const AVG_TILES = new Set(['revenuePerPcDay', 'revenuePerGuest', 'visitDuration', 'visitsPerGuest']);
 
 const total = (xs: readonly (number | null)[]): number | null => (xs.every((x) => x === null) ? null : xs.reduce<number>((t, x) => t + (x ?? 0), 0));
 const ratio = (a: number | null, b: number | null): number | null => (a === null || b === null || b === 0 ? null : a / b);
 
-const tileKind = (t: TileDef): OverviewTile['kind'] => (t.unit === 'percent' ? 'share' : t.key === 'revenuePerPcDay' ? 'avg' : 'sum');
+const tileKind = (t: TileDef): OverviewTile['kind'] => (t.unit === 'percent' ? 'share' : AVG_TILES.has(t.key) ? 'avg' : 'sum');
 
 /** Метрики журнала периода (§4): расходы на зарплату и аренду проектов-клубов. */
 interface Journal {
@@ -57,13 +61,35 @@ export interface LoadFigures {
   heatmap: (number | null)[][];
 }
 
-/** Период «Обзора»: части выручки по дням и загрузка. */
-type Period = ClubDays & { load: LoadFigures };
+/** Гости периода для «Обзора» (§4): за период и по дням. */
+export interface GuestDayFigures {
+  total: GuestFigures;
+  byDay: GuestFigures[];
+}
+
+/** Период «Обзора»: части выручки по дням, загрузка и — если есть плитки гостей — гости. */
+type Period = ClubDays & { load: LoadFigures; guests: GuestDayFigures | null };
 
 export function loadFigures(l: ClubLoadData): LoadFigures {
   const all = sumZones(l.occ, l.days.length);
   return { total: loadTotal(all, l.seats, l.cov), byDay: loadByDay(all, l.seats, l.cov), heatmap: loadHeatmap(all, l.seats, l.days, l.cov) };
 }
+
+export function guestFigures(g: ClubGuestsData, tz: string): GuestDayFigures {
+  const [total] = guestBuckets(g.visits, g.first, [{ from: g.days[0]!, to: g.days.at(-1)! }], tz);
+  return { total: total!, byDay: guestBuckets(g.visits, g.first, g.days.map((day) => ({ from: day, to: day })), tz) };
+}
+
+/** Ряд гостей по дням (§4): день без данных выручки — null. */
+const guestDaily = (d: Period, f: (x: GuestFigures, i: number) => number | null) => d.guests!.byDay.map((x, i) => (d.revenueCoverage[i] === 'none' ? null : f(x, i)));
+
+/** Плитка гостей: значение — по итогу периода, ряд — по дням. */
+const guestMeasure =
+  (f: (x: GuestFigures, d: Period, i: number | null) => number | null): Measure =>
+  (d) => ({ value: f(d.guests!.total, d, null), spark: guestDaily(d, (x, i) => f(x, d, i)) });
+
+/** Выручка периода (`i` = null) или дня. */
+const revenueOf = (d: Period, i: number | null) => (i === null ? total(d.parts.revenue) : (d.parts.revenue[i] ?? null));
 
 type Measure = (d: Period, pcs: number, j: Journal | null) => { value: number | null; spark: (number | null)[] };
 
@@ -76,6 +102,12 @@ const MEASURES: Record<string, Measure> = {
   revenuePerPcDay: ({ parts: { hours } }, pcs) => ({ value: ratio(total(hours), pcs * hours.filter((h) => h !== null).length), spark: hours.map((h) => ratio(h, pcs)) }),
   payrollToRevenue: (d, _, j) => ({ value: j && ratio(j.payroll, total(d.parts.revenue)), spark: [] }),
   rentToRevenue: (d, _, j) => ({ value: j && ratio(j.rent, total(d.parts.revenue)), spark: [] }),
+  guests: guestMeasure((x) => x.guests),
+  newGuests: guestMeasure((x) => x.newGuests),
+  revenuePerGuest: guestMeasure((x, d, i) => ratio(revenueOf(d, i), x.guests)),
+  visitDuration: guestMeasure((x) => ratio(x.visitSec, x.visits)),
+  visitsPerGuest: guestMeasure((x) => ratio(x.visits, x.guests)),
+  returningShare: guestMeasure((x) => ratio(x.returning, x.guests)),
 };
 
 /** Почему плитка недоступна (§15, §6.1): нет её отчёта, количества ПК или расчёта; доступна — null. */
@@ -162,6 +194,13 @@ export function overviewSheets(data: OverviewReport, q: OverviewQuery): XlsxShee
   ];
 }
 
+/** Части выручки по дням и загрузка периода; гости — только если среди плиток есть плитки гостей (как журнал). */
+async function overviewPeriod(db: Db, tz: string, c: { companyId: number; scope: ClubScope; now: string; withGuests: boolean }, from: string, to: string): Promise<Period> {
+  const ids = c.scope.offices.map((o) => o.id);
+  const [days, load, guests] = await Promise.all([clubDays(db, tz, ids, from, to), clubLoad(db, tz, c.scope, from, to, c.now), c.withGuests ? clubGuests(db, tz, c.companyId, c.scope, from, to, c.now) : null]);
+  return { ...days, load: loadFigures(load), guests: guests && guestFigures(guests, tz) };
+}
+
 export function createClubOverview(d: { db: Db; timezone: string; now: () => Date; settings: AnalyticsSettings; analytics: Pick<AnalyticsService, 'dealTotal'> }) {
   const { db, timezone: tz } = d;
 
@@ -193,11 +232,7 @@ export function createClubOverview(d: { db: Db; timezone: string; now: () => Dat
     return { cur: await journal(companyId, projectIds, range, cats), prev: prevRange ? await journal(companyId, projectIds, prevRange, cats) : null };
   }
 
-  /** Части выручки по дням и загрузка периода. */
-  async function periodOf(scope: Awaited<ReturnType<typeof clubScope>>, ids: number[], from: string, to: string, now: string): Promise<Period> {
-    const [days, load] = await Promise.all([clubDays(db, tz, ids, from, to), clubLoad(db, tz, scope, from, to, now)]);
-    return { ...days, load: loadFigures(load) };
-  }
+  const periodOf = (companyId: number, scope: ClubScope, from: string, to: string, now: string, withGuests: boolean) => overviewPeriod(db, tz, { companyId, scope, now, withGuests }, from, to);
 
   /** Видимые плитки шаблона в порядке настройки (§10.2). */
   async function visibleTiles(companyId: number): Promise<TileDef[]> {
@@ -208,11 +243,11 @@ export function createClubOverview(d: { db: Db; timezone: string; now: () => Dat
     /** «Обзор клуба» (§4, §11). */
     async overview(companyId: number, q: OverviewQuery) {
       await requireCompany(db, companyId);
-      const scope = await clubScope(db, companyId, q.project);
-      const ids = scope.offices.map((o) => o.id);
+      const [scope, defs] = await Promise.all([clubScope(db, companyId, q.project), visibleTiles(companyId)]);
       const prevRange = previousRange(q.from, q.to);
       const now = d.now().toISOString();
-      const [cur, prev, defs] = await Promise.all([periodOf(scope, ids, q.from, q.to, now), q.compare ? periodOf(scope, ids, prevRange.from, prevRange.to, now) : null, visibleTiles(companyId)]);
+      const withGuests = defs.some((t) => t.report === 'guests');
+      const [cur, prev] = await Promise.all([periodOf(companyId, scope, q.from, q.to, now, withGuests), q.compare ? periodOf(companyId, scope, prevRange.from, prevRange.to, now, withGuests) : null]);
       const j = await journalOf(companyId, scope.projects.map((p) => p.id), defs, { from: q.from, to: q.to }, q.compare ? prevRange : null);
       const today = localParts(now, tz).day;
       const approx = approxOf(cur.coverage, prev?.coverage ?? null, today);
