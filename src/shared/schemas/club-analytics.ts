@@ -104,3 +104,12 @@ export type GuestLinkInput = z.output<typeof guestLinkInputSchema>;
 /** `GET …/club-analytics/guests` (§7): период, шаг, клуб, сравнение; разреза нет. */
 export const guestsQuerySchema = z.object(clubShape).superRefine(checkPeriod);
 export type GuestsQuery = z.output<typeof guestsQuerySchema>;
+
+/** `GET …/club-analytics/guests/:guest` (§7.4): визиты гостя за период клуба. */
+export const guestCardQuerySchema = z.object({ from: clubShape.from, to: clubShape.to, project: clubShape.project }).superRefine((v, ctx) => {
+  checkRange(v, ctx);
+});
+export type GuestCardQuery = z.output<typeof guestCardQuerySchema>;
+
+/** `GET …/club-analytics/guests/search` (§7.1): логин или последние цифры телефона. */
+export const guestSearchQuerySchema = z.object({ q: z.string().trim().min(2, 'Не короче 2 знаков').max(50, 'Не длиннее 50 знаков') });

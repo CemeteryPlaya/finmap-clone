@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { keyRef } from '../../src/server/modules/club-analytics/guest-links';
 import { guestsSheets } from '../../src/server/modules/club-analytics/guests';
 import { guestsQuerySchema } from '../../src/shared/schemas/club-analytics';
 import { CLUB_DATA, clubWorld, T, type ClubWorld } from '../helpers/club-senet';
@@ -116,6 +117,49 @@ describe('отчёт «Гости»', () => {
     expect(revenue).toBeGreaterThan(0);
     expect(tile(r, 'revenuePerGuest')!.value).toBe(revenue);
     expect(tile(r, 'refillsPerGuest')!.value).toBe(T(1_500));
+  });
+
+  it('карточка гостя по ссылке любого его ключа; после «Разделить» — правка в карточке; неизвестный — 404', async () => {
+    x = await clubWorld(EMPTY);
+    await seed();
+    const q = 'from=2026-11-02&to=2026-11-08';
+    const card = async (ref: string) => x!.w.h.req('GET', `${x!.c}/club-analytics/guests/${ref}?${q}`);
+    const res = await card(keyRef('login:b'));
+    expect(res.statusCode, res.body).toBe(200);
+    const c = res.json();
+    expect(c.ref).toBe(keyRef('login:a'));
+    expect(c.logins.map((l: { login: string }) => l.login)).toEqual(['a', 'b']);
+    expect(c.phones).toEqual([{ ref: keyRef('phone:hash-ab-11'), mask: '+7 *** ** 11' }]);
+    expect(c.visits.map((v: { startAt: string }) => v.startAt)).toEqual([t('2026-11-05T18:00'), t('2026-11-02T18:00')]);
+    expect(c.visits[0].places).toBe('VIP · ПК 1');
+    const top = (await report(`${q}&compare=0`)).top.find((g: { ref: string }) => g.ref === c.ref);
+    expect(c.totals).toEqual({ visits: 2, visitSec: 7200, spent: top.spent, refilled: top.refilled });
+    expect(JSON.stringify(c)).not.toMatch(/hash-/);
+
+    const split = await x.w.h.req('POST', `${x.c}/club-analytics/guests/links`, { kind: 'split', a: keyRef('phone:hash-ab-11'), b: c.ref });
+    expect(split.statusCode, split.body).toBe(200);
+    const after = (await card(c.ref)).json();
+    expect(after.logins.map((l: { login: string }) => l.login)).toEqual(['a']);
+    expect(after.edits).toEqual([{ id: split.json().id, kind: 'split', label: 'Вынут: +7 *** ** 11', createdAt: expect.any(String) }]);
+    const merge = await x.w.h.req('POST', `${x.c}/club-analytics/guests/links`, { kind: 'merge', a: c.ref, b: keyRef('login:c') });
+    expect(merge.statusCode, merge.body).toBe(200);
+    const merged = (await card(c.ref)).json();
+    expect(merged.logins.map((l: { login: string }) => l.login)).toEqual(['a', 'c']);
+    expect(merged.edits.map((e: { label: string }) => e.label)).toEqual(['Вынут: +7 *** ** 11', 'Объединены: a и c']);
+    expect((await card('0123456789abcdef')).statusCode).toBe(404);
+  });
+
+  it('поиск гостей: по логину и последним цифрам телефона; общий логин не предлагается', async () => {
+    x = await clubWorld(EMPTY);
+    await seed();
+    await session(x.office, '2026-11-07T18:00', 'guest001', 'hash-x-12');
+    const search = async (q: string) => x!.w.h.req('GET', `${x!.c}/club-analytics/guests/search?q=${encodeURIComponent(q)}`);
+    const byLogin = (await search('GUE')).json();
+    expect(byLogin.map((g: { logins: string[] }) => g.logins)).toEqual([['guest001']]);
+    const byPhone = (await search('12')).json();
+    expect(byPhone).toEqual([{ ref: keyRef('login:guest001'), logins: ['guest001'], masks: ['+7 *** ** 12'], lastAt: expect.any(String) }]);
+    expect(JSON.stringify(byPhone)).not.toMatch(/hash-/);
+    expect((await search('a')).statusCode).toBe(400);
   });
 
   it('хешей телефонов нет ни в ответе, ни в Excel; Excel скачивается', async () => {

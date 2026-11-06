@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../../db/client';
-import { guestLinkInputSchema, guestsQuerySchema, loadQuerySchema, loadRowsQuerySchema, overviewQuerySchema, revenueQuerySchema, revenueRowsQuerySchema, zonesInputSchema } from '../../../shared/schemas/club-analytics';
+import { guestCardQuerySchema, guestLinkInputSchema, guestSearchQuerySchema, guestsQuerySchema, loadQuerySchema, loadRowsQuerySchema, overviewQuerySchema, revenueQuerySchema, revenueRowsQuerySchema, zonesInputSchema } from '../../../shared/schemas/club-analytics';
 import { type Downloads, inlineDownloads, sendFile } from '../../http/download';
 import { parseId } from '../../http/params';
 import type { GuestLinksService } from './guest-links';
@@ -53,6 +53,10 @@ export function registerClubAnalyticsRoutes(app: FastifyInstance, deps: { db: Db
   // «Гости» (§7, §11): отчёт, Excel
   app.get<C>(`${BASE}/guests`, async (req) => deps.guests.guests(parseId(req.params.cid), guestsQuerySchema.parse(req.query)));
   app.get<C>(`${BASE}/guests.xlsx`, async (req, reply) => sendFile(reply, await deps.guests.xlsx(parseId(req.params.cid), guestsQuerySchema.parse(req.query)), deps.downloads ?? inlineDownloads));
+
+  // поиск гостей для «Это один гость» и карточка гостя (§7.1, §7.4); поиск — раньше карточки
+  app.get<C>(`${BASE}/guests/search`, async (req) => deps.guests.search(parseId(req.params.cid), guestSearchQuerySchema.parse(req.query).q));
+  app.get<{ Params: { cid: string; guest: string } }>(`${BASE}/guests/:guest`, async (req) => deps.guests.card(parseId(req.params.cid), req.params.guest, guestCardQuerySchema.parse(req.query)));
 
   // правки гостей (§7.1, §11): «Это один гость», «Разделить», снять правку
   app.post<C>(`${BASE}/guests/links`, async (req) => deps.links.create(parseId(req.params.cid), guestLinkInputSchema.parse(req.body), req.user!.id));

@@ -7,7 +7,7 @@ import { ageBuckets, cohorts, firstVisits, guestBuckets, lastAges, visitsOf, typ
 import { localParts } from '../../../shared/club-analytics/hours';
 import { addDays } from '../../../shared/dates';
 import { reportColumns, type ReportStep } from '../../../shared/report-engine';
-import type { GuestsQuery } from '../../../shared/schemas/club-analytics';
+import type { GuestCardQuery, GuestsQuery } from '../../../shared/schemas/club-analytics';
 import type { Db } from '../../db/client';
 import { senetLoad, senetRefills, senetTickets } from '../../db/schema';
 import { exportFileName } from '../../http/export-name';
@@ -15,7 +15,8 @@ import { buildXlsx, type XlsxCell, type XlsxSheet } from '../../http/xlsx';
 import { requireCompany } from '../companies/guard';
 import { excelDate, minorToDecimal } from '../operations/journal-export';
 import { reportInfo } from '../analytics/report-export';
-import { companyGuests, keyRef, type CompanyGuests } from './guest-links';
+import { AppError } from '../../errors';
+import { companyGuests, guestLinks, keyLabel, keyRef, type CompanyGuests, type StoredLink } from './guest-links';
 import { bounds, coverageOf, coverageSummary } from './load';
 import { clubDays } from './revenue';
 import { clubScope, type ClubScope } from './scope';
@@ -284,6 +285,76 @@ export function guestsSheets(data: Pick<GuestsReport, 'top' | 'cohorts'>, q: Gue
   ];
 }
 
+/** Номер гостя по ссылке любого его ключа (R25). */
+export function guestOfRef(g: Guests, ref: string): number | undefined {
+  const key = [...g.of.keys()].find((k) => keyRef(k) === ref);
+  return key === undefined ? undefined : g.of.get(key);
+}
+
+const placeOf = (s: GuestSession) => (s.workstation === null ? s.zone : `${s.zone} · ПК ${s.workstation}`);
+
+/**
+ * Правки гостя (§7.4): `merge` с его ключом; `split` ключа, который в данных был в паре с его ключом — правка видна в
+ * карточке, из которой ключ вынули.
+ */
+export function guestEdits(keys: readonly string[], links: readonly StoredLink[], pairs: readonly KeyPair[]) {
+  const own = new Set(keys);
+  const near = nearKeys(own, pairs);
+  return links.filter((l) => (l.kind === 'merge' ? own.has(l.a) || own.has(l.b) : near.has(l.a))).map((l) => ({ id: l.id, kind: l.kind, label: editLabel(l, pairs), createdAt: l.createdAt }));
+}
+
+/** Ключи гостя и ключи, бывшие с ними в одной паре. */
+function nearKeys(own: ReadonlySet<string>, pairs: readonly KeyPair[]): Set<string> {
+  const near = new Set(own);
+  for (const p of pairs) {
+    const both = [loginKey(p.login), phoneKey(p.phoneHash)];
+    if (both.some((k) => k !== null && own.has(k))) both.forEach((k) => k && near.add(k));
+  }
+  return near;
+}
+
+const editLabel = (l: StoredLink, pairs: readonly KeyPair[]) => (l.kind === 'merge' ? `Объединены: ${keyLabel(l.a, pairs)} и ${keyLabel(l.b, pairs)}` : `Вынут: ${keyLabel(l.a, pairs)}`);
+
+/** Карточка гостя (§7.4): ключи с подписями, визиты периода (новые сверху), итоги, правки. */
+export function guestCard(d: ClubGuestsData, guest: number, links: readonly StoredLink[], q: Pick<GuestCardQuery, 'from' | 'to'>, tz: string) {
+  const keys = d.guests.keys[guest]!;
+  const visits = d.visits.filter((v) => v.guest === guest && localParts(v.startAt, tz).day >= q.from && localParts(v.startAt, tz).day <= q.to).reverse();
+  const names = (k: string) => namesOf([k], d.pairs).logins[0] ?? keyLabel(k, d.pairs);
+  return {
+    ref: keyRef(keys[0]!),
+    logins: keys.filter((k) => k.startsWith('login:')).map((k) => ({ ref: keyRef(k), login: names(k) })),
+    phones: keys.filter((k) => k.startsWith('phone:')).map((k) => ({ ref: keyRef(k), mask: keyLabel(k, d.pairs) })),
+    visits: visits.map((v) => ({ startAt: v.startAt, endAt: v.endAt, places: [...new Set(v.sessions.map(placeOf))].join(', '), spent: v.sessions.reduce((t, s) => t + s.debited, 0) })),
+    totals: { visits: visits.length, visitSec: visits.reduce((t, v) => t + (Date.parse(v.endAt) - Date.parse(v.startAt)) / 1000, 0), spent: d.spent.get(guest) ?? 0, refilled: d.refilled.get(guest) ?? 0 },
+    edits: guestEdits(keys, links, d.pairs),
+  };
+}
+
+const SEARCH_MAX = 10;
+
+/** Подходит ли гость к запросу: логин содержит текст или цифры запроса — конец цифр маски. */
+function matches(n: { logins: string[]; masks: string[] }, text: string, digits: string): boolean {
+  if (n.logins.some((l) => l.toLocaleLowerCase('ru').includes(text))) return true;
+  return digits !== '' && n.masks.some((m) => m.replace(/\D/g, '').endsWith(digits));
+}
+
+/** Последнее время пар гостя. */
+function lastAtOf(keys: readonly string[], pairs: readonly KeyPair[]): string {
+  const own = new Set(keys);
+  return pairs.filter((p) => own.has(loginKey(p.login) ?? '') || own.has(phoneKey(p.phoneHash) ?? '')).reduce((m, p) => (p.lastAt > m ? p.lastAt : m), '');
+}
+
+/** Поиск гостей компании (§7.1): логин содержит `q` или цифры `q` — конец цифр маски; недавние первыми. */
+export function searchGuests(cg: Pick<CompanyGuests, 'guests' | 'pairs'>, q: string) {
+  const text = q.trim().toLocaleLowerCase('ru');
+  const digits = /^[\d\s+]+$/.test(text) ? text.replace(/\D/g, '') : '';
+  const found = cg.guests.keys
+    .map((keys) => ({ keys, n: namesOf(keys, cg.pairs) }))
+    .filter((g) => matches(g.n, text, digits))
+    .map((g) => ({ ref: keyRef(g.keys[0]!), ...g.n, lastAt: lastAtOf(g.keys, cg.pairs) }));
+  return found.sort((a, b) => b.lastAt.localeCompare(a.lastAt)).slice(0, SEARCH_MAX);
+}
+
 const sumOf = (xs: readonly (number | null)[]): number | null => (xs.every((x) => x === null) ? null : xs.reduce<number>((t, x) => t + (x ?? 0), 0));
 
 export function createClubGuests(d: { db: Db; timezone: string; now: () => Date }) {
@@ -309,6 +380,22 @@ export function createClubGuests(d: { db: Db; timezone: string; now: () => Date 
       ]);
       const approx = guestsApprox(cur, prev, localParts(now, tz).day);
       return { ...buildGuestsReport(cur, prev, { cur: mCur, prev: mPrev }, q, { approx, tz, now }), freshness: scope.freshness };
+    },
+
+    /** Карточка гостя (§7.4); гость не найден — 404. */
+    async card(companyId: number, ref: string, q: GuestCardQuery) {
+      await requireCompany(db, companyId);
+      const scope = await clubScope(db, companyId, q.project);
+      const [data, links] = await Promise.all([clubGuests(db, tz, companyId, scope, q.from, q.to, d.now().toISOString()), guestLinks(db, companyId)]);
+      const guest = guestOfRef(data.guests, ref);
+      if (guest === undefined) throw new AppError(404, 'NOT_FOUND', 'Гость не найден');
+      return guestCard(data, guest, links, q, tz);
+    },
+
+    /** Поиск для «Это один гость» (§7.1): по всем клубам компании. */
+    async search(companyId: number, q: string) {
+      await requireCompany(db, companyId);
+      return searchGuests(await companyGuests(db, companyId, d.now().toISOString()), q);
     },
 
     /** Excel: постоянные гости и когорты. */
