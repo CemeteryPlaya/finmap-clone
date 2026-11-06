@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cohortMonthText, shareText, sortGuests, unassignedText, type GuestRowView } from '../../src/client/lib/club-guests';
+import { cohortMonthText, shareText, sortGuests, unassignedText, visitTimeText, type GuestRowView } from '../../src/client/lib/club-guests';
 
 const row = (ref: string, over: Partial<GuestRowView> = {}): GuestRowView => ({
   ref,
@@ -30,6 +30,14 @@ describe('sortGuests', () => {
   it('исходный список не меняется', () => {
     sortGuests(rows, 'visits', 'asc');
     expect(rows.map((r) => r.ref)).toEqual(['b', 'a', 'c']);
+  });
+});
+
+describe('visitTimeText', () => {
+  const t = (local: string) => new Date(`${local}:00+05:00`).toISOString();
+  it('визит в один день и через полночь — по часам клуба', () => {
+    expect(visitTimeText(t('2026-11-03T20:05'), t('2026-11-03T23:40'), 'Asia/Almaty')).toBe('03.11 20:05–23:40');
+    expect(visitTimeText(t('2026-11-03T23:30'), t('2026-11-04T01:10'), 'Asia/Almaty')).toBe('03.11 23:30–04.11 01:10');
   });
 });
 

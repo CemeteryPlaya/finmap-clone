@@ -2,6 +2,7 @@ import type { CohortRow } from '../../shared/club-analytics/guests';
 import type { ReportColumn, ReportStep } from '../../shared/report-engine';
 import type { ClubCoverage, ClubReportBase } from './club-analytics';
 import type { OverviewTile } from './club-overview';
+import { zoneOffsetMs } from '../../shared/dates';
 import { pluralRu } from './journal-format';
 import { marginText } from './stock-analytics';
 
@@ -69,4 +70,35 @@ const sessions = (n: number) => `${n} ${pluralRu(n, 'сеанс', 'сеанса'
 export function unassignedText(u: { noGuest: number; shared: number }): string | null {
   const parts = [u.noGuest ? `Без гостя: ${sessions(u.noGuest)}` : '', u.shared ? `Общие логины: ${sessions(u.shared)}` : ''].filter(Boolean);
   return parts.length ? parts.join(' · ') : null;
+}
+
+/** Местные «ДД.ММ» и «ЧЧ:ММ» момента. */
+function localDayTime(iso: string, timeZone: string): { day: string; time: string } {
+  const t = Date.parse(iso);
+  const local = new Date(t + zoneOffsetMs(t, timeZone)).toISOString();
+  return { day: `${local.slice(8, 10)}.${local.slice(5, 7)}`, time: local.slice(11, 16) };
+}
+
+/** Время визита в карточке (§7.4): «03.11 20:05–23:40»; через полночь — «03.11 23:30–04.11 01:10». */
+export function visitTimeText(startAt: string, endAt: string, timeZone: string): string {
+  const [a, b] = [localDayTime(startAt, timeZone), localDayTime(endAt, timeZone)];
+  return `${a.day} ${a.time}–${a.day === b.day ? '' : `${b.day} `}${b.time}`;
+}
+
+/** Ответ `GET …/club-analytics/guests/:guest` (§7.4). */
+export interface GuestCardView {
+  ref: string;
+  logins: { ref: string; login: string }[];
+  phones: { ref: string; mask: string }[];
+  visits: { startAt: string; endAt: string; places: string; spent: number }[];
+  totals: { visits: number; visitSec: number; spent: number; refilled: number };
+  edits: { id: number; kind: 'merge' | 'split'; label: string; createdAt: string }[];
+}
+
+/** Гость поиска «Это один гость» (§7.1). */
+export interface GuestFound {
+  ref: string;
+  logins: string[];
+  masks: string[];
+  lastAt: string;
 }

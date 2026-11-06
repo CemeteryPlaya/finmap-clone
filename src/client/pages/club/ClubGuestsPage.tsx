@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router';
 import { CLUB_DASHBOARDS } from '../../../shared/analytics-catalog';
 import { StackedBars } from '../../components/charts/StackedBars';
 import { CohortTable } from '../../components/club/CohortTable';
+import { GuestCard } from '../../components/club/GuestCard';
 import { GuestsTable } from '../../components/club/GuestsTable';
 import { Tile } from '../../components/club/Tile';
 import { shareText, unassignedText, type GuestsView } from '../../lib/club-guests';
@@ -34,7 +35,7 @@ function Ages(props: { ages: GuestsView['ages'] }) {
 }
 
 /** Плитки, график новых и вернувшихся или таблица постоянных гостей; под ними — когорты и возраст. */
-function GuestsBody({ ctx }: { ctx: ClubReportContext<GuestsView> }) {
+function GuestsBody({ ctx, companyId, archived }: { ctx: ClubReportContext<GuestsView>; companyId: number; archived: boolean }) {
   const { data, state } = ctx;
   const [open, setOpen] = useState<string | null>(null);
   useEffect(() => setOpen(null), [ctx.apiParams]);
@@ -66,6 +67,19 @@ function GuestsBody({ ctx }: { ctx: ClubReportContext<GuestsView> }) {
       </ul>
       {unassigned && <p className="mb-4 text-sm text-muted">{unassigned}</p>}
       {body}
+      {state.view === 'table' && open && (
+        <GuestCard
+          companyId={companyId}
+          guestRef={open}
+          apiParams={ctx.apiParams}
+          timeZone={ctx.timeZone}
+          archived={archived}
+          onClose={() => {
+            setOpen(null);
+            document.querySelector<HTMLElement>('h1')?.focus();
+          }}
+        />
+      )}
       <CohortTable rows={data.cohorts} busy={ctx.busy} />
       <Ages ages={data.ages} />
     </>
@@ -77,7 +91,7 @@ export function ClubGuestsPage() {
   const { company } = useOutletContext<CompanyOutletContext>();
   return (
     <ClubReportScreen<GuestsView> key={company.id} company={company} title={TITLE} subtitle={CARD.description} help={HELP} report="guests" stepIn={CHART_ONLY} views={VIEWS} excel>
-      {(ctx) => <GuestsBody ctx={ctx} />}
+      {(ctx) => <GuestsBody ctx={ctx} companyId={company.id} archived={company.archivedAt !== null} />}
     </ClubReportScreen>
   );
 }
