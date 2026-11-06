@@ -100,3 +100,7 @@ const guestRef = z.string().regex(/^[0-9a-f]{16}$/, 'Гость не найде�
 /** `POST …/club-analytics/guests/links` (§7.1, R18): `merge` — гости `a` и `b`; `split` — ключ `a` из гостя `b`. */
 export const guestLinkInputSchema = z.object({ kind: z.enum(['merge', 'split']), a: guestRef, b: guestRef });
 export type GuestLinkInput = z.output<typeof guestLinkInputSchema>;
+
+/** `GET …/club-analytics/guests` (§7): период, шаг, клуб, сравнение; разреза нет. */
+export const guestsQuerySchema = z.object(clubShape).superRefine(checkPeriod);
+export type GuestsQuery = z.output<typeof guestsQuerySchema>;

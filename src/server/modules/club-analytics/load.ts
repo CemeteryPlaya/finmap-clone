@@ -40,7 +40,7 @@ export interface ClubLoadData {
 }
 
 const DAY_MS = 86_400_000;
-const bounds = (from: string, to: string, tz: string) => ({ start: startOfDayUtc(from, tz), end: startOfDayUtc(addDays(to, 1), tz) });
+export const bounds = (from: string, to: string, tz: string) => ({ start: startOfDayUtc(from, tz), end: startOfDayUtc(addDays(to, 1), tz) });
 const mismatch = (zones: number, pcs: number) => `По данным Senet в зонах ${zones} ПК, в проекте — ${pcs}. Проверьте «Количество ПК» или зоны`;
 
 /** Закрытые сеансы клубов, пересекающие `[start, end)`: начатые не раньше чем за 24 ч до начала (R12). */
@@ -62,7 +62,7 @@ async function sessionsOf(db: Db, scope: ClubScope, start: string, end: string):
 const zoneKey = (many: boolean, officeId: number, zone: string) => (many ? `${officeId}:${zone}` : zone);
 
 /** Покрытие дней отчётом `load`: у «Все клубы» день полон, только если полон у каждого клуба (R1). */
-async function coverageOf(db: Db, scope: ClubScope, days: readonly string[], tz: string): Promise<DayCoverage[]> {
+export async function coverageOf(db: Db, scope: ClubScope, days: readonly string[], tz: string): Promise<DayCoverage[]> {
   const ids = scope.offices.map((o) => o.id);
   if (!ids.length) return days.map(() => 'none');
   const { start, end } = bounds(days[0]!, days.at(-1)!, tz);
@@ -163,7 +163,7 @@ export function loadSheets(data: LoadReport, q: LoadQuery): XlsxSheet[] {
   ];
 }
 
-const coverageSummary = (days: readonly string[], cov: readonly DayCoverage[]) => ({
+export const coverageSummary = (days: readonly string[], cov: readonly DayCoverage[]) => ({
   days: days.length,
   withData: cov.filter((c) => c !== 'none').length,
   partial: cov.filter((c) => c === 'partial').length,
