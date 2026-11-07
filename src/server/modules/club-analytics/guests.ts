@@ -140,6 +140,14 @@ export async function clubGuests(db: Db, tz: string, companyId: number, scope: C
   };
 }
 
+/**
+ * Те же гости за другие дни: визиты, первые визиты и связи — за всё время, поэтому для прошлого периода (Δ) и «Обзора»
+ * их не надо забирать заново. Деньги и сеансы без гостя остаются от исходного периода — для цифр плиток они не нужны.
+ */
+export function withDays(d: ClubGuestsData, days: string[], cov: DayCoverage[]): ClubGuestsData {
+  return { ...d, days, cov };
+}
+
 const ratio = (a: number | null, b: number) => (a === null || b === 0 ? null : a / b);
 const dmy = (day: string) => day.split('-').reverse().join('.');
 
@@ -163,6 +171,25 @@ const TILES: { key: string; label: string; unit: TileDef['unit']; kind: GuestTil
 const periodFigures = (d: ClubGuestsData, tz: string) => guestBuckets(d.visits, d.first, [{ from: d.days[0]!, to: d.days.at(-1)! }], tz)[0]!;
 
 /** Гости таблицы (§7.4): логины пар гостя по алфавиту, различные маски его телефонов. */
+export function guestNames(g: Guests, pairs: readonly KeyPair[]): Map<number, { logins: string[]; masks: string[]; lastAt: string }> {
+  const acc = new Map<number, { logins: Set<string>; masks: Set<string>; lastAt: string }>();
+  const entry = (guest: number) => {
+    let e = acc.get(guest);
+    if (!e) acc.set(guest, (e = { logins: new Set(), masks: new Set(), lastAt: '' }));
+    return e;
+  };
+  for (const p of pairs) {
+    const [l, ph] = [loginKey(p.login), phoneKey(p.phoneHash)];
+    const byLogin = l === null ? undefined : g.of.get(l);
+    const byPhone = ph === null ? undefined : g.of.get(ph);
+    if (byLogin !== undefined) entry(byLogin).logins.add(p.login.trim());
+    if (byPhone !== undefined && p.phoneMask) entry(byPhone).masks.add(p.phoneMask);
+    for (const x of new Set([byLogin, byPhone])) if (x !== undefined && p.lastAt > entry(x).lastAt) entry(x).lastAt = p.lastAt;
+  }
+  return new Map([...acc].map(([k, e]) => [k, { logins: [...e.logins].sort((a, b) => a.localeCompare(b, 'ru')), masks: [...e.masks].sort(), lastAt: e.lastAt }]));
+}
+
+/** Логины и маски одного набора ключей (карточка: по ключу). */
 function namesOf(keys: readonly string[], pairs: readonly KeyPair[]) {
   const set = new Set(keys);
   const logins = new Set(pairs.filter((p) => set.has(loginKey(p.login) ?? '')).map((p) => p.login.trim()));
@@ -175,10 +202,16 @@ const TOP = 50;
 /** Топ-50 гостей периода по потраченному (§7.4); при равенстве — больше визитов, затем по ссылке. */
 export function topGuests(d: ClubGuestsData, period: readonly Visit[]): GuestRowView[] {
   const by = new Map<number, Visit[]>();
-  for (const v of period) by.set(v.guest, [...(by.get(v.guest) ?? []), v]);
+  for (const v of period) {
+    const list = by.get(v.guest);
+    if (list) list.push(v);
+    else by.set(v.guest, [v]);
+  }
+  const names = guestNames(d.guests, d.pairs);
   const rows = [...by].map(([g, vs]) => ({
     ref: keyRef(d.guests.keys[g]![0]!),
-    ...namesOf(d.guests.keys[g]!, d.pairs),
+    logins: names.get(g)?.logins ?? [],
+    masks: names.get(g)?.masks ?? [],
     visits: vs.length,
     visitSec: vs.reduce((t, v) => t + (Date.parse(v.endAt) - Date.parse(v.startAt)) / 1000, 0),
     spent: d.spent.get(g) ?? 0,
@@ -338,20 +371,15 @@ function matches(n: { logins: string[]; masks: string[] }, text: string, digits:
   return digits !== '' && n.masks.some((m) => m.replace(/\D/g, '').endsWith(digits));
 }
 
-/** Последнее время пар гостя. */
-function lastAtOf(keys: readonly string[], pairs: readonly KeyPair[]): string {
-  const own = new Set(keys);
-  return pairs.filter((p) => own.has(loginKey(p.login) ?? '') || own.has(phoneKey(p.phoneHash) ?? '')).reduce((m, p) => (p.lastAt > m ? p.lastAt : m), '');
-}
-
 /** Поиск гостей компании (§7.1): логин содержит `q` или цифры `q` — конец цифр маски; недавние первыми. */
 export function searchGuests(cg: Pick<CompanyGuests, 'guests' | 'pairs'>, q: string) {
   const text = q.trim().toLocaleLowerCase('ru');
   const digits = /^[\d\s+]+$/.test(text) ? text.replace(/\D/g, '') : '';
+  const names = guestNames(cg.guests, cg.pairs);
   const found = cg.guests.keys
-    .map((keys) => ({ keys, n: namesOf(keys, cg.pairs) }))
+    .map((keys, i) => ({ keys, n: names.get(i) ?? { logins: [], masks: [], lastAt: '' } }))
     .filter((g) => matches(g.n, text, digits))
-    .map((g) => ({ ref: keyRef(g.keys[0]!), ...g.n, lastAt: lastAtOf(g.keys, cg.pairs) }));
+    .map((g) => ({ ref: keyRef(g.keys[0]!), logins: g.n.logins, masks: g.n.masks, lastAt: g.n.lastAt }));
   return found.sort((a, b) => b.lastAt.localeCompare(a.lastAt)).slice(0, SEARCH_MAX);
 }
 
@@ -372,12 +400,15 @@ export function createClubGuests(d: { db: Db; timezone: string; now: () => Date 
       const scope = await clubScope(db, companyId, q.project);
       const now = d.now().toISOString();
       const p = previousRange(q.from, q.to);
-      const [cur, prev, mCur, mPrev] = await Promise.all([
+      const prevDays = periodDays(p.from, p.to);
+      const [cur, prevCov, mCur, mPrev] = await Promise.all([
         clubGuests(db, tz, companyId, scope, q.from, q.to, now),
-        q.compare ? clubGuests(db, tz, companyId, scope, p.from, p.to, now) : null,
+        q.compare ? coverageOf(db, scope, prevDays, tz) : null,
         moneyOf(scope, q.from, q.to),
         q.compare ? moneyOf(scope, p.from, p.to) : null,
       ]);
+      // визиты за всё время — те же; у прошлого периода свои дни и покрытие
+      const prev = prevCov ? withDays(cur, prevDays, prevCov) : null;
       const approx = guestsApprox(cur, prev, localParts(now, tz).day);
       return { ...buildGuestsReport(cur, prev, { cur: mCur, prev: mPrev }, q, { approx, tz, now }), freshness: scope.freshness };
     },

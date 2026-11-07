@@ -132,7 +132,12 @@ export function cohorts(visits: readonly Visit[], first: ReadonlyMap<number, str
   const seen = new Map<number, Set<string>>();
   for (const v of visits) seen.set(v.guest, (seen.get(v.guest) ?? new Set()).add(monthOf(v.startAt)));
   const byCohort = new Map<string, number[]>();
-  for (const [g, at] of first) byCohort.set(monthOf(at), [...(byCohort.get(monthOf(at)) ?? []), g]);
+  for (const [g, at] of first) {
+    const m = monthOf(at);
+    const list = byCohort.get(m);
+    if (list) list.push(g);
+    else byCohort.set(m, [g]);
+  }
   return months.map((month) => {
     const guests = byCohort.get(month) ?? [];
     const shares = Array.from({ length: AFTER + 1 }, (_, k) => {

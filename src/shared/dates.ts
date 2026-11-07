@@ -66,8 +66,28 @@ export function addDays(date: string, days: number): string {
 /** Форматтеры по поясу: создание Intl.DateTimeFormat дорогое, а выгрузка зовёт zoneOffsetMs на каждую строку. */
 const offsetFormatters = new Map<string, Intl.DateTimeFormat>();
 
+/**
+ * Смещения по 15-минутным отрезкам: смены смещения поясов приходятся на границы четверти часа, а Intl медленный —
+ * аналитика клуба зовёт его на каждый сеанс и визит.
+ */
+const offsetCache = new Map<string, Map<number, number>>();
+const QUARTER = 900_000;
+const CACHE_MAX = 200_000;
+
 /** Смещение пояса timeZone относительно UTC в момент t (мс; местное время минус UTC). */
 export function zoneOffsetMs(t: number, timeZone: string): number {
+  const quarter = Math.floor(t / QUARTER);
+  let cache = offsetCache.get(timeZone);
+  if (!cache) offsetCache.set(timeZone, (cache = new Map()));
+  const hit = cache.get(quarter);
+  if (hit !== undefined) return hit;
+  if (cache.size >= CACHE_MAX) cache.clear();
+  const offset = intlOffsetMs(quarter * QUARTER, timeZone);
+  cache.set(quarter, offset);
+  return offset;
+}
+
+function intlOffsetMs(t: number, timeZone: string): number {
   let fmt = offsetFormatters.get(timeZone);
   if (!fmt) {
     fmt = new Intl.DateTimeFormat('en-US', {

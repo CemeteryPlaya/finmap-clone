@@ -75,9 +75,10 @@ export function loadFigures(l: ClubLoadData): LoadFigures {
   return { total: loadTotal(all, l.seats, l.cov), byDay: loadByDay(all, l.seats, l.cov), heatmap: loadHeatmap(all, l.seats, l.days, l.cov) };
 }
 
-export function guestFigures(g: ClubGuestsData, tz: string): GuestDayFigures {
-  const [total] = guestBuckets(g.visits, g.first, [{ from: g.days[0]!, to: g.days.at(-1)! }], tz);
-  return { total: total!, byDay: guestBuckets(g.visits, g.first, g.days.map((day) => ({ from: day, to: day })), tz) };
+/** Гости дней `days` (§4): визиты и первые визиты — за всё время, поэтому одни данные годятся для любого периода. */
+export function guestFigures(g: Pick<ClubGuestsData, 'visits' | 'first'>, tz: string, days: readonly string[]): GuestDayFigures {
+  const [total] = guestBuckets(g.visits, g.first, [{ from: days[0]!, to: days.at(-1)! }], tz);
+  return { total: total!, byDay: guestBuckets(g.visits, g.first, days.map((day) => ({ from: day, to: day })), tz) };
 }
 
 /** Ряд гостей по дням (§4): день без данных выручки — null. */
@@ -194,11 +195,11 @@ export function overviewSheets(data: OverviewReport, q: OverviewQuery): XlsxShee
   ];
 }
 
-/** Части выручки по дням и загрузка периода; гости — только если среди плиток есть плитки гостей (как журнал). */
-async function overviewPeriod(db: Db, tz: string, c: { companyId: number; scope: ClubScope; now: string; withGuests: boolean }, from: string, to: string): Promise<Period> {
+/** Части выручки по дням и загрузка периода; гости — по визитам за всё время, загруженным один раз на оба периода. */
+async function overviewPeriod(db: Db, tz: string, c: { scope: ClubScope; now: string; guests: Promise<ClubGuestsData | null> }, from: string, to: string): Promise<Period> {
   const ids = c.scope.offices.map((o) => o.id);
-  const [days, load, guests] = await Promise.all([clubDays(db, tz, ids, from, to), clubLoad(db, tz, c.scope, from, to, c.now), c.withGuests ? clubGuests(db, tz, c.companyId, c.scope, from, to, c.now) : null]);
-  return { ...days, load: loadFigures(load), guests: guests && guestFigures(guests, tz) };
+  const [days, load, guests] = await Promise.all([clubDays(db, tz, ids, from, to), clubLoad(db, tz, c.scope, from, to, c.now), c.guests]);
+  return { ...days, load: loadFigures(load), guests: guests && guestFigures(guests, tz, days.days) };
 }
 
 export function createClubOverview(d: { db: Db; timezone: string; now: () => Date; settings: AnalyticsSettings; analytics: Pick<AnalyticsService, 'dealTotal'> }) {
@@ -232,7 +233,7 @@ export function createClubOverview(d: { db: Db; timezone: string; now: () => Dat
     return { cur: await journal(companyId, projectIds, range, cats), prev: prevRange ? await journal(companyId, projectIds, prevRange, cats) : null };
   }
 
-  const periodOf = (companyId: number, scope: ClubScope, from: string, to: string, now: string, withGuests: boolean) => overviewPeriod(db, tz, { companyId, scope, now, withGuests }, from, to);
+  const periodOf = (scope: ClubScope, from: string, to: string, now: string, guests: Promise<ClubGuestsData | null>) => overviewPeriod(db, tz, { scope, now, guests }, from, to);
 
   /** Видимые плитки шаблона в порядке настройки (§10.2). */
   async function visibleTiles(companyId: number): Promise<TileDef[]> {
@@ -246,8 +247,9 @@ export function createClubOverview(d: { db: Db; timezone: string; now: () => Dat
       const [scope, defs] = await Promise.all([clubScope(db, companyId, q.project), visibleTiles(companyId)]);
       const prevRange = previousRange(q.from, q.to);
       const now = d.now().toISOString();
-      const withGuests = defs.some((t) => t.report === 'guests');
-      const [cur, prev] = await Promise.all([periodOf(companyId, scope, q.from, q.to, now, withGuests), q.compare ? periodOf(companyId, scope, prevRange.from, prevRange.to, now, withGuests) : null]);
+      // гости — только если среди плиток есть плитки гостей (как журнал); визиты за всё время — одни на оба периода
+      const guests = defs.some((t) => t.report === 'guests') ? clubGuests(db, tz, companyId, scope, q.from, q.to, now) : Promise.resolve(null);
+      const [cur, prev] = await Promise.all([periodOf(scope, q.from, q.to, now, guests), q.compare ? periodOf(scope, prevRange.from, prevRange.to, now, guests) : null]);
       const j = await journalOf(companyId, scope.projects.map((p) => p.id), defs, { from: q.from, to: q.to }, q.compare ? prevRange : null);
       const today = localParts(now, tz).day;
       const approx = approxOf(cur.coverage, prev?.coverage ?? null, today);

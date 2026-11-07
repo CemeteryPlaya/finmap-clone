@@ -83,7 +83,9 @@ class Sets {
     const out = new Map<GuestKey, GuestKey[]>();
     for (const k of this.parent.keys()) {
       const r = this.find(k);
-      out.set(r, [...(out.get(r) ?? []), k]);
+      const group = out.get(r);
+      if (group) group.push(k);
+      else out.set(r, [k]);
     }
     return [...out.values()].map((ks) => ks.sort(byKey)).sort((a, b) => byKey(a[0]!, b[0]!));
   }

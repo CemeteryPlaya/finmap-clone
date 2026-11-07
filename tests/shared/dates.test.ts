@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { addDays, formatDateRu, formatDateShortRu, formatDateTime, formatDateTimeField, formatDateTimeSec, isValidDate, parseTimeInput, timeOfDay, startOfDayUtc, todayInTimezone, zoneOffsetMs } from '../../src/shared/dates';
 
 describe('todayInTimezone', () => {
@@ -69,6 +69,25 @@ describe('zoneOffsetMs', () => {
   it('смещение в момент времени, миллисекунды не мешают', () => {
     expect(zoneOffsetMs(Date.parse('2026-10-05T05:00:00.500Z'), 'Asia/Almaty')).toBe(5 * 3600_000);
     expect(zoneOffsetMs(Date.parse('2024-01-15T05:00:00.000Z'), 'Asia/Almaty')).toBe(6 * 3600_000);
+  });
+
+  it('смена смещения в Алматы 01.03.2024 (UTC+6 → UTC+5): до и после — свои, повторный вызов — то же', () => {
+    const switchAt = Date.parse('2024-02-29T18:00:00.000Z');
+    for (let i = 0; i < 2; i++) {
+      expect(zoneOffsetMs(switchAt - 1000, 'Asia/Almaty')).toBe(6 * 3600_000);
+      expect(zoneOffsetMs(switchAt, 'Asia/Almaty')).toBe(5 * 3600_000);
+      expect(zoneOffsetMs(switchAt + 7 * 60_000, 'Asia/Almaty')).toBe(5 * 3600_000);
+    }
+    expect(zoneOffsetMs(switchAt, 'UTC')).toBe(0);
+  });
+
+  it('Intl — не чаще раза на четверть часа (расчёты «Гостей» зовут его на каждый визит)', () => {
+    const spy = vi.spyOn(Intl.DateTimeFormat.prototype, 'formatToParts');
+    const from = Date.parse('2027-01-01T00:00:00.000Z');
+    // 200 000 моментов через 157 с — около 34 900 четвертей часа
+    for (let i = 0; i < 200_000; i++) zoneOffsetMs(from + i * 157_000, 'Asia/Almaty');
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(Math.ceil((200_000 * 157_000) / 900_000) + 1);
+    spy.mockRestore();
   });
 });
 
