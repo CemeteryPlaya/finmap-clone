@@ -58,7 +58,7 @@ export interface GuestFigures {
 }
 
 /** Корзина, в которую попадает день: корзины по возрастанию и не пересекаются; вне корзин — -1. */
-function bucketOf(day: string, buckets: readonly { from: string; to: string }[]): number {
+export function bucketOf(day: string, buckets: readonly { from: string; to: string }[]): number {
   let lo = 0;
   let hi = buckets.length - 1;
   while (lo <= hi) {
