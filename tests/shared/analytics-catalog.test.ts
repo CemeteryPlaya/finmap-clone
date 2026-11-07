@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLUB_TILES, resolveDashboards, resolveTiles } from '../../src/shared/analytics-catalog';
+import { BUILT_CLUB_REPORTS, CLUB_DASHBOARDS, CLUB_TILES, resolveDashboards, resolveTiles } from '../../src/shared/analytics-catalog';
 
 /** Каталог дашбордов и плиток (спецификация «Аналитика клуба», §9–§10; план АК-1, задача 2). */
 const AVAILABLE = [
@@ -36,6 +36,15 @@ describe('каталог аналитики', () => {
     expect(saved.items).toHaveLength(16);
     expect(saved.items.find((i) => i.key === 'revenue')).toEqual({ key: 'revenue', visible: true });
     expect(saved.items.find((i) => i.key === 'payrollToRevenue')).toEqual({ key: 'payrollToRevenue', visible: false });
+  });
+
+  it('карточка «Бар» (АК-4): в каталоге последней; отчёт построен; сохранённая настройка без неё — в конце видимой', () => {
+    expect(CLUB_DASHBOARDS.map((d) => d.key)).toEqual(['overview', 'revenue', 'load', 'guests', 'bar']);
+    expect(CLUB_DASHBOARDS.at(-1)).toMatchObject({ title: 'Бар', description: 'Продажи, маржа и остатки по товарам, ABC', path: 'club/bar' });
+    expect(BUILT_CLUB_REPORTS.has('bar')).toBe(true);
+    const club = { key: 'computer-club', cards: CLUB_DASHBOARDS.map((d) => d.key) };
+    const got = resolveDashboards({ groups: [{ key: 'computer-club', visible: true, cards: [{ key: 'overview', visible: true }, { key: 'guests', visible: false }] }] }, [club]);
+    expect(got.groups[0]!.cards.at(-1)).toEqual({ key: 'bar', visible: true });
   });
 
   it('16 плиток с уникальными ключами', () => {

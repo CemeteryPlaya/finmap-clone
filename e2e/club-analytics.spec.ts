@@ -66,7 +66,7 @@ test('«Обзор клуба»: плитки, дни без данных, пл�
   await expect(tiles.getByRole('link', { name: /Доля бара\s*[\d,]+\s%/ })).toBeVisible();
   await expect(tiles.getByRole('link', { name: /Загрузка ПК\s*[\d,]+\s%/ })).toBeVisible();
   await expect(tiles.getByRole('link', { name: /^Гостей\s*[\d\s]+/ })).toHaveAttribute('href', new RegExp(`/analytics/club/guests\\?from=${period.from}&to=${period.to}`));
-  await expect(tiles.getByText('Появится с отчётом «Бар»').first()).toBeVisible();
+  await expect(tiles.getByRole('link', { name: /^Маржа бара/ })).toHaveAttribute('href', new RegExp(`/analytics/club/bar\\?from=${period.from}&to=${period.to}`));
   await expect(main(page).getByRole('heading', { name: 'Лучшие и худшие дни' })).toBeVisible();
   const peak = main(page).getByRole('heading', { name: 'Часы пик' }).locator('xpath=..');
   await expect(peak.getByRole('listitem')).toHaveCount(3);

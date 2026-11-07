@@ -134,11 +134,31 @@ describe('«Обзор клуба»', () => {
     expect(tile(r, 'guests')).toMatchObject({ unit: 'number', kind: 'sum', value: 1, spark: [1, 1], available: true, note: null, href: 'club/guests' });
     expect(tile(r, 'newGuests')).toMatchObject({ value: 1, spark: [1, 0], available: true });
     expect(tile(r, 'revenuePerGuest')).toMatchObject({ kind: 'avg', value: T(6_400), spark: [T(3_750), T(2_650)], available: true });
-    expect(tile(r, 'barMargin')).toMatchObject({ available: false, note: 'Появится с отчётом «Бар»' });
+    // у товаров нет себестоимости — маржи нет, но плитка доступна (R40)
+    expect(tile(r, 'barMargin')).toMatchObject({ unit: 'percent', kind: 'share', value: null, available: true, note: null, href: 'club/bar' });
+    expect(r.tiles.some((t) => t.note === 'Появится с отчётом «Бар»')).toBe(false);
     expect(r.days).toEqual([
       { day: '2026-11-01', revenue: T(3_750), load: expect.closeTo(day, 12), coverage: 'full' },
       { day: '2026-11-02', revenue: T(2_650), load: expect.closeTo(day, 12), coverage: 'full' },
     ]);
+  });
+
+  it('«Маржа бара» (R40): прибыль / выручку товаров с себестоимостью; ряд по дням; прошлый период', async () => {
+    x = await clubWorld();
+    const win = (d: string) => {
+      const from = new Date(`${d}T00:00:00+05:00`);
+      return [from.toISOString(), new Date(from.getTime() + 86_400_000).toISOString()];
+    };
+    for (const [d, qty, cost] of [['2026-11-01', 2000, T(760)], ['2026-11-02', 1000, T(380)]] as const) {
+      const [from, to] = win(d);
+      await x.w.h.t.q('INSERT INTO senet_goods_moves (office_id, from_at, to_at, item, sold_qty, sold_cost) VALUES (?, ?, ?, ?, ?, ?)', x.office, from, to, 'Напиток 1', qty, cost);
+    }
+    const r = await overview('from=2026-11-01&to=2026-11-02&compare=0');
+    expect(tile(r, 'barMargin')).toMatchObject({ available: true, href: 'club/bar' });
+    expect(tile(r, 'barMargin').value).toBeCloseTo((2_250 - 1_140) / 2_250, 12);
+    expect(tile(r, 'barMargin').spark).toEqual([expect.closeTo((1_500 - 760) / 1_500, 12), expect.closeTo((750 - 380) / 750, 12)]);
+    const one = await overview('from=2026-11-02&to=2026-11-02&compare=1');
+    expect(tile(one, 'barMargin').prev).toBeCloseTo((1_500 - 760) / 1_500, 12);
   });
 
   it('плитки гостей из каталога: визитов на гостя, длительность визита, доля вернувшихся', async () => {

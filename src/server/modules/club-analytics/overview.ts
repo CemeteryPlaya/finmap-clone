@@ -13,6 +13,7 @@ import { requireCompany } from '../companies/guard';
 import { excelDate, minorToDecimal } from '../operations/journal-export';
 import { reportInfo } from '../analytics/report-export';
 import type { AnalyticsService } from '../analytics/service';
+import { barMarginFigures, clubBar } from './bar';
 import { clubGuests, visitFigures, type ClubGuestsData, type VisitFigures } from './guests';
 import { clubLoad, type ClubLoadData } from './load';
 import { clubDays, type ClubDays } from './revenue';
@@ -38,7 +39,7 @@ export interface OverviewTile {
 /** Лучших и худших дней (§4). */
 const BEST = 3;
 /** Ссылка плитки по отчёту: метрики журнала — «Прибыль». */
-const REPORT_HREF: Partial<Record<TileDef['report'], string>> = { revenue: 'club/revenue', load: 'club/load', guests: 'club/guests', journal: 'pnl' };
+const REPORT_HREF: Partial<Record<TileDef['report'], string>> = { revenue: 'club/revenue', load: 'club/load', guests: 'club/guests', bar: 'club/bar', journal: 'pnl' };
 /** Плитки-средние (§2.2, R8): Δ — как у среднего, без «≈». */
 const AVG_TILES = new Set(['revenuePerPcDay', 'revenuePerGuest', 'visitDuration', 'visitsPerGuest']);
 
@@ -66,8 +67,14 @@ export interface GuestDayFigures {
   byDay: VisitFigures[];
 }
 
-/** Период «Обзора»: части выручки по дням, загрузка и — если есть плитки гостей — гости. */
-type Period = ClubDays & { load: LoadFigures; guests: GuestDayFigures | null };
+/** Маржа бара периода для «Обзора» (R40): за период и по дням. */
+export interface BarFigures {
+  total: number | null;
+  byDay: (number | null)[];
+}
+
+/** Период «Обзора»: части выручки по дням, загрузка и — если есть их плитки — гости и маржа бара. */
+type Period = ClubDays & { load: LoadFigures; guests: GuestDayFigures | null; bar: BarFigures | null };
 
 export function loadFigures(l: ClubLoadData): LoadFigures {
   const all = sumZones(l.occ, l.days.length);
@@ -109,6 +116,7 @@ const MEASURES: Record<string, Measure> = {
   visitDuration: guestMeasure((x) => ratio(x.visitSec + x.checkSec, x.visits + x.checks)),
   visitsAll: guestMeasure((x) => x.visits + x.checks),
   checks: guestMeasure((x) => x.checks),
+  barMargin: (d) => ({ value: d.bar!.total, spark: d.bar!.byDay }),
   visitsPerGuest: guestMeasure((x) => ratio(x.visits, x.guests)),
   returningShare: guestMeasure((x) => ratio(x.returning, x.guests)),
 };
@@ -198,10 +206,16 @@ export function overviewSheets(data: OverviewReport, q: OverviewQuery): XlsxShee
 }
 
 /** Части выручки по дням и загрузка периода; гости — по визитам за всё время, загруженным один раз на оба периода. */
-async function overviewPeriod(db: Db, tz: string, c: { scope: ClubScope; now: string; guests: Promise<ClubGuestsData | null> }, from: string, to: string): Promise<Period> {
+async function overviewPeriod(db: Db, tz: string, c: { scope: ClubScope; now: string; guests: Promise<ClubGuestsData | null>; bar: boolean }, from: string, to: string): Promise<Period> {
   const ids = c.scope.offices.map((o) => o.id);
-  const [days, load, guests] = await Promise.all([clubDays(db, tz, ids, from, to), clubLoad(db, tz, c.scope, from, to, c.now), c.guests]);
-  return { ...days, load: loadFigures(load), guests: guests && guestFigures(guests, tz, days.days) };
+  const today = localParts(c.now, tz).day;
+  const [days, load, guests, bar] = await Promise.all([
+    clubDays(db, tz, ids, from, to),
+    clubLoad(db, tz, c.scope, from, to, c.now),
+    c.guests,
+    c.bar ? clubBar(db, tz, ids, from, to, today) : null,
+  ]);
+  return { ...days, load: loadFigures(load), guests: guests && guestFigures(guests, tz, days.days), bar: bar && barMarginFigures(bar, days.days, tz) };
 }
 
 export function createClubOverview(d: { db: Db; timezone: string; now: () => Date; settings: AnalyticsSettings; analytics: Pick<AnalyticsService, 'dealTotal'> }) {
@@ -235,7 +249,7 @@ export function createClubOverview(d: { db: Db; timezone: string; now: () => Dat
     return { cur: await journal(companyId, projectIds, range, cats), prev: prevRange ? await journal(companyId, projectIds, prevRange, cats) : null };
   }
 
-  const periodOf = (scope: ClubScope, from: string, to: string, now: string, guests: Promise<ClubGuestsData | null>) => overviewPeriod(db, tz, { scope, now, guests }, from, to);
+  const periodOf = (scope: ClubScope, from: string, to: string, now: string, guests: Promise<ClubGuestsData | null>, bar: boolean) => overviewPeriod(db, tz, { scope, now, guests, bar }, from, to);
 
   /** Видимые плитки шаблона в порядке настройки (§10.2). */
   async function visibleTiles(companyId: number): Promise<TileDef[]> {
@@ -251,7 +265,9 @@ export function createClubOverview(d: { db: Db; timezone: string; now: () => Dat
       const now = d.now().toISOString();
       // гости — только если среди плиток есть плитки гостей (как журнал); визиты за всё время — одни на оба периода
       const guests = defs.some((t) => t.report === 'guests') ? clubGuests(db, tz, companyId, scope, q.from, q.to, now) : Promise.resolve(null);
-      const [cur, prev] = await Promise.all([periodOf(scope, q.from, q.to, now, guests), q.compare ? periodOf(scope, prevRange.from, prevRange.to, now, guests) : null]);
+      // маржа бара — только если её плитка видна
+      const bar = defs.some((t) => t.report === 'bar');
+      const [cur, prev] = await Promise.all([periodOf(scope, q.from, q.to, now, guests, bar), q.compare ? periodOf(scope, prevRange.from, prevRange.to, now, guests, bar) : null]);
       const j = await journalOf(companyId, scope.projects.map((p) => p.id), defs, { from: q.from, to: q.to }, q.compare ? prevRange : null);
       const today = localParts(now, tz).day;
       const approx = approxOf(cur.coverage, prev?.coverage ?? null, today);
