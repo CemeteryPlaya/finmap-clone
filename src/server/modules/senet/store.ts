@@ -124,7 +124,7 @@ export async function writeOfficeBatch(tx: Executor, b: OfficeBatch, at: string)
 }
 
 /** Сутки клуба для записи аналитики: окно, телефон — хеш и маска. */
-interface Day {
+export interface Day {
   officeId: number;
   from: string;
   to: string;

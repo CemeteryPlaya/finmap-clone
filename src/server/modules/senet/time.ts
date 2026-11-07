@@ -1,4 +1,4 @@
-import { zoneOffsetMs } from '../../../shared/dates';
+import { addDays, startOfDayUtc, todayInTimezone, zoneOffsetMs } from '../../../shared/dates';
 
 const EXCEL_EPOCH_DAYS = 25_569; // 01.01.1970 в днях Excel (от 30.12.1899)
 const ISO_LOCAL = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?$/;
@@ -25,4 +25,20 @@ export function localToUtc(local: string | number, timezone: string): string | n
   // второй шаг уточняет смещение на самом моменте (как startOfDayUtc)
   const first = wall - zoneOffsetMs(wall, timezone);
   return new Date(wall - zoneOffsetMs(first, timezone)).toISOString();
+}
+
+/**
+ * Окна местных суток, пересекающих [from, to) (спецификация «Аналитика клуба», R32): [полночь, следующая полночь);
+ * первое начинается в полночь суток `from` (раньше `from`, если он не полночь), последнее — до `to`.
+ */
+export function localDayWindows(from: string, to: string, timezone: string): [string, string][] {
+  const out: [string, string][] = [];
+  const end = Date.parse(to);
+  if (Date.parse(from) >= end) return out;
+  for (let day = todayInTimezone(timezone, new Date(from)); ; day = addDays(day, 1)) {
+    const start = startOfDayUtc(day, timezone);
+    if (Date.parse(start) >= end) return out;
+    const next = startOfDayUtc(addDays(day, 1), timezone);
+    out.push([start, Date.parse(next) < end ? next : new Date(end).toISOString()]);
+  }
 }

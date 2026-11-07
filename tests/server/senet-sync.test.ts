@@ -7,6 +7,7 @@ import { createAuditService } from '../../src/server/modules/audit/service';
 import { createSenetConnections } from '../../src/server/modules/senet/connections';
 import { loadSpans } from '../../src/server/modules/senet/store';
 import { cleanupSenetRaw, createSenetSync, type SenetSync } from '../../src/server/modules/senet/sync';
+import { localDayWindows } from '../../src/server/modules/senet/time';
 import { loadSecrets } from '../../src/server/secrets';
 import { opsWorld, type OpsWorld } from '../helpers/ops';
 import { onPg } from '../helpers/test-db';
@@ -148,12 +149,12 @@ describe('забор Senet', () => {
     expect(await spans()).toEqual([
       day('cashMoves', '2026-09-30T04:00:00.000Z'),
       day('checks'),
-      day('goodsMoves'),
+      day('goodsMoves', '2026-09-30T19:00:00.000Z'),
       day('load'),
       day('refills'),
       day('sessions'),
       day('soldItems'),
-      day('stock'),
+      day('stock', '2026-09-30T19:00:00.000Z'),
       day('tickets'),
       day('transactions'),
     ]);
@@ -162,6 +163,21 @@ describe('забор Senet', () => {
     const after = await spans();
     expect(after).toHaveLength(10);
     expect(after.find((s) => s[0] === 'load')).toEqual(['load', HISTORY_FROM, '2026-10-02T12:00:00.000Z']);
+  });
+
+  it('остатки и движение товаров — окнами местных суток (club-analytics R32): повтор суток не добавляет окон', async () => {
+    await sync.run({ trigger: 'manual', connectionId });
+    now = new Date('2026-10-02T12:00:00.000Z');
+    await sync.run({ trigger: 'hourly' });
+    for (const type of ['shop_quantity', 'movements_of_goods']) {
+      const froms = gets(type).map((r) => r.query.from_date!);
+      expect(froms.length).toBeGreaterThan(0);
+      expect(froms.every((f) => f.endsWith('T19:00:00.000Z'))).toBe(true);
+    }
+    const windows = await q("SELECT DISTINCT from_at, to_at FROM senet_data_spans WHERE office_id = ? AND report = 'goodsMoves'", officeId);
+    expect(windows).toEqual([{ from_at: '2026-09-30T19:00:00.000Z', to_at: '2026-10-02T12:00:00.000Z' }]);
+    const last = gets('movements_of_goods').at(-1)!.query;
+    expect([last.from_date, last.to_date]).toEqual(['2026-10-01T19:00:00.000Z', '2026-10-02T12:00:00.000Z']);
   });
 
   it('loadSpans: отрезки клуба по отчётам, пересекающие окно; чужой клуб и непересекающиеся — пустые', async () => {
@@ -273,5 +289,21 @@ describe('забор Senet', () => {
     expect(await cleanupSenetRaw(w.h.t.db, files, now)).toBe(1);
     expect(await files.get(String(old!.file_key))).toBeNull();
     expect((await q("SELECT COUNT(*) n FROM senet_raw WHERE report IN ('sessions', 'cashMoves', 'transactions')"))[0]!.n).toBe(2);
+  });
+});
+
+describe('localDayWindows (club-analytics R32)', () => {
+  const TZ = 'Asia/Almaty';
+  it('окна местных суток, пересекающих [from, to): первое — с полуночи суток from, последнее — до to', () => {
+    expect(localDayWindows('2026-10-01T03:05:00.000Z', '2026-10-02T12:00:00.000Z', TZ)).toEqual([
+      ['2026-09-30T19:00:00.000Z', '2026-10-01T19:00:00.000Z'],
+      ['2026-10-01T19:00:00.000Z', '2026-10-02T12:00:00.000Z'],
+    ]);
+  });
+  it('from в полночь — первое окно начинается в from; to в полночь — лишнего окна нет', () => {
+    expect(localDayWindows('2026-09-30T19:00:00.000Z', '2026-10-01T19:00:00.000Z', TZ)).toEqual([['2026-09-30T19:00:00.000Z', '2026-10-01T19:00:00.000Z']]);
+  });
+  it('пустой отрезок — без окон', () => {
+    expect(localDayWindows('2026-10-01T03:05:00.000Z', '2026-10-01T03:05:00.000Z', TZ)).toEqual([]);
   });
 });

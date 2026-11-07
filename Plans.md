@@ -131,3 +131,15 @@
 | 79 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: карточка гостя — клиент (задача 8) | club-guests (client) PASS; typecheck | 76, 78 | cc:完了 |
 | 80 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` АК-3: демо, e2e, снимки, README, итоги (задача 9) | e2e club-analytics PASS (SQLite, PGlite); shots:ux; npm test | 78, 79 | cc:完了 |
 | 81 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3 после выкладки: одноразовые чеки — не гости; «Одноразовых чеков», «Посещений всего», ряд «Посещения» (§19, R28–R31) | club-guest-links, club-guests (unit, server), club-overview PASS; npm test; e2e club-analytics (SQLite, PGlite) | 80 | cc:完了 |
+
+## Phase 9 — Аналитика клуба: Бар и приёмка (план docs/superpowers/plans/2026-11-08-club-analytics-4.md)
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 82 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-4: остатки и движение товаров — окнами местных суток (задача 1) | senet-sync PASS на обоих диалектах; §20 спецификации; npm test | - | cc:TODO |
+| 83 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-4: бар — чистые функции (задача 2) | club-bar (shared) PASS | 82 | cc:TODO |
+| 84 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-4: отчёт «Бар» — сервер, Excel (задача 3) | club-bar (server) PASS на обоих диалектах; npm test | 83 | cc:TODO |
+| 85 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-4: «Бар» на витрине, «Маржа бара» в «Обзоре» (задача 4) | club-overview, analytics-catalog PASS; npm test | 84 | cc:TODO |
+| 86 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-4: страница «Бар» (задача 5) | club-bar (client) PASS; typecheck | 84, 85 | cc:TODO |
+| 87 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` АК-4: демо, e2e, снимки, README (задача 6) | e2e club-analytics PASS (SQLite, PGlite); shots:ux | 86 | cc:TODO |
+| 88 | `[Test]` `[lane:gate]` `[tdd:skip:bench-and-docs]` АК-4: bench:club, приёмка, итоги (задача 7) | bench:club; итоги и чек-лист; npm test; e2e | 87 | cc:TODO |

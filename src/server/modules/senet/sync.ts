@@ -7,8 +7,9 @@ import type { SenetSyncRunDto } from '../../../shared/schemas/senet';
 import type { FileStore } from '../../files/store';
 import { SecretsError } from '../../secrets';
 import type { SenetConnections } from './connections';
-import { SenetError, type RawFile, type ReportKind, type SenetSource } from './source';
-import { markSpan, writeAnalyticsDay, writeOfficeBatch } from './store';
+import { SenetError, type RawFile, type ReportKind, type ReportRows, type SenetSource } from './source';
+import { markSpan, writeAnalyticsDay, writeOfficeBatch, type Day } from './store';
+import { localDayWindows } from './time';
 import { todayInTimezone } from '../../../shared/dates';
 import { phoneMask, type Secrets } from '../../secrets';
 
@@ -48,6 +49,25 @@ const STALE_RUN_MS = 10 * 60_000;
 const SENET_ROW_CAP = 2000;
 const OUT_OF_TIME = 'Не уложились во время — продолжим через час';
 const NO_ENABLED = 'Ни один клуб не включён — забирать нечего. Включите клуб в «Изменить» или загрузите историю через «Загрузить за период»';
+
+/** Отчёт отрезка; не пришёл (незнакомый формат) — null. */
+type FetchReport = <K extends ReportKind>(kind: K, from: string, to: string) => Promise<ReportRows[K] | null>;
+
+/**
+ * Остатки и движение товаров клуба (спецификация «Аналитика клуба», R32): они приходят без дат строк, поэтому забираются
+ * окнами местных суток; повторный забор суток заменяет их строки (тот же `from_at`).
+ */
+async function syncGoodsDays(db: Db, o: { officeId: number; from: string; to: string; timezone: string; phone: Day['phone'] }, fetch: FetchReport): Promise<void> {
+  for (const [from, to] of localDayWindows(o.from, o.to, o.timezone)) {
+    const stock = await fetch('stock', from, to);
+    const goodsMoves = await fetch('goodsMoves', from, to);
+    await withTx(db, async (tx) => {
+      await writeAnalyticsDay(tx, { officeId: o.officeId, from, to, sold: null, checks: null, refills: null, stock, goodsMoves, phone: o.phone });
+      if (stock) await markSpan(tx, o.officeId, 'stock', from, to);
+      if (goodsMoves) await markSpan(tx, o.officeId, 'goodsMoves', from, to);
+    });
+  }
+}
 
 /** Ключ файла без «:» (локальное хранилище на Windows): 2026-10-01T04:00:00.000Z → 20261001T040000Z. */
 const compact = (iso: string) => iso.replace(/[-:]|\.\d{3}/g, '');
@@ -186,8 +206,6 @@ export function createSenetSync(d: {
             const sold = await fetch('soldItems', dayFrom, dayTo);
             const checks = await fetch('checks', dayFrom, dayTo);
             const refills = await fetch('refills', dayFrom, dayTo);
-            const stock = await fetch('stock', dayFrom, dayTo);
-            const goodsMoves = await fetch('goodsMoves', dayFrom, dayTo);
             const load = await fetch('load', dayFrom, dayTo);
             const tickets = await fetch('tickets', dayFrom, dayTo);
             for (const [kind, rows] of [['sold_check_items', sold], ['checks', checks], ['refill', refills], ['office_load_by_zones', load], ['tickets', tickets]] as const) {
@@ -198,11 +216,12 @@ export function createSenetSync(d: {
               }
             }
             await withTx(db, async (tx) => {
-              await writeAnalyticsDay(tx, { officeId: office.id, from: dayFrom, to: dayTo, sold, checks, refills, stock, goodsMoves, load, tickets, phone });
-              const got = { soldItems: sold, checks, refills, stock, goodsMoves, load, tickets } as const;
+              await writeAnalyticsDay(tx, { officeId: office.id, from: dayFrom, to: dayTo, sold, checks, refills, load, tickets, phone });
+              const got = { soldItems: sold, checks, refills, load, tickets } as const;
               for (const [kind, rows] of Object.entries(got)) if (rows) await markSpan(tx, office.id, kind as ReportKind, dayFrom, dayTo);
             });
           }
+          await syncGoodsDays(db, { officeId: office.id, from, to, timezone: d.timezone, phone }, fetch);
           counts.done++;
         }
       }

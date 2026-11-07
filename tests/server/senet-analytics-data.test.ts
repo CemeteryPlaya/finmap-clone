@@ -113,8 +113,9 @@ describe('данные для аналитики', () => {
     expect([await count('senet_stock'), await count('senet_goods_moves'), await count('senet_load')]).toEqual([2, 2, 2]);
     const stock = await x!.w.h.t.q('SELECT from_at f, item, sold_qty q, actual_qty a FROM senet_stock ORDER BY from_at');
     expect(stock.map((r) => [r.f, r.item, r.q, r.a])).toEqual([
-      ['2026-10-01T04:00:00.000Z', 'Напиток 1', 3000, 6500],
-      ['2026-10-02T04:00:00.000Z', 'Напиток 1', 3000, 6500],
+      // окна местных суток (club-analytics R32)
+      ['2026-09-30T19:00:00.000Z', 'Напиток 1', 3000, 6500],
+      ['2026-10-01T19:00:00.000Z', 'Напиток 1', 3000, 6500],
     ]);
     const load = await x!.w.h.t.q('SELECT start_at s, zone, duration_sec d, phone_mask m FROM senet_load ORDER BY start_at');
     expect(load).toEqual([
