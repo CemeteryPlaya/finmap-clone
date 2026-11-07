@@ -87,7 +87,19 @@ export function guestBuckets(visits: readonly Visit[], first: ReadonlyMap<number
   return acc.map((a) => ({ guests: a.guests.size, newGuests: a.fresh.size, returning: a.guests.size - a.fresh.size, visits: a.visits, visitSec: a.visitSec }));
 }
 
-export const AGE_LABELS = ['до 14', '14–17', '18–24', '25–34', '35+', 'не указан'] as const;
+/** Визиты и их время по корзинам дня начала (визиты одноразовых чеков, §19 R30). */
+export function countVisits(visits: readonly Visit[], buckets: readonly { from: string; to: string }[], timeZone: string): { visits: number; visitSec: number }[] {
+  const acc = buckets.map(() => ({ visits: 0, visitSec: 0 }));
+  for (const v of visits) {
+    const i = bucketOf(localParts(v.startAt, timeZone).day, buckets);
+    if (i < 0) continue;
+    acc[i]!.visits += 1;
+    acc[i]!.visitSec += (Date.parse(v.endAt) - Date.parse(v.startAt)) / 1000;
+  }
+  return acc;
+}
+
+export const AGE_LABELS =['до 14', '14–17', '18–24', '25–34', '35+', 'не указан'] as const;
 const AGE_FROM = [0, 14, 18, 25, 35];
 
 const ageIndex = (age: number | null) => (age === null ? AGE_LABELS.length - 1 : AGE_FROM.findLastIndex((f) => age >= f));

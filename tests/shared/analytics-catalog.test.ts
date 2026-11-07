@@ -33,13 +33,13 @@ describe('каталог аналитики', () => {
     expect(defaults.items.filter((i) => i.visible).map((i) => i.key)).toEqual(['revenue', 'load', 'guests', 'newGuests', 'revenuePerGuest', 'revenuePerPcDay', 'barShare', 'barMargin']);
     const saved = resolveTiles({ items: [{ key: 'refills', visible: true }, { key: 'nope', visible: true }] }, CLUB_TILES);
     expect(saved.items[0]).toEqual({ key: 'refills', visible: true });
-    expect(saved.items).toHaveLength(14);
+    expect(saved.items).toHaveLength(16);
     expect(saved.items.find((i) => i.key === 'revenue')).toEqual({ key: 'revenue', visible: true });
     expect(saved.items.find((i) => i.key === 'payrollToRevenue')).toEqual({ key: 'payrollToRevenue', visible: false });
   });
 
-  it('14 плиток с уникальными ключами', () => {
-    expect(CLUB_TILES).toHaveLength(14);
-    expect(new Set(CLUB_TILES.map((t) => t.key)).size).toBe(14);
+  it('16 плиток с уникальными ключами', () => {
+    expect(CLUB_TILES).toHaveLength(16);
+    expect(new Set(CLUB_TILES.map((t) => t.key)).size).toBe(16);
   });
 });

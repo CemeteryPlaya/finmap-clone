@@ -40,20 +40,27 @@ function GuestsBody({ ctx, companyId, archived }: { ctx: ClubReportContext<Guest
   const [open, setOpen] = useState<string | null>(null);
   useEffect(() => setOpen(null), [ctx.apiParams]);
   const unassigned = unassignedText(data.unassigned);
+  const bars = (title: string, series: GuestsView['series']) => (
+    <StackedBars
+      title={title}
+      columns={data.columns}
+      series={series.map((s, i) => ({ id: s.id, label: s.label, color: i, values: s.values.map((v) => v ?? 0) }))}
+      currency="KZT"
+      format={count}
+      selected={null}
+      onSelect={() => undefined}
+      busy={ctx.busy}
+    />
+  );
   const body =
     state.view === 'table' ? (
       <GuestsTable title={TITLE} rows={data.top} busy={ctx.busy} timeZone={ctx.timeZone} open={open} onOpen={(ref) => setOpen(open === ref ? null : ref)} />
     ) : (
-      <StackedBars
-        title="Новые и вернувшиеся гости"
-        columns={data.columns}
-        series={data.series.map((s, i) => ({ id: s.id, label: s.label, color: i, values: s.values.map((v) => v ?? 0) }))}
-        currency="KZT"
-        format={count}
-        selected={null}
-        onSelect={() => undefined}
-        busy={ctx.busy}
-      />
+      <>
+        {bars('Новые и вернувшиеся гости', data.series)}
+        {/* одноразовые чеки — не гости (§19): посещения всего — визиты гостей и чеки */}
+        <div className="mt-6">{bars('Посещения', data.visits)}</div>
+      </>
     );
   return (
     <>

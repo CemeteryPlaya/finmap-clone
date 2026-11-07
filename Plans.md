@@ -130,3 +130,4 @@
 | 78 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: страница «Гости» (задача 7) | club-guests (client) PASS; typecheck | 75, 77 | cc:完了 |
 | 79 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3: карточка гостя — клиент (задача 8) | club-guests (client) PASS; typecheck | 76, 78 | cc:完了 |
 | 80 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` АК-3: демо, e2e, снимки, README, итоги (задача 9) | e2e club-analytics PASS (SQLite, PGlite); shots:ux; npm test | 78, 79 | cc:完了 |
+| 81 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-3 после выкладки: одноразовые чеки — не гости; «Одноразовых чеков», «Посещений всего», ряд «Посещения» (§19, R28–R31) | club-guest-links, club-guests (unit, server), club-overview PASS; npm test; e2e club-analytics (SQLite, PGlite) | 80 | cc:完了 |

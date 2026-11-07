@@ -151,6 +151,29 @@ describe('«Обзор клуба»', () => {
     expect(tile(r, 'returningShare')).toMatchObject({ kind: 'share', value: 0, spark: [0, 1] });
   });
 
+  it('одноразовые чеки (R30, R31): «Посещений», «Одноразовых чеков», длительность — по всем посещениям, выручка на гостя — на гостей и чеки', async () => {
+    x = await clubWorld();
+    // чек Q9ZZ: 01.11 12:00–12:30 (Алматы, UTC+5)
+    await x.w.h.t.q('INSERT INTO senet_refills (office_id, at, guest_login, account_type, amount) VALUES (?, ?, ?, ?, ?)', x.office, '2026-11-01T06:55:00.000Z', 'Q9ZZ', 'Check', T(300));
+    await x.w.h.t.q(
+      'INSERT INTO senet_load (office_id, start_at, end_at, zone, workstation, guest_login, debited) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      x.office,
+      '2026-11-01T07:00:00.000Z',
+      '2026-11-01T07:30:00.000Z',
+      'VIP',
+      1,
+      'Q9ZZ',
+      0,
+    );
+    await showTiles(['visitsAll', 'checks', 'visitDuration', 'guests', 'revenuePerGuest']);
+    const r = await overview('from=2026-11-01&to=2026-11-02&compare=0');
+    expect(tile(r, 'guests')).toMatchObject({ value: 1, spark: [1, 1] });
+    expect(tile(r, 'checks')).toMatchObject({ kind: 'sum', value: 1, spark: [1, 0], available: true, href: 'club/guests' });
+    expect(tile(r, 'visitsAll')).toMatchObject({ kind: 'sum', value: 4, spark: [3, 1] });
+    expect(tile(r, 'visitDuration')!.value).toBe((5_400 + 5_400 + 3_600 + 1_800) / 4);
+    expect(tile(r, 'revenuePerGuest')).toMatchObject({ value: T(6_400) / 2, spark: [T(3_750) / 2, T(2_650)] });
+  });
+
   it('без видимых плиток гостей — только выбранные плитки', async () => {
     x = await clubWorld();
     const items = CLUB_TILES.map((t) => ({ key: t.key, visible: t.key === 'revenue' }));

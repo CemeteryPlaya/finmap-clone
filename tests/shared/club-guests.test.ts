@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageBuckets, cohorts, firstVisits, guestBuckets, lastAges, visitsOf, type GuestSession } from '../../src/shared/club-analytics/guests';
+import { ageBuckets, cohorts, countVisits, firstVisits, guestBuckets, lastAges, visitsOf, type GuestSession } from '../../src/shared/club-analytics/guests';
 
 const TZ = 'Asia/Almaty';
 /** Местное время Алматы (UTC+5) → ISO UTC. */
@@ -59,6 +59,22 @@ describe('guestBuckets', () => {
   it('визит, начатый до полуночи, относится к дню начала', () => {
     const [day2] = guestBuckets(visits, first, [{ from: '2026-11-02', to: '2026-11-02' }], TZ);
     expect(day2!.guests).toBe(0);
+  });
+});
+
+describe('countVisits (чеки, R30)', () => {
+  it('визиты и их время по корзинам дня начала; вне корзин не считаются', () => {
+    const checks = visitsOf([
+      s(0, '2026-11-03T10:00', '2026-11-03T11:00'),
+      s(0, '2026-11-03T11:10', '2026-11-03T12:00'),
+      s(1, '2026-11-03T23:30', '2026-11-04T01:00'),
+      s(2, '2026-11-04T15:00', '2026-11-04T15:30'),
+      s(3, '2026-11-09T15:00', '2026-11-09T16:00'),
+    ]);
+    expect(countVisits(checks, [{ from: '2026-11-03', to: '2026-11-03' }, { from: '2026-11-04', to: '2026-11-05' }], TZ)).toEqual([
+      { visits: 2, visitSec: 7200 + 5400 },
+      { visits: 1, visitSec: 1800 },
+    ]);
   });
 });
 

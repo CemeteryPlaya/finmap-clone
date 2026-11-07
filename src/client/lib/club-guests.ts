@@ -24,6 +24,8 @@ export interface GuestsView extends ClubReportBase {
   tiles: OverviewTile[];
   columns: ReportColumn[];
   series: { id: string; label: string; values: (number | null)[] }[];
+  /** «Посещения» (§19, R31): визиты гостей и одноразовые чеки. */
+  visits: { id: string; label: string; values: (number | null)[] }[];
   top: GuestRowView[];
   ages: { label: string; count: number; share: number }[];
   cohorts: CohortRow[];

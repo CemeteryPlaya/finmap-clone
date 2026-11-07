@@ -62,7 +62,51 @@ async function seed() {
   await session(o, '2026-11-06T15:00', '', null);
 }
 
+/** Пополнение одноразового чека (§19): логин — код чека, тип аккаунта «Check». */
+const checkRefill = (office: number, at: string, login: string, hash: string | null, amount: number) =>
+  x!.w.h.t.q('INSERT INTO senet_refills (office_id, at, guest_login, account_type, amount, phone_hash, phone_mask) VALUES (?, ?, ?, ?, ?, ?, ?)', office, t(at), login, 'Check', amount, hash, hash ? '+7 *** ** 11' : null);
+
 describe('отчёт «Гости»', () => {
+  it('одноразовые чеки — не гости: своя плитка, «Посещений всего», ряд посещений; телефон чека не связывает', async () => {
+    x = await clubWorld(EMPTY);
+    await seed();
+    const o = x.office;
+    // чек AB1C с телефоном гостя a+b: два сеанса с перерывом 10 минут — один визит, ещё визит 05.11
+    await checkRefill(o, '2026-11-03T09:55', 'AB1C', 'hash-ab-11', 1_000);
+    await session(o, '2026-11-03T10:00', 'AB1C', 'hash-ab-11');
+    await session(o, '2026-11-03T11:10', 'ab1c', null);
+    await session(o, '2026-11-05T12:00', 'AB1C', null, { minutes: 30 });
+    const r = await report('from=2026-11-02&to=2026-11-08&step=day&compare=0');
+    expect(tile(r, 'guests')!.value).toBe(7);
+    expect(tile(r, 'checks')!.value).toBe(2);
+    // визиты гостей: a, b, c, d и 4 телефона общего логина — 8; плюс 2 чека
+    expect(tile(r, 'visitsAll')!.value).toBe(10);
+    expect(r.unassigned).toEqual({ noGuest: 1, shared: 1 });
+    expect(r.top.find((g: { logins: string[] }) => g.logins.includes('a')).logins).toEqual(['a', 'b']);
+    expect(r.top.some((g: { logins: string[] }) => g.logins.some((l) => l.toLowerCase() === 'ab1c'))).toBe(false);
+    const col = (id: string, day: string) => r.visits.find((s: { id: string }) => s.id === id).values[r.columns.findIndex((c: { from: string }) => c.from === day)];
+    expect(col('checks', '2026-11-03')).toBe(1);
+    expect(col('guestVisits', '2026-11-03')).toBe(1);
+    expect(col('checks', '2026-11-08')).toBeNull();
+    const search = await x.w.h.req('GET', `${x.c}/club-analytics/guests/search?q=ab1c`);
+    expect(search.statusCode, search.body).toBe(200);
+    expect(JSON.stringify(search.json())).not.toMatch(/ab1c/i);
+  });
+
+  it('выручка и пополнения на гостя делятся на гостей и чеки (R30)', async () => {
+    x = await clubWorld();
+    await checkRefill(x.office, '2026-11-01T12:00', 'Q9ZZ', null, T(300));
+    await session(x.office, '2026-11-01T12:00', 'Q9ZZ', null);
+    const q = 'from=2026-11-01&to=2026-11-02&compare=0';
+    const r = await report(q);
+    const overview = (await x.w.h.req('GET', `${x.c}/club-analytics/overview?${q}`)).json();
+    const revenue = overview.tiles.find((v: { key: string }) => v.key === 'revenue').value as number;
+    expect(tile(r, 'guests')!.value).toBe(1);
+    expect(tile(r, 'checks')!.value).toBe(1);
+    expect(tile(r, 'revenuePerGuest')!.value).toBe(revenue / 2);
+    expect(tile(r, 'refillsPerGuest')!.value).toBe(T(500 + 1_000 + 300) / 2);
+  });
+
   it('гости, новые и вернувшиеся, ряд, общие логины, без гостя, Δ, полоса первых дней', async () => {
     x = await clubWorld(EMPTY);
     await seed();
@@ -111,7 +155,8 @@ describe('отчёт «Гости»', () => {
     const r = await report(q);
     // гость1 и гость2 — общий телефон фикстуры: один гость
     expect(r.top).toHaveLength(1);
-    expect(r.top[0]).toMatchObject({ logins: ['гость1', 'гость2'], spent: T(750 + 1_500 + 900 + 600 + 400), refilled: T(500 + 1_000), visits: 3 });
+    // пополнение чека A1B2 (R29) гостю не засчитывается
+    expect(r.top[0]).toMatchObject({ logins: ['гость1', 'гость2'], spent: T(750 + 1_500 + 900 + 600 + 400), refilled: T(500), visits: 3 });
     const overview = (await x.w.h.req('GET', `${x.c}/club-analytics/overview?${q}`)).json();
     const revenue = overview.tiles.find((v: { key: string }) => v.key === 'revenue').value as number;
     expect(revenue).toBeGreaterThan(0);

@@ -57,7 +57,7 @@ export const CLUB_DASHBOARDS: readonly DashboardDef[] = [
     key: 'guests',
     title: 'Гости',
     description: 'Уникальные, новые и вернувшиеся гости, когорты, постоянные гости',
-    help: 'Гость — связанные логины и телефоны: логины с общим телефоном считаются одним гостем. Визит — сеансы с перерывом меньше 30 минут. Новый — первый визит за всё время данных попал в период.',
+    help: 'Гость — связанные логины и телефоны: логины с общим телефоном считаются одним гостем. Визит — сеансы с перерывом меньше 30 минут. Новый — первый визит за всё время данных попал в период. Одноразовые чеки (логин — код чека) не гости: они считаются отдельно и входят в «Посещений всего».',
     path: 'club/guests',
   },
 ];
@@ -76,6 +76,8 @@ export const CLUB_TILES: readonly TileDef[] = [
   { key: 'visitDuration', label: 'Средняя длительность визита', unit: 'duration', byDefault: false, report: 'guests' },
   { key: 'visitsPerGuest', label: 'Визитов на гостя', unit: 'number', byDefault: false, report: 'guests' },
   { key: 'returningShare', label: 'Вернувшиеся гости', unit: 'percent', byDefault: false, report: 'guests' },
+  { key: 'visitsAll', label: 'Посещений', unit: 'number', byDefault: false, report: 'guests' },
+  { key: 'checks', label: 'Одноразовых чеков', unit: 'number', byDefault: false, report: 'guests' },
   { key: 'payrollToRevenue', label: 'ФОТ к выручке', unit: 'percent', byDefault: false, report: 'journal' },
   { key: 'rentToRevenue', label: 'Аренда к выручке', unit: 'percent', byDefault: false, report: 'journal' },
 ];

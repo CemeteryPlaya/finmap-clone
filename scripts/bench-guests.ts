@@ -28,12 +28,12 @@ const pairs: KeyPair[] = [...new Map(rows.map((x) => [`${x.login}|${x.phoneHash}
 lap('данные', t0);
 
 let t = performance.now();
-const shared = sharedLogins(pairs, '2026-08-01T00:00:00Z');
-const g = groupGuests(pairs, shared, []);
+const kinds = { shared: sharedLogins(pairs, '2026-08-01T00:00:00Z'), checks: new Set<string>() };
+const g = groupGuests(pairs, kinds, []);
 lap('groupGuests', t);
 
 t = performance.now();
-const sessions: GuestSession[] = rows.map((x) => ({ guest: rowGuest(g, shared, x.login, x.phoneHash) as number, startAt: x.startAt, endAt: x.endAt, debited: 0, age: 19, zone: 'VIP', workstation: 1 }));
+const sessions: GuestSession[] = rows.map((x) => ({ guest: rowGuest(g, kinds, x.login, x.phoneHash) as number, startAt: x.startAt, endAt: x.endAt, debited: 0, age: 19, zone: 'VIP', workstation: 1 }));
 lap('rowGuest × N', t);
 
 t = performance.now();

@@ -13,7 +13,8 @@ export const session = (open: string, close: string, end: number): SampleValue[]
 export const move = (local: string, type: 'Внесение средств' | 'Вынесение', amount: number, comment: string | null): SampleValue[] => ['Клуб 1', xlTime(local), 'Сотрудник А', type, type === 'Вынесение' ? -amount : amount, comment];
 export const tx = (local: string, amount: number, payment: string): SampleValue[] => ['Клуб 1', '01.11.2026-02.11.2026', xlTime(local), `T${local}`, 'Покупка чека', amount, payment];
 export const sold = (local: string, item: string, qty: number | null, amount: number): SampleValue[] => [xlTime(local), item, qty, amount, 'Наличный расчет', 'Использовано', null];
-export const refill = (local: string, type: string, amount: number): SampleValue[] => ['Клуб 1', xlTime(local), 'гость1', type, 77012345612, amount, 7];
+/** Пополнение; у одноразового чека («Check») логин — код чека (спецификация «Аналитика клуба», §19). */
+export const refill = (local: string, type: string, amount: number, login = 'гость1'): SampleValue[] => ['Клуб 1', xlTime(local), login, type, 77012345612, amount, 7];
 export const ticket = (local: string, name: string, price: number): SampleValue[] => ['гость1', '+77012345612', name, xlTime(local), price, 180];
 export const load = (open: string, close: string, zone: string, ws: number, login: string, debited: number): SampleValue[] => ['Клуб 1', xlTime(open), xlTime(close), zone, ws, login, '+77012345612', 19, 'Тариф 1', debited, 0, 0.0625];
 
@@ -23,7 +24,7 @@ export const MOVES = [move('2026-11-01 10:00:05', 'Внесение средст
 export const CLUB_DATA = {
   tx: [tx('2026-11-01 12:00:00', 2_000, 'Наличный расчет'), tx('2026-11-01 23:00:00', 1_000, 'Безналичный расчет'), tx('2026-11-02 15:00:00', 1_500, 'Наличный расчет')],
   sold: [sold('2026-11-01 12:00:00', 'Напиток 1', 2, 1_500), sold('2026-11-01 12:00:00', 'A1B2', null, 1_000), sold('2026-11-02 15:00:00', 'Напиток 1', 1, 750)],
-  refills: [refill('2026-11-01 20:00:00', 'General', 500), refill('2026-11-02 11:00:00', 'Check', 1_000)],
+  refills: [refill('2026-11-01 20:00:00', 'General', 500), refill('2026-11-02 11:00:00', 'Check', 1_000, 'A1B2')],
   tickets: [ticket('2026-11-01 15:00:00', '2+1 Standart', 750), ticket('2026-11-02 16:00:00', '3+2', 1_500)],
   load: [load('2026-11-01 20:00:00', '2026-11-01 21:30:00', 'VIP', 7, 'гость1', 900), load('2026-11-01 23:30:00', '2026-11-02 01:00:00', 'Общий', 3, 'гость2', 600), load('2026-11-02 14:00:00', '2026-11-02 15:00:00', 'Общий', 3, 'гость2', 400)],
 };

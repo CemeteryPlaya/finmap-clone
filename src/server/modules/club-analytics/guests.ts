@@ -3,7 +3,7 @@ import type { TileDef } from '../../../shared/analytics-catalog';
 import { periodDays, previousRange } from '../../../shared/club-analytics/columns';
 import type { DayCoverage } from '../../../shared/club-analytics/coverage';
 import { loginKey, phoneKey, rowGuest, type Guests, type KeyPair } from '../../../shared/club-analytics/guest-links';
-import { ageBuckets, cohorts, firstVisits, guestBuckets, lastAges, visitsOf, type CohortRow, type GuestFigures, type GuestSession, type Visit } from '../../../shared/club-analytics/guests';
+import { ageBuckets, cohorts, countVisits, firstVisits, guestBuckets, lastAges, visitsOf, type CohortRow, type GuestFigures, type GuestSession, type Visit } from '../../../shared/club-analytics/guests';
 import { localParts } from '../../../shared/club-analytics/hours';
 import { addDays } from '../../../shared/dates';
 import { reportColumns, type ReportStep } from '../../../shared/report-engine';
@@ -26,6 +26,8 @@ export interface ClubGuestsData {
   days: string[];
   cov: DayCoverage[];
   visits: Visit[];
+  /** Визиты одноразовых чеков за всё время (§19, R30): `guest` — номер чека в пределах ответа. */
+  checkVisits: Visit[];
   first: Map<number, string>;
   guests: Guests;
   pairs: KeyPair[];
@@ -78,7 +80,7 @@ const inRange = (at: string, start: string, end: string) => at >= start && at < 
 /** Сумма по гостям строк (абонементы, пополнения): строки без гостя не считаются. */
 function byGuest(rows: readonly (Row & { amount: number })[], cg: CompanyGuests, into = new Map<number, number>()): Map<number, number> {
   for (const r of rows) {
-    const g = rowGuest(cg.guests, cg.shared, r.login, r.phoneHash);
+    const g = rowGuest(cg.guests, cg, r.login, r.phoneHash);
     if (typeof g === 'number') add(into, g, r.amount);
   }
   return into;
@@ -86,20 +88,26 @@ function byGuest(rows: readonly (Row & { amount: number })[], cg: CompanyGuests,
 
 type SessionRow = Row & Omit<GuestSession, 'guest'>;
 
-/** Сеансы клубов, разложенные по гостям; сеансы периода без гостя — в счётчики (R19). */
-export function assignSessions(rows: readonly SessionRow[], cg: CompanyGuests, start: string, end: string) {
+/** Сеансы клубов, разложенные по гостям и чекам (R29); сеансы периода без гостя — в счётчики (R19). */
+export function assignSessions(rows: readonly SessionRow[], cg: Pick<CompanyGuests, 'guests' | 'shared' | 'checks'>, start: string, end: string) {
   const sessions: GuestSession[] = [];
+  const checkSessions: GuestSession[] = [];
+  const checkNo = new Map<string, number>();
   const unassigned = { noGuest: 0, shared: 0 };
   const spent = new Map<number, number>();
   for (const { login, phoneHash, ...s } of rows) {
-    const g = rowGuest(cg.guests, cg.shared, login, phoneHash);
+    const g = rowGuest(cg.guests, cg, login, phoneHash);
     const inPeriod = inRange(s.startAt, start, end);
     if (typeof g === 'number') {
       sessions.push({ ...s, guest: g });
       if (inPeriod) add(spent, g, s.debited);
+    } else if (g === 'check') {
+      const key = loginKey(login)!;
+      if (!checkNo.has(key)) checkNo.set(key, checkNo.size);
+      checkSessions.push({ ...s, guest: checkNo.get(key)! });
     } else if (inPeriod) unassigned[g === 'shared' ? 'shared' : 'noGuest'] += 1;
   }
-  return { sessions, unassigned, spent };
+  return { sessions, checkSessions, unassigned, spent };
 }
 
 async function sessionRows(db: Db, ids: number[]): Promise<SessionRow[]> {
@@ -124,12 +132,13 @@ export async function clubGuests(db: Db, tz: string, companyId: number, scope: C
   const ids = scope.offices.map((o) => o.id);
   const cg = await companyGuests(db, companyId, now);
   const [rows, money, cov] = await Promise.all([ids.length ? sessionRows(db, ids) : [], ids.length ? moneyRows(db, ids, start, end) : { tickets: [], refills: [] }, coverageOf(db, scope, days, tz)]);
-  const { sessions, unassigned, spent } = assignSessions(rows, cg, start, end);
+  const { sessions, checkSessions, unassigned, spent } = assignSessions(rows, cg, start, end);
   const visits = visitsOf(sessions);
   return {
     days,
     cov,
     visits,
+    checkVisits: visitsOf(checkSessions),
     first: firstVisits(visits),
     guests: cg.guests,
     pairs: cg.pairs,
@@ -157,18 +166,32 @@ export function firstDaysNote(dataStart: string | null, from: string, to: string
   return `Данные Senet начинаются ${dmy(dataStart)} — гости этих дней считаются новыми`;
 }
 
+/** Цифры гостей и одноразовых чеков (§19, R30). */
+export type VisitFigures = GuestFigures & { checks: number; checkSec: number };
+
+/** Цифры корзин: гости и визиты чеков. */
+export function visitFigures(d: Pick<ClubGuestsData, 'visits' | 'checkVisits' | 'first'>, buckets: readonly { from: string; to: string }[], tz: string): VisitFigures[] {
+  const checks = countVisits(d.checkVisits, buckets, tz);
+  return guestBuckets(d.visits, d.first, buckets, tz).map((f, i) => ({ ...f, checks: checks[i]!.visits, checkSec: checks[i]!.visitSec }));
+}
+
+/** Посетителей для денег на гостя (R30): деньги включают чеки, каждый чек — отдельный посетитель. */
+const visitors = (f: VisitFigures) => f.guests + f.checks;
+
 /** Цифры плиток (§7.2): что плитка берёт из цифр периода и денег. */
-const TILES: { key: string; label: string; unit: TileDef['unit']; kind: GuestTile['kind']; note?: string; value: (f: GuestFigures, m: GuestMoney) => number | null }[] = [
+const TILES: { key: string; label: string; unit: TileDef['unit']; kind: GuestTile['kind']; note?: string; value: (f: VisitFigures, m: GuestMoney) => number | null }[] = [
   { key: 'guests', label: 'Уникальных гостей', unit: 'number', kind: 'sum', value: (f) => f.guests },
   { key: 'newGuests', label: 'Новых', unit: 'number', kind: 'sum', value: (f) => f.newGuests },
   { key: 'returning', label: 'Вернувшихся', unit: 'number', kind: 'sum', value: (f) => f.returning },
+  { key: 'checks', label: 'Одноразовых чеков', unit: 'number', kind: 'sum', value: (f) => f.checks },
+  { key: 'visitsAll', label: 'Посещений всего', unit: 'number', kind: 'sum', note: 'визиты гостей + чеки', value: (f) => f.visits + f.checks },
   { key: 'visitsPerGuest', label: 'Визитов на гостя', unit: 'number', kind: 'avg', value: (f) => ratio(f.visits, f.guests) },
   { key: 'hoursPerGuest', label: 'Часов на гостя', unit: 'duration', kind: 'avg', value: (f) => ratio(f.visitSec, f.guests) },
-  { key: 'revenuePerGuest', label: 'Потратил на гостя', unit: 'money', kind: 'avg', note: 'выручка / гостей', value: (f, m) => ratio(m.revenue, f.guests) },
-  { key: 'refillsPerGuest', label: 'Пополнений на гостя', unit: 'money', kind: 'avg', value: (f, m) => ratio(m.refills, f.guests) },
+  { key: 'revenuePerGuest', label: 'Потратил на гостя', unit: 'money', kind: 'avg', note: 'выручка / (гостей + чеков)', value: (f, m) => ratio(m.revenue, visitors(f)) },
+  { key: 'refillsPerGuest', label: 'Пополнений на гостя', unit: 'money', kind: 'avg', note: 'пополнения / (гостей + чеков)', value: (f, m) => ratio(m.refills, visitors(f)) },
 ];
 
-const periodFigures = (d: ClubGuestsData, tz: string) => guestBuckets(d.visits, d.first, [{ from: d.days[0]!, to: d.days.at(-1)! }], tz)[0]!;
+const periodFigures = (d: ClubGuestsData, tz: string) => visitFigures(d, [{ from: d.days[0]!, to: d.days.at(-1)! }], tz)[0]!;
 
 /** Гости таблицы (§7.4): логины пар гостя по алфавиту, различные маски его телефонов. */
 export function guestNames(g: Guests, pairs: readonly KeyPair[]): Map<number, { logins: string[]; masks: string[]; lastAt: string }> {
@@ -240,8 +263,8 @@ const hasData = (days: readonly string[], cov: readonly DayCoverage[], c: { from
 export function buildGuestsReport(cur: ClubGuestsData, prev: ClubGuestsData | null, money: { cur: GuestMoney; prev: GuestMoney | null }, q: Pick<GuestsQuery, 'from' | 'to' | 'step'>, ctx: { approx: boolean; tz: string; now: string }) {
   const { tz } = ctx;
   const columns = reportColumns(q.from, q.to, q.step);
-  const figures = guestBuckets(cur.visits, cur.first, columns, tz);
-  const col = (pick: (f: GuestFigures) => number) => figures.map((f, i) => (hasData(cur.days, cur.cov, columns[i]!) ? pick(f) : null));
+  const figures = visitFigures(cur, columns, tz);
+  const col = (pick: (f: VisitFigures) => number) => figures.map((f, i) => (hasData(cur.days, cur.cov, columns[i]!) ? pick(f) : null));
   const total = periodFigures(cur, tz);
   const prevTotal = prev ? periodFigures(prev, tz) : null;
   const period = cur.visits.filter((v) => localParts(v.startAt, tz).day >= q.from && localParts(v.startAt, tz).day <= q.to);
@@ -265,6 +288,11 @@ export function buildGuestsReport(cur: ClubGuestsData, prev: ClubGuestsData | nu
     series: [
       { id: 'new', label: 'Новые', values: col((f) => f.newGuests) },
       { id: 'returning', label: 'Вернувшиеся', values: col((f) => f.returning) },
+    ],
+    // «Посещения» (R31): визиты гостей и одноразовые чеки
+    visits: [
+      { id: 'guestVisits', label: 'Визиты гостей', values: col((f) => f.visits) },
+      { id: 'checks', label: 'Одноразовые чеки', values: col((f) => f.checks) },
     ],
     top: topGuests(cur, period),
     ages: ageBuckets([...lastAges(period).values()]),

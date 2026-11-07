@@ -39,6 +39,22 @@ export function sharedLogins(pairs: readonly KeyPair[], since: string): Set<Gues
   return new Set([...phones].filter(([, s]) => s.size > SHARED_LOGIN_PHONES).map(([l]) => l));
 }
 
+/** Одноразовые чеки (§19, R28): логины пополнений с типом аккаунта «Check» — код чека, а не гость. */
+export function checkLogins(rows: readonly { login: string; accountType: string }[]): Set<GuestKey> {
+  const out = new Set<GuestKey>();
+  for (const r of rows) {
+    const l = loginKey(r.login);
+    if (l && r.accountType.trim().toLowerCase() === 'check') out.add(l);
+  }
+  return out;
+}
+
+/** Логины, которые не ключи гостя: общие (§7.1) и чеки (R29). */
+export interface LoginKinds {
+  shared: ReadonlySet<GuestKey>;
+  checks: ReadonlySet<GuestKey>;
+}
+
 /** Ручная правка: `merge` — один гость; `split` (`a === b`) — ключ вынут из автоматических связей (R18). */
 export interface GuestLink {
   kind: 'merge' | 'split';
@@ -91,24 +107,27 @@ class Sets {
   }
 }
 
-/** Ключи пары, которые связывают: общий логин — не ключ. */
-function pairKeys(p: KeyPair, shared: ReadonlySet<GuestKey>): GuestKey[] {
-  return [loginKey(p.login), phoneKey(p.phoneHash)].filter((k): k is GuestKey => k !== null && !shared.has(k));
+/** Ключи пары, которые связывают: общий логин — не ключ; пара чека не связывает ничего (R29). */
+function pairKeys(p: KeyPair, kinds: LoginKinds): GuestKey[] {
+  const l = loginKey(p.login);
+  if (l && kinds.checks.has(l)) return [];
+  return [l, phoneKey(p.phoneHash)].filter((k): k is GuestKey => k !== null && !kinds.shared.has(k));
 }
 
 /**
  * Гости (§7.1): связные компоненты пар «логин — телефон». Вынутый ключ (`split`) не связывается автоматически; `merge`
  * связывает всегда, кроме правок с общим логином.
  */
-export function groupGuests(pairs: readonly KeyPair[], shared: ReadonlySet<GuestKey>, links: readonly GuestLink[]): Guests {
+export function groupGuests(pairs: readonly KeyPair[], kinds: LoginKinds, links: readonly GuestLink[]): Guests {
   const sets = new Sets();
   const isolated = new Set(links.filter((l) => l.kind === 'split').map((l) => l.a));
   for (const p of pairs) {
-    const keys = pairKeys(p, shared);
+    const keys = pairKeys(p, kinds);
     keys.forEach((k) => sets.add(k));
     if (keys.length === 2 && !keys.some((k) => isolated.has(k))) sets.union(keys[0]!, keys[1]!);
   }
-  for (const l of links.filter((x) => x.kind === 'merge' && !shared.has(x.a) && !shared.has(x.b))) {
+  const usable = (k: GuestKey) => !kinds.shared.has(k) && !kinds.checks.has(k);
+  for (const l of links.filter((x) => x.kind === 'merge' && usable(x.a) && usable(x.b))) {
     sets.add(l.a);
     sets.add(l.b);
     sets.union(l.a, l.b);
@@ -117,13 +136,17 @@ export function groupGuests(pairs: readonly KeyPair[], shared: ReadonlySet<Guest
   return { of: new Map(keys.flatMap((ks, i) => ks.map((k) => [k, i] as const))), keys };
 }
 
-/** Гость строки (R18, R19): по логину-ключу, иначе по телефону; `shared` — общий логин без телефона; `none` — ни того ни другого. */
-export function rowGuest(g: Guests, shared: ReadonlySet<GuestKey>, login: string, phoneHash: string | null): number | 'shared' | 'none' {
+/**
+ * Гость строки (R18, R19): по логину-ключу, иначе по телефону; `check` — логин одноразового чека (R29); `shared` — общий
+ * логин без телефона; `none` — ни того ни другого.
+ */
+export function rowGuest(g: Guests, kinds: LoginKinds, login: string, phoneHash: string | null): number | 'check' | 'shared' | 'none' {
   const l = loginKey(login);
-  const byLogin = l && !shared.has(l) ? g.of.get(l) : undefined;
+  if (l && kinds.checks.has(l)) return 'check';
+  const byLogin = l && !kinds.shared.has(l) ? g.of.get(l) : undefined;
   if (byLogin !== undefined) return byLogin;
   const p = phoneKey(phoneHash);
   const byPhone = p ? g.of.get(p) : undefined;
   if (byPhone !== undefined) return byPhone;
-  return l && shared.has(l) ? 'shared' : 'none';
+  return l && kinds.shared.has(l) ? 'shared' : 'none';
 }

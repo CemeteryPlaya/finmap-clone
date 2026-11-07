@@ -125,8 +125,9 @@ test('«Гости»: плитки, ряд, когорты, постоянные
   await page.goto(`/c/${cid}/analytics/club/guests?from=${period.from}&to=${period.to}`);
   await expect(main(page).getByRole('heading', { name: 'Гости', level: 1 })).toBeVisible();
   const tiles = main(page).getByRole('list', { name: 'Плитки' });
-  for (const t of ['Уникальных гостей', 'Новых', 'Вернувшихся', 'Визитов на гостя', 'Часов на гостя', 'Потратил на гостя', 'Пополнений на гостя']) await expect(tiles.getByText(t, { exact: true })).toBeVisible();
+  for (const t of ['Уникальных гостей', 'Новых', 'Вернувшихся', 'Одноразовых чеков', 'Посещений всего', 'Визитов на гостя', 'Часов на гостя', 'Потратил на гостя', 'Пополнений на гостя']) await expect(tiles.getByText(t, { exact: true })).toBeVisible();
   await expect(main(page).getByRole('img', { name: /^Новые и вернувшиеся гости/ })).toBeVisible();
+  await expect(main(page).getByRole('img', { name: /^Посещения/ })).toBeVisible();
   await expect(main(page).getByText(/Общие логины: \d+ сеанс/)).toBeVisible();
   await expect(main(page).getByRole('heading', { name: 'Когорты' })).toBeVisible();
   await expect(main(page).getByRole('heading', { name: 'Возраст' })).toBeVisible();

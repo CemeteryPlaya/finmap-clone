@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { groupGuests, sharedLogins, SHARED_WINDOW_DAYS, type GuestKey, type GuestLink, type Guests, type KeyPair } from '../../../shared/club-analytics/guest-links';
+import { checkLogins, groupGuests, sharedLogins, SHARED_WINDOW_DAYS, type GuestKey, type GuestLink, type Guests, type KeyPair } from '../../../shared/club-analytics/guest-links';
 import type { GuestLinkInput } from '../../../shared/schemas/club-analytics';
 import type { Db } from '../../db/client';
 import { first } from '../../db/raw';
@@ -57,12 +57,24 @@ export async function companyPairs(db: Db, companyId: number): Promise<KeyPair[]
   return mergePairs((await Promise.all([senetLoad, senetRefills, senetChecks, senetTickets].map((t) => tablePairs(db, ids, t)))).flat());
 }
 
-/** Гости компании на `now` (§7.1, R19): общие логины — по парам за 90 дней до `now`. */
+/** Логины одноразовых чеков компании (§19, R28): пополнения с типом аккаунта «Check» за всё время. */
+async function companyChecks(db: Db, companyId: number): Promise<Set<GuestKey>> {
+  const ids = await companyOffices(db, companyId);
+  if (!ids.length) return new Set();
+  const rows = await db
+    .select({ login: senetRefills.guestLogin, accountType: senetRefills.accountType })
+    .from(senetRefills)
+    .where(inArray(senetRefills.officeId, ids))
+    .groupBy(senetRefills.guestLogin, senetRefills.accountType);
+  return checkLogins(rows);
+}
+
+/** Гости компании на `now` (§7.1, R19, R29): общие логины — по парам за 90 дней до `now`; чеки — не гости. */
 export async function companyGuests(db: Db, companyId: number, now: string) {
-  const [pairs, links] = await Promise.all([companyPairs(db, companyId), guestLinks(db, companyId)]);
+  const [pairs, links, checks] = await Promise.all([companyPairs(db, companyId), guestLinks(db, companyId), companyChecks(db, companyId)]);
   const shared = sharedLogins(pairs, new Date(Date.parse(now) - SHARED_WINDOW_DAYS * 86_400_000).toISOString());
-  const guests: Guests = groupGuests(pairs, shared, links);
-  return { guests, shared, pairs, links };
+  const guests: Guests = groupGuests(pairs, { shared, checks }, links);
+  return { guests, shared, checks, pairs, links };
 }
 
 export type CompanyGuests = Awaited<ReturnType<typeof companyGuests>>;

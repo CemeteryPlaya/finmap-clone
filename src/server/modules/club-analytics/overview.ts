@@ -3,7 +3,6 @@ import { BUILT_CLUB_REPORTS, CLUB_TILES, resolveTiles, TILE_SOON, type SavedTile
 import { previousRange } from '../../../shared/club-analytics/columns';
 import type { DayCoverage } from '../../../shared/club-analytics/coverage';
 import { localParts } from '../../../shared/club-analytics/hours';
-import { guestBuckets, type GuestFigures } from '../../../shared/club-analytics/guests';
 import { extremeHours, loadByDay, loadHeatmap, loadTotal, sumZones } from '../../../shared/club-analytics/load';
 import type { OverviewQuery } from '../../../shared/schemas/club-analytics';
 import type { Db } from '../../db/client';
@@ -14,7 +13,7 @@ import { requireCompany } from '../companies/guard';
 import { excelDate, minorToDecimal } from '../operations/journal-export';
 import { reportInfo } from '../analytics/report-export';
 import type { AnalyticsService } from '../analytics/service';
-import { clubGuests, type ClubGuestsData } from './guests';
+import { clubGuests, visitFigures, type ClubGuestsData, type VisitFigures } from './guests';
 import { clubLoad, type ClubLoadData } from './load';
 import { clubDays, type ClubDays } from './revenue';
 import { CLUB_TEMPLATE, clubScope, NO_PC_NOTE, pcsOf, type ClubScope } from './scope';
@@ -63,8 +62,8 @@ export interface LoadFigures {
 
 /** Гости периода для «Обзора» (§4): за период и по дням. */
 export interface GuestDayFigures {
-  total: GuestFigures;
-  byDay: GuestFigures[];
+  total: VisitFigures;
+  byDay: VisitFigures[];
 }
 
 /** Период «Обзора»: части выручки по дням, загрузка и — если есть плитки гостей — гости. */
@@ -75,18 +74,18 @@ export function loadFigures(l: ClubLoadData): LoadFigures {
   return { total: loadTotal(all, l.seats, l.cov), byDay: loadByDay(all, l.seats, l.cov), heatmap: loadHeatmap(all, l.seats, l.days, l.cov) };
 }
 
-/** Гости дней `days` (§4): визиты и первые визиты — за всё время, поэтому одни данные годятся для любого периода. */
-export function guestFigures(g: Pick<ClubGuestsData, 'visits' | 'first'>, tz: string, days: readonly string[]): GuestDayFigures {
-  const [total] = guestBuckets(g.visits, g.first, [{ from: days[0]!, to: days.at(-1)! }], tz);
-  return { total: total!, byDay: guestBuckets(g.visits, g.first, days.map((day) => ({ from: day, to: day })), tz) };
+/** Гости и чеки дней `days` (§4, R30): визиты и первые визиты — за всё время, поэтому одни данные годятся для любого периода. */
+export function guestFigures(g: Pick<ClubGuestsData, 'visits' | 'checkVisits' | 'first'>, tz: string, days: readonly string[]): GuestDayFigures {
+  const [total] = visitFigures(g, [{ from: days[0]!, to: days.at(-1)! }], tz);
+  return { total: total!, byDay: visitFigures(g, days.map((day) => ({ from: day, to: day })), tz) };
 }
 
 /** Ряд гостей по дням (§4): день без данных выручки — null. */
-const guestDaily = (d: Period, f: (x: GuestFigures, i: number) => number | null) => d.guests!.byDay.map((x, i) => (d.revenueCoverage[i] === 'none' ? null : f(x, i)));
+const guestDaily = (d: Period, f: (x: VisitFigures, i: number) => number | null) => d.guests!.byDay.map((x, i) => (d.revenueCoverage[i] === 'none' ? null : f(x, i)));
 
 /** Плитка гостей: значение — по итогу периода, ряд — по дням. */
 const guestMeasure =
-  (f: (x: GuestFigures, d: Period, i: number | null) => number | null): Measure =>
+  (f: (x: VisitFigures, d: Period, i: number | null) => number | null): Measure =>
   (d) => ({ value: f(d.guests!.total, d, null), spark: guestDaily(d, (x, i) => f(x, d, i)) });
 
 /** Выручка периода (`i` = null) или дня. */
@@ -105,8 +104,11 @@ const MEASURES: Record<string, Measure> = {
   rentToRevenue: (d, _, j) => ({ value: j && ratio(j.rent, total(d.parts.revenue)), spark: [] }),
   guests: guestMeasure((x) => x.guests),
   newGuests: guestMeasure((x) => x.newGuests),
-  revenuePerGuest: guestMeasure((x, d, i) => ratio(revenueOf(d, i), x.guests)),
-  visitDuration: guestMeasure((x) => ratio(x.visitSec, x.visits)),
+  // деньги включают одноразовые чеки — на гостей и чеки (R30)
+  revenuePerGuest: guestMeasure((x, d, i) => ratio(revenueOf(d, i), x.guests + x.checks)),
+  visitDuration: guestMeasure((x) => ratio(x.visitSec + x.checkSec, x.visits + x.checks)),
+  visitsAll: guestMeasure((x) => x.visits + x.checks),
+  checks: guestMeasure((x) => x.checks),
   visitsPerGuest: guestMeasure((x) => ratio(x.visits, x.guests)),
   returningShare: guestMeasure((x) => ratio(x.returning, x.guests)),
 };

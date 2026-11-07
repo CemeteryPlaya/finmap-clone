@@ -57,14 +57,19 @@ function pickHour(r: () => number): number {
 const local = (ms: number) => xlTime(new Date(ms + TZ).toISOString().replace('T', ' ').slice(0, 19));
 const guest = (n: number) => ({ login: `guest${String(n).padStart(3, '0')}`, phone: `+7700000${String(1000 + n).slice(-4)}` });
 
+/** Код одноразового чека: 4 знака, как в Senet; различный у сеансов демо (день × 64 + номер сеанса). */
+const checkCode = (dayNo: number, i: number) => (dayNo * 64 + i).toString(36).toUpperCase().padStart(4, '0').slice(-4);
+
 /**
- * Кто сидит за сеансом («Гости», §7.1): гости 1–10 в каждом пятом сеансе — под вторым логином `guestNNNm` с тем же
- * телефоном (один гость); каждый 25-й сеанс — общий логин `club` с одним из 5 телефонов, каждый 50-й — без телефона.
+ * Кто сидит за сеансом («Гости», §7.1, §19): гости 1–10 в каждом пятом сеансе — под вторым логином `guestNNNm` с тем же
+ * телефоном (один гость); каждый 25-й сеанс — общий логин `club` с одним из 5 телефонов, каждый 50-й — без телефона;
+ * каждый четвёртый из остальных — одноразовый чек: логин — код чека, без телефона.
  * Без новых случайных чисел: остальные демо-данные не меняются.
  */
-function visitor(g: { login: string; phone: string | null }, i: number, dayNo: number): { login: string; phone: string | null } {
+function visitor(g: { login: string; phone: string | null }, i: number, dayNo: number): { login: string; phone: string | null; check?: true } {
   if (i % 50 === 7) return { login: 'club', phone: null };
   if (i % 25 === 7) return { login: 'club', phone: `+77009900${String(10 + ((dayNo + i) % 5))}` };
+  if (i % 4 === 3) return { login: checkCode(dayNo, i), phone: null, check: true };
   if (i % 5 === 0 && Number(g.login.slice(5)) <= 10) return { login: `${g.login}m`, phone: g.phone };
   return g;
 }
@@ -93,11 +98,12 @@ function day(start: number, until: number, all: Record<string, Rows>): void {
     add('load', open, ['Клуб 1', local(open), local(close), zone.name, ws, g.login, g.phone, 19, 'Тариф 1', debited, 0, 0.0625]);
     const paid = byPackage ? pick(r, PACKAGES) : null;
     if (paid) add('tickets', open - 60_000, [g.login, g.phone, paid.name, local(open - 60_000), paid.price, paid.minutes]);
-    // гость покупает чек на время на кассе — пополнение баланса (Check) и транзакция кассы
+    // чек на время с кассы: одноразовый — свой аккаунт «Check», иначе — пополнение аккаунта гостя «General»; транзакция кассы
     const amount = paid ? paid.price : debited;
     if (amount > 0) {
       const at = open - 120_000;
-      add('refills', at, ['Клуб 1', local(at), g.login, r() < 0.8 ? 'Check' : 'General', g.phone ? Number(g.phone.slice(1)) : null, amount, ws]);
+      r(); // прежний выбор типа: последовательность случайных чисел не меняется
+      add('refills', at, ['Клуб 1', local(at), g.login, g.check ? 'Check' : 'General', g.phone ? Number(g.phone.slice(1)) : null, amount, ws]);
       pay(at, amount);
     }
     if (r() < 0.6) {
