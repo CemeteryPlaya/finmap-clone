@@ -75,6 +75,26 @@ export const loadRowsQuerySchema = z
   })
   .superRefine(checkPeriod);
 
+/** Разрезы «Бара» (§8.3). */
+export const BAR_BYS = ['items', 'categories'] as const;
+export type BarBy = (typeof BAR_BYS)[number];
+
+/** `GET …/club-analytics/bar` (§8, §11). */
+export const barQuerySchema = z
+  .object({ ...clubShape, by: z.preprocess(blank, z.enum(BAR_BYS, { message: 'Разрез — items или categories' }).default('items')) })
+  .superRefine(checkPeriod);
+
+/** Продажи товара под таблицей «Бара» (§2.2, R39): товар, курсор страницы. */
+export const barRowsQuerySchema = z
+  .object({
+    ...clubShape,
+    item: z.string({ message: 'Укажите товар' }).min(1, 'Укажите товар').max(200, 'Не длиннее 200 знаков'),
+    cursor: z.preprocess(blank, z.coerce.number().int().min(0).default(0)),
+  })
+  .superRefine(checkPeriod);
+
+export type BarQuery = z.output<typeof barQuerySchema>;
+export type BarRowsQuery = z.output<typeof barRowsQuerySchema>;
 export type RevenueQuery = z.output<typeof revenueQuerySchema>;
 export type LoadQuery = z.output<typeof loadQuerySchema>;
 export type LoadRowsQuery = z.output<typeof loadRowsQuerySchema>;

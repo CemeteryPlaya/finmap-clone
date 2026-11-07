@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../../db/client';
-import { guestCardQuerySchema, guestLinkInputSchema, guestSearchQuerySchema, guestsQuerySchema, loadQuerySchema, loadRowsQuerySchema, overviewQuerySchema, revenueQuerySchema, revenueRowsQuerySchema, zonesInputSchema } from '../../../shared/schemas/club-analytics';
+import { barQuerySchema, barRowsQuerySchema, guestCardQuerySchema, guestLinkInputSchema, guestSearchQuerySchema, guestsQuerySchema, loadQuerySchema, loadRowsQuerySchema, overviewQuerySchema, revenueQuerySchema, revenueRowsQuerySchema, zonesInputSchema } from '../../../shared/schemas/club-analytics';
 import { type Downloads, inlineDownloads, sendFile } from '../../http/download';
 import { parseId } from '../../http/params';
+import type { ClubBar } from './bar';
 import type { GuestLinksService } from './guest-links';
 import type { ClubGuests } from './guests';
 import type { ClubLoad } from './load';
@@ -21,7 +22,7 @@ type O = { Params: { cid: string; id: string } };
  * «Аналитика клуба» (спецификация 2026-11-03-club-analytics): настройки дашбордов компании (§10) и отчёты клуба. Чтение —
  * сессия, архивная компания тоже читается; запись — CSRF, архивная компания — только чтение.
  */
-export function registerClubAnalyticsRoutes(app: FastifyInstance, deps: { db: Db; settings: AnalyticsSettings; overview: ClubOverview; revenue: ClubRevenue; load: ClubLoad; zones: ClubZones; links: GuestLinksService; guests: ClubGuests; downloads?: Downloads }): void {
+export function registerClubAnalyticsRoutes(app: FastifyInstance, deps: { db: Db; settings: AnalyticsSettings; overview: ClubOverview; revenue: ClubRevenue; load: ClubLoad; zones: ClubZones; links: GuestLinksService; guests: ClubGuests; bar: ClubBar; downloads?: Downloads }): void {
   const SETTINGS = '/api/v1/companies/:cid/analytics-settings';
   app.get<C>(SETTINGS, async (req) => deps.settings.get(parseId(req.params.cid)));
   app.put<K>(`${SETTINGS}/:key`, async (req) => deps.settings.put(parseId(req.params.cid), req.params.key, req.body, req.user!.id));
@@ -69,4 +70,9 @@ export function registerClubAnalyticsRoutes(app: FastifyInstance, deps: { db: Db
   app.get<C>(`${BASE}/load`, async (req) => deps.load.load(parseId(req.params.cid), loadQuerySchema.parse(req.query)));
   app.get<C>(`${BASE}/load/rows`, async (req) => deps.load.rows(parseId(req.params.cid), loadRowsQuerySchema.parse(req.query)));
   app.get<C>(`${BASE}/load.xlsx`, async (req, reply) => sendFile(reply, await deps.load.xlsx(parseId(req.params.cid), loadQuerySchema.parse(req.query)), deps.downloads ?? inlineDownloads));
+
+  // «Бар» (§8, §11): отчёт, продажи товара, Excel
+  app.get<C>(`${BASE}/bar`, async (req) => deps.bar.bar(parseId(req.params.cid), barQuerySchema.parse(req.query)));
+  app.get<C>(`${BASE}/bar/rows`, async (req) => deps.bar.rows(parseId(req.params.cid), barRowsQuerySchema.parse(req.query)));
+  app.get<C>(`${BASE}/bar.xlsx`, async (req, reply) => sendFile(reply, await deps.bar.xlsx(parseId(req.params.cid), barQuerySchema.parse(req.query)), deps.downloads ?? inlineDownloads));
 }
