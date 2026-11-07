@@ -16,13 +16,19 @@ const ZONES = [
   { name: 'Общий зал', from: 1, count: 30, perHour: 350 },
   { name: 'VIP', from: 31, count: 10, perHour: 600 },
 ] as const;
+/** Товары бара (АК-4): цена прихода — 55 % цены; у «Сэндвича» её нет (§8.1, «нет цены прихода»). */
 const GOODS = [
-  { name: 'Кола 0,5', price: 450 },
-  { name: 'Энергетик', price: 700 },
-  { name: 'Чипсы', price: 500 },
-  { name: 'Вода', price: 250 },
-  { name: 'Сэндвич', price: 900 },
+  { name: 'Кола 0,5', price: 450, category: 'Напитки', cost: true },
+  { name: 'Энергетик', price: 700, category: 'Напитки', cost: true },
+  { name: 'Чипсы', price: 500, category: 'Еда', cost: true },
+  { name: 'Вода', price: 250, category: 'Напитки', cost: true },
+  { name: 'Сэндвич', price: 900, category: 'Еда', cost: false },
 ] as const;
+type Good = (typeof GOODS)[number];
+const restockPrice = (g: Good) => (g.cost ? Math.round(g.price * 0.55) : null);
+/** Остаток каждого товара в начале демо, приход по понедельникам, списание «Чипсов» в каждые седьмые сутки. */
+const STOCK_START = 60;
+const RESTOCK_QTY = 48;
 const PACKAGES = [
   { name: '3 часа', price: 1_000, minutes: 180 },
   { name: '5 часов', price: 1_500, minutes: 300 },
@@ -116,6 +122,49 @@ function day(start: number, until: number, all: Record<string, Rows>): void {
   }
 }
 
+/** Движение товара: продажа, приход или списание (количество — штуки). */
+interface GoodsEvent {
+  at: number;
+  item: string;
+  kind: 'sold' | 'restock' | 'writeOff';
+  qty: number;
+  amount: number;
+}
+
+/** Приходы и списания демо (без случайных чисел): приход 48 шт каждого товара в понедельник 09:00, списание 1 шт «Чипсов» в 10:00 каждых седьмых суток. */
+function stockEvents(first: number, days: number, until: number): GoodsEvent[] {
+  const out: GoodsEvent[] = [];
+  for (let d = 0; d <= days; d++) {
+    const start = first + d * DAY;
+    const dayNo = Math.floor((start + TZ) / DAY);
+    // 01.01.1970 — четверг: понедельник — (dayNo + 3) % 7 === 0
+    if ((dayNo + 3) % 7 === 0) for (const g of GOODS) out.push({ at: start + 9 * HOUR, item: g.name, kind: 'restock', qty: RESTOCK_QTY, amount: 0 });
+    if (dayNo % 7 === 0) out.push({ at: start + 10 * HOUR, item: 'Чипсы', kind: 'writeOff', qty: 1, amount: 0 });
+  }
+  return out.filter((e) => e.at < until);
+}
+
+/** Остатки (`shop_quantity`) и движение товаров (`movements_of_goods`) окна `[from, to)` по событиям: остаток — на конец окна. */
+function goodsReport(kind: 'stock' | 'goodsMoves', events: readonly GoodsEvent[], from: number, to: number): Buffer {
+  const rows = GOODS.flatMap((g) => {
+    const mine = events.filter((e) => e.item === g.name && e.at < to);
+    const inWin = mine.filter((e) => e.at >= from);
+    const qty = (k: GoodsEvent['kind'], xs = inWin) => xs.filter((e) => e.kind === k).reduce((t, e) => t + e.qty, 0);
+    const sold = qty('sold');
+    const soldSum = inWin.filter((e) => e.kind === 'sold').reduce((t, e) => t + e.amount, 0);
+    const restock = qty('restock');
+    const writeOff = qty('writeOff');
+    const actual = STOCK_START + qty('restock', mine) - qty('sold', mine) - qty('writeOff', mine);
+    const price = restockPrice(g);
+    const restockSum = price === null ? 0 : price * restock;
+    if (kind === 'stock') return [[g.name, sold, restock, writeOff, price, restockSum, g.price, soldSum, actual] as SampleValue[]];
+    if (!inWin.length) return [];
+    const soldCost = price === null ? null : price * sold;
+    return [['Cashdesk', 'demo', g.category, g.name, restock, writeOff, price, restockSum, actual, sold, g.price, soldSum, soldCost, soldCost === null ? null : soldSum - soldCost, null] as SampleValue[]];
+  });
+  return senetSample(kind, rows);
+}
+
 /** Отчёты клуба по окну запроса (`from_date`, `to_date`); не отчёт клуба — null (отвечает основной демо-Senet). */
 export function clubDemoReports(now: number): (type: string, q: Record<string, string>) => Buffer | null {
   const until = now - 30 * HOUR;
@@ -123,11 +172,17 @@ export function clubDemoReports(now: number): (type: string, q: Record<string, s
   const today = Math.floor((until + TZ) / DAY) * DAY - TZ;
   for (let d = DAYS; d >= 0; d--) day(today - d * DAY, until, all);
   const kinds: Record<string, string> = { office_load_by_zones: 'load', tickets: 'tickets', refill: 'refills', sold_check_items: 'soldItems', cashdesk_transactions: 'transactions' };
+  const sold = all.soldItems!;
+  const events: GoodsEvent[] = [
+    ...sold.rows.map((row, i): GoodsEvent => ({ at: sold.at[i]!, item: String(row[1]), kind: 'sold', qty: Number(row[2]), amount: Number(row[3]) })),
+    ...stockEvents(today - DAYS * DAY, DAYS, until),
+  ];
   return (type, q) => {
-    const kind = kinds[type];
-    if (!kind) return null;
     const from = Date.parse(q.from_date ?? '');
     const to = Date.parse(q.to_date ?? '');
+    if (type === 'shop_quantity' || type === 'movements_of_goods') return goodsReport(type === 'shop_quantity' ? 'stock' : 'goodsMoves', events, from, to);
+    const kind = kinds[type];
+    if (!kind) return null;
     const { rows, at } = all[kind]!;
     return senetSample(kind as Parameters<typeof senetSample>[0], rows.filter((_, i) => at[i]! >= from && at[i]! < to));
   };

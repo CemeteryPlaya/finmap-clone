@@ -1108,6 +1108,35 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // «Бар» (план АК-4, задача 6). Пары в Finmap нет — m88…m90 заглушки
+    ours: 'c88-club-bar-chart.png',
+    finmap: 'm88-club-bar-chart.png',
+    path: `analytics/club/bar?${CLUB_PERIOD}`,
+    act: async (p) => {
+      await ensureClub(p);
+      await p.getByRole('main').getByRole('img', { name: /^Выручка и прибыль бара/ }).waitFor();
+    },
+  },
+  {
+    ours: 'c89-club-bar-table.png',
+    finmap: 'm89-club-bar-table.png',
+    path: `analytics/club/bar?view=table&${CLUB_PERIOD}`,
+    act: async (p) => {
+      await ensureClub(p);
+      await p.getByRole('main').getByRole('table', { name: 'Бар: товары' }).getByRole('rowheader', { name: 'Сэндвич' }).waitFor();
+    },
+  },
+  {
+    ours: 'cm90-club-bar.png',
+    finmap: 'm90-club-bar-phone.png',
+    phone: true,
+    path: `analytics/club/bar?view=table&${CLUB_PERIOD}`,
+    act: async (p) => {
+      await ensureClub(p);
+      await p.getByRole('main').getByRole('table', { name: 'Бар: товары' }).waitFor();
+    },
+  },
+  {
     ours: 'cm79-club-overview.png',
     finmap: 'm79-club-overview-phone.png',
     phone: true,

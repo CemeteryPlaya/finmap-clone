@@ -100,6 +100,9 @@ describe('отчёт «Бар»', () => {
       expect(drink.stockQty).toBe(10_000);
       expect(drink.daysLeft).toBeCloseTo(10_000 / (3000 / 2));
     }
+    // «хватит на» есть — Excel с ним собирается (число с 2 знаками)
+    const xlsx = await x.w.h.req('GET', `${x.c}/club-analytics/bar.xlsx?${PERIOD}`);
+    expect(xlsx.statusCode, xlsx.body.slice(0, 200)).toBe(200);
   });
 
   it('«Все клубы»: один товар двух клубов — одна строка, суммы; один клуб — его цифры (Review Focus 5)', async () => {

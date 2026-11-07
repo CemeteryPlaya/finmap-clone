@@ -53,6 +53,7 @@ test('главная «Аналитики»: группа «Компьютерн
   await expect(main(page).getByRole('link', { name: /Выручка клуба/ })).toBeVisible();
   await expect(main(page).getByRole('link', { name: /^Загрузка/ })).toBeVisible();
   await expect(main(page).getByRole('link', { name: /^Гости/ })).toBeVisible();
+  await expect(main(page).getByRole('link', { name: /^Бар/ })).toBeVisible();
 });
 
 test('«Обзор клуба»: плитки, дни без данных, плитка ведёт в «Выручку» с тем же периодом', async ({ page }) => {
@@ -66,7 +67,7 @@ test('«Обзор клуба»: плитки, дни без данных, пл�
   await expect(tiles.getByRole('link', { name: /Доля бара\s*[\d,]+\s%/ })).toBeVisible();
   await expect(tiles.getByRole('link', { name: /Загрузка ПК\s*[\d,]+\s%/ })).toBeVisible();
   await expect(tiles.getByRole('link', { name: /^Гостей\s*[\d\s]+/ })).toHaveAttribute('href', new RegExp(`/analytics/club/guests\\?from=${period.from}&to=${period.to}`));
-  await expect(tiles.getByRole('link', { name: /^Маржа бара/ })).toHaveAttribute('href', new RegExp(`/analytics/club/bar\\?from=${period.from}&to=${period.to}`));
+  await expect(tiles.getByRole('link', { name: /^Маржа бара\s*[\d,]+\s%/ })).toHaveAttribute('href', new RegExp(`/analytics/club/bar\\?from=${period.from}&to=${period.to}`));
   await expect(main(page).getByRole('heading', { name: 'Лучшие и худшие дни' })).toBeVisible();
   const peak = main(page).getByRole('heading', { name: 'Часы пик' }).locator('xpath=..');
   await expect(peak.getByRole('listitem')).toHaveCount(3);
@@ -158,6 +159,37 @@ test('«Гости»: плитки, ряд, когорты, постоянные
   const download = page.waitForEvent('download');
   await main(page).getByRole('link', { name: 'Скачать Excel' }).last().click();
   expect((await download).suggestedFilename()).toMatch(/Гости.*\.xlsx$/);
+});
+
+test('«Бар»: плитки, график, таблица товаров, продажи товара, категории, закупки; Excel', async ({ page }) => {
+  await login(page);
+  await page.goto(`/c/${cid}/analytics/club/bar?from=${period.from}&to=${period.to}`);
+  await expect(main(page).getByRole('heading', { name: 'Бар', level: 1 })).toBeVisible();
+  const tiles = main(page).getByRole('list', { name: 'Плитки' });
+  for (const t of ['Выручка бара', 'Себестоимость', 'Прибыль бара', 'Маржа бара']) await expect(tiles.getByText(t, { exact: true })).toBeVisible();
+  await expect(main(page).getByRole('img', { name: /^Выручка и прибыль бара/ })).toBeVisible();
+  await expect(main(page).getByRole('heading', { name: 'Закупки' })).toBeVisible();
+
+  await page.goto(`/c/${cid}/analytics/club/bar?view=table&from=${period.from}&to=${period.to}`);
+  const table = main(page).getByRole('table', { name: 'Бар: товары' });
+  await expect(table.locator('tbody tr')).toHaveCount(5);
+  await expect(table.locator('tbody tr').filter({ hasText: 'Сэндвич' })).toContainText('нет цены прихода');
+  await expect(main(page).getByText('без себестоимости: 1 товар', { exact: true })).toBeVisible();
+  const first = await table.locator('tbody tr').first().innerText();
+  await table.getByRole('button', { name: 'Маржа' }).click();
+  await expect(table.getByRole('columnheader', { name: /Маржа/ })).toHaveAttribute('aria-sort', 'descending');
+  expect(await table.locator('tbody tr').first().innerText()).not.toBe(first);
+  await table.getByRole('button', { name: 'Кола 0,5', exact: true }).click();
+  const rows = main(page).getByRole('region', { name: /^Продажи: Кола 0,5/ });
+  await expect(rows.getByText('Кола 0,5').first()).toBeVisible();
+
+  const download = page.waitForEvent('download');
+  await main(page).getByRole('link', { name: 'Скачать Excel' }).last().click();
+  expect((await download).suggestedFilename()).toMatch(/Бар.*\.xlsx$/);
+
+  await page.goto(`/c/${cid}/analytics/club/bar?view=table&by=categories&from=${period.from}&to=${period.to}`);
+  const cats = main(page).getByRole('table', { name: 'Бар: категории' });
+  for (const c of ['Напитки', 'Еда']) await expect(cats.getByRole('rowheader', { name: c, exact: true })).toBeVisible();
 });
 
 test('«Настройки → Аналитика»: скрытая «Выручка клуба» пропадает с главной, но открывается по адресу; «Вернуть как было»', async ({ page }) => {

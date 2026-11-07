@@ -228,7 +228,7 @@ const SHEET_COLUMNS: { header: string; items?: true; cell: (r: BarRow) => XlsxCe
   { header: 'Маржа, %', cell: (r) => num(r.margin === null ? null : r.margin * 100, 2) },
   { header: 'Списано', cell: (r) => qty(r.writeOffQty) },
   { header: 'Остаток', items: true, cell: (r) => qty(r.stockQty) },
-  { header: 'Хватит на, дней', items: true, cell: (r) => num(r.daysLeft, 1) },
+  { header: 'Хватит на, дней', items: true, cell: (r) => num(r.daysLeft, 2) },
   { header: 'ABC', cell: (r) => text(r.abc) },
 ];
 
