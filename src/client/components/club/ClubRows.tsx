@@ -13,7 +13,7 @@ const guestOf = (i: CellItemView) => [i.guest, i.phoneMask].filter(Boolean).join
  * Строки Senet, из которых сложилась ячейка отчёта клуба (спецификация «Аналитика клуба», §2.2): заголовок «{строка} за
  * {колонка}» получает фокус при открытии, «×» закрывает; страницы по 50. Это строки Senet — ссылок на операции у них нет.
  */
-export function ClubRows(props: { companyId: number; report?: 'revenue' | 'load'; title: string; params: string; timeZone: string; onClose: () => void }) {
+export function ClubRows(props: { companyId: number; report?: 'revenue' | 'load' | 'bar'; title: string; params: string; timeZone: string; onClose: () => void }) {
   const list = useClubCellRows(props.companyId, props.report ?? 'revenue', props.params);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const headingId = useId();

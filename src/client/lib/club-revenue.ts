@@ -125,7 +125,7 @@ interface CellPage {
  * Строки Senet ячейки отчёта клуба: страницы по 50 (`cursor` — смещение). params — параметры отчёта и ячейки: у «Выручки»
  * row и col, у «Загрузки» weekday и hour.
  */
-export function useClubCellRows(companyId: number, report: 'revenue' | 'load', params: string) {
+export function useClubCellRows(companyId: number, report: 'revenue' | 'load' | 'bar', params: string) {
   return useInfiniteQuery<CellPage, ApiError, InfiniteData<CellPage, string>, readonly unknown[], string>({
     queryKey: ['analytics', companyId, 'club', `${report}-rows`, params],
     initialPageParam: '0',

@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router';
 import { AnalyticsPage } from './pages/AnalyticsPage';
+import { ClubBarPage } from './pages/club/ClubBarPage';
 import { ClubGuestsPage } from './pages/club/ClubGuestsPage';
 import { ClubLoadPage } from './pages/club/ClubLoadPage';
 import { ClubOverviewPage } from './pages/club/ClubOverviewPage';
@@ -69,6 +70,7 @@ export const router = createBrowserRouter([
               { path: 'club/revenue', element: <ClubRevenuePage /> },
               { path: 'club/load', element: <ClubLoadPage /> },
               { path: 'club/guests', element: <ClubGuestsPage /> },
+              { path: 'club/bar', element: <ClubBarPage /> },
               { path: '*', element: <Navigate to=".." replace /> },
             ],
           },
