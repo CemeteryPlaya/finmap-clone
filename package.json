@@ -21,6 +21,7 @@
     "bench:journal": "tsx scripts/bench-journal.ts",
     "bench:import": "tsx scripts/bench-import.ts",
     "bench:reports": "tsx scripts/bench-reports.ts",
+    "bench:club": "tsx scripts/bench-club.ts",
     "import:check": "tsx scripts/import-check.ts",
     "shots:ux": "npm run build:client && tsx scripts/ux-shots.ts",
     "backup": "tsx scripts/backup.ts",

@@ -136,10 +136,11 @@
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 82 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-4: остатки и движение товаров — окнами местных суток (задача 1) | senet-sync PASS на обоих диалектах; §20 спецификации; npm test | - | cc:TODO |
-| 83 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-4: бар — чистые функции (задача 2) | club-bar (shared) PASS | 82 | cc:TODO |
-| 84 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-4: отчёт «Бар» — сервер, Excel (задача 3) | club-bar (server) PASS на обоих диалектах; npm test | 83 | cc:TODO |
-| 85 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-4: «Бар» на витрине, «Маржа бара» в «Обзоре» (задача 4) | club-overview, analytics-catalog PASS; npm test | 84 | cc:TODO |
-| 86 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-4: страница «Бар» (задача 5) | club-bar (client) PASS; typecheck | 84, 85 | cc:TODO |
-| 87 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` АК-4: демо, e2e, снимки, README (задача 6) | e2e club-analytics PASS (SQLite, PGlite); shots:ux | 86 | cc:TODO |
-| 88 | `[Test]` `[lane:gate]` `[tdd:skip:bench-and-docs]` АК-4: bench:club, приёмка, итоги (задача 7) | bench:club; итоги и чек-лист; npm test; e2e | 87 | cc:TODO |
+| 82 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-4: остатки и движение товаров — окнами местных суток (задача 1) | senet-sync PASS на обоих диалектах; §20 спецификации; npm test | - | cc:完了 |
+| 83 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-4: бар — чистые функции (задача 2) | club-bar (shared) PASS | 82 | cc:完了 |
+| 84 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-4: отчёт «Бар» — сервер, Excel (задача 3) | club-bar (server) PASS на обоих диалектах; npm test | 83 | cc:完了 |
+| 85 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-4: «Бар» на витрине, «Маржа бара» в «Обзоре» (задача 4) | club-overview, analytics-catalog PASS; npm test | 84 | cc:完了 |
+| 86 | `[Feature]` `[lane:gate]` `[tdd:required]` АК-4: страница «Бар» (задача 5) | club-bar (client) PASS; typecheck | 84, 85 | cc:完了 |
+| 87 | `[Test]` `[lane:gate]` `[tdd:skip:e2e-and-docs]` АК-4: демо, e2e, снимки, README (задача 6) | e2e club-analytics PASS (SQLite, PGlite); shots:ux | 86 | cc:完了 |
+| 88 | `[Test]` `[lane:gate]` `[tdd:skip:bench-and-docs]` АК-4: bench:club, приёмка, итоги (задача 7) | bench:club; итоги и чек-лист; npm test; e2e | 87 | cc:完了 |
+| 89 | `[Perf]` `[lane:gate]` `[tdd:required]` Аналитика клуба: бюджет 800 мс (bench:club) — «Выручка» (сверка смен: смены × строки), «Гости», «Обзор», «Бар» (localParts на строку и день), «Загрузка»; решение — с владельцем (итоги АК-4) | bench:club ≤ 800 мс на SQLite и PGlite | 88 | cc:TODO |
