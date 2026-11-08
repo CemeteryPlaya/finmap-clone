@@ -48,7 +48,8 @@ export function HoursHeatmap(props: {
   };
   return (
     <figure className={props.busy ? 'opacity-60' : ''}>
-      <div role="region" aria-label={`${props.title}: по часам`} tabIndex={0} className="overflow-x-auto rounded-xl focus-visible:outline-2 focus-visible:outline-focus">
+      {/* relative: скрытые подписи ячеек (sr-only — absolute) остаются внутри прокрутки и не растягивают страницу */}
+      <div role="region" aria-label={`${props.title}: по часам`} tabIndex={0} className="relative overflow-x-auto rounded-xl focus-visible:outline-2 focus-visible:outline-focus">
         <table aria-busy={props.busy} className="w-full min-w-[44rem] table-fixed border-separate border-spacing-0.5 text-xs">
           <caption className="sr-only">{`${props.title}: ${props.caption.toLowerCase()}`}</caption>
           <thead>

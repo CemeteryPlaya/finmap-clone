@@ -243,3 +243,18 @@ test('телефон: «Обзор» — плитки в 2 колонки, ко�
   await expect(dialog.getByRole('button', { name: /Период/ })).toBeVisible();
   await expect(dialog.getByRole('button', { name: /Шаг/ })).toHaveCount(0);
 });
+
+test('телефон: таблицы и карта «по часам» прокручиваются в своей рамке — страница не шире экрана', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const pages = ['load?view=hours', 'load?view=table', 'revenue?view=hours', 'revenue?view=table', 'guests?view=table', 'guests', 'bar?view=table', 'bar', 'club'];
+  const wide: string[] = [];
+  for (const p of pages) {
+    await page.goto(`/c/${cid}/analytics/club/${p}${p.includes('?') ? '&' : '?'}from=${period.from}&to=${period.to}`);
+    await expect(main(page).getByText(/Загрузка за период|Выручка|Гост|Бар|Обзор/).first()).toBeVisible();
+    await page.waitForLoadState('networkidle');
+    const w = await page.evaluate(() => document.documentElement.scrollWidth);
+    if (w !== 390) wide.push(`${p}: ${w}`);
+  }
+  expect(wide).toEqual([]);
+});
