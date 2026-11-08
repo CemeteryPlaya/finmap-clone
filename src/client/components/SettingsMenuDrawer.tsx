@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useId, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { api } from '../lib/api';
+import { useInstallApp } from '../lib/install-app';
 import { focusHeadingSoon, isPlainLeftClick, pathOf } from '../lib/focus-heading';
 import { queryClient, useMe } from '../lib/query';
 import { ACCOUNT_GROUP_LABEL } from '../lib/settings-sections';
@@ -20,6 +21,31 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
         {title}
       </p>
       {children}
+    </div>
+  );
+}
+
+/**
+ * «Установить приложение» (PWA): кнопка, когда браузер предлагает установку; на iPhone и iPad — подсказка, как добавить
+ * на экран «Домой»; уже установлено или браузер не умеет — пункта нет.
+ */
+function InstallAppItem() {
+  const { mode, install } = useInstallApp();
+  const [hint, setHint] = useState(false);
+  if (mode === 'prompt') {
+    return (
+      <button type="button" onClick={() => void install()} className={`w-full text-left ${itemClass}`}>
+        Установить приложение
+      </button>
+    );
+  }
+  if (mode !== 'ios') return null;
+  return (
+    <div>
+      <button type="button" aria-expanded={hint} onClick={() => setHint((v) => !v)} className={`w-full text-left ${itemClass}`}>
+        Установить приложение
+      </button>
+      {hint && <p className="px-3 pb-3 text-sm text-muted">В Safari нажмите «Поделиться», затем «На экран „Домой“».</p>}
     </div>
   );
 }
@@ -89,6 +115,7 @@ export function SettingsMenuButton({ companyId, companyName }: { companyId: numb
           </Group>
         )}
         <div className="border-t border-field pt-3">
+          <InstallAppItem />
           <button
             type="button"
             disabled={logout.isPending}

@@ -150,6 +150,25 @@ describe('маршруты PWA', () => {
     }
   });
 
+  it('service worker: на весь сайт (Service-Worker-Allowed: /), без кэша у браузера; офлайн-страница — без входа и без скриптов', async () => {
+    t = await createTestApp({ APP_NAME: 'Клубный учёт' });
+    const sw = await t.app.inject({ method: 'GET', url: '/pwa/sw.js' });
+    expect(sw.statusCode).toBe(200);
+    expect(sw.headers['content-type']).toBe('text/javascript; charset=utf-8');
+    expect(sw.headers['service-worker-allowed']).toBe('/');
+    expect(sw.headers['cache-control']).toBe('no-cache');
+    // данные не кэшируются: в кэш попадает только офлайн-страница, перехватываются только переходы между страницами
+    expect(sw.body).toContain("'/pwa/offline.html'");
+    expect(sw.body).toContain("request.mode !== 'navigate'");
+    expect(sw.body).not.toContain('/api/');
+    const off = await t.app.inject({ method: 'GET', url: '/pwa/offline.html' });
+    expect(off.statusCode).toBe(200);
+    expect(off.headers['content-type']).toBe('text/html; charset=utf-8');
+    expect(off.body).toContain('<title>Клубный учёт</title>');
+    expect(off.body).toContain('Нет связи с сервером');
+    expect(off.body).not.toContain('<script');
+  });
+
   it('изменяющие запросы к файлам PWA не принимаются', async () => {
     t = await createTestApp();
     const res = await t.app.inject({ method: 'POST', url: '/pwa/manifest.webmanifest' });

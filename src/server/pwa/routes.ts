@@ -26,10 +26,7 @@ export interface WebManifest {
   icons: { src: string; sizes: string; type: string; purpose: string }[];
 }
 
-/**
- * Манифест PWA: название — APP_NAME, `start_url` — относительный «/» (§7), цвета — токены бренда.
- * Офлайн-режима нет: service worker не регистрируется.
- */
+/** Манифест PWA: название — APP_NAME, `start_url` — относительный «/» (§7), цвета — токены бренда. */
 export function buildManifest(appName: string): WebManifest {
   return {
     // постоянный идентификатор приложения: смена названия или start_url не создаёт «другое» установленное приложение
@@ -51,6 +48,62 @@ export function buildManifest(appName: string): WebManifest {
   };
 }
 
+const OFFLINE_PAGE = `${PWA_PREFIX}offline.html`;
+
+/**
+ * Service worker (PWA, решение владельца 2026-11-08): нужен, чтобы браузеры предлагали установку. Данные не кэширует —
+ * учёт всегда с сервера; в кэше только офлайн-страница. Перехватывает лишь переходы между страницами: нет связи —
+ * офлайн-страница; запросы API, файлы и картинки идут мимо него. Новая версия кэша — новое имя, старые удаляются.
+ */
+export const SERVICE_WORKER = `const CACHE = 'offline-v1';
+const OFFLINE = '${OFFLINE_PAGE}';
+self.addEventListener('install', (event) => {
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.add(OFFLINE)));
+  self.skipWaiting();
+});
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim()),
+  );
+});
+self.addEventListener('fetch', (event) => {
+  if (event.request.mode !== 'navigate') return;
+  event.respondWith(fetch(event.request).catch(() => caches.match(OFFLINE)));
+});
+`;
+
+const escapeHtml = (v: string) => v.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+
+/** Офлайн-страница: без скриптов (CSP), цвета бренда; «Повторить» — обычная ссылка на главную. */
+export function offlinePage(appName: string): string {
+  const name = escapeHtml(appName);
+  return `<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="${BRAND_COLORS.chrome}">
+<title>${name}</title>
+<style>
+body{margin:0;min-height:100dvh;display:grid;place-items:center;background:${BRAND_COLORS.chrome};color:#fff;font:16px/1.5 system-ui,sans-serif;text-align:center;padding:24px;box-sizing:border-box}
+h1{font-size:20px;margin:0 0 8px}
+p{margin:0 0 20px;opacity:.75}
+a{display:inline-block;padding:12px 24px;border-radius:999px;background:#fff;color:${BRAND_COLORS.chrome};font-weight:600;text-decoration:none}
+</style>
+</head>
+<body>
+<main>
+<h1>Нет связи с сервером</h1>
+<p>Проверьте интернет и повторите.</p>
+<a href="/">Повторить</a>
+</main>
+</body>
+</html>
+`;
+}
+
 /** Манифест и иконки: без входа (браузер запрашивает их без куки сессии), только GET и HEAD. */
 export function registerPwaRoutes(app: FastifyInstance, deps: { appName: string }): void {
   const manifest = JSON.stringify(buildManifest(deps.appName));
@@ -61,6 +114,12 @@ export function registerPwaRoutes(app: FastifyInstance, deps: { appName: string 
   app.get(`${PWA_PREFIX}icon.svg`, async (_req, reply) =>
     reply.header('cache-control', 'public, max-age=86400').type('image/svg+xml; charset=utf-8').send(iconSvg()),
   );
+  // service worker — с /pwa/, но на весь сайт: Service-Worker-Allowed разрешает scope «/»; браузер сверяет его при каждом заходе
+  app.get(`${PWA_PREFIX}sw.js`, async (_req, reply) =>
+    reply.header('cache-control', 'no-cache').header('service-worker-allowed', '/').type('text/javascript; charset=utf-8').send(SERVICE_WORKER),
+  );
+  const offline = offlinePage(deps.appName);
+  app.get(OFFLINE_PAGE, async (_req, reply) => reply.header('cache-control', 'no-cache').type('text/html; charset=utf-8').send(offline));
   for (const icon of PWA_PNG_ICONS) {
     app.get(`${PWA_PREFIX}${icon.file}`, async (_req, reply) =>
       reply.header('cache-control', 'public, max-age=86400').type('image/png').send(iconPng(icon.size, icon.variant)),

@@ -41,3 +41,42 @@ test('PWA: страница ссылается на манифест и икон
   expect(faviconRes.status()).toBe(200);
   expect(faviconRes.headers()['content-type']).toBe('image/svg+xml; charset=utf-8');
 });
+
+test('PWA: service worker на весь сайт; без сети — страница «Нет связи с сервером»', async ({ page, context }) => {
+  await page.goto('/login');
+  const scope = await page.evaluate(async () => (await navigator.serviceWorker.ready).scope);
+  expect(scope).toBe(new URL('/', page.url()).href);
+  // страница под управлением service worker — после перезагрузки (или clients.claim)
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
+  await context.setOffline(true);
+  await page.goto('/c/1/log').catch(() => {});
+  await expect(page.getByRole('heading', { name: 'Нет связи с сервером' })).toBeVisible();
+  await context.setOffline(false);
+  await page.getByRole('link', { name: 'Повторить' }).click();
+  await expect(page).toHaveURL(/\/login$/);
+});
+
+test('PWA: «Установить приложение» в «Настройках» — по предложению браузера; после ответа пункт пропадает', async ({ page }) => {
+  await page.goto('/login');
+  await page.getByPlaceholder('Логин').fill('admin');
+  await page.getByPlaceholder('Пароль').fill('e2e-password-1');
+  await page.getByRole('button', { name: 'Войти' }).click();
+  const gear = page.getByRole('button', { name: 'Настройки', exact: true });
+  await expect(gear).toBeVisible();
+  await gear.click();
+  const drawer = page.getByRole('dialog');
+  await expect(drawer.getByRole('button', { name: 'Выйти' })).toBeVisible();
+  // headless Chromium не предлагает установку сам — событие браузера подставляется
+  await expect(drawer.getByRole('button', { name: 'Установить приложение' })).toHaveCount(0);
+  await page.evaluate(() => {
+    const e = Object.assign(new Event('beforeinstallprompt', { cancelable: true }), {
+      prompt: async () => void ((window as unknown as { prompted: boolean }).prompted = true),
+      userChoice: Promise.resolve({ outcome: 'accepted' }),
+    });
+    window.dispatchEvent(e);
+  });
+  await drawer.getByRole('button', { name: 'Установить приложение' }).click();
+  expect(await page.evaluate(() => (window as unknown as { prompted?: boolean }).prompted)).toBe(true);
+  await expect(drawer.getByRole('button', { name: 'Установить приложение' })).toHaveCount(0);
+});
