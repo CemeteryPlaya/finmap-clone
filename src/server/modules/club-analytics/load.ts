@@ -1,7 +1,7 @@
 import { and, asc, gte, inArray, isNotNull, lt } from 'drizzle-orm';
 import { combineCoverage, dayCoverage, type DayCoverage } from '../../../shared/club-analytics/coverage';
 import { periodDays, previousRange } from '../../../shared/club-analytics/columns';
-import { splitByHour } from '../../../shared/club-analytics/hours';
+import { localParts, splitByHour } from '../../../shared/club-analytics/hours';
 import { extremeHours, loadColumns, loadHeatmap, loadTotal, occupancy, sumZones, zoneStats, type LoadSession, type Occupancy } from '../../../shared/club-analytics/load';
 import { addDays, startOfDayUtc } from '../../../shared/dates';
 import { reportColumns, type ReportStep } from '../../../shared/report-engine';
@@ -208,10 +208,10 @@ export function createClubLoad(d: { db: Db; timezone: string; now: () => Date })
       await requireCompany(db, companyId);
       const scope = await clubScope(db, companyId, q.project);
       const now = d.now().toISOString();
-      const prevRange = previousRange(q.from, q.to);
+      const prevRange = previousRange(q.from, q.to, localParts(now, tz).day);
       const [cur, prev] = await Promise.all([clubLoad(db, tz, scope, q.from, q.to, now), q.compare ? clubLoad(db, tz, scope, prevRange.from, prevRange.to, now) : null]);
       const { start, end } = bounds(q.from, q.to, tz);
-      return { ...buildLoadReport(cur, prev, q, start, end), freshness: scope.freshness };
+      return { ...buildLoadReport(cur, prev, q, start, end), prevRange: q.compare ? prevRange : null, freshness: scope.freshness };
     },
 
     /** Сеансы ячейки карты (R15): по началу, страницы по 50. */

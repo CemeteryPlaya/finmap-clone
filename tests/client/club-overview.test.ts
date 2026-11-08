@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatMoney } from '../../src/shared/money';
-import { bestWorstText, overviewChart, overviewHref, sparkPath, tileValueText, type OverviewTile } from '../../src/client/lib/club-overview';
+import { bestWorstText, overviewChart, overviewHref, sparkPath, tilePrevText, tileValueText, type OverviewTile } from '../../src/client/lib/club-overview';
 import { clubChangedFor, DEFAULT_CLUB_STATE } from '../../src/client/lib/club-url';
 
 /** «Обзор клуба» — подписи плиток и ссылки (спецификация «Аналитика клуба», §4; план АК-1, задача 9). */
@@ -82,5 +82,14 @@ describe('sparkPath', () => {
     expect(sparkPath([])).toBe('');
     expect(sparkPath([5])).toBe('');
     expect(sparkPath([3, 3])).toBe('M0,12L100,12');
+  });
+});
+
+describe('значение прошлого периода на плитке (R43)', () => {
+  it('«было» — в формате плитки; без прошлого — нет', () => {
+    expect(tilePrevText(tile({ value: 500_000, prev: 400_000 }))).toBe(`было ${formatMoney(400_000, 'KZT', { trimZeroMinor: true })}`);
+    expect(tilePrevText(tile({ unit: 'percent', kind: 'share', value: 0.5, prev: 0.25 }))).toBe('было 25 %');
+    expect(tilePrevText(tile({ unit: 'number', value: 3, prev: 12 }))).toBe('было 12');
+    expect(tilePrevText(tile({ unit: 'number', value: 3, prev: null }))).toBeNull();
   });
 });

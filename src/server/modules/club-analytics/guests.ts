@@ -427,7 +427,7 @@ export function createClubGuests(d: { db: Db; timezone: string; now: () => Date 
       await requireCompany(db, companyId);
       const scope = await clubScope(db, companyId, q.project);
       const now = d.now().toISOString();
-      const p = previousRange(q.from, q.to);
+      const p = previousRange(q.from, q.to, localParts(now, tz).day);
       const prevDays = periodDays(p.from, p.to);
       const [cur, prevCov, mCur, mPrev] = await Promise.all([
         clubGuests(db, tz, companyId, scope, q.from, q.to, now),
@@ -438,7 +438,7 @@ export function createClubGuests(d: { db: Db; timezone: string; now: () => Date 
       // визиты за всё время — те же; у прошлого периода свои дни и покрытие
       const prev = prevCov ? withDays(cur, prevDays, prevCov) : null;
       const approx = guestsApprox(cur, prev, localParts(now, tz).day);
-      return { ...buildGuestsReport(cur, prev, { cur: mCur, prev: mPrev }, q, { approx, tz, now }), freshness: scope.freshness };
+      return { ...buildGuestsReport(cur, prev, { cur: mCur, prev: mPrev }, q, { approx, tz, now }), prevRange: q.compare ? p : null, freshness: scope.freshness };
     },
 
     /** Карточка гостя (§7.4); гость не найден — 404. */

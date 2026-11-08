@@ -1,18 +1,23 @@
 import { Link } from 'react-router';
 import { delta } from '../../../shared/club-analytics/delta';
-import { sparkPath, tileValueText, type OverviewTile } from '../../lib/club-overview';
+import { sparkPath, tilePrevText, tileValueText, type OverviewTile } from '../../lib/club-overview';
 
 const TONE = { up: 'text-income-strong', down: 'text-expense-strong', flat: 'text-muted' } as const;
 
-/** Δ плитки к прошлому периоду (§2.2): прошлого нет — «—»; «≈» у сумм при неполных данных. */
+/** Δ плитки к прошлому периоду (§2.2) и его значение (R43): прошлого нет — «—»; «≈» у сумм при неполных данных. */
 function TileDelta(props: { tile: OverviewTile }) {
   const t = props.tile;
   const d = delta(t.value, t.prev, t.kind, t.approx);
+  // «было» — только рядом с Δ: без Δ (прошлого нет или он 0 без данных) — «—», как раньше
   if (!d) return <span className="text-xs text-muted">—</span>;
+  const was = tilePrevText(t);
   return (
-    <span className={`text-xs font-semibold ${TONE[d.tone]}`} title={t.approx && t.kind === 'sum' ? 'данные не за все дни' : undefined}>
-      {d.text}
-      <span className="sr-only"> к прошлому периоду</span>
+    <span className="flex flex-wrap items-baseline gap-x-1.5 text-xs">
+      <span className={`font-semibold ${TONE[d.tone]}`} title={t.approx && t.kind === 'sum' ? 'данные не за все дни' : undefined}>
+        {d.text}
+        <span className="sr-only"> к прошлому периоду</span>
+      </span>
+      {was && <span className="text-muted tabular-nums">{was}</span>}
     </span>
   );
 }

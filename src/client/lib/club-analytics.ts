@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { api, type ApiError } from './api';
 import { useSearchParams } from 'react-router';
-import { todayInTimezone } from '../../shared/dates';
+import { formatDateShortRu, todayInTimezone } from '../../shared/dates';
 import { clubSearch, parseClubSearch, type ClubUrlState, type ClubView } from './club-url';
 import { pluralRu } from './journal-format';
 import { useMeta } from './query';
@@ -41,6 +41,13 @@ export function viewOf(view: ClubView, views: readonly ClubView[]): ClubView {
 /** Что есть в ответе любого отчёта клуба (§11): покрытие периода. */
 export interface ClubReportBase {
   coverage: ClubCoverage;
+  /** Даты прошлого периода (R43): у идущего периода — к тому же дню; без сравнения — null. */
+  prevRange?: { from: string; to: string } | null;
+}
+
+/** Подпись над отчётом (R43): с какими датами идёт сравнение; без сравнения — null. */
+export function compareLabel(range: { from: string; to: string } | null | undefined): string | null {
+  return range ? `Сравнение с периодом ${formatDateShortRu(range.from)} – ${formatDateShortRu(range.to)}` : null;
 }
 
 export type ClubReportKind = 'overview' | 'revenue' | 'load' | 'guests' | 'bar';

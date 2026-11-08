@@ -265,6 +265,8 @@ interface Built {
   shifts: Shift[];
   p: Period;
   prev: Period | null;
+  /** Даты прошлого периода (R43); без сравнения — null. */
+  prevRange: { from: string; to: string } | null;
   columns: ReportColumn[];
 }
 
@@ -274,16 +276,16 @@ function shiftsEnd(shifts: readonly Shift[], end: string): string {
   return last >= end ? new Date(Date.parse(last) + 1).toISOString() : end;
 }
 
-async function buildRevenue(db: Db, tz: string, companyId: number, q: RevenueQuery): Promise<Built> {
+async function buildRevenue(db: Db, tz: string, companyId: number, q: RevenueQuery, today: string): Promise<Built> {
   await requireCompany(db, companyId);
   const scope = await clubScope(db, companyId, q.project);
   const ids = scope.offices.map((o) => o.id);
   const { start, end } = bounds(q.from, q.to, tz);
   const shifts = await shiftsOf(db, ids, start, end);
   const p = await periodOf(db, ids, q.from, q.to, tz, shiftsEnd(shifts, end));
-  const prevRange = previousRange(q.from, q.to);
+  const prevRange = previousRange(q.from, q.to, today);
   const prev = q.compare ? await periodOf(db, ids, prevRange.from, prevRange.to, tz) : null;
-  return { scope, shifts, p, prev, columns: reportColumns(q.from, q.to, q.step) };
+  return { scope, shifts, p, prev, prevRange: q.compare ? prevRange : null, columns: reportColumns(q.from, q.to, q.step) };
 }
 
 /** Строки и колонки разреза (§5.2): по сменам и кассирам колонки — свои, шаг не действует. */
@@ -330,8 +332,8 @@ export function createClubRevenue(d: { db: Db; timezone: string; now: () => Date
   const svc = {
     /** «Выручка клуба» (§5, §11). */
     async revenue(companyId: number, q: RevenueQuery) {
-      const b = await buildRevenue(db, tz, companyId, q);
       const now = d.now().toISOString();
+      const b = await buildRevenue(db, tz, companyId, q, localParts(now, tz).day);
       const { columns, rows } = await rowsOf(db, tz, now, q.by, b);
       const { byDay, ...coverage } = coverageSummary(b.p, b.columns);
       return {
@@ -340,6 +342,7 @@ export function createClubRevenue(d: { db: Db; timezone: string; now: () => Date
         heatmap: q.view === 'hours' ? revenueHeatmap(b.p.detail, b.p.days, byDay, tz) : undefined,
         coverage,
         prevCoverage: b.prev ? { days: b.prev.days.length, withData: coverageSummary(b.prev, []).withData } : null,
+        prevRange: b.prevRange,
         reconcile: reconcileOf(b.p.detail, b.shifts, now),
         freshness: b.scope.freshness,
         meta: { from: q.from, to: q.to, step: q.step as ReportStep, by: q.by, empty: coverage.withData === 0 },

@@ -244,6 +244,20 @@ describe('«Обзор клуба»', () => {
     expect(r.prevCoverage).toEqual({ days: 3, withData: 0 });
   });
 
+  it('идущий период (R43): прошлый — те же месяцы по календарю к тому же дню; без сравнения — null; во всех отчётах', async () => {
+    x = await clubWorld();
+    // «сейчас» мира — 03.11.2026
+    for (const report of ['overview', 'revenue', 'load', 'guests', 'bar']) {
+      const on = await x.w.h.req('GET', `${x.c}/club-analytics/${report}?from=2026-11-01&to=2026-11-30`);
+      expect(on.statusCode, on.body).toBe(200);
+      expect(on.json().prevRange, report).toEqual({ from: '2026-10-01', to: '2026-10-03' });
+      const year = await x.w.h.req('GET', `${x.c}/club-analytics/${report}?from=2026-01-01&to=2026-12-31&step=month`);
+      expect(year.json().prevRange, report).toEqual({ from: '2025-01-01', to: '2025-11-03' });
+      const off = await x.w.h.req('GET', `${x.c}/club-analytics/${report}?from=2026-11-01&to=2026-11-30&compare=0`);
+      expect(off.json().prevRange, report).toBeNull();
+    }
+  });
+
   it('Excel — плитки и ряд по дням; чужой клуб — 404', async () => {
     x = await clubWorld();
     const xlsx = await x.w.h.req('GET', `${x.c}/club-analytics/overview.xlsx?from=2026-11-01&to=2026-11-02`);

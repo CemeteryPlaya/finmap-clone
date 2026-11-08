@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clubStateOf, coverageNote, freshnessLabel, sameCompany, todayIn, viewOf, zoneOf } from '../../src/client/lib/club-analytics';
+import { clubStateOf, compareLabel, coverageNote, freshnessLabel, sameCompany, todayIn, viewOf, zoneOf } from '../../src/client/lib/club-analytics';
 
 /** Каркас отчёта клуба: свежесть, полоса покрытия, вид (спецификация «Аналитика клуба», §2.2, §3.3; план АК-1, задача 7). */
 describe('каркас отчёта клуба', () => {
@@ -33,5 +33,13 @@ describe('каркас отчёта клуба', () => {
     expect(sameCompany(1, { queryKey: ['analytics', 1, 'club'] })).toBe(true);
     expect(sameCompany(1, { queryKey: ['analytics', 2, 'club'] })).toBe(false);
     expect(sameCompany(1, undefined)).toBe(false);
+  });
+});
+
+describe('подпись сравнения (R43)', () => {
+  it('даты прошлого периода; без сравнения — нет подписи', () => {
+    expect(compareLabel({ from: '2025-01-01', to: '2025-11-08' })).toBe('Сравнение с периодом 1 янв. 2025 – 8 нояб. 2025');
+    expect(compareLabel(null)).toBeNull();
+    expect(compareLabel(undefined)).toBeNull();
   });
 });

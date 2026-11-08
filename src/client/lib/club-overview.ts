@@ -45,6 +45,11 @@ export function tileValueText(t: OverviewTile): string {
   return t.value.toLocaleString('ru-RU', { maximumFractionDigits: 1 });
 }
 
+/** Значение прошлого периода под Δ плитки (R43): «было …» в формате плитки; прошлого нет — null. */
+export function tilePrevText(t: OverviewTile): string | null {
+  return t.prev === null ? null : `было ${tileValueText({ ...t, value: t.prev })}`;
+}
+
 /**
  * Ссылка плитки (§4): отчёт клуба — с периодом, клубом и сравнением «Обзора» (`clubQuery`); «Прибыль» (плитки по
  * журналу) — только с периодом (`pnlQuery`): клубов у неё нет.

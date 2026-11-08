@@ -261,15 +261,15 @@ export function createClubOverview(d: { db: Db; timezone: string; now: () => Dat
     async overview(companyId: number, q: OverviewQuery) {
       await requireCompany(db, companyId);
       const [scope, defs] = await Promise.all([clubScope(db, companyId, q.project), visibleTiles(companyId)]);
-      const prevRange = previousRange(q.from, q.to);
       const now = d.now().toISOString();
+      const today = localParts(now, tz).day;
+      const prevRange = previousRange(q.from, q.to, today);
       // гости — только если среди плиток есть плитки гостей (как журнал); визиты за всё время — одни на оба периода
       const guests = defs.some((t) => t.report === 'guests') ? clubGuests(db, tz, companyId, scope, q.from, q.to, now) : Promise.resolve(null);
       // маржа бара — только если её плитка видна
       const bar = defs.some((t) => t.report === 'bar');
       const [cur, prev] = await Promise.all([periodOf(scope, q.from, q.to, now, guests, bar), q.compare ? periodOf(scope, prevRange.from, prevRange.to, now, guests, bar) : null]);
       const j = await journalOf(companyId, scope.projects.map((p) => p.id), defs, { from: q.from, to: q.to }, q.compare ? prevRange : null);
-      const today = localParts(now, tz).day;
       const approx = approxOf(cur.coverage, prev?.coverage ?? null, today);
       const pcs = pcsOf(scope);
       const days = cur.days.map((day, i) => ({ day, revenue: cur.parts.revenue[i]!, load: cur.load.byDay[i] ?? null, coverage: cur.revenueCoverage[i]! }));
@@ -280,6 +280,7 @@ export function createClubOverview(d: { db: Db; timezone: string; now: () => Dat
         peak: extremeHours(cur.load.heatmap, 3, 'max'),
         coverage: cur.coverage,
         prevCoverage: prev ? { days: prev.coverage.days, withData: prev.coverage.withData } : null,
+        prevRange: q.compare ? prevRange : null,
         freshness: scope.freshness,
         meta: { from: q.from, to: q.to, empty: cur.coverage.withData === 0 },
       };

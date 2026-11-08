@@ -10,7 +10,7 @@ import { Modal } from '../../components/Modal';
 import { Pending, StaleNotice } from '../../components/QueryState';
 import { btnPrimary, phoneFullScreenModal } from '../../components/ui';
 import { useClubScope } from '../../lib/analytics';
-import { coverageNote, freshnessLabel, useClubReport, useClubSettings, type ClubReportBase, type ClubReportKind } from '../../lib/club-analytics';
+import { compareLabel, coverageNote, freshnessLabel, useClubReport, useClubSettings, type ClubReportBase, type ClubReportKind } from '../../lib/club-analytics';
 import {
   clubApiParams,
   clubChanged,
@@ -261,6 +261,7 @@ export function ClubReportScreen<T extends ClubReportBase>(props: {
       ) : (
         <>
           <CoverageBanner coverage={data.coverage} companyId={props.company.id} today={today} />
+          {state.compare && compareLabel(data.prevRange) && <p className="mb-3 text-xs text-muted">{compareLabel(data.prevRange)}</p>}
           {!empty && props.children({ state: effective, apiParams, data, busy: report.isPlaceholderData, update, timeZone, today })}
         </>
       )}

@@ -277,9 +277,9 @@ export function createClubBar(d: { db: Db; timezone: string; now: () => Date }) 
       const scope = await clubScope(db, companyId, q.project);
       const offices = scope.offices.map((o) => o.id);
       const today = localParts(d.now().toISOString(), tz).day;
-      const p = previousRange(q.from, q.to);
+      const p = previousRange(q.from, q.to, today);
       const [cur, prev] = await Promise.all([clubBar(db, tz, offices, q.from, q.to, today), q.compare ? clubBar(db, tz, offices, p.from, p.to, today) : null]);
-      return { ...buildBarReport(cur, prev, q, { tz, approx: barApprox(cur, prev, today) }), freshness: scope.freshness };
+      return { ...buildBarReport(cur, prev, q, { tz, approx: barApprox(cur, prev, today) }), prevRange: q.compare ? p : null, freshness: scope.freshness };
     },
 
     /** Продажи товара периода под таблицей (§2.2, R39): по времени, страницы по 50. */

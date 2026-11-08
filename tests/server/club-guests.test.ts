@@ -112,7 +112,8 @@ describe('отчёт «Гости»', () => {
     await seed();
     const r = await report('from=2026-11-02&to=2026-11-08&step=day&compare=1');
     // a+b — один гость; c вернулся; d новый; 4 телефона общего логина — 4 гостя
-    expect(tile(r, 'guests')).toMatchObject({ value: 7, prev: 1 });
+    // R43: неделя идёт («сейчас» мира — 03.11) — прошлая обрезана к тому же дню (26–27.10), визит f 28.10 не входит
+    expect(tile(r, 'guests')).toMatchObject({ value: 7, prev: 0 });
     expect(tile(r, 'returning')!.value).toBe(1);
     expect(tile(r, 'newGuests')!.value).toBe(6);
     expect(r.top.find((g: { logins: string[] }) => g.logins.includes('a')).logins).toEqual(['a', 'b']);

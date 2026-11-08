@@ -80,7 +80,8 @@ describe('«Выручка клуба»', () => {
     expect(r.coverage.missingDays).toEqual(['2026-11-03', '2026-11-04', '2026-11-05']);
     expect(row(r, 'revenue').values.slice(2)).toEqual([null, null, null]);
     expect(row(r, 'revenue').prevTotal).toBeNull();
-    expect(r.prevCoverage).toEqual({ days: 5, withData: 0 });
+    // R43: период идёт («сейчас» мира — 03.11) — прошлый обрезан к тому же дню: 27–29.10
+    expect(r.prevCoverage).toEqual({ days: 3, withData: 0 });
     const month = await revenue('from=2026-11-01&to=2026-11-30&step=month&compare=0');
     expect(month.coverage.columns).toEqual([{ withData: 2, total: 30 }]);
   });
